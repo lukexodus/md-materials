@@ -4523,88 +4523,84 @@ python -O script.py
 
 # Python Standard Library
 
-## Python Standard Library  
+## **Commonly Used Standard Library Modules**  
 
-The Python Standard Library is a collection of built-in modules that provide functionality for various tasks such as file handling, system operations, math calculations, networking, and more. These modules come pre-installed with Python, so they do not require separate installation.
-
-### **Commonly Used Standard Library Modules**  
-
-#### **1. `sys` – System-Specific Functions**  
+### **1. `sys` – System-Specific Functions**  
 Provides functions and variables for interacting with the Python runtime.  
 ```python
 import sys
-print(sys.version)  # Python version
-print(sys.platform)  # OS platform
-sys.exit(0)  # Exit the program
+print(sys.version)   Python version
+print(sys.platform)   OS platform
+sys.exit(0)   Exit the program
 ```
 
-#### **2. `os` – Operating System Interface**  
+### **2. `os` – Operating System Interface**  
 Used for interacting with the operating system.  
 ```python
 import os
-print(os.name)  # OS name
-print(os.getcwd())  # Current working directory
-os.mkdir("new_folder")  # Create a new directory
-os.remove("file.txt")  # Delete a file
+print(os.name)   OS name
+print(os.getcwd())   Current working directory
+os.mkdir("new_folder")   Create a new directory
+os.remove("file.txt")   Delete a file
 ```
 
-#### **3. `math` – Mathematical Functions**  
+### **3. `math` – Mathematical Functions**  
 Provides mathematical operations and constants.  
 ```python
 import math
-print(math.sqrt(25))  # Square root: 5.0
-print(math.pi)  # Pi value: 3.141592653589793
-print(math.factorial(5))  # Factorial: 120
+print(math.sqrt(25))   Square root: 5.0
+print(math.pi)   Pi value: 3.141592653589793
+print(math.factorial(5))   Factorial: 120
 ```
 
-#### **4. `random` – Generating Random Numbers**  
+### **4. `random` – Generating Random Numbers**  
 Used for random number generation and shuffling.  
 ```python
 import random
-print(random.randint(1, 10))  # Random integer between 1 and 10
-print(random.choice(["apple", "banana", "cherry"]))  # Random selection
-random.shuffle([1, 2, 3, 4, 5])  # Shuffle a list
+print(random.randint(1, 10))   Random integer between 1 and 10
+print(random.choice(["apple", "banana", "cherry"]))   Random selection
+random.shuffle([1, 2, 3, 4, 5])   Shuffle a list
 ```
 
-#### **5. `datetime` – Date and Time Handling**  
+### **5. `datetime` – Date and Time Handling**  
 Handles dates, times, and time-based operations.  
 ```python
 import datetime
 now = datetime.datetime.now()
-print(now)  # Current date and time
-print(now.strftime("%Y-%m-%d %H:%M:%S"))  # Format date and time
+print(now)   Current date and time
+print(now.strftime("%Y-%m-%d %H:%M:%S"))   Format date and time
 ```
 
-#### **6. `time` – Time-Related Functions**  
+### **6. `time` – Time-Related Functions**  
 Provides functions for dealing with time.  
 ```python
 import time
-print(time.time())  # Current time in seconds since epoch
-time.sleep(2)  # Pause execution for 2 seconds
+print(time.time())   Current time in seconds since epoch
+time.sleep(2)   Pause execution for 2 seconds
 ```
 
-#### **7. `re` – Regular Expressions**  
+### **7. `re` – Regular Expressions**  
 Used for pattern matching and text processing.  
 ```python
 import re
 pattern = r"\d+"
 text = "There are 3 apples and 5 oranges."
 matches = re.findall(pattern, text)
-print(matches)  # Output: ['3', '5']
+print(matches)   Output: ['3', '5']
 ```
 
-#### **8. `json` – Working with JSON Data**  
+### **8. `json` – Working with JSON Data**  
 Used to parse and generate JSON data.  
 ```python
 import json
 data = {"name": "Alice", "age": 25}
-json_data = json.dumps(data)  # Convert to JSON string
-print(json_data)  # Output: '{"name": "Alice", "age": 25}'
-parsed_data = json.loads(json_data)  # Convert back to dictionary
-print(parsed_data["name"])  # Output: Alice
+json_data = json.dumps(data)   Convert to JSON string
+print(json_data)   Output: '{"name": "Alice", "age": 25}'
+parsed_data = json.loads(json_data)   Convert back to dictionary
+print(parsed_data["name"])   Output: Alice
 ```
 
-#### **9. `csv` – Handling CSV Files**  
+### **9. `csv` – Handling CSV Files**  
 Used for reading and writing CSV files.  
 ```python
 import csv
@@ -4619,7 +4615,7 @@ with open("data.csv", mode="r") as file:
         print(row)
 ```
 
-#### **10. `urllib` – Handling URLs and HTTP Requests**  
+### **10. `urllib` – Handling URLs and HTTP Requests**  
 Used to fetch data from the web.  
 ```python
 import urllib.request
@@ -4627,7 +4623,7 @@ response = urllib.request.urlopen("https://www.example.com")
 print(response.read().decode("utf-8"))
 ```
 
-#### **11. `http` – HTTP Requests and Responses**  
+### **11. `http` – HTTP Requests and Responses**  
 Used to create HTTP servers and clients.  
 ```python
 from http.server import SimpleHTTPRequestHandler, HTTPServer
@@ -4636,7 +4632,7 @@ print("Serving on port 8000...")
 server.serve_forever()
 ```
 
-#### **12. `socket` – Network Communication**  
+### **12. `socket` – Network Communication**  
 Used for creating network connections.  
 ```python
 import socket
@@ -4646,15 +4642,15 @@ print("Connected to example.com")
 s.close()
 ```
 
-#### **13. `hashlib` – Hashing Algorithms**  
+### **13. `hashlib` – Hashing Algorithms**  
 Used for generating secure hash values.  
 ```python
 import hashlib
 hash_object = hashlib.sha256(b"hello world")
-print(hash_object.hexdigest())  # Output: Hash value
+print(hash_object.hexdigest())   Output: Hash value
 ```
 
-#### **14. `threading` – Multithreading**  
+### **14. `threading` – Multithreading**  
 Used for running multiple threads concurrently.  
 ```python
 import threading
@@ -4666,7 +4662,7 @@ thread.start()
 thread.join()
 ```
 
-#### **15. `multiprocessing` – Parallel Processing**  
+### **15. `multiprocessing` – Parallel Processing**  
 Used to execute tasks in parallel across multiple CPU cores.  
 ```python
 import multiprocessing
@@ -4678,16 +4674,16 @@ process.start()
 process.join()
 ```
 
-#### **16. `itertools` – Iterators and Combinatorics**  
+### **16. `itertools` – Iterators and Combinatorics**  
 Used for handling iteration-related tasks.  
 ```python
 import itertools
 numbers = [1, 2, 3]
 combinations = itertools.combinations(numbers, 2)
-print(list(combinations))  # Output: [(1, 2), (1, 3), (2, 3)]
+print(list(combinations))   Output: [(1, 2), (1, 3), (2, 3)]
 ```
 
-#### **17. `functools` – Functional Programming Tools**  
+### **17. `functools` – Functional Programming Tools**  
 Used for higher-order functions and optimization.  
 ```python
 import functools
@@ -4695,18 +4691,18 @@ def multiply(a, b):
     return a * b
 
 double = functools.partial(multiply, 2)
-print(double(5))  # Output: 10
+print(double(5))   Output: 10
 ```
 
-#### **18. `collections` – Specialized Data Structures**  
+### **18. `collections` – Specialized Data Structures**  
 Provides additional container types beyond lists and dictionaries.  
 ```python
 import collections
 Counter = collections.Counter(["a", "b", "a", "c", "b", "a"])
-print(Counter)  # Output: Counter({'a': 3, 'b': 2, 'c': 1})
+print(Counter)   Output: Counter({'a': 3, 'b': 2, 'c': 1})
 ```
 
-#### **19. `logging` – Logging System**  
+### **19. `logging` – Logging System**  
 Used for debugging and application logging.  
 ```python
 import logging
@@ -4714,7 +4710,7 @@ logging.basicConfig(level=logging.INFO)
 logging.info("This is an info message")
 ```
 
-#### **20. `configparser` – Handling Configuration Files**  
+### **20. `configparser` – Handling Configuration Files**  
 Used for reading and writing `.ini` configuration files.  
 ```python
 import configparser
@@ -4736,10 +4732,6933 @@ with open("config.ini", "w") as configfile:
 
 ---
 
+## `sys` Module
+
+The `sys` module provides access to variables and functions that interact closely with the Python interpreter. It's one of the most fundamental built-in modules in Python, offering direct access to interpreter-specific parameters and functions that control the runtime environment.
+
+### Module Overview and Purpose
+
+The `sys` module serves as the primary interface between Python programs and the interpreter itself. It contains system-specific parameters and functions that allow programs to interact with the Python runtime environment, access command-line arguments, manipulate the Python path, and control various interpreter behaviors.
+
+### Importing and Basic Usage
+
+```python
+import sys
+# Access all sys functionality
+print(sys.version)
+
+# Import specific functions (less common)
+from sys import argv, exit
+```
+
+### Command Line Arguments
+
+#### sys.argv
+
+The most commonly used feature of the `sys` module is `sys.argv`, which contains command-line arguments passed to the Python script.
+
+```python
+import sys
+
+print("Script name:", sys.argv[0])
+print("Arguments:", sys.argv[1:])
+print("Total arguments:", len(sys.argv))
+
+# Example usage in script.py
+# python script.py arg1 arg2 arg3
+# Output:
+# Script name: script.py
+# Arguments: ['arg1', 'arg2', 'arg3']
+# Total arguments: 4
+```
+
+**Key points:**
+
+- `sys.argv[0]` is always the script name
+- Arguments are stored as strings
+- Empty if no arguments provided (except script name)
+
+### Python Path Manipulation
+
+#### sys.path
+
+Controls where Python looks for modules and packages.
+
+```python
+import sys
+
+# View current Python path
+print(sys.path)
+
+# Add a directory to the path
+sys.path.append('/path/to/custom/modules')
+
+# Insert at beginning (higher priority)
+sys.path.insert(0, '/priority/path')
+
+# Remove a path
+sys.path.remove('/some/path')
+```
+
+#### sys.modules
+
+Dictionary containing all currently loaded modules.
+
+```python
+import sys
+
+# Check if a module is loaded
+if 'os' in sys.modules:
+    print("os module is loaded")
+
+# View all loaded modules
+print(list(sys.modules.keys()))
+
+# Remove a module (forces reload on next import)
+if 'mymodule' in sys.modules:
+    del sys.modules['mymodule']
+```
+
+### Input/Output Streams
+
+#### Standard Streams
+
+The `sys` module provides access to standard input, output, and error streams.
+
+```python
+import sys
+
+# Standard output (default print destination)
+sys.stdout.write("Hello, World!\n")
+
+# Standard error
+sys.stderr.write("Error message\n")
+
+# Standard input
+# line = sys.stdin.readline()
+
+# Redirect output
+original_stdout = sys.stdout
+with open('output.txt', 'w') as f:
+    sys.stdout = f
+    print("This goes to file")
+    sys.stdout = original_stdout
+```
+
+#### Stream Properties
+
+```python
+import sys
+
+# Check if streams are TTY (terminal)
+print("stdout is TTY:", sys.stdout.isatty())
+print("stderr is TTY:", sys.stderr.isatty())
+
+# Get encoding
+print("stdout encoding:", sys.stdout.encoding)
+```
+
+### System Information
+
+#### Python Version Information
+
+```python
+import sys
+
+# Python version as string
+print("Version:", sys.version)
+
+# Version as tuple
+print("Version info:", sys.version_info)
+print("Major version:", sys.version_info.major)
+print("Minor version:", sys.version_info.minor)
+
+# API version
+print("API version:", sys.api_version)
+
+# Hexadecimal version
+print("Hex version:", sys.hexversion)
+```
+
+#### Platform Information
+
+```python
+import sys
+
+# Platform identifier
+print("Platform:", sys.platform)
+
+# Byte order
+print("Byte order:", sys.byteorder)
+
+# Size of objects
+print("Size of int:", sys.getsizeof(42))
+print("Size of string:", sys.getsizeof("hello"))
+```
+
+### Memory and Performance
+
+#### Memory Management
+
+```python
+import sys
+
+# Get object size
+my_list = [1, 2, 3, 4, 5]
+print("Size of list:", sys.getsizeof(my_list))
+
+# Get reference count
+print("Reference count:", sys.getrefcount(my_list))
+
+# Garbage collection thresholds
+print("GC thresholds:", sys.getthreshold())
+```
+
+#### Recursion Limits
+
+```python
+import sys
+
+# Get current recursion limit
+print("Recursion limit:", sys.getrecursionlimit())
+
+# Set new recursion limit
+sys.setrecursionlimit(1500)
+
+# Check stack size
+def check_stack_size():
+    print("Current stack size:", len(sys._current_frames()))
+```
+
+### Program Execution Control
+
+#### Exit Functions
+
+```python
+import sys
+
+# Exit with status code
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: script.py <argument>")
+        sys.exit(1)  # Exit with error code
+    
+    # Normal execution
+    print("Processing:", sys.argv[1])
+    sys.exit(0)  # Success exit
+
+# Exit hooks
+import atexit
+
+def cleanup():
+    print("Cleaning up...")
+
+atexit.register(cleanup)
+```
+
+#### Exception Handling
+
+```python
+import sys
+
+# Get current exception information
+try:
+    1 / 0
+except:
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+    print("Exception type:", exc_type)
+    print("Exception value:", exc_value)
+
+# Custom exception hook
+def custom_exception_handler(exc_type, exc_value, exc_traceback):
+    print(f"Custom handler: {exc_type.__name__}: {exc_value}")
+
+sys.excepthook = custom_exception_handler
+```
+
+### Advanced Features
+
+#### Execution Tracing
+
+```python
+import sys
+
+def trace_calls(frame, event, arg):
+    if event == 'call':
+        print(f"Calling: {frame.f_code.co_name}")
+    return trace_calls
+
+# Enable tracing
+sys.settrace(trace_calls)
+
+def example_function():
+    print("Inside function")
+
+example_function()
+sys.settrace(None)  # Disable tracing
+```
+
+#### Profile Hooks
+
+```python
+import sys
+
+def profile_function(frame, event, arg):
+    if event == 'call':
+        print(f"Profile: {frame.f_code.co_name}")
+
+sys.setprofile(profile_function)
+```
+
+#### Interpreter Settings
+
+```python
+import sys
+
+# Check if running in interactive mode
+print("Interactive:", hasattr(sys, 'ps1'))
+
+# Get default encoding
+print("Default encoding:", sys.getdefaultencoding())
+
+# File system encoding
+print("File system encoding:", sys.getfilesystemencoding())
+
+# Check for frozen executable
+print("Frozen:", getattr(sys, 'frozen', False))
+```
+
+### Float Information
+
+```python
+import sys
+
+# Float precision information
+print("Float info:", sys.float_info)
+print("Float max:", sys.float_info.max)
+print("Float min:", sys.float_info.min)
+print("Float epsilon:", sys.float_info.epsilon)
+```
+
+### Practical Examples
+
+#### Command Line Tool
+
+```python
+import sys
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python script.py <command> [args...]", file=sys.stderr)
+        sys.exit(1)
+    
+    command = sys.argv[1]
+    args = sys.argv[2:]
+    
+    if command == "process":
+        for arg in args:
+            print(f"Processing: {arg}")
+    elif command == "version":
+        print(f"Python {sys.version}")
+    else:
+        print(f"Unknown command: {command}", file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+```
+
+#### Dynamic Module Loading
+
+```python
+import sys
+import importlib
+
+def load_module_from_path(module_name, file_path):
+    # Add path temporarily
+    sys.path.insert(0, file_path)
+    try:
+        module = importlib.import_module(module_name)
+        return module
+    finally:
+        sys.path.remove(file_path)
+```
+
+#### Memory Monitoring
+
+```python
+import sys
+import gc
+
+def monitor_memory():
+    # Get sizes of different objects
+    objects = gc.get_objects()
+    
+    type_counts = {}
+    total_size = 0
+    
+    for obj in objects:
+        obj_type = type(obj).__name__
+        size = sys.getsizeof(obj)
+        
+        type_counts[obj_type] = type_counts.get(obj_type, 0) + 1
+        total_size += size
+    
+    print(f"Total objects: {len(objects)}")
+    print(f"Total size: {total_size} bytes")
+    print("Top object types:")
+    for obj_type, count in sorted(type_counts.items(), key=lambda x: x[1], reverse=True)[:10]:
+        print(f"  {obj_type}: {count}")
+```
+
+### Error Handling and Debugging
+
+#### Custom Error Reporting
+
+```python
+import sys
+import traceback
+
+def custom_error_handler():
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+    
+    if exc_type is not None:
+        print("=== ERROR REPORT ===", file=sys.stderr)
+        print(f"Type: {exc_type.__name__}", file=sys.stderr)
+        print(f"Message: {exc_value}", file=sys.stderr)
+        print("Traceback:", file=sys.stderr)
+        traceback.print_tb(exc_traceback, file=sys.stderr)
+        print("===================", file=sys.stderr)
+
+# Use in except blocks
+try:
+    risky_operation()
+except:
+    custom_error_handler()
+    sys.exit(1)
+```
+
+### Platform-Specific Behavior
+
+#### Windows-Specific Features
+
+```python
+import sys
+
+if sys.platform == "win32":
+    # Windows-specific code
+    print("Running on Windows")
+    
+    # Access Windows-specific attributes
+    if hasattr(sys, 'getwindowsversion'):
+        print("Windows version:", sys.getwindowsversion())
+
+elif sys.platform.startswith("linux"):
+    # Linux-specific code
+    print("Running on Linux")
+
+elif sys.platform == "darwin":
+    # macOS-specific code
+    print("Running on macOS")
+```
+
+### Performance Optimization
+
+#### Bytecode Optimization
+
+```python
+import sys
+
+# Check optimization level
+print("Optimization level:", sys.flags.optimize)
+
+# Check various flags
+print("Debug flag:", sys.flags.debug)
+print("Verbose flag:", sys.flags.verbose)
+print("Interactive flag:", sys.flags.interactive)
+```
+
+### Thread and Async Support
+
+#### Thread Switching
+
+```python
+import sys
+import threading
+
+# Get thread switch interval
+print("Switch interval:", sys.getswitchinterval())
+
+# Set thread switch interval
+sys.setswitchinterval(0.01)  # 10ms
+```
+
+**Key points:**
+
+- Lower values increase responsiveness but may reduce performance
+- Default is typically 0.005 seconds (5ms)
+- Only affects threads, not async/await
+
+### Best Practices
+
+**Example** of proper sys module usage:
+
+```python
+import sys
+import os
+
+def main():
+    # Proper argument handling
+    if len(sys.argv) < 2:
+        print(f"Usage: {sys.argv[0]} <input_file>", file=sys.stderr)
+        return 1
+    
+    input_file = sys.argv[1]
+    
+    # Check if file exists before processing
+    if not os.path.exists(input_file):
+        print(f"Error: File '{input_file}' not found", file=sys.stderr)
+        return 1
+    
+    try:
+        # Process file
+        with open(input_file, 'r') as f:
+            content = f.read()
+            print(f"Processed {len(content)} characters")
+        return 0
+    
+    except Exception as e:
+        print(f"Error processing file: {e}", file=sys.stderr)
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+### Security Considerations
+
+When using the `sys` module, be aware of security implications:
+
+- **Path manipulation**: Adding untrusted directories to `sys.path` can lead to code injection
+- **Stream redirection**: Redirecting stdout/stderr can hide important error messages
+- **Module manipulation**: Modifying `sys.modules` can affect program behavior unexpectedly
+- **Trace functions**: Tracing can impact performance and expose sensitive information
+
+### Common Pitfalls
+
+- **Modifying sys.argv**: Changes affect the entire program
+- **Circular imports**: Manipulating `sys.modules` can create circular dependencies
+- **Memory leaks**: Holding references in trace functions can prevent garbage collection
+- **Platform assumptions**: Code using platform-specific features may not be portable
+
+**Conclusion:** The `sys` module is essential for system-level programming in Python, providing access to interpreter internals, command-line arguments, and runtime environment. While powerful, it should be used carefully, especially when modifying interpreter behavior or handling system resources. Understanding its capabilities is crucial for writing robust, system-aware Python applications.
+
+---
+
+## `os` Module
+
+The `os` module provides a portable way to interact with the operating system, offering functions for file and directory operations, process management, environment variables, and system-level operations. It serves as the primary interface between Python programs and the underlying operating system.
+
+### Module Overview and Purpose
+
+The `os` module abstracts operating system functionality, allowing Python programs to perform system operations in a platform-independent manner. It handles file system operations, process management, environment variables, and provides access to various operating system services.
+
+### Importing and Basic Usage
+
+```python
+import os
+# Access all os functionality
+print(os.getcwd())
+
+# Import specific functions
+from os import getcwd, listdir, environ
+from os.path import join, exists, dirname
+```
+
+### File and Directory Operations
+
+#### Current Working Directory
+
+```python
+import os
+
+# Get current working directory
+current_dir = os.getcwd()
+print("Current directory:", current_dir)
+
+# Change working directory
+os.chdir('/path/to/new/directory')
+
+# Change to parent directory
+os.chdir('..')
+
+# Change to home directory
+os.chdir(os.path.expanduser('~'))
+```
+
+#### Directory Listing and Navigation
+
+```python
+import os
+
+# List directory contents
+files = os.listdir('.')
+print("Files in current directory:", files)
+
+# List with full paths
+for item in os.listdir('.'):
+    full_path = os.path.join('.', item)
+    print(f"{'DIR' if os.path.isdir(full_path) else 'FILE'}: {item}")
+
+# Walk directory tree
+for root, dirs, files in os.walk('/path/to/directory'):
+    print(f"Directory: {root}")
+    for file in files:
+        print(f"  File: {file}")
+    for dir in dirs:
+        print(f"  Subdirectory: {dir}")
+```
+
+#### Directory Creation and Removal
+
+```python
+import os
+
+# Create single directory
+os.mkdir('new_directory')
+
+# Create nested directories
+os.makedirs('path/to/nested/directory', exist_ok=True)
+
+# Remove empty directory
+os.rmdir('empty_directory')
+
+# Remove directory and all contents
+import shutil
+shutil.rmtree('directory_with_contents')
+
+# Remove nested empty directories
+os.removedirs('path/to/empty/nested/dirs')
+```
+
+### File Operations
+
+#### File Creation and Removal
+
+```python
+import os
+
+# Create empty file
+with open('new_file.txt', 'w') as f:
+    pass
+
+# Remove file
+os.remove('file_to_delete.txt')
+os.unlink('another_file.txt')  # Same as remove
+
+# Safe file removal
+def safe_remove(filename):
+    try:
+        os.remove(filename)
+        print(f"Removed: {filename}")
+    except FileNotFoundError:
+        print(f"File not found: {filename}")
+    except PermissionError:
+        print(f"Permission denied: {filename}")
+```
+
+#### File and Directory Information
+
+```python
+import os
+import time
+
+# Check if path exists
+print("File exists:", os.path.exists('file.txt'))
+print("Directory exists:", os.path.exists('directory'))
+
+# Check path type
+print("Is file:", os.path.isfile('file.txt'))
+print("Is directory:", os.path.isdir('directory'))
+print("Is symlink:", os.path.islink('symlink'))
+
+# Get file statistics
+stat_info = os.stat('file.txt')
+print("File size:", stat_info.st_size)
+print("Modified time:", time.ctime(stat_info.st_mtime))
+print("Created time:", time.ctime(stat_info.st_ctime))
+print("Permissions:", oct(stat_info.st_mode))
+```
+
+#### File Permissions and Attributes
+
+```python
+import os
+
+# Change file permissions
+os.chmod('file.txt', 0o644)  # rw-r--r--
+os.chmod('script.py', 0o755)  # rwxr-xr-x
+
+# Change file ownership (Unix/Linux only)
+if os.name == 'posix':
+    os.chown('file.txt', 1000, 1000)  # uid, gid
+
+# Access and modification times
+os.utime('file.txt', (access_time, modification_time))
+```
+
+### Path Operations with os.path
+
+#### Path Construction and Manipulation
+
+```python
+import os
+
+# Join paths (platform-independent)
+path = os.path.join('directory', 'subdirectory', 'file.txt')
+print("Joined path:", path)
+
+# Split path components
+directory, filename = os.path.split(path)
+print("Directory:", directory)
+print("Filename:", filename)
+
+# Get file extension
+name, ext = os.path.splitext('file.txt')
+print("Name:", name)
+print("Extension:", ext)
+
+# Get directory name
+print("Directory name:", os.path.dirname('/path/to/file.txt'))
+
+# Get base name
+print("Base name:", os.path.basename('/path/to/file.txt'))
+```
+
+#### Path Analysis
+
+```python
+import os
+
+# Absolute and relative paths
+relative_path = 'file.txt'
+absolute_path = os.path.abspath(relative_path)
+print("Absolute path:", absolute_path)
+
+# Normalize path
+normalized = os.path.normpath('path//to/../file.txt')
+print("Normalized:", normalized)
+
+# Real path (resolve symlinks)
+real_path = os.path.realpath('symlink_to_file')
+print("Real path:", real_path)
+
+# Check if path is absolute
+print("Is absolute:", os.path.isabs('/absolute/path'))
+```
+
+#### Path Expansion
+
+```python
+import os
+
+# Expand user home directory
+home_path = os.path.expanduser('~/Documents')
+print("Home path:", home_path)
+
+# Expand environment variables
+var_path = os.path.expandvars('$HOME/Documents')
+print("Variable path:", var_path)
+
+# Common path operations
+print("Common prefix:", os.path.commonprefix(['/path/to/file1', '/path/to/file2']))
+print("Common path:", os.path.commonpath(['/path/to/file1', '/path/to/file2']))
+```
+
+### Environment Variables
+
+#### Reading Environment Variables
+
+```python
+import os
+
+# Get all environment variables
+print("All environment variables:")
+for key, value in os.environ.items():
+    print(f"{key}: {value}")
+
+# Get specific environment variable
+home_dir = os.environ.get('HOME')
+path_var = os.environ.get('PATH')
+print("Home directory:", home_dir)
+print("PATH:", path_var)
+
+# Get with default value
+database_url = os.environ.get('DATABASE_URL', 'sqlite:///default.db')
+print("Database URL:", database_url)
+```
+
+#### Setting Environment Variables
+
+```python
+import os
+
+# Set environment variable
+os.environ['MY_VARIABLE'] = 'my_value'
+
+# Set multiple variables
+os.environ.update({
+    'API_KEY': 'secret_key',
+    'DEBUG': 'true',
+    'PORT': '8080'
+})
+
+# Remove environment variable
+if 'TEMP_VAR' in os.environ:
+    del os.environ['TEMP_VAR']
+
+# Pop environment variable
+old_value = os.environ.pop('OLD_VAR', 'default')
+```
+
+### Process Management
+
+#### Running External Commands
+
+```python
+import os
+
+# Execute system command
+result = os.system('ls -l')
+print("Exit code:", result)
+
+# Execute and capture output (deprecated, use subprocess)
+import subprocess
+
+# Modern approach
+result = subprocess.run(['ls', '-l'], capture_output=True, text=True)
+print("Output:", result.stdout)
+print("Error:", result.stderr)
+print("Return code:", result.returncode)
+```
+
+#### Process Information
+
+```python
+import os
+
+# Get process ID
+print("Process ID:", os.getpid())
+
+# Get parent process ID
+print("Parent PID:", os.getppid())
+
+# Get process group ID (Unix/Linux)
+if os.name == 'posix':
+    print("Process group ID:", os.getpgid(0))
+
+# Get user and group IDs (Unix/Linux)
+if os.name == 'posix':
+    print("User ID:", os.getuid())
+    print("Group ID:", os.getgid())
+    print("Effective user ID:", os.geteuid())
+    print("Effective group ID:", os.getegid())
+```
+
+#### Process Creation (Unix/Linux)
+
+```python
+import os
+
+if os.name == 'posix':
+    # Fork process
+    pid = os.fork()
+    
+    if pid == 0:
+        # Child process
+        print("Child process")
+        os._exit(0)
+    else:
+        # Parent process
+        print(f"Parent process, child PID: {pid}")
+        os.waitpid(pid, 0)  # Wait for child to complete
+```
+
+### System Information
+
+#### Platform and OS Information
+
+```python
+import os
+
+# Operating system name
+print("OS name:", os.name)  # 'posix', 'nt', 'java'
+
+# Detailed system information
+if hasattr(os, 'uname'):
+    uname_info = os.uname()
+    print("System:", uname_info.sysname)
+    print("Node:", uname_info.nodename)
+    print("Release:", uname_info.release)
+    print("Version:", uname_info.version)
+    print("Machine:", uname_info.machine)
+
+# CPU count
+print("CPU count:", os.cpu_count())
+
+# Load average (Unix/Linux)
+if hasattr(os, 'getloadavg'):
+    load1, load5, load15 = os.getloadavg()
+    print(f"Load average: {load1:.2f}, {load5:.2f}, {load15:.2f}")
+```
+
+#### Memory and Resource Information
+
+```python
+import os
+
+# Get terminal size
+if hasattr(os, 'get_terminal_size'):
+    size = os.get_terminal_size()
+    print(f"Terminal size: {size.columns}x{size.lines}")
+
+# Resource limits (Unix/Linux)
+if hasattr(os, 'getrlimit'):
+    import resource
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    print(f"File descriptor limits: soft={soft}, hard={hard}")
+```
+
+### Advanced File Operations
+
+#### File Descriptors
+
+```python
+import os
+
+# Open file with file descriptor
+fd = os.open('file.txt', os.O_RDONLY)
+
+# Read from file descriptor
+data = os.read(fd, 1024)
+print("Data:", data.decode())
+
+# Close file descriptor
+os.close(fd)
+
+# Write to file descriptor
+fd = os.open('output.txt', os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+os.write(fd, b'Hello, World!')
+os.close(fd)
+```
+
+#### File Locking (Unix/Linux)
+
+```python
+import os
+import fcntl
+
+if os.name == 'posix':
+    # Exclusive lock
+    with open('lockfile.txt', 'w') as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        f.write('Locked content')
+        # Lock released when file is closed
+```
+
+#### Pipes and Communication
+
+```python
+import os
+
+# Create pipe
+if os.name == 'posix':
+    read_fd, write_fd = os.pipe()
+    
+    # Write to pipe
+    os.write(write_fd, b'Hello from pipe')
+    
+    # Read from pipe
+    data = os.read(read_fd, 1024)
+    print("Pipe data:", data.decode())
+    
+    # Close file descriptors
+    os.close(read_fd)
+    os.close(write_fd)
+```
+
+### Symbolic Links and Hard Links
+
+#### Creating and Managing Links
+
+```python
+import os
+
+# Create symbolic link
+os.symlink('target_file.txt', 'link_to_file.txt')
+
+# Create hard link (Unix/Linux)
+if os.name == 'posix':
+    os.link('original_file.txt', 'hard_link.txt')
+
+# Read symbolic link
+if os.path.islink('link_to_file.txt'):
+    target = os.readlink('link_to_file.txt')
+    print("Link target:", target)
+
+# Check if path is a link
+print("Is symbolic link:", os.path.islink('link_to_file.txt'))
+```
+
+### Temporary Files and Directories
+
+#### Working with Temporary Files
+
+```python
+import os
+import tempfile
+
+# Get temporary directory
+temp_dir = tempfile.gettempdir()
+print("Temp directory:", temp_dir)
+
+# Create temporary file
+with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+    temp_file.write('Temporary content')
+    temp_filename = temp_file.name
+
+print("Temporary file:", temp_filename)
+
+# Clean up
+os.unlink(temp_filename)
+
+# Create temporary directory
+with tempfile.TemporaryDirectory() as temp_dir:
+    print("Temporary directory:", temp_dir)
+    # Directory is automatically cleaned up
+```
+
+### Error Handling
+
+#### Common OS Exceptions
+
+```python
+import os
+
+def safe_file_operation(filename):
+    try:
+        with open(filename, 'r') as f:
+            content = f.read()
+            return content
+    except FileNotFoundError:
+        print(f"File not found: {filename}")
+    except PermissionError:
+        print(f"Permission denied: {filename}")
+    except IsADirectoryError:
+        print(f"Is a directory: {filename}")
+    except OSError as e:
+        print(f"OS error: {e}")
+
+def safe_directory_operation(dirname):
+    try:
+        os.makedirs(dirname, exist_ok=True)
+        files = os.listdir(dirname)
+        return files
+    except PermissionError:
+        print(f"Permission denied: {dirname}")
+    except NotADirectoryError:
+        print(f"Not a directory: {dirname}")
+    except OSError as e:
+        print(f"OS error: {e}")
+```
+
+### Practical Examples
+
+#### File System Monitor
+
+```python
+import os
+import time
+
+def monitor_directory(path, interval=1):
+    """Monitor directory for changes"""
+    previous_files = set()
+    
+    while True:
+        try:
+            current_files = set(os.listdir(path))
+            
+            # New files
+            new_files = current_files - previous_files
+            for file in new_files:
+                print(f"New file: {file}")
+            
+            # Removed files
+            removed_files = previous_files - current_files
+            for file in removed_files:
+                print(f"Removed file: {file}")
+            
+            previous_files = current_files
+            time.sleep(interval)
+            
+        except KeyboardInterrupt:
+            print("Monitoring stopped")
+            break
+        except OSError as e:
+            print(f"Error monitoring directory: {e}")
+            break
+```
+
+#### Disk Usage Calculator
+
+```python
+import os
+
+def calculate_directory_size(path):
+    """Calculate total size of directory"""
+    total_size = 0
+    
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            file_path = os.path.join(root, file)
+            try:
+                total_size += os.path.getsize(file_path)
+            except OSError:
+                pass  # Skip files that can't be accessed
+    
+    return total_size
+
+def format_bytes(bytes):
+    """Format bytes in human-readable format"""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if bytes < 1024.0:
+            return f"{bytes:.2f} {unit}"
+        bytes /= 1024.0
+    return f"{bytes:.2f} PB"
+
+# Usage
+directory = '/path/to/directory'
+size = calculate_directory_size(directory)
+print(f"Directory size: {format_bytes(size)}")
+```
+
+#### Configuration File Manager
+
+```python
+import os
+import json
+
+class ConfigManager:
+    def __init__(self, config_dir=None):
+        if config_dir is None:
+            config_dir = os.path.expanduser('~/.myapp')
+        
+        self.config_dir = config_dir
+        self.config_file = os.path.join(config_dir, 'config.json')
+        
+        # Create config directory if it doesn't exist
+        os.makedirs(config_dir, exist_ok=True)
+    
+    def load_config(self):
+        """Load configuration from file"""
+        if os.path.exists(self.config_file):
+            with open(self.config_file, 'r') as f:
+                return json.load(f)
+        return {}
+    
+    def save_config(self, config):
+        """Save configuration to file"""
+        with open(self.config_file, 'w') as f:
+            json.dump(config, f, indent=4)
+    
+    def get_setting(self, key, default=None):
+        """Get specific setting"""
+        config = self.load_config()
+        return config.get(key, default)
+    
+    def set_setting(self, key, value):
+        """Set specific setting"""
+        config = self.load_config()
+        config[key] = value
+        self.save_config(config)
+
+# Usage
+config = ConfigManager()
+config.set_setting('api_key', 'secret_key')
+api_key = config.get_setting('api_key')
+```
+
+#### File Backup System
+
+```python
+import os
+import shutil
+import time
+from datetime import datetime
+
+class BackupManager:
+    def __init__(self, backup_dir):
+        self.backup_dir = backup_dir
+        os.makedirs(backup_dir, exist_ok=True)
+    
+    def backup_file(self, source_file):
+        """Backup a single file"""
+        if not os.path.exists(source_file):
+            raise FileNotFoundError(f"Source file not found: {source_file}")
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = os.path.basename(source_file)
+        backup_name = f"{timestamp}_{filename}"
+        backup_path = os.path.join(self.backup_dir, backup_name)
+        
+        shutil.copy2(source_file, backup_path)
+        return backup_path
+    
+    def backup_directory(self, source_dir):
+        """Backup entire directory"""
+        if not os.path.exists(source_dir):
+            raise FileNotFoundError(f"Source directory not found: {source_dir}")
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        dir_name = os.path.basename(source_dir)
+        backup_name = f"{timestamp}_{dir_name}"
+        backup_path = os.path.join(self.backup_dir, backup_name)
+        
+        shutil.copytree(source_dir, backup_path)
+        return backup_path
+    
+    def list_backups(self):
+        """List all backups"""
+        backups = []
+        for item in os.listdir(self.backup_dir):
+            item_path = os.path.join(self.backup_dir, item)
+            stat_info = os.stat(item_path)
+            backups.append({
+                'name': item,
+                'path': item_path,
+                'size': stat_info.st_size,
+                'created': time.ctime(stat_info.st_ctime)
+            })
+        return sorted(backups, key=lambda x: x['created'], reverse=True)
+```
+
+### Platform-Specific Features
+
+#### Windows-Specific Operations
+
+```python
+import os
+
+if os.name == 'nt':
+    # Windows-specific environment variables
+    print("Windows directory:", os.environ.get('WINDIR'))
+    print("User profile:", os.environ.get('USERPROFILE'))
+    print("Program files:", os.environ.get('PROGRAMFILES'))
+    
+    # Windows path operations
+    drive, path = os.path.splitdrive(r'C:\Windows\System32')
+    print("Drive:", drive)
+    print("Path:", path)
+```
+
+#### Unix/Linux-Specific Operations
+
+```python
+import os
+
+if os.name == 'posix':
+    # Unix/Linux-specific operations
+    print("Home directory:", os.environ.get('HOME'))
+    print("Shell:", os.environ.get('SHELL'))
+    
+    # File permissions
+    def get_file_permissions(filename):
+        stat_info = os.stat(filename)
+        mode = stat_info.st_mode
+        
+        permissions = []
+        permissions.append('r' if mode & 0o400 else '-')
+        permissions.append('w' if mode & 0o200 else '-')
+        permissions.append('x' if mode & 0o100 else '-')
+        permissions.append('r' if mode & 0o040 else '-')
+        permissions.append('w' if mode & 0o020 else '-')
+        permissions.append('x' if mode & 0o010 else '-')
+        permissions.append('r' if mode & 0o004 else '-')
+        permissions.append('w' if mode & 0o002 else '-')
+        permissions.append('x' if mode & 0o001 else '-')
+        
+        return ''.join(permissions)
+```
+
+### Performance Considerations
+
+#### Efficient File Operations
+
+```python
+import os
+
+def efficient_file_search(directory, pattern):
+    """Efficiently search for files matching pattern"""
+    matches = []
+    
+    # Use os.scandir for better performance than os.listdir
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            if entry.is_file() and pattern in entry.name:
+                matches.append(entry.path)
+    
+    return matches
+
+def batch_file_operations(file_list, operation):
+    """Perform batch operations on multiple files"""
+    results = []
+    
+    for file_path in file_list:
+        try:
+            result = operation(file_path)
+            results.append((file_path, result, None))
+        except OSError as e:
+            results.append((file_path, None, str(e)))
+    
+    return results
+```
+
+### Security Considerations
+
+#### Safe Path Operations
+
+```python
+import os
+
+def safe_path_join(base_path, *paths):
+    """Safely join paths to prevent directory traversal"""
+    result = os.path.join(base_path, *paths)
+    normalized = os.path.normpath(result)
+    
+    # Ensure the result is within the base path
+    if not normalized.startswith(os.path.normpath(base_path)):
+        raise ValueError("Path traversal detected")
+    
+    return normalized
+
+def validate_filename(filename):
+    """Validate filename for security"""
+    # Check for dangerous characters
+    dangerous_chars = ['..', '/', '\\', ':', '*', '?', '"', '<', '>', '|']
+    
+    for char in dangerous_chars:
+        if char in filename:
+            raise ValueError(f"Dangerous character in filename: {char}")
+    
+    # Check for reserved names (Windows)
+    reserved_names = ['CON', 'PRN', 'AUX', 'NUL'] + [f'COM{i}' for i in range(1, 10)] + [f'LPT{i}' for i in range(1, 10)]
+    
+    if filename.upper() in reserved_names:
+        raise ValueError(f"Reserved filename: {filename}")
+    
+    return filename
+```
+
+### Best Practices
+
+**Example** of comprehensive file management:
+
+```python
+import os
+import logging
+import tempfile
+from contextlib import contextmanager
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class FileManager:
+    def __init__(self, base_path):
+        self.base_path = os.path.abspath(base_path)
+        os.makedirs(base_path, exist_ok=True)
+    
+    @contextmanager
+    def temporary_file(self, suffix='.tmp'):
+        """Context manager for temporary files"""
+        temp_fd, temp_path = tempfile.mkstemp(suffix=suffix, dir=self.base_path)
+        try:
+            yield temp_path
+        finally:
+            os.close(temp_fd)
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+    
+    def safe_write(self, filename, content):
+        """Safely write content to file"""
+        full_path = os.path.join(self.base_path, filename)
+        
+        # Write to temporary file first
+        with self.temporary_file() as temp_path:
+            with open(temp_path, 'w') as f:
+                f.write(content)
+            
+            # Atomically move to final location
+            os.rename(temp_path, full_path)
+            logger.info(f"Successfully wrote to {filename}")
+    
+    def safe_read(self, filename):
+        """Safely read file content"""
+        full_path = os.path.join(self.base_path, filename)
+        
+        if not os.path.exists(full_path):
+            raise FileNotFoundError(f"File not found: {filename}")
+        
+        with open(full_path, 'r') as f:
+            return f.read()
+    
+    def list_files(self, pattern=None):
+        """List files with optional pattern matching"""
+        files = []
+        
+        for item in os.listdir(self.base_path):
+            item_path = os.path.join(self.base_path, item)
+            if os.path.isfile(item_path):
+                if pattern is None or pattern in item:
+                    files.append(item)
+        
+        return sorted(files)
+```
+
+**Conclusion:** The `os` module is fundamental for system programming in Python, providing comprehensive access to operating system functionality. It enables file and directory operations, process management, environment variable manipulation, and system information retrieval. Understanding its capabilities is essential for writing robust, cross-platform applications that interact with the file system and operating system services. Always consider security implications when working with file paths and system operations, and use appropriate error handling for robust applications.
+
+---
+
+## `math` Module
+
+### Overview
+
+The math module is a built-in Python library that provides access to mathematical functions and constants defined by the C standard. It offers a comprehensive collection of mathematical operations including trigonometric functions, logarithms, exponentials, and various utility functions for numerical computations.
+
+### Importing the Math Module
+
+```python
+import math
+```
+
+Once imported, all functions and constants are accessed using the `math.` prefix.
+
+### Mathematical Constants
+
+#### pi
+
+The mathematical constant π (pi), approximately 3.14159.
+
+```python
+import math
+print(math.pi)  # 3.141592653589793
+```
+
+#### e
+
+The mathematical constant e (Euler's number), approximately 2.71828.
+
+```python
+print(math.e)  # 2.718281828459045
+```
+
+#### tau
+
+The mathematical constant τ (tau), equal to 2π, approximately 6.28318.
+
+```python
+print(math.tau)  # 6.283185307179586
+```
+
+#### inf
+
+Positive infinity as a floating-point value.
+
+```python
+print(math.inf)  # inf
+```
+
+#### nan
+
+"Not a Number" (NaN) floating-point value.
+
+```python
+print(math.nan)  # nan
+```
+
+### Power and Logarithmic Functions
+
+#### math.pow(x, y)
+
+Returns x raised to the power y.
+
+```python
+result = math.pow(2, 3)  # 8.0
+```
+
+#### math.sqrt(x)
+
+Returns the square root of x.
+
+```python
+result = math.sqrt(16)  # 4.0
+```
+
+#### math.log(x[, base])
+
+Returns the natural logarithm of x, or logarithm to the given base.
+
+```python
+natural_log = math.log(math.e)  # 1.0
+log_base_10 = math.log(100, 10)  # 2.0
+```
+
+#### math.log10(x)
+
+Returns the base-10 logarithm of x.
+
+```python
+result = math.log10(1000)  # 3.0
+```
+
+#### math.log2(x)
+
+Returns the base-2 logarithm of x.
+
+```python
+result = math.log2(8)  # 3.0
+```
+
+#### math.exp(x)
+
+Returns e raised to the power x.
+
+```python
+result = math.exp(1)  # 2.718281828459045
+```
+
+#### math.exp2(x)
+
+Returns 2 raised to the power x.
+
+```python
+result = math.exp2(3)  # 8.0
+```
+
+#### math.expm1(x)
+
+Returns e^x - 1, providing better precision for small values of x.
+
+```python
+result = math.expm1(0.001)  # More accurate than math.exp(0.001) - 1
+```
+
+#### math.log1p(x)
+
+Returns ln(1 + x), providing better precision for small values of x.
+
+```python
+result = math.log1p(0.001)  # More accurate than math.log(1 + 0.001)
+```
+
+### Trigonometric Functions
+
+#### Basic Trigonometric Functions
+
+```python
+# Sine, cosine, and tangent
+angle = math.pi / 4  # 45 degrees in radians
+sin_val = math.sin(angle)    # 0.7071067811865476
+cos_val = math.cos(angle)    # 0.7071067811865476
+tan_val = math.tan(angle)    # 1.0
+```
+
+#### Inverse Trigonometric Functions
+
+```python
+# Arc sine, arc cosine, and arc tangent
+value = 0.5
+asin_val = math.asin(value)  # 0.5235987755982989
+acos_val = math.acos(value)  # 1.0471975511965979
+atan_val = math.atan(value)  # 0.4636476090008061
+```
+
+#### math.atan2(y, x)
+
+Returns the arc tangent of y/x in radians, considering the signs of both arguments.
+
+```python
+result = math.atan2(1, 1)  # 0.7853981633974483 (45 degrees)
+```
+
+#### Hyperbolic Functions
+
+```python
+x = 1.0
+sinh_val = math.sinh(x)  # 1.1752011936438014
+cosh_val = math.cosh(x)  # 1.5430806348152437
+tanh_val = math.tanh(x)  # 0.7615941559557649
+```
+
+#### Inverse Hyperbolic Functions
+
+```python
+x = 1.0
+asinh_val = math.asinh(x)  # 0.8813735870195429
+acosh_val = math.acosh(x)  # 0.0
+atanh_val = math.atanh(0.5)  # 0.5493061443340549
+```
+
+### Rounding and Numeric Functions
+
+#### math.ceil(x)
+
+Returns the ceiling of x (smallest integer greater than or equal to x).
+
+```python
+result = math.ceil(4.2)   # 5
+result = math.ceil(-4.2)  # -4
+```
+
+#### math.floor(x)
+
+Returns the floor of x (largest integer less than or equal to x).
+
+```python
+result = math.floor(4.8)   # 4
+result = math.floor(-4.8)  # -5
+```
+
+#### math.trunc(x)
+
+Returns the truncated integer part of x.
+
+```python
+result = math.trunc(4.8)   # 4
+result = math.trunc(-4.8)  # -4
+```
+
+#### math.fabs(x)
+
+Returns the absolute value of x as a float.
+
+```python
+result = math.fabs(-5.5)  # 5.5
+```
+
+#### math.copysign(x, y)
+
+Returns x with the sign of y.
+
+```python
+result = math.copysign(5, -1)  # -5.0
+```
+
+#### math.fmod(x, y)
+
+Returns the floating-point remainder of x/y.
+
+```python
+result = math.fmod(10.5, 3)  # 1.5
+```
+
+#### math.remainder(x, y)
+
+Returns the IEEE remainder of x with respect to y.
+
+```python
+result = math.remainder(10.5, 3)  # -1.5
+```
+
+#### math.modf(x)
+
+Returns the fractional and integer parts of x as a tuple.
+
+```python
+fractional, integer = math.modf(4.75)  # (0.75, 4.0)
+```
+
+### Classification Functions
+
+#### math.isfinite(x)
+
+Returns True if x is finite (not infinite or NaN).
+
+```python
+result = math.isfinite(5.0)      # True
+result = math.isfinite(math.inf) # False
+```
+
+#### math.isinf(x)
+
+Returns True if x is positive or negative infinity.
+
+```python
+result = math.isinf(math.inf)  # True
+result = math.isinf(5.0)       # False
+```
+
+#### math.isnan(x)
+
+Returns True if x is NaN (Not a Number).
+
+```python
+result = math.isnan(math.nan)  # True
+result = math.isnan(5.0)       # False
+```
+
+#### math.isclose(a, b, rel_tol=1e-09, abs_tol=0.0)
+
+Returns True if values a and b are close to each other.
+
+```python
+result = math.isclose(0.1 + 0.2, 0.3)  # True
+result = math.isclose(1.0, 1.01, rel_tol=0.1)  # True
+```
+
+### Distance and Norm Functions
+
+#### math.dist(p, q)
+
+Returns the Euclidean distance between points p and q.
+
+```python
+point1 = [1, 2, 3]
+point2 = [4, 5, 6]
+distance = math.dist(point1, point2)  # 5.196152422706632
+```
+
+#### math.hypot(*coordinates)
+
+Returns the Euclidean norm (distance from origin).
+
+```python
+# 2D distance
+distance = math.hypot(3, 4)  # 5.0
+
+# 3D distance
+distance = math.hypot(1, 2, 3)  # 3.7416573867739413
+```
+
+### Factorial and Combinatorial Functions
+
+#### math.factorial(n)
+
+Returns the factorial of n.
+
+```python
+result = math.factorial(5)  # 120
+```
+
+#### math.comb(n, k)
+
+Returns the number of ways to choose k items from n items.
+
+```python
+result = math.comb(5, 2)  # 10
+```
+
+#### math.perm(n, k)
+
+Returns the number of ways to arrange k items from n items.
+
+```python
+result = math.perm(5, 2)  # 20
+```
+
+### Angle Conversion Functions
+
+#### math.degrees(x)
+
+Converts angle x from radians to degrees.
+
+```python
+degrees = math.degrees(math.pi)  # 180.0
+degrees = math.degrees(math.pi / 2)  # 90.0
+```
+
+#### math.radians(x)
+
+Converts angle x from degrees to radians.
+
+```python
+radians = math.radians(180)  # 3.141592653589793
+radians = math.radians(90)   # 1.5707963267948966
+```
+
+### Special Functions
+
+#### math.gamma(x)
+
+Returns the gamma function at x.
+
+```python
+result = math.gamma(5)  # 24.0 (equivalent to factorial(4))
+```
+
+#### math.lgamma(x)
+
+Returns the natural logarithm of the gamma function at x.
+
+```python
+result = math.lgamma(5)  # 3.1780538303479458
+```
+
+#### math.erf(x)
+
+Returns the error function at x.
+
+```python
+result = math.erf(1)  # 0.8427007929497149
+```
+
+#### math.erfc(x)
+
+Returns the complementary error function at x.
+
+```python
+result = math.erfc(1)  # 0.15729920705028513
+```
+
+### Utility Functions
+
+#### math.fsum(iterable)
+
+Returns an accurate floating-point sum of values in the iterable.
+
+```python
+numbers = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+result = math.fsum(numbers)  # 1.0 (more accurate than sum())
+```
+
+#### math.prod(iterable, start=1)
+
+Returns the product of all elements in the iterable.
+
+```python
+numbers = [1, 2, 3, 4, 5]
+result = math.prod(numbers)  # 120
+```
+
+#### math.gcd(a, b)
+
+Returns the greatest common divisor of a and b.
+
+```python
+result = math.gcd(48, 18)  # 6
+```
+
+#### math.lcm(*args)
+
+Returns the least common multiple of the arguments.
+
+```python
+result = math.lcm(12, 18)  # 36
+result = math.lcm(12, 18, 24)  # 72
+```
+
+#### math.frexp(x)
+
+Returns the mantissa and exponent of x as a tuple.
+
+```python
+mantissa, exponent = math.frexp(8.0)  # (0.5, 4) because 8.0 = 0.5 * 2^4
+```
+
+#### math.ldexp(x, i)
+
+Returns x * (2**i), the inverse of frexp().
+
+```python
+result = math.ldexp(0.5, 4)  # 8.0
+```
+
+#### math.nextafter(x, y)
+
+Returns the next representable floating-point value after x in the direction of y.
+
+```python
+result = math.nextafter(1.0, 2.0)  # 1.0000000000000002
+```
+
+#### math.ulp(x)
+
+Returns the value of the least significant bit of x.
+
+```python
+result = math.ulp(1.0)  # 2.220446049250313e-16
+```
+
+### Practical Examples
+
+#### Distance Calculations
+
+```python
+import math
+
+# Calculate distance between two points
+def distance_2d(x1, y1, x2, y2):
+    return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+
+# Using hypot for better precision
+def distance_2d_hypot(x1, y1, x2, y2):
+    return math.hypot(x2 - x1, y2 - y1)
+
+# 3D distance
+def distance_3d(p1, p2):
+    return math.dist(p1, p2)
+```
+
+#### Angle Calculations
+
+```python
+import math
+
+# Convert between degrees and radians
+def deg_to_rad(degrees):
+    return math.radians(degrees)
+
+def rad_to_deg(radians):
+    return math.degrees(radians)
+
+# Calculate angle between two vectors
+def angle_between_vectors(v1, v2):
+    dot_product = sum(a * b for a, b in zip(v1, v2))
+    magnitude_v1 = math.hypot(*v1)
+    magnitude_v2 = math.hypot(*v2)
+    return math.acos(dot_product / (magnitude_v1 * magnitude_v2))
+```
+
+#### Statistical Calculations
+
+```python
+import math
+
+# Calculate standard deviation
+def standard_deviation(data):
+    n = len(data)
+    mean = sum(data) / n
+    variance = sum((x - mean) ** 2 for x in data) / n
+    return math.sqrt(variance)
+
+# Calculate geometric mean
+def geometric_mean(data):
+    product = math.prod(data)
+    return product ** (1 / len(data))
+```
+
+### Error Handling
+
+The math module raises specific exceptions for invalid operations:
+
+```python
+import math
+
+try:
+    result = math.sqrt(-1)  # Raises ValueError
+except ValueError as e:
+    print(f"Error: {e}")
+
+try:
+    result = math.log(0)  # Raises ValueError
+except ValueError as e:
+    print(f"Error: {e}")
+
+try:
+    result = math.factorial(-1)  # Raises ValueError
+except ValueError as e:
+    print(f"Error: {e}")
+```
+
+### Performance Considerations
+
+The math module functions are implemented in C and are highly optimized. However, for array operations, consider using NumPy for better performance:
+
+```python
+import math
+import time
+
+# Using math module (slower for large datasets)
+def process_with_math(data):
+    return [math.sqrt(x) for x in data]
+
+# For large arrays, NumPy is more efficient
+import numpy as np
+def process_with_numpy(data):
+    return np.sqrt(data)
+```
+
+### Common Pitfalls
+
+#### Floating-Point Precision
+
+```python
+import math
+
+# Avoid direct equality comparisons
+result = math.sqrt(2) ** 2
+print(result == 2)  # False due to floating-point precision
+
+# Use isclose() instead
+print(math.isclose(result, 2))  # True
+```
+
+#### Domain Errors
+
+```python
+import math
+
+# Check for valid domains
+def safe_sqrt(x):
+    if x < 0:
+        raise ValueError("Cannot compute square root of negative number")
+    return math.sqrt(x)
+
+def safe_log(x):
+    if x <= 0:
+        raise ValueError("Logarithm undefined for non-positive numbers")
+    return math.log(x)
+```
+
+**Key points:** The math module provides essential mathematical functions and constants for Python programming. It offers comprehensive coverage of basic arithmetic, trigonometry, logarithms, and special functions. All functions operate on and return floating-point numbers, making it ideal for scientific computing and mathematical applications.
+
+**Next steps:** For more advanced mathematical operations, consider exploring NumPy for array operations, SciPy for scientific computing, or the decimal module for precise decimal arithmetic.
+
+---
+
+## `random` Module
+
+### Overview
+
+The `random` module in Python provides functions for generating random numbers, selecting random elements, and performing various randomization operations. It implements pseudorandom number generators for different distributions and is essential for simulations, games, cryptography, testing, and statistical sampling.
+
+### Importing the Module
+
+```python
+import random
+from random import randint, choice, shuffle  # Import specific functions
+```
+
+### Basic Random Number Generation
+
+#### random()
+
+Generates a random float between 0.0 and 1.0 (exclusive of 1.0).
+
+```python
+import random
+print(random.random())  # 0.37444887175646646
+```
+
+#### randint(a, b)
+
+Returns a random integer between a and b (both inclusive).
+
+```python
+print(random.randint(1, 10))  # 7
+print(random.randint(-5, 5))  # -2
+```
+
+#### randrange(start, stop, step)
+
+Returns a random integer from the range, similar to range() function.
+
+```python
+print(random.randrange(10))      # 0 to 9
+print(random.randrange(1, 11))   # 1 to 10
+print(random.randrange(0, 101, 2))  # Even numbers 0 to 100
+```
+
+### Floating Point Random Numbers
+
+#### uniform(a, b)
+
+Returns a random float between a and b.
+
+```python
+print(random.uniform(1.5, 10.5))  # 6.234567891234567
+```
+
+#### triangular(low, high, mode)
+
+Returns a random float with triangular distribution.
+
+```python
+print(random.triangular(0, 10, 5))  # Peaks at 5
+```
+
+### Sequence Operations
+
+#### choice(seq)
+
+Returns a random element from a non-empty sequence.
+
+```python
+colors = ['red', 'blue', 'green', 'yellow']
+print(random.choice(colors))  # 'blue'
+
+numbers = [1, 2, 3, 4, 5]
+print(random.choice(numbers))  # 3
+```
+
+#### choices(population, weights, k)
+
+Returns a list of k elements chosen from population with replacement.
+
+```python
+fruits = ['apple', 'banana', 'orange']
+print(random.choices(fruits, k=3))  # ['banana', 'apple', 'banana']
+
+# Weighted choices
+print(random.choices(fruits, weights=[10, 1, 1], k=5))
+# More likely to pick 'apple'
+```
+
+#### sample(population, k)
+
+Returns a list of k unique elements from population without replacement.
+
+```python
+numbers = list(range(1, 11))
+print(random.sample(numbers, 3))  # [7, 2, 9]
+
+# For unique random integers
+print(random.sample(range(100), 5))  # [23, 67, 89, 12, 45]
+```
+
+#### shuffle(x)
+
+Shuffles the sequence x in place.
+
+```python
+deck = list(range(1, 53))
+random.shuffle(deck)
+print(deck[:5])  # [23, 7, 41, 2, 19]
+```
+
+### Statistical Distributions
+
+#### Normal Distribution
+
+```python
+# Gaussian distribution
+print(random.gauss(0, 1))      # Mean=0, Standard deviation=1
+print(random.normalvariate(100, 15))  # Mean=100, SD=15
+```
+
+#### Exponential Distribution
+
+```python
+print(random.expovariate(1.5))  # Lambda=1.5
+```
+
+#### Gamma Distribution
+
+```python
+print(random.gammavariate(2, 3))  # Alpha=2, Beta=3
+```
+
+#### Beta Distribution
+
+```python
+print(random.betavariate(2, 5))  # Alpha=2, Beta=5
+```
+
+### Seeding and State Management
+
+#### seed(x)
+
+Initializes the random number generator with a seed value for reproducible results.
+
+```python
+random.seed(42)
+print(random.random())  # 0.6394267984578837
+print(random.random())  # 0.025010755222666936
+
+# Reset with same seed
+random.seed(42)
+print(random.random())  # 0.6394267984578837 (same as before)
+```
+
+#### getstate() and setstate()
+
+Save and restore the internal state of the random number generator.
+
+```python
+state = random.getstate()
+print(random.random())  # 0.123456789
+
+random.setstate(state)
+print(random.random())  # 0.123456789 (same value)
+```
+
+### Advanced Usage Patterns
+
+#### Creating Custom Random Generators
+
+```python
+# Create separate random instances
+rng1 = random.Random(42)
+rng2 = random.Random(123)
+
+print(rng1.randint(1, 10))  # Independent from global random
+print(rng2.randint(1, 10))  # Independent from both global and rng1
+```
+
+#### Weighted Random Selection
+
+```python
+def weighted_choice(choices, weights):
+    total = sum(weights)
+    r = random.uniform(0, total)
+    upto = 0
+    for choice, weight in zip(choices, weights):
+        if upto + weight >= r:
+            return choice
+        upto += weight
+
+items = ['A', 'B', 'C']
+weights = [0.5, 0.3, 0.2]
+print(weighted_choice(items, weights))
+```
+
+### Practical Applications
+
+#### Password Generation
+
+```python
+import string
+
+def generate_password(length=12):
+    chars = string.ascii_letters + string.digits + "!@#$%^&*"
+    return ''.join(random.choice(chars) for _ in range(length))
+
+print(generate_password())  # "K3$mN9@pL4xZ"
+```
+
+#### Monte Carlo Simulation
+
+```python
+def estimate_pi(trials=1000000):
+    inside_circle = 0
+    for _ in range(trials):
+        x, y = random.random(), random.random()
+        if x*x + y*y <= 1:
+            inside_circle += 1
+    return 4 * inside_circle / trials
+
+print(estimate_pi())  # Approximately 3.14159
+```
+
+#### Random Data Generation
+
+```python
+def generate_test_data(n=100):
+    names = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve']
+    ages = list(range(18, 80))
+    cities = ['New York', 'London', 'Tokyo', 'Paris', 'Sydney']
+    
+    data = []
+    for _ in range(n):
+        person = {
+            'name': random.choice(names),
+            'age': random.choice(ages),
+            'city': random.choice(cities),
+            'salary': random.uniform(30000, 150000)
+        }
+        data.append(person)
+    return data
+```
+
+### Performance Considerations
+
+#### Efficiency Tips
+
+- Use `random.choices()` instead of multiple `random.choice()` calls
+- For large samples without replacement, `random.sample()` is more efficient than manual selection
+- Consider using `random.Random()` instances for thread safety
+- Pre-generate random numbers for performance-critical applications
+
+#### Memory Usage
+
+```python
+# Efficient for large ranges
+random.randrange(1000000)  # Doesn't create the full range
+
+# Less efficient
+random.choice(range(1000000))  # Creates full range in memory
+```
+
+### Security Considerations
+
+The `random` module is not cryptographically secure. For security-sensitive applications, use the `secrets` module instead:
+
+```python
+import secrets
+
+# Cryptographically secure alternatives
+secrets.randbelow(10)           # Instead of random.randrange(10)
+secrets.choice(['a', 'b', 'c']) # Instead of random.choice()
+secrets.token_hex(16)           # For secure tokens
+```
+
+### Common Pitfalls
+
+#### Mutable Default Arguments
+
+```python
+# Wrong
+def shuffle_list(lst=[]):
+    random.shuffle(lst)
+    return lst
+
+# Correct
+def shuffle_list(lst=None):
+    if lst is None:
+        lst = []
+    random.shuffle(lst)
+    return lst
+```
+
+#### Seeding in Loops
+
+```python
+# Wrong - reseeds every iteration
+for i in range(10):
+    random.seed(42)
+    print(random.random())  # Always same value
+
+# Correct - seed once
+random.seed(42)
+for i in range(10):
+    print(random.random())  # Different values
+```
+
+### Testing with Random Data
+
+#### Reproducible Tests
+
+```python
+import unittest
+
+class TestRandomBehavior(unittest.TestCase):
+    def setUp(self):
+        random.seed(42)  # Ensure reproducible tests
+    
+    def test_random_choice(self):
+        choices = [1, 2, 3, 4, 5]
+        result = random.choice(choices)
+        self.assertIn(result, choices)
+```
+
+#### Property-Based Testing
+
+```python
+def test_shuffle_preserves_elements():
+    original = [1, 2, 3, 4, 5]
+    shuffled = original.copy()
+    random.shuffle(shuffled)
+    assert sorted(shuffled) == sorted(original)
+```
+
+### Integration with Other Libraries
+
+#### NumPy Integration
+
+```python
+import numpy as np
+
+# NumPy has its own random module
+np.random.seed(42)
+arr = np.random.random(5)  # Array of random floats
+```
+
+#### Pandas Integration
+
+```python
+import pandas as pd
+
+# Random sampling from DataFrames
+df = pd.DataFrame({'A': range(100), 'B': range(100, 200)})
+sample = df.sample(n=10)  # Random 10 rows
+```
+
+**Key points**: The random module is pseudorandom and deterministic when seeded, making it suitable for simulations and testing but not for cryptographic purposes. Understanding the difference between sampling with and without replacement is crucial for correct usage. The module provides both simple random selection and sophisticated statistical distributions for various applications.
+
+---
+
+## `datetime` Module
+
+### Overview
+
+The datetime module is a built-in Python library that provides classes for manipulating dates and times. It offers comprehensive functionality for parsing, formatting, arithmetic operations, and timezone handling with date and time values. The module is designed to be more intuitive and feature-rich than the older time module.
+
+### Importing the Datetime Module
+
+```python
+import datetime
+from datetime import datetime, date, time, timedelta, timezone
+```
+
+### Core Classes
+
+#### datetime.datetime
+
+Represents a specific moment in time with date and time components.
+
+```python
+from datetime import datetime
+
+# Create datetime objects
+now = datetime.now()
+specific_time = datetime(2023, 12, 25, 15, 30, 45)
+print(specific_time)  # 2023-12-25 15:30:45
+```
+
+#### datetime.date
+
+Represents a date (year, month, day) without time information.
+
+```python
+from datetime import date
+
+# Create date objects
+today = date.today()
+specific_date = date(2023, 12, 25)
+print(specific_date)  # 2023-12-25
+```
+
+#### datetime.time
+
+Represents a time (hour, minute, second, microsecond) without date information.
+
+```python
+from datetime import time
+
+# Create time objects
+specific_time = time(15, 30, 45)
+with_microseconds = time(15, 30, 45, 123456)
+print(specific_time)  # 15:30:45
+```
+
+#### datetime.timedelta
+
+Represents a duration, the difference between two dates or times.
+
+```python
+from datetime import timedelta
+
+# Create timedelta objects
+one_week = timedelta(weeks=1)
+mixed_duration = timedelta(days=5, hours=3, minutes=30)
+print(one_week)  # 7 days, 0:00:00
+```
+
+#### datetime.timezone
+
+Represents timezone information.
+
+```python
+from datetime import timezone, timedelta
+
+# Create timezone objects
+utc = timezone.utc
+eastern = timezone(timedelta(hours=-5))
+```
+
+### Creating Datetime Objects
+
+#### Current Date and Time
+
+```python
+from datetime import datetime, date, time
+
+# Current date and time
+now = datetime.now()
+today = date.today()
+current_time = datetime.now().time()
+```
+
+#### Specific Date and Time
+
+```python
+# Various ways to create datetime objects
+specific_datetime = datetime(2023, 12, 25, 15, 30, 45)
+from_date_and_time = datetime.combine(date(2023, 12, 25), time(15, 30, 45))
+```
+
+#### From Timestamps
+
+```python
+import time
+from datetime import datetime
+
+# From Unix timestamp
+timestamp = time.time()
+from_timestamp = datetime.fromtimestamp(timestamp)
+utc_from_timestamp = datetime.utcfromtimestamp(timestamp)
+```
+
+#### From ISO Format
+
+```python
+from datetime import datetime
+
+# From ISO 8601 format
+iso_string = "2023-12-25T15:30:45"
+from_iso = datetime.fromisoformat(iso_string)
+```
+
+### Formatting and Parsing
+
+#### strftime() - Format to String
+
+```python
+from datetime import datetime
+
+dt = datetime(2023, 12, 25, 15, 30, 45)
+
+# Common format codes
+formatted = dt.strftime("%Y-%m-%d %H:%M:%S")  # 2023-12-25 15:30:45
+date_only = dt.strftime("%Y-%m-%d")           # 2023-12-25
+time_only = dt.strftime("%H:%M:%S")           # 15:30:45
+readable = dt.strftime("%B %d, %Y at %I:%M %p")  # December 25, 2023 at 03:30 PM
+```
+
+#### Format Codes Reference
+
+```python
+# Common format codes
+codes = {
+    "%Y": "4-digit year",
+    "%y": "2-digit year",
+    "%m": "Month as number (01-12)",
+    "%B": "Full month name",
+    "%b": "Abbreviated month name",
+    "%d": "Day of month (01-31)",
+    "%H": "Hour (00-23)",
+    "%I": "Hour (01-12)",
+    "%M": "Minute (00-59)",
+    "%S": "Second (00-59)",
+    "%p": "AM/PM",
+    "%A": "Full weekday name",
+    "%a": "Abbreviated weekday name",
+    "%w": "Weekday as number (0-6)",
+    "%z": "UTC offset",
+    "%Z": "Timezone name"
+}
+```
+
+#### strptime() - Parse from String
+
+```python
+from datetime import datetime
+
+# Parse various formats
+date_string = "2023-12-25 15:30:45"
+parsed = datetime.strptime(date_string, "%Y-%m-%d %H:%M:%S")
+
+# Different format
+date_string2 = "December 25, 2023"
+parsed2 = datetime.strptime(date_string2, "%B %d, %Y")
+```
+
+### Date and Time Arithmetic
+
+#### Using timedelta
+
+```python
+from datetime import datetime, timedelta
+
+now = datetime.now()
+
+# Add time
+future = now + timedelta(days=7, hours=3, minutes=30)
+past = now - timedelta(weeks=2)
+
+# More complex operations
+next_month = now + timedelta(days=30)
+in_one_year = now + timedelta(days=365)
+```
+
+#### Duration Between Dates
+
+```python
+from datetime import datetime, date
+
+# Calculate differences
+start_date = datetime(2023, 1, 1)
+end_date = datetime(2023, 12, 31)
+difference = end_date - start_date
+print(difference.days)  # 364
+print(difference.total_seconds())  # 31,449,600
+```
+
+#### Timedelta Operations
+
+```python
+from datetime import timedelta
+
+# Create timedelta objects
+one_week = timedelta(weeks=1)
+one_day = timedelta(days=1)
+one_hour = timedelta(hours=1)
+
+# Arithmetic operations
+combined = one_week + one_day + one_hour
+multiplied = one_day * 7
+divided = one_week / 7
+```
+
+### Working with Dates
+
+#### Date Attributes and Methods
+
+```python
+from datetime import date
+
+today = date.today()
+specific_date = date(2023, 12, 25)
+
+# Attributes
+print(today.year)     # 2023
+print(today.month)    # Current month
+print(today.day)      # Current day
+
+# Methods
+print(today.weekday())     # Monday is 0, Sunday is 6
+print(today.isoweekday())  # Monday is 1, Sunday is 7
+print(today.strftime("%A"))  # Full weekday name
+```
+
+#### Date Comparison
+
+```python
+from datetime import date
+
+date1 = date(2023, 12, 25)
+date2 = date(2023, 12, 31)
+
+# Comparison operations
+print(date1 < date2)   # True
+print(date1 == date2)  # False
+print(date1 > date2)   # False
+```
+
+#### Date Arithmetic
+
+```python
+from datetime import date, timedelta
+
+today = date.today()
+tomorrow = today + timedelta(days=1)
+last_week = today - timedelta(weeks=1)
+
+# Calculate age
+birth_date = date(1990, 5, 15)
+age = today - birth_date
+print(f"Age in days: {age.days}")
+```
+
+### Working with Time
+
+#### Time Attributes and Methods
+
+```python
+from datetime import time
+
+specific_time = time(15, 30, 45, 123456)
+
+# Attributes
+print(specific_time.hour)        # 15
+print(specific_time.minute)      # 30
+print(specific_time.second)      # 45
+print(specific_time.microsecond) # 123456
+```
+
+#### Time Comparison
+
+```python
+from datetime import time
+
+time1 = time(9, 30)
+time2 = time(17, 45)
+
+print(time1 < time2)  # True
+print(time1.strftime("%I:%M %p"))  # 09:30 AM
+```
+
+### Working with Datetime
+
+#### Datetime Attributes and Methods
+
+```python
+from datetime import datetime
+
+dt = datetime(2023, 12, 25, 15, 30, 45, 123456)
+
+# Date components
+print(dt.year, dt.month, dt.day)
+
+# Time components
+print(dt.hour, dt.minute, dt.second, dt.microsecond)
+
+# Extract date and time
+date_part = dt.date()
+time_part = dt.time()
+```
+
+#### Datetime Arithmetic
+
+```python
+from datetime import datetime, timedelta
+
+now = datetime.now()
+
+# Add/subtract time
+future = now + timedelta(days=30, hours=5)
+past = now - timedelta(weeks=2, days=3)
+
+# Calculate duration
+event_time = datetime(2023, 12, 25, 18, 0)
+time_until_event = event_time - now
+```
+
+### Timezone Handling
+
+#### Creating Timezone-Aware Objects
+
+```python
+from datetime import datetime, timezone, timedelta
+
+# UTC timezone
+utc_time = datetime.now(timezone.utc)
+
+# Custom timezone
+est = timezone(timedelta(hours=-5))
+est_time = datetime.now(est)
+
+# From timestamp with timezone
+import time
+timestamp = time.time()
+aware_dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+```
+
+#### Converting Between Timezones
+
+```python
+from datetime import datetime, timezone, timedelta
+
+# Create timezone-aware datetime
+utc = timezone.utc
+eastern = timezone(timedelta(hours=-5))
+pacific = timezone(timedelta(hours=-8))
+
+# UTC time
+utc_time = datetime.now(utc)
+
+# Convert to other timezones
+eastern_time = utc_time.astimezone(eastern)
+pacific_time = utc_time.astimezone(pacific)
+```
+
+#### Working with pytz (Third-party library)
+
+```python
+# Note: pytz is not built-in, requires installation
+import pytz
+from datetime import datetime
+
+# Create timezone-aware datetime with pytz
+utc = pytz.UTC
+eastern = pytz.timezone('US/Eastern')
+pacific = pytz.timezone('US/Pacific')
+
+# Localize naive datetime
+naive_dt = datetime(2023, 12, 25, 15, 30)
+localized = eastern.localize(naive_dt)
+
+# Convert between timezones
+pacific_time = localized.astimezone(pacific)
+```
+
+### Advanced Operations
+
+#### Working with Weekdays
+
+```python
+from datetime import datetime, timedelta
+
+def get_next_weekday(date, weekday):
+    """Get the next occurrence of a specific weekday"""
+    days_ahead = weekday - date.weekday()
+    if days_ahead <= 0:
+        days_ahead += 7
+    return date + timedelta(days_ahead)
+
+# Get next Monday (0 = Monday)
+today = datetime.now()
+next_monday = get_next_weekday(today, 0)
+```
+
+#### Month and Year Operations
+
+```python
+from datetime import datetime, timedelta
+import calendar
+
+def add_months(date, months):
+    """Add months to a date"""
+    month = date.month - 1 + months
+    year = date.year + month // 12
+    month = month % 12 + 1
+    day = min(date.day, calendar.monthrange(year, month)[1])
+    return date.replace(year=year, month=month, day=day)
+
+# Add 3 months to current date
+current_date = datetime.now()
+future_date = add_months(current_date, 3)
+```
+
+#### Business Day Calculations
+
+```python
+from datetime import datetime, timedelta
+
+def add_business_days(date, business_days):
+    """Add business days (excluding weekends)"""
+    while business_days > 0:
+        date += timedelta(days=1)
+        if date.weekday() < 5:  # Monday to Friday
+            business_days -= 1
+    return date
+
+# Add 5 business days
+start_date = datetime(2023, 12, 20)
+end_date = add_business_days(start_date, 5)
+```
+
+### Practical Examples
+
+#### Age Calculator
+
+```python
+from datetime import date
+
+def calculate_age(birth_date):
+    """Calculate age in years"""
+    today = date.today()
+    age = today.year - birth_date.year
+    
+    # Check if birthday has occurred this year
+    if (today.month, today.day) < (birth_date.month, birth_date.day):
+        age -= 1
+    
+    return age
+
+# Example usage
+birth_date = date(1990, 5, 15)
+age = calculate_age(birth_date)
+print(f"Age: {age} years")
+```
+
+#### Date Range Generator
+
+```python
+from datetime import datetime, timedelta
+
+def date_range(start_date, end_date, step=timedelta(days=1)):
+    """Generate dates between start and end"""
+    current = start_date
+    while current < end_date:
+        yield current
+        current += step
+
+# Generate all dates in a month
+start = datetime(2023, 12, 1)
+end = datetime(2023, 12, 31)
+for date in date_range(start, end):
+    print(date.strftime("%Y-%m-%d"))
+```
+
+#### Working Hours Calculator
+
+```python
+from datetime import datetime, timedelta
+
+def calculate_working_hours(start_date, end_date, work_start=9, work_end=17):
+    """Calculate working hours between two dates"""
+    total_hours = 0
+    current = start_date
+    
+    while current.date() <= end_date.date():
+        # Skip weekends
+        if current.weekday() < 5:
+            if current.date() == start_date.date():
+                # First day - use actual start time
+                work_start_time = max(current.time(), datetime.min.time().replace(hour=work_start))
+            else:
+                work_start_time = datetime.min.time().replace(hour=work_start)
+            
+            if current.date() == end_date.date():
+                # Last day - use actual end time
+                work_end_time = min(end_date.time(), datetime.min.time().replace(hour=work_end))
+            else:
+                work_end_time = datetime.min.time().replace(hour=work_end)
+            
+            # Calculate hours for this day
+            if work_end_time > work_start_time:
+                day_hours = (datetime.combine(current.date(), work_end_time) - 
+                           datetime.combine(current.date(), work_start_time)).total_seconds() / 3600
+                total_hours += max(0, min(8, day_hours))
+        
+        current += timedelta(days=1)
+    
+    return total_hours
+```
+
+#### Recurring Event Generator
+
+```python
+from datetime import datetime, timedelta
+
+def generate_recurring_events(start_date, recurrence_pattern, count=10):
+    """Generate recurring events"""
+    events = []
+    current_date = start_date
+    
+    for i in range(count):
+        events.append(current_date)
+        
+        if recurrence_pattern == 'daily':
+            current_date += timedelta(days=1)
+        elif recurrence_pattern == 'weekly':
+            current_date += timedelta(weeks=1)
+        elif recurrence_pattern == 'monthly':
+            # Simple monthly (same day of month)
+            if current_date.month == 12:
+                current_date = current_date.replace(year=current_date.year + 1, month=1)
+            else:
+                current_date = current_date.replace(month=current_date.month + 1)
+    
+    return events
+```
+
+### Error Handling
+
+#### Common Exceptions
+
+```python
+from datetime import datetime, date
+
+# ValueError - Invalid date/time values
+try:
+    invalid_date = date(2023, 13, 1)  # Invalid month
+except ValueError as e:
+    print(f"Error: {e}")
+
+# TypeError - Wrong type
+try:
+    result = datetime.now() + 5  # Can't add int to datetime
+except TypeError as e:
+    print(f"Error: {e}")
+
+# AttributeError - Invalid attribute
+try:
+    d = date.today()
+    print(d.hour)  # date objects don't have hour attribute
+except AttributeError as e:
+    print(f"Error: {e}")
+```
+
+#### Safe Date Operations
+
+```python
+from datetime import datetime, date
+import calendar
+
+def safe_date_create(year, month, day):
+    """Safely create a date, handling invalid days"""
+    try:
+        return date(year, month, day)
+    except ValueError:
+        # Use last valid day of month
+        last_day = calendar.monthrange(year, month)[1]
+        return date(year, month, min(day, last_day))
+
+def safe_parse_date(date_string, format_string):
+    """Safely parse date string"""
+    try:
+        return datetime.strptime(date_string, format_string)
+    except ValueError as e:
+        print(f"Unable to parse date: {e}")
+        return None
+```
+
+### Performance Considerations
+
+#### Efficient Date Operations
+
+```python
+from datetime import datetime, date
+
+# Use date objects for date-only operations
+today = date.today()  # More efficient than datetime.now().date()
+
+# Cache expensive operations
+import functools
+
+@functools.lru_cache(maxsize=128)
+def get_first_day_of_month(year, month):
+    return date(year, month, 1)
+
+# Use comparison instead of conversion when possible
+def is_weekend(date_obj):
+    return date_obj.weekday() >= 5  # More efficient than string comparison
+```
+
+#### Memory-Efficient Date Iteration
+
+```python
+from datetime import date, timedelta
+
+def efficient_date_range(start_date, end_date):
+    """Memory-efficient date generator"""
+    current = start_date
+    while current <= end_date:
+        yield current
+        current += timedelta(days=1)
+
+# Use generator instead of creating list
+for date in efficient_date_range(date(2023, 1, 1), date(2023, 12, 31)):
+    # Process date without storing all dates in memory
+    pass
+```
+
+### Integration with Other Libraries
+
+#### With JSON
+
+```python
+import json
+from datetime import datetime
+
+# Custom JSON encoder for datetime
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
+# Usage
+data = {'timestamp': datetime.now()}
+json_string = json.dumps(data, cls=DateTimeEncoder)
+```
+
+#### With Pandas
+
+```python
+import pandas as pd
+from datetime import datetime
+
+# Create pandas Series with datetime
+dates = pd.date_range(start='2023-01-01', end='2023-12-31', freq='D')
+df = pd.DataFrame({'date': dates})
+
+# Convert datetime objects to pandas
+py_dates = [datetime(2023, 1, 1), datetime(2023, 1, 2)]
+df_from_py = pd.DataFrame({'date': pd.to_datetime(py_dates)})
+```
+
+### Best Practices
+
+#### Code Organization
+
+```python
+from datetime import datetime, timezone
+import pytz
+
+class DateTimeHelper:
+    """Helper class for common datetime operations"""
+    
+    @staticmethod
+    def now_utc():
+        """Get current UTC time"""
+        return datetime.now(timezone.utc)
+    
+    @staticmethod
+    def format_for_display(dt):
+        """Format datetime for user display"""
+        return dt.strftime("%B %d, %Y at %I:%M %p")
+    
+    @staticmethod
+    def parse_iso(iso_string):
+        """Parse ISO format string safely"""
+        try:
+            return datetime.fromisoformat(iso_string)
+        except ValueError:
+            return None
+```
+
+#### Configuration Management
+
+```python
+from datetime import datetime, timezone
+
+class Config:
+    DEFAULT_TIMEZONE = timezone.utc
+    DATE_FORMAT = "%Y-%m-%d"
+    DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+    DISPLAY_FORMAT = "%B %d, %Y at %I:%M %p"
+
+def format_date(dt, format_type='default'):
+    """Format date according to configuration"""
+    formats = {
+        'default': Config.DATE_FORMAT,
+        'datetime': Config.DATETIME_FORMAT,
+        'display': Config.DISPLAY_FORMAT
+    }
+    return dt.strftime(formats.get(format_type, Config.DATE_FORMAT))
+```
+
+**Key points:** The datetime module provides comprehensive date and time handling capabilities with separate classes for dates, times, and combined datetime objects. It offers robust parsing and formatting options, timezone support, and arithmetic operations. The module is essential for any application that needs to work with temporal data, from simple date calculations to complex timezone-aware applications.
+
+**Next steps:** For more advanced timezone handling, consider using the zoneinfo module (Python 3.9+) or the pytz library. For high-performance date operations with large datasets, explore pandas' datetime functionality. For more complex date parsing, investigate the dateutil library.
+
+---
+
+## `time` Module
+
+### Overview
+
+The `time` module provides functions for working with time-related operations in Python. It handles time representations, formatting, parsing, and sleeping operations. The module works with both system time and provides utilities for measuring elapsed time, making it essential for scheduling, performance measurement, and time-based operations.
+
+### Importing the Module
+
+```python
+import time
+from time import sleep, time, strftime  # Import specific functions
+```
+
+### Time Representations
+
+#### Epoch Time
+
+Unix timestamp representing seconds since January 1, 1970, 00:00:00 UTC.
+
+```python
+import time
+
+# Current time as timestamp
+current_time = time.time()
+print(current_time)  # 1720497234.567890
+
+# Convert timestamp to readable format
+print(time.ctime(current_time))  # Wed Jul 09 14:20:34 2025
+```
+
+#### Struct Time
+
+A named tuple containing time components.
+
+```python
+# Current time as struct_time
+current_struct = time.localtime()
+print(current_struct)
+# time.struct_time(tm_year=2025, tm_mon=7, tm_mday=9, tm_hour=14, tm_min=20, tm_sec=34, tm_wday=2, tm_yday=190, tm_isdst=0)
+
+# Access individual components
+print(current_struct.tm_year)   # 2025
+print(current_struct.tm_mon)    # 7
+print(current_struct.tm_mday)   # 9
+print(current_struct.tm_hour)   # 14
+```
+
+### Core Time Functions
+
+#### time()
+
+Returns current time as a floating-point number of seconds since epoch.
+
+```python
+start = time.time()
+# Some operation
+end = time.time()
+duration = end - start
+print(f"Operation took {duration:.4f} seconds")
+```
+
+#### sleep(seconds)
+
+Suspends execution for the specified number of seconds.
+
+```python
+print("Starting...")
+time.sleep(2)      # Sleep for 2 seconds
+print("2 seconds later")
+
+time.sleep(0.5)    # Sleep for 500 milliseconds
+print("0.5 seconds later")
+```
+
+#### localtime(seconds)
+
+Converts timestamp to local time struct_time.
+
+```python
+# Current local time
+local_time = time.localtime()
+print(local_time)
+
+# Convert specific timestamp
+timestamp = 1720497234
+local_time = time.localtime(timestamp)
+print(local_time)
+```
+
+#### gmtime(seconds)
+
+Converts timestamp to UTC time struct_time.
+
+```python
+# Current UTC time
+utc_time = time.gmtime()
+print(utc_time)
+
+# Convert specific timestamp to UTC
+utc_time = time.gmtime(1720497234)
+print(utc_time)
+```
+
+#### mktime(time_tuple)
+
+Converts struct_time to timestamp.
+
+```python
+# Create a specific time
+time_tuple = (2025, 7, 9, 14, 30, 0, 0, 0, 0)
+timestamp = time.mktime(time_tuple)
+print(timestamp)  # 1720497000.0
+```
+
+### Time Formatting and Parsing
+
+#### strftime(format, time_tuple)
+
+Formats time according to format string.
+
+```python
+# Current time formatting
+now = time.localtime()
+print(time.strftime("%Y-%m-%d %H:%M:%S", now))  # 2025-07-09 14:30:00
+print(time.strftime("%A, %B %d, %Y", now))     # Wednesday, July 09, 2025
+print(time.strftime("%I:%M %p", now))           # 02:30 PM
+
+# Common format codes
+formats = {
+    "%Y": "Year with century (2025)",
+    "%y": "Year without century (25)",
+    "%m": "Month as number (07)",
+    "%B": "Full month name (July)",
+    "%b": "Abbreviated month (Jul)",
+    "%d": "Day of month (09)",
+    "%A": "Full weekday name (Wednesday)",
+    "%a": "Abbreviated weekday (Wed)",
+    "%H": "Hour 24-hour format (14)",
+    "%I": "Hour 12-hour format (02)",
+    "%M": "Minute (30)",
+    "%S": "Second (00)",
+    "%p": "AM/PM indicator"
+}
+```
+
+#### strptime(string, format)
+
+Parses time string according to format.
+
+```python
+# Parse date string
+date_string = "2025-07-09 14:30:00"
+parsed_time = time.strptime(date_string, "%Y-%m-%d %H:%M:%S")
+print(parsed_time)
+
+# Parse different formats
+time_str = "July 9, 2025 2:30 PM"
+parsed = time.strptime(time_str, "%B %d, %Y %I:%M %p")
+print(parsed)
+```
+
+#### ctime(seconds)
+
+Converts timestamp to readable string.
+
+```python
+print(time.ctime())           # Current time
+print(time.ctime(1720497234)) # Wed Jul  9 14:20:34 2025
+```
+
+#### asctime(time_tuple)
+
+Converts struct_time to readable string.
+
+```python
+current_time = time.localtime()
+print(time.asctime(current_time))  # Wed Jul  9 14:30:00 2025
+```
+
+### Performance Measurement
+
+#### Timing Code Execution
+
+```python
+import time
+
+def time_function(func, *args, **kwargs):
+    start = time.time()
+    result = func(*args, **kwargs)
+    end = time.time()
+    print(f"Function took {end - start:.4f} seconds")
+    return result
+
+def slow_operation():
+    time.sleep(1)
+    return "Done"
+
+result = time_function(slow_operation)
+```
+
+#### High-Resolution Timing
+
+```python
+# More precise timing using perf_counter
+start = time.perf_counter()
+# Some operation
+end = time.perf_counter()
+duration = end - start
+print(f"High precision duration: {duration:.9f} seconds")
+```
+
+#### Process and Thread Time
+
+```python
+# CPU time spent by current process
+process_time = time.process_time()
+print(f"Process time: {process_time}")
+
+# Thread time
+thread_time = time.thread_time()
+print(f"Thread time: {thread_time}")
+```
+
+### Time Zones and UTC
+
+#### Working with UTC
+
+```python
+# Current UTC timestamp
+utc_timestamp = time.time()
+print(f"UTC timestamp: {utc_timestamp}")
+
+# Convert to UTC struct_time
+utc_struct = time.gmtime(utc_timestamp)
+print(f"UTC time: {time.asctime(utc_struct)}")
+
+# Convert to local time
+local_struct = time.localtime(utc_timestamp)
+print(f"Local time: {time.asctime(local_struct)}")
+```
+
+#### Time Zone Information
+
+```python
+# Get timezone information
+print(f"Timezone: {time.tzname}")      # ('UTC', 'UTC') or ('EST', 'EDT')
+print(f"Daylight saving: {time.daylight}")  # 0 or 1
+print(f"Timezone offset: {time.timezone}")  # Seconds west of UTC
+```
+
+### Advanced Time Operations
+
+#### Creating Custom Time Objects
+
+```python
+def create_time(year, month, day, hour=0, minute=0, second=0):
+    """Create a timestamp from individual components"""
+    time_tuple = (year, month, day, hour, minute, second, 0, 0, 0)
+    return time.mktime(time_tuple)
+
+# Create specific time
+birthday = create_time(2025, 12, 25, 9, 30, 0)
+print(f"Birthday timestamp: {birthday}")
+print(f"Birthday: {time.ctime(birthday)}")
+```
+
+#### Time Calculations
+
+```python
+# Calculate days between dates
+def days_between(date1, date2):
+    """Calculate days between two date strings"""
+    format_str = "%Y-%m-%d"
+    time1 = time.mktime(time.strptime(date1, format_str))
+    time2 = time.mktime(time.strptime(date2, format_str))
+    return abs(time2 - time1) / (24 * 60 * 60)
+
+days = days_between("2025-01-01", "2025-07-09")
+print(f"Days between: {days}")
+```
+
+#### Time Intervals
+
+```python
+def format_duration(seconds):
+    """Format seconds into human-readable duration"""
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    days, hours = divmod(hours, 24)
+    
+    parts = []
+    if days:
+        parts.append(f"{int(days)} days")
+    if hours:
+        parts.append(f"{int(hours)} hours")
+    if minutes:
+        parts.append(f"{int(minutes)} minutes")
+    if seconds:
+        parts.append(f"{int(seconds)} seconds")
+    
+    return ", ".join(parts)
+
+duration = 90061  # seconds
+print(format_duration(duration))  # 1 days, 1 hours, 1 minutes, 1 seconds
+```
+
+### Practical Applications
+
+#### Scheduling and Delays
+
+```python
+def schedule_task(task_func, delay_seconds):
+    """Schedule a task to run after a delay"""
+    print(f"Task scheduled for {delay_seconds} seconds from now")
+    time.sleep(delay_seconds)
+    task_func()
+
+def my_task():
+    print("Task executed!")
+
+schedule_task(my_task, 3)  # Run after 3 seconds
+```
+
+#### Rate Limiting
+
+```python
+class RateLimiter:
+    def __init__(self, max_calls, time_window):
+        self.max_calls = max_calls
+        self.time_window = time_window
+        self.calls = []
+    
+    def can_make_call(self):
+        now = time.time()
+        # Remove old calls outside the time window
+        self.calls = [call_time for call_time in self.calls 
+                     if now - call_time <= self.time_window]
+        
+        if len(self.calls) < self.max_calls:
+            self.calls.append(now)
+            return True
+        return False
+
+# Allow 5 calls per 10 seconds
+limiter = RateLimiter(5, 10)
+print(limiter.can_make_call())  # True
+```
+
+#### Timeout Implementation
+
+```python
+def timeout_function(func, timeout_seconds, *args, **kwargs):
+    """Execute function with timeout"""
+    import signal
+    
+    def timeout_handler(signum, frame):
+        raise TimeoutError("Function timed out")
+    
+    # Set up timeout
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(int(timeout_seconds))
+    
+    try:
+        result = func(*args, **kwargs)
+        signal.alarm(0)  # Cancel timeout
+        return result
+    except TimeoutError:
+        print("Function timed out!")
+        return None
+```
+
+#### Logging with Timestamps
+
+```python
+def log_message(message, level="INFO"):
+    """Log message with timestamp"""
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    print(f"[{timestamp}] {level}: {message}")
+
+log_message("Application started")
+time.sleep(1)
+log_message("Processing data", "DEBUG")
+log_message("Error occurred", "ERROR")
+```
+
+### Performance Monitoring
+
+#### Execution Time Decorator
+
+```python
+import functools
+
+def time_it(func):
+    """Decorator to measure function execution time"""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        end = time.perf_counter()
+        print(f"{func.__name__} took {end - start:.4f} seconds")
+        return result
+    return wrapper
+
+@time_it
+def slow_function():
+    time.sleep(0.5)
+    return "Result"
+
+result = slow_function()
+```
+
+#### Profiling Code Sections
+
+```python
+class Timer:
+    def __init__(self):
+        self.start_time = None
+    
+    def start(self):
+        self.start_time = time.perf_counter()
+    
+    def stop(self):
+        if self.start_time is None:
+            raise ValueError("Timer not started")
+        elapsed = time.perf_counter() - self.start_time
+        self.start_time = None
+        return elapsed
+    
+    def __enter__(self):
+        self.start()
+        return self
+    
+    def __exit__(self, *args):
+        elapsed = self.stop()
+        print(f"Elapsed time: {elapsed:.4f} seconds")
+
+# Usage as context manager
+with Timer():
+    time.sleep(1)
+    # Code to time
+```
+
+### Common Patterns
+
+#### Retry with Backoff
+
+```python
+def retry_with_backoff(func, max_retries=3, base_delay=1):
+    """Retry function with exponential backoff"""
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise e
+            delay = base_delay * (2 ** attempt)
+            print(f"Attempt {attempt + 1} failed, retrying in {delay}s")
+            time.sleep(delay)
+```
+
+#### Periodic Task Execution
+
+```python
+def run_periodic_task(task_func, interval_seconds, duration_seconds=None):
+    """Run task periodically"""
+    start_time = time.time()
+    
+    while True:
+        task_func()
+        
+        if duration_seconds and time.time() - start_time >= duration_seconds:
+            break
+        
+        time.sleep(interval_seconds)
+
+def heartbeat():
+    print(f"Heartbeat at {time.strftime('%H:%M:%S')}")
+
+# Run heartbeat every 5 seconds for 30 seconds
+run_periodic_task(heartbeat, 5, 30)
+```
+
+### Cross-Platform Considerations
+
+#### Sleep Precision
+
+```python
+# Sleep precision varies by platform
+def precise_sleep(duration):
+    """More precise sleep implementation"""
+    start = time.perf_counter()
+    while time.perf_counter() - start < duration:
+        time.sleep(0.0001)  # Short sleep to avoid busy waiting
+```
+
+#### Platform-Specific Functions
+
+```python
+# Windows-specific high-resolution timer
+try:
+    # Windows
+    time.clock()  # Deprecated in Python 3.8+
+except AttributeError:
+    # Use perf_counter instead
+    pass
+
+# Cross-platform monotonic time
+monotonic_time = time.monotonic()  # Not affected by system clock adjustments
+```
+
+### Integration with Other Modules
+
+#### DateTime Integration
+
+```python
+import datetime
+
+# Convert between time and datetime
+timestamp = time.time()
+dt = datetime.datetime.fromtimestamp(timestamp)
+back_to_timestamp = dt.timestamp()
+
+# Time zone aware datetime
+utc_dt = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
+```
+
+#### Threading with Time
+
+```python
+import threading
+import time
+
+def worker_with_timeout(work_func, timeout):
+    """Run function in thread with timeout"""
+    result = [None]
+    exception = [None]
+    
+    def target():
+        try:
+            result[0] = work_func()
+        except Exception as e:
+            exception[0] = e
+    
+    thread = threading.Thread(target=target)
+    thread.start()
+    thread.join(timeout)
+    
+    if thread.is_alive():
+        # Timeout occurred
+        return None, "Timeout"
+    
+    return result[0], exception[0]
+```
+
+### Error Handling
+
+#### Common Time-Related Errors
+
+```python
+try:
+    # Invalid time string
+    time.strptime("invalid", "%Y-%m-%d")
+except ValueError as e:
+    print(f"Parse error: {e}")
+
+try:
+    # Invalid timestamp
+    time.localtime(-1)
+except (ValueError, OSError) as e:
+    print(f"Timestamp error: {e}")
+
+try:
+    # Timezone issues
+    time.mktime((2025, 13, 32, 25, 61, 61, 0, 0, 0))  # Invalid values
+except (ValueError, OverflowError) as e:
+    print(f"Invalid time values: {e}")
+```
+
+**Key points**: The time module works with floating-point timestamps and struct_time objects, providing both low-level and high-level time operations. Understanding the difference between local time and UTC is crucial for global applications. The module's sleep function is essential for timing control, while formatting functions enable human-readable time representation. For more advanced time zone handling, consider using the datetime module or third-party libraries like pytz.
+
+---
+
+## `json` Module
+
+The JSON (JavaScript Object Notation) module in Python provides functionality for parsing JSON from strings or files and converting Python objects into JSON format. JSON has become the standard for data exchange between web services and applications due to its lightweight, human-readable structure.
+
+### Understanding JSON Structure
+
+JSON supports several data types that map directly to Python equivalents. JSON objects correspond to Python dictionaries, JSON arrays to Python lists, JSON strings to Python strings, JSON numbers to Python integers or floats, JSON booleans to Python True/False, and JSON null to Python None.
+
+### Importing and Basic Usage
+
+```python
+import json
+```
+
+The json module provides four main functions: `dumps()` for serializing Python objects to JSON strings, `dump()` for writing JSON directly to files, `loads()` for parsing JSON strings into Python objects, and `load()` for reading JSON from files.
+
+### Serialization with dumps() and dump()
+
+The `dumps()` function converts Python objects to JSON strings. It accepts various parameters to control output formatting and behavior.
+
+**Example:**
+
+```python
+import json
+
+data = {
+    "name": "Alice",
+    "age": 30,
+    "city": "New York",
+    "hobbies": ["reading", "swimming", "coding"]
+}
+
+json_string = json.dumps(data)
+print(json_string)
+```
+
+**Output:**
+
+```json
+{"name": "Alice", "age": 30, "city": "New York", "hobbies": ["reading", "swimming", "coding"]}
+```
+
+### Pretty Printing JSON
+
+For better readability, use the `indent` parameter to format JSON with proper indentation:
+
+```python
+pretty_json = json.dumps(data, indent=4)
+print(pretty_json)
+```
+
+**Output:**
+
+```json
+{
+    "name": "Alice",
+    "age": 30,
+    "city": "New York",
+    "hobbies": [
+        "reading",
+        "swimming",
+        "coding"
+    ]
+}
+```
+
+### Writing JSON to Files
+
+The `dump()` function writes JSON directly to file objects:
+
+```python
+with open('data.json', 'w') as file:
+    json.dump(data, file, indent=4)
+```
+
+### Deserialization with loads() and load()
+
+The `loads()` function parses JSON strings into Python objects:
+
+```python
+json_string = '{"name": "Bob", "age": 25, "married": true}'
+parsed_data = json.loads(json_string)
+print(parsed_data)
+print(type(parsed_data))
+```
+
+**Output:**
+
+```python
+{'name': 'Bob', 'age': 25, 'married': True}
+<class 'dict'>
+```
+
+### Reading JSON from Files
+
+The `load()` function reads JSON from file objects:
+
+```python
+with open('data.json', 'r') as file:
+    loaded_data = json.load(file)
+    print(loaded_data)
+```
+
+### Data Type Mapping
+
+Understanding how Python types convert to JSON is crucial for proper serialization:
+
+- Python `dict` → JSON object
+- Python `list`, `tuple` → JSON array
+- Python `str` → JSON string
+- Python `int`, `float` → JSON number
+- Python `True` → JSON true
+- Python `False` → JSON false
+- Python `None` → JSON null
+
+### Common Parameters and Options
+
+#### ensure_ascii Parameter
+
+By default, `dumps()` escapes non-ASCII characters. Set `ensure_ascii=False` to preserve Unicode characters:
+
+```python
+data = {"message": "Hello, 世界"}
+json_with_unicode = json.dumps(data, ensure_ascii=False)
+print(json_with_unicode)
+```
+
+#### sort_keys Parameter
+
+Sort dictionary keys in the output for consistent formatting:
+
+```python
+json_sorted = json.dumps(data, sort_keys=True, indent=2)
+```
+
+#### separators Parameter
+
+Customize the separators used in JSON output:
+
+```python
+compact_json = json.dumps(data, separators=(',', ':'))
+```
+
+### Error Handling
+
+JSON operations can raise several exceptions that should be handled appropriately:
+
+#### JSONDecodeError
+
+Occurs when parsing invalid JSON:
+
+```python
+try:
+    invalid_json = '{"name": "Alice", "age":}'
+    json.loads(invalid_json)
+except json.JSONDecodeError as e:
+    print(f"JSON decode error: {e}")
+```
+
+#### TypeError
+
+Occurs when trying to serialize non-serializable objects:
+
+```python
+import datetime
+
+try:
+    data = {"timestamp": datetime.datetime.now()}
+    json.dumps(data)
+except TypeError as e:
+    print(f"Serialization error: {e}")
+```
+
+### Custom JSON Encoders
+
+For serializing custom objects, create a custom encoder by subclassing `JSONEncoder`:
+
+```python
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
+data = {"timestamp": datetime.datetime.now()}
+json_string = json.dumps(data, cls=DateTimeEncoder)
+```
+
+### Custom JSON Decoders
+
+Create custom decoders for parsing JSON with specific transformations:
+
+```python
+def datetime_decoder(dct):
+    for key, value in dct.items():
+        if key == 'timestamp':
+            try:
+                dct[key] = datetime.datetime.fromisoformat(value)
+            except ValueError:
+                pass
+    return dct
+
+json_string = '{"timestamp": "2024-01-15T10:30:00"}'
+parsed = json.loads(json_string, object_hook=datetime_decoder)
+```
+
+### Working with Complex Data Structures
+
+JSON can handle nested structures effectively:
+
+```python
+complex_data = {
+    "users": [
+        {
+            "id": 1,
+            "profile": {
+                "name": "Alice",
+                "preferences": {
+                    "theme": "dark",
+                    "notifications": True
+                }
+            },
+            "posts": [
+                {"title": "First Post", "likes": 10},
+                {"title": "Second Post", "likes": 25}
+            ]
+        }
+    ]
+}
+
+json_output = json.dumps(complex_data, indent=2)
+```
+
+### Performance Considerations
+
+#### Memory Usage
+
+For large datasets, consider using `json.dump()` to write directly to files rather than creating large strings in memory with `json.dumps()`.
+
+#### Speed Optimization
+
+When working with large amounts of data, the `ujson` library (third-party) offers faster JSON processing:
+
+```python
+# Alternative: pip install ujson
+# import ujson as json
+```
+
+### Streaming JSON Processing
+
+For extremely large JSON files, consider using streaming parsers like `ijson` (third-party) that process JSON incrementally:
+
+```python
+# For very large files
+# import ijson
+# for item in ijson.items(file, 'item'):
+#     process(item)
+```
+
+### Validation and Schema Checking
+
+While the json module doesn't include schema validation, you can implement basic validation:
+
+```python
+def validate_user_data(data):
+    required_fields = ['name', 'age', 'email']
+    if not all(field in data for field in required_fields):
+        raise ValueError("Missing required fields")
+    
+    if not isinstance(data['age'], int) or data['age'] < 0:
+        raise ValueError("Invalid age")
+    
+    return True
+```
+
+### Best Practices
+
+Always use context managers when working with files to ensure proper resource cleanup. Handle exceptions appropriately, especially `JSONDecodeError` when parsing external JSON data. Use `indent` parameter for human-readable output during development. Set `ensure_ascii=False` when working with international characters. Consider using `sort_keys=True` for consistent output in testing scenarios.
+
+**Key points:**
+
+- JSON module provides four main functions: dumps(), dump(), loads(), load()
+- Always handle JSONDecodeError when parsing untrusted JSON data
+- Use custom encoders/decoders for complex object serialization
+- Consider memory usage with large datasets
+- Validate JSON data structure when accepting external input
+
+### Common Use Cases
+
+#### API Response Processing
+
+```python
+import requests
+import json
+
+response = requests.get('https://api.example.com/data')
+data = response.json()  # Equivalent to json.loads(response.text)
+```
+
+#### Configuration Files
+
+```python
+# Reading configuration
+with open('config.json', 'r') as f:
+    config = json.load(f)
+
+# Writing configuration
+config['new_setting'] = 'value'
+with open('config.json', 'w') as f:
+    json.dump(config, f, indent=4)
+```
+
+#### Data Persistence
+
+```python
+# Save application state
+app_state = {
+    'user_preferences': {...},
+    'session_data': {...}
+}
+
+with open('app_state.json', 'w') as f:
+    json.dump(app_state, f)
+```
+
+**Next steps:** Consider exploring third-party libraries like `jsonschema` for validation, `ujson` for performance, and `ijson` for streaming large datasets. Understanding these extensions will enhance your JSON processing capabilities for production applications.
 
 
 ---
 
+## `re` Module
+
+The re module is Python's built-in regular expression library that provides powerful pattern matching and text manipulation capabilities. It implements Perl-style regular expressions with additional Python-specific features.
+
+### Module Import and Basic Usage
+
+```python
+import re
+
+# Basic pattern matching
+pattern = r'\d+'
+text = "I have 42 apples and 13 oranges"
+match = re.search(pattern, text)
+```
+
+### Core Functions
+
+### search()
+
+Searches for the first occurrence of a pattern in a string.
+
+```python
+import re
+
+text = "The quick brown fox jumps over the lazy dog"
+result = re.search(r'brown', text)
+if result:
+    print(f"Found: {result.group()}")
+    print(f"Position: {result.start()}-{result.end()}")
+```
+
+### match()
+
+Matches a pattern only at the beginning of a string.
+
+```python
+text = "Hello World"
+result = re.match(r'Hello', text)  # Matches
+result = re.match(r'World', text)  # None - doesn't match at start
+```
+
+### findall()
+
+Returns all non-overlapping matches as a list.
+
+```python
+text = "Contact: john@email.com or jane@company.org"
+emails = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text)
+# Returns: ['john@email.com', 'jane@company.org']
+```
+
+### finditer()
+
+Returns an iterator of match objects for all matches.
+
+```python
+text = "The temperatures are 25°C, 30°C, and 18°C"
+for match in re.finditer(r'(\d+)°C', text):
+    print(f"Temperature: {match.group(1)}°C at position {match.start()}")
+```
+
+### sub()
+
+Replaces occurrences of a pattern with a replacement string.
+
+```python
+text = "The year is 2023"
+result = re.sub(r'\d{4}', '2024', text)
+# Returns: "The year is 2024"
+
+# With function replacement
+def increment_year(match):
+    return str(int(match.group()) + 1)
+
+result = re.sub(r'\d{4}', increment_year, text)
+```
+
+### subn()
+
+Like sub() but returns a tuple with the new string and the number of substitutions.
+
+```python
+text = "apple apple banana apple"
+result, count = re.subn(r'apple', 'orange', text)
+# Returns: ('orange orange banana orange', 3)
+```
+
+### split()
+
+Splits a string by occurrences of a pattern.
+
+```python
+text = "apple,banana;orange:grape"
+fruits = re.split(r'[,;:]', text)
+# Returns: ['apple', 'banana', 'orange', 'grape']
+```
+
+### Pattern Compilation
+
+### compile()
+
+Compiles a regular expression pattern into a Pattern object for reuse.
+
+```python
+pattern = re.compile(r'\b\w+@\w+\.\w+\b')
+text1 = "Contact john@email.com"
+text2 = "Or reach jane@company.org"
+
+match1 = pattern.search(text1)
+match2 = pattern.search(text2)
+```
+
+**Key points**: Compilation improves performance when using the same pattern multiple times.
+
+### Regular Expression Syntax
+
+### Character Classes
+
+- `.` - Any character except newline
+- `\d` - Any digit (0-9)
+- `\D` - Any non-digit
+- `\w` - Any word character (letters, digits, underscore)
+- `\W` - Any non-word character
+- `\s` - Any whitespace character
+- `\S` - Any non-whitespace character
+
+### Quantifiers
+
+- `*` - Zero or more occurrences
+- `+` - One or more occurrences
+- `?` - Zero or one occurrence
+- `{n}` - Exactly n occurrences
+- `{n,}` - n or more occurrences
+- `{n,m}` - Between n and m occurrences
+
+### Anchors
+
+- `^` - Start of string
+- `$` - End of string
+- `\b` - Word boundary
+- `\B` - Non-word boundary
+
+### Groups and Capturing
+
+### Basic Groups
+
+```python
+text = "John Doe, age 30"
+match = re.search(r'(\w+) (\w+), age (\d+)', text)
+if match:
+    first_name = match.group(1)
+    last_name = match.group(2)
+    age = match.group(3)
+    full_match = match.group(0)  # or match.group()
+```
+
+### Named Groups
+
+```python
+pattern = r'(?P<first>\w+) (?P<last>\w+), age (?P<age>\d+)'
+match = re.search(pattern, text)
+if match:
+    print(match.group('first'))
+    print(match.groupdict())  # Returns dict of all named groups
+```
+
+### Non-capturing Groups
+
+```python
+# (?:...) creates a non-capturing group
+text = "http://example.com and https://test.org"
+urls = re.findall(r'https?://(?:\w+\.)+\w+', text)
+```
+
+### Flags and Modifiers
+
+### Common Flags
+
+```python
+# Case insensitive
+re.search(r'hello', 'HELLO WORLD', re.IGNORECASE)
+
+# Multiline mode
+re.search(r'^World', 'Hello\nWorld', re.MULTILINE)
+
+# Dot matches newline
+re.search(r'Hello.World', 'Hello\nWorld', re.DOTALL)
+
+# Verbose mode for readable patterns
+pattern = re.compile(r'''
+    \b                # Word boundary
+    \w+               # One or more word characters
+    @                 # Literal @ symbol
+    \w+               # One or more word characters
+    \.                # Literal dot
+    \w+               # One or more word characters
+    \b                # Word boundary
+''', re.VERBOSE)
+```
+
+### Combining Flags
+
+```python
+flags = re.IGNORECASE | re.MULTILINE
+result = re.search(r'^hello', text, flags)
+```
+
+### Advanced Features
+
+### Lookahead and Lookbehind
+
+```python
+# Positive lookahead (?=...)
+text = "password123"
+# Match word characters followed by digits
+match = re.search(r'\w+(?=\d+)', text)  # Matches "password"
+
+# Negative lookahead (?!...)
+text = "test123 test456 testword"
+# Match "test" not followed by "word"
+matches = re.findall(r'test(?!word)', text)  # ['test', 'test']
+
+# Positive lookbehind (?<=...)
+text = "USD100 EUR200 GBP300"
+# Match numbers preceded by "USD"
+match = re.search(r'(?<=USD)\d+', text)  # Matches "100"
+
+# Negative lookbehind (?<!...)
+text = "pre-test post-test notest"
+# Match "test" not preceded by "no"
+matches = re.findall(r'(?<!no)test', text)  # ['test', 'test']
+```
+
+### Backreferences
+
+```python
+# Match repeated words
+text = "This is is a test test"
+duplicates = re.findall(r'\b(\w+)\s+\1\b', text)
+# Returns: ['is', 'test']
+
+# Replace repeated words
+cleaned = re.sub(r'\b(\w+)\s+\1\b', r'\1', text)
+# Returns: "This is a test"
+```
+
+### Conditional Patterns
+
+```python
+# Match different patterns based on a condition
+text = "Mr. Smith or Ms. Johnson"
+# Match title and name, handling different titles
+pattern = r'(Mr\.|Ms\.)\s+(\w+)'
+matches = re.findall(pattern, text)
+```
+
+### Match Objects
+
+### Match Object Methods
+
+```python
+text = "The price is $25.99"
+match = re.search(r'\$(\d+)\.(\d+)', text)
+
+if match:
+    print(match.group())      # Full match: "$25.99"
+    print(match.group(1))     # First group: "25"
+    print(match.group(2))     # Second group: "99"
+    print(match.groups())     # All groups: ("25", "99")
+    print(match.start())      # Start position
+    print(match.end())        # End position
+    print(match.span())       # (start, end) tuple
+```
+
+### Common Patterns
+
+### Email Validation
+
+```python
+email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+text = "Contact us at support@company.com"
+email = re.search(email_pattern, text)
+```
+
+### Phone Number Extraction
+
+```python
+phone_pattern = r'\b(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})\b'
+text = "Call me at (555) 123-4567 or +1-555-987-6543"
+phones = re.findall(phone_pattern, text)
+```
+
+### URL Matching
+
+```python
+url_pattern = r'https?://(?:[-\w.])+(?:\:[0-9]+)?(?:/(?:[\w/_.])*(?:\?(?:[\w&=%.])*)?(?:\#(?:[\w.])*)?)?'
+text = "Visit https://example.com/page?id=123#section"
+urls = re.findall(url_pattern, text)
+```
+
+### Date Extraction
+
+```python
+date_pattern = r'\b(\d{1,2})/(\d{1,2})/(\d{4})\b'
+text = "The event is on 12/25/2023"
+dates = re.findall(date_pattern, text)
+```
+
+### Performance Considerations
+
+### Compilation Benefits
+
+```python
+# Inefficient - compiles pattern each time
+for text in large_text_list:
+    re.search(r'pattern', text)
+
+# Efficient - compile once, use many times
+pattern = re.compile(r'pattern')
+for text in large_text_list:
+    pattern.search(text)
+```
+
+### Non-greedy Matching
+
+```python
+html = "<div>Content</div><div>More content</div>"
+# Greedy (default)
+greedy = re.findall(r'<div>.*</div>', html)  # Matches entire string
+# Non-greedy
+non_greedy = re.findall(r'<div>.*?</div>', html)  # Matches each div separately
+```
+
+### Error Handling
+
+### Pattern Compilation Errors
+
+```python
+try:
+    pattern = re.compile(r'[invalid pattern')
+except re.error as e:
+    print(f"Invalid regex pattern: {e}")
+```
+
+### Practical Examples
+
+### Log File Processing
+
+```python
+log_pattern = re.compile(r'(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(\w+)\s+(.+)')
+log_line = "2023-12-01 10:30:45 ERROR Database connection failed"
+match = log_pattern.search(log_line)
+if match:
+    date, time, level, message = match.groups()
+```
+
+### Text Cleaning
+
+```python
+def clean_text(text):
+    # Remove extra whitespace
+    text = re.sub(r'\s+', ' ', text)
+    # Remove special characters except basic punctuation
+    text = re.sub(r'[^\w\s.,!?-]', '', text)
+    # Remove multiple punctuation
+    text = re.sub(r'[.,!?]{2,}', '.', text)
+    return text.strip()
+```
+
+### Data Validation
+
+```python
+def validate_credit_card(card_number):
+    # Remove spaces and dashes
+    card_number = re.sub(r'[-\s]', '', card_number)
+    # Check if it's 13-19 digits
+    if re.match(r'^\d{13,19}$', card_number):
+        return True
+    return False
+```
+
+**Key points**: The re module provides comprehensive pattern matching capabilities with functions for searching, matching, replacing, and splitting text. Compilation improves performance for repeated use, and various flags modify pattern behavior. Advanced features include lookahead/lookbehind assertions, backreferences, and named groups.
+
+**Conclusion**: The re module is essential for text processing tasks in Python, offering powerful pattern matching through regular expressions. Understanding its functions, syntax, and performance considerations enables efficient text manipulation and data extraction from complex strings.
+
+---
+
+## `csv` Module
+
+The csv module provides functionality for reading and writing CSV (Comma-Separated Values) files, handling various CSV dialects and formats. It offers both high-level reader/writer interfaces and low-level control over CSV parsing and generation.
+
+### Module Import and Basic Usage
+
+```python
+import csv
+
+# Basic reading
+with open('data.csv', 'r') as file:
+    reader = csv.reader(file)
+    for row in reader:
+        print(row)
+```
+
+### Reading CSV Files
+
+### csv.reader()
+
+Creates a reader object that iterates over rows in a CSV file.
+
+```python
+import csv
+
+with open('employees.csv', 'r') as file:
+    csv_reader = csv.reader(file)
+    
+    # Read header
+    header = next(csv_reader)
+    print(f"Headers: {header}")
+    
+    # Read data rows
+    for row in csv_reader:
+        print(f"Row: {row}")
+        # Access individual fields
+        name = row[0]
+        age = row[1]
+        department = row[2]
+```
+
+### csv.DictReader()
+
+Creates a reader object that maps CSV rows to dictionaries using the first row as field names.
+
+```python
+with open('employees.csv', 'r') as file:
+    dict_reader = csv.DictReader(file)
+    
+    # Access field names
+    print(f"Field names: {dict_reader.fieldnames}")
+    
+    # Iterate through rows as dictionaries
+    for row in dict_reader:
+        print(f"Name: {row['name']}, Age: {row['age']}, Department: {row['department']}")
+```
+
+### Custom Field Names with DictReader
+
+```python
+with open('data.csv', 'r') as file:
+    dict_reader = csv.DictReader(file, fieldnames=['col1', 'col2', 'col3'])
+    for row in dict_reader:
+        print(row['col1'])
+```
+
+### Writing CSV Files
+
+### csv.writer()
+
+Creates a writer object for writing CSV data to a file.
+
+```python
+import csv
+
+data = [
+    ['Name', 'Age', 'Department'],
+    ['John Doe', 30, 'Engineering'],
+    ['Jane Smith', 25, 'Marketing'],
+    ['Bob Johnson', 35, 'Sales']
+]
+
+with open('output.csv', 'w', newline='') as file:
+    csv_writer = csv.writer(file)
+    
+    # Write single row
+    csv_writer.writerow(['Name', 'Age', 'Department'])
+    
+    # Write multiple rows
+    csv_writer.writerows([
+        ['John Doe', 30, 'Engineering'],
+        ['Jane Smith', 25, 'Marketing']
+    ])
+```
+
+### csv.DictWriter()
+
+Creates a writer object that writes dictionaries to CSV format.
+
+```python
+employees = [
+    {'name': 'John Doe', 'age': 30, 'department': 'Engineering'},
+    {'name': 'Jane Smith', 'age': 25, 'department': 'Marketing'},
+    {'name': 'Bob Johnson', 'age': 35, 'department': 'Sales'}
+]
+
+with open('employees_output.csv', 'w', newline='') as file:
+    fieldnames = ['name', 'age', 'department']
+    dict_writer = csv.DictWriter(file, fieldnames=fieldnames)
+    
+    # Write header
+    dict_writer.writeheader()
+    
+    # Write single row
+    dict_writer.writerow({'name': 'Alice Brown', 'age': 28, 'department': 'HR'})
+    
+    # Write multiple rows
+    dict_writer.writerows(employees)
+```
+
+### CSV Dialects and Formatting
+
+### Built-in Dialects
+
+```python
+# List available dialects
+print(csv.list_dialects())  # ['excel', 'excel-tab', 'unix']
+
+# Use specific dialect
+with open('data.csv', 'r') as file:
+    reader = csv.reader(file, dialect='excel')
+    for row in reader:
+        print(row)
+```
+
+### Custom Dialect Definition
+
+```python
+# Register custom dialect
+csv.register_dialect('custom', 
+                     delimiter='|',
+                     quotechar='"',
+                     quoting=csv.QUOTE_MINIMAL,
+                     lineterminator='\n')
+
+# Use custom dialect
+with open('pipe_delimited.csv', 'w', newline='') as file:
+    writer = csv.writer(file, dialect='custom')
+    writer.writerow(['Name', 'Age', 'City'])
+    writer.writerow(['John Doe', 30, 'New York'])
+```
+
+### Manual Parameter Setting
+
+```python
+with open('data.csv', 'r') as file:
+    reader = csv.reader(file, 
+                       delimiter=';',
+                       quotechar='"',
+                       skipinitialspace=True)
+    for row in reader:
+        print(row)
+```
+
+### Reader and Writer Parameters
+
+### Common Parameters
+
+```python
+# delimiter: character used to separate fields
+reader = csv.reader(file, delimiter=',')
+
+# quotechar: character used to quote fields
+reader = csv.reader(file, quotechar='"')
+
+# quoting: controls when quotes are used
+reader = csv.reader(file, quoting=csv.QUOTE_MINIMAL)
+
+# skipinitialspace: ignore whitespace after delimiter
+reader = csv.reader(file, skipinitialspace=True)
+
+# lineterminator: string used to terminate lines
+writer = csv.writer(file, lineterminator='\n')
+```
+
+### Quoting Options
+
+```python
+# QUOTE_MINIMAL: Quote only when necessary
+csv.QUOTE_MINIMAL
+
+# QUOTE_ALL: Quote all fields
+csv.QUOTE_ALL
+
+# QUOTE_NONNUMERIC: Quote non-numeric fields
+csv.QUOTE_NONNUMERIC
+
+# QUOTE_NONE: Never quote fields
+csv.QUOTE_NONE
+```
+
+### **Example** of different quoting styles:
+
+```python
+data = [['Name', 'Age', 'Comment'],
+        ['John', 25, 'Says "Hello"'],
+        ['Jane', 30, 'Normal text']]
+
+# QUOTE_MINIMAL
+with open('minimal.csv', 'w', newline='') as file:
+    writer = csv.writer(file, quoting=csv.QUOTE_MINIMAL)
+    writer.writerows(data)
+
+# QUOTE_ALL
+with open('all.csv', 'w', newline='') as file:
+    writer = csv.writer(file, quoting=csv.QUOTE_ALL)
+    writer.writerows(data)
+```
+
+### Error Handling and Validation
+
+### Handling Malformed CSV
+
+```python
+import csv
+
+def read_csv_safely(filename):
+    try:
+        with open(filename, 'r') as file:
+            reader = csv.reader(file)
+            rows = []
+            for line_num, row in enumerate(reader, 1):
+                try:
+                    # Process row
+                    rows.append(row)
+                except csv.Error as e:
+                    print(f"Error on line {line_num}: {e}")
+                    continue
+            return rows
+    except FileNotFoundError:
+        print(f"File {filename} not found")
+        return []
+    except PermissionError:
+        print(f"Permission denied to read {filename}")
+        return []
+```
+
+### Field Validation
+
+```python
+def validate_csv_row(row, expected_fields):
+    if len(row) != expected_fields:
+        raise ValueError(f"Expected {expected_fields} fields, got {len(row)}")
+    
+    # Additional validation
+    if not row[0]:  # Name field
+        raise ValueError("Name field cannot be empty")
+    
+    try:
+        age = int(row[1])
+        if age < 0 or age > 150:
+            raise ValueError("Age must be between 0 and 150")
+    except ValueError:
+        raise ValueError("Age must be a valid integer")
+```
+
+### Advanced Usage
+
+### Reading CSV with Different Encodings
+
+```python
+import csv
+
+# UTF-8 encoding
+with open('utf8_data.csv', 'r', encoding='utf-8') as file:
+    reader = csv.reader(file)
+    for row in reader:
+        print(row)
+
+# Latin-1 encoding
+with open('latin1_data.csv', 'r', encoding='latin-1') as file:
+    reader = csv.reader(file)
+    for row in reader:
+        print(row)
+```
+
+### Handling Large CSV Files
+
+```python
+def process_large_csv(filename, chunk_size=1000):
+    with open(filename, 'r') as file:
+        reader = csv.reader(file)
+        header = next(reader)
+        
+        chunk = []
+        for row in reader:
+            chunk.append(row)
+            
+            if len(chunk) >= chunk_size:
+                # Process chunk
+                process_chunk(chunk)
+                chunk = []
+        
+        # Process remaining rows
+        if chunk:
+            process_chunk(chunk)
+
+def process_chunk(chunk):
+    # Process the chunk of rows
+    for row in chunk:
+        # Perform operations on each row
+        pass
+```
+
+### CSV with Complex Data Types
+
+```python
+import csv
+import json
+from datetime import datetime
+
+def write_complex_csv():
+    data = [
+        {
+            'name': 'John Doe',
+            'birth_date': datetime(1990, 5, 15),
+            'skills': ['Python', 'Java', 'SQL'],
+            'address': {'street': '123 Main St', 'city': 'New York'}
+        }
+    ]
+    
+    with open('complex_data.csv', 'w', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=['name', 'birth_date', 'skills', 'address'])
+        writer.writeheader()
+        
+        for record in data:
+            # Convert complex types to strings
+            record['birth_date'] = record['birth_date'].isoformat()
+            record['skills'] = json.dumps(record['skills'])
+            record['address'] = json.dumps(record['address'])
+            writer.writerow(record)
+
+def read_complex_csv():
+    with open('complex_data.csv', 'r') as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            # Convert strings back to complex types
+            row['birth_date'] = datetime.fromisoformat(row['birth_date'])
+            row['skills'] = json.loads(row['skills'])
+            row['address'] = json.loads(row['address'])
+            print(row)
+```
+
+### CSV Data Transformation
+
+### Filtering and Transforming Data
+
+```python
+def filter_and_transform_csv(input_file, output_file, min_age=18):
+    with open(input_file, 'r') as infile, open(output_file, 'w', newline='') as outfile:
+        reader = csv.DictReader(infile)
+        writer = csv.DictWriter(outfile, fieldnames=['name', 'age', 'department', 'status'])
+        writer.writeheader()
+        
+        for row in reader:
+            age = int(row['age'])
+            if age >= min_age:
+                # Transform data
+                row['status'] = 'Adult' if age >= 18 else 'Minor'
+                writer.writerow(row)
+```
+
+### Merging CSV Files
+
+```python
+def merge_csv_files(file_list, output_file):
+    with open(output_file, 'w', newline='') as outfile:
+        writer = None
+        
+        for filename in file_list:
+            with open(filename, 'r') as infile:
+                reader = csv.DictReader(infile)
+                
+                if writer is None:
+                    # Initialize writer with fieldnames from first file
+                    writer = csv.DictWriter(outfile, fieldnames=reader.fieldnames)
+                    writer.writeheader()
+                
+                for row in reader:
+                    writer.writerow(row)
+```
+
+### CSV Statistics and Analysis
+
+### Basic Statistics
+
+```python
+def csv_statistics(filename):
+    with open(filename, 'r') as file:
+        reader = csv.DictReader(file)
+        
+        ages = []
+        departments = {}
+        
+        for row in reader:
+            age = int(row['age'])
+            ages.append(age)
+            
+            dept = row['department']
+            departments[dept] = departments.get(dept, 0) + 1
+        
+        # Calculate statistics
+        avg_age = sum(ages) / len(ages)
+        min_age = min(ages)
+        max_age = max(ages)
+        
+        print(f"Average age: {avg_age:.2f}")
+        print(f"Age range: {min_age} - {max_age}")
+        print(f"Department distribution: {departments}")
+```
+
+### Data Aggregation
+
+```python
+def aggregate_csv_data(filename):
+    from collections import defaultdict
+    
+    department_data = defaultdict(lambda: {'count': 0, 'total_age': 0})
+    
+    with open(filename, 'r') as file:
+        reader = csv.DictReader(file)
+        
+        for row in reader:
+            dept = row['department']
+            age = int(row['age'])
+            
+            department_data[dept]['count'] += 1
+            department_data[dept]['total_age'] += age
+    
+    # Calculate averages
+    for dept, data in department_data.items():
+        avg_age = data['total_age'] / data['count']
+        print(f"{dept}: {data['count']} employees, avg age: {avg_age:.2f}")
+```
+
+### Working with Different CSV Formats
+
+### Tab-Separated Values
+
+```python
+# Reading TSV files
+with open('data.tsv', 'r') as file:
+    reader = csv.reader(file, delimiter='\t')
+    for row in reader:
+        print(row)
+
+# Writing TSV files
+with open('output.tsv', 'w', newline='') as file:
+    writer = csv.writer(file, delimiter='\t')
+    writer.writerow(['Name', 'Age', 'Department'])
+    writer.writerow(['John Doe', 30, 'Engineering'])
+```
+
+### Semicolon-Separated Values
+
+```python
+# Common in European CSV files
+with open('european.csv', 'r') as file:
+    reader = csv.reader(file, delimiter=';')
+    for row in reader:
+        print(row)
+```
+
+### CSV with Different Line Endings
+
+```python
+# Handle different line endings
+with open('data.csv', 'r', newline='') as file:
+    reader = csv.reader(file)
+    for row in reader:
+        print(row)
+```
+
+### Performance Optimization
+
+### Memory-Efficient Processing
+
+```python
+def process_csv_memory_efficient(filename):
+    with open(filename, 'r') as file:
+        reader = csv.reader(file)
+        header = next(reader)
+        
+        # Process one row at a time
+        for row in reader:
+            # Process row immediately without storing
+            process_row(row)
+            # Row is garbage collected after processing
+
+def process_row(row):
+    # Perform operations on the row
+    pass
+```
+
+### Bulk Operations
+
+```python
+def bulk_write_csv(filename, data_generator):
+    with open(filename, 'w', newline='') as file:
+        writer = csv.writer(file)
+        
+        # Write header
+        writer.writerow(['Name', 'Age', 'Department'])
+        
+        # Write data in batches
+        batch = []
+        batch_size = 1000
+        
+        for record in data_generator:
+            batch.append(record)
+            
+            if len(batch) >= batch_size:
+                writer.writerows(batch)
+                batch = []
+        
+        # Write remaining records
+        if batch:
+            writer.writerows(batch)
+```
+
+### Common Patterns and Best Practices
+
+### Safe File Operations
+
+```python
+def safe_csv_operation(input_file, output_file):
+    try:
+        with open(input_file, 'r') as infile, open(output_file, 'w', newline='') as outfile:
+            reader = csv.DictReader(infile)
+            writer = csv.DictWriter(outfile, fieldnames=reader.fieldnames)
+            writer.writeheader()
+            
+            for row in reader:
+                # Process and write row
+                writer.writerow(row)
+                
+    except FileNotFoundError:
+        print(f"Input file {input_file} not found")
+    except PermissionError:
+        print(f"Permission denied")
+    except csv.Error as e:
+        print(f"CSV error: {e}")
+```
+
+### Data Validation Pipeline
+
+```python
+def validate_and_clean_csv(input_file, output_file, error_file):
+    with open(input_file, 'r') as infile, \
+         open(output_file, 'w', newline='') as outfile, \
+         open(error_file, 'w', newline='') as errfile:
+        
+        reader = csv.DictReader(infile)
+        writer = csv.DictWriter(outfile, fieldnames=reader.fieldnames)
+        error_writer = csv.DictWriter(errfile, fieldnames=reader.fieldnames + ['error'])
+        
+        writer.writeheader()
+        error_writer.writeheader()
+        
+        for row in reader:
+            try:
+                # Validate row
+                validate_row(row)
+                # Clean row
+                cleaned_row = clean_row(row)
+                writer.writerow(cleaned_row)
+            except ValueError as e:
+                row['error'] = str(e)
+                error_writer.writerow(row)
+
+def validate_row(row):
+    if not row['name']:
+        raise ValueError("Name cannot be empty")
+    if not row['age'].isdigit():
+        raise ValueError("Age must be numeric")
+
+def clean_row(row):
+    # Clean and normalize data
+    row['name'] = row['name'].strip().title()
+    row['age'] = int(row['age'])
+    return row
+```
+
+**Key points**: The csv module provides robust CSV handling with reader/writer classes, dialect support, and error handling. DictReader and DictWriter offer dictionary-based access to CSV data, while various parameters control formatting and parsing behavior.
+
+**Conclusion**: The csv module is essential for working with CSV files in Python, offering both simple and advanced features for reading, writing, and processing CSV data. Its flexibility in handling different CSV formats and dialects makes it suitable for various data processing tasks.
+
+---
+
+## `urllib` Module
+
+The urllib module is Python's built-in library for handling URLs and making HTTP requests. It provides a comprehensive set of tools for opening URLs, parsing URLs, handling cookies, authentication, and various web-related tasks without requiring external dependencies.
+
+### Module Structure
+
+The urllib package consists of several submodules, each serving specific purposes. The `urllib.request` module opens URLs and handles HTTP requests. The `urllib.parse` module parses URLs and handles URL encoding/decoding. The `urllib.error` module defines exception classes for urllib operations. The `urllib.robotparser` module parses robots.txt files.
+
+### Basic URL Opening with urllib.request
+
+The simplest way to open a URL is using `urlopen()`:
+
+```python
+import urllib.request
+
+response = urllib.request.urlopen('https://httpbin.org/get')
+content = response.read()
+print(content.decode('utf-8'))
+```
+
+### Response Objects
+
+The `urlopen()` function returns a response object with various methods and attributes:
+
+```python
+import urllib.request
+
+response = urllib.request.urlopen('https://httpbin.org/get')
+
+# Read response content
+content = response.read()
+
+# Get response headers
+headers = response.headers
+print(f"Content-Type: {headers['Content-Type']}")
+
+# Get status code
+status = response.getcode()
+print(f"Status: {status}")
+
+# Get URL (useful for redirects)
+url = response.geturl()
+print(f"Final URL: {url}")
+```
+
+### Making Different HTTP Requests
+
+#### GET Requests with Parameters
+
+```python
+import urllib.request
+import urllib.parse
+
+# Method 1: Build URL with parameters
+base_url = 'https://httpbin.org/get'
+params = {'key1': 'value1', 'key2': 'value2'}
+query_string = urllib.parse.urlencode(params)
+full_url = f"{base_url}?{query_string}"
+
+response = urllib.request.urlopen(full_url)
+data = response.read().decode('utf-8')
+```
+
+#### POST Requests
+
+```python
+import urllib.request
+import urllib.parse
+import json
+
+# Prepare POST data
+post_data = {
+    'username': 'testuser',
+    'password': 'testpass'
+}
+
+# Encode data
+data = urllib.parse.urlencode(post_data).encode('utf-8')
+
+# Create request
+request = urllib.request.Request(
+    'https://httpbin.org/post',
+    data=data,
+    headers={'Content-Type': 'application/x-www-form-urlencoded'}
+)
+
+# Send request
+response = urllib.request.urlopen(request)
+result = response.read().decode('utf-8')
+```
+
+#### JSON POST Requests
+
+```python
+import urllib.request
+import json
+
+# Prepare JSON data
+post_data = {
+    'name': 'John Doe',
+    'email': 'john@example.com'
+}
+
+json_data = json.dumps(post_data).encode('utf-8')
+
+# Create request
+request = urllib.request.Request(
+    'https://httpbin.org/post',
+    data=json_data,
+    headers={'Content-Type': 'application/json'}
+)
+
+response = urllib.request.urlopen(request)
+```
+
+### Custom Headers
+
+Adding custom headers to requests:
+
+```python
+import urllib.request
+
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': 'application/json',
+    'Authorization': 'Bearer your-token-here'
+}
+
+request = urllib.request.Request(
+    'https://api.example.com/data',
+    headers=headers
+)
+
+response = urllib.request.urlopen(request)
+```
+
+### URL Parsing with urllib.parse
+
+The `urllib.parse` module provides powerful URL manipulation capabilities:
+
+#### Parsing URLs
+
+```python
+import urllib.parse
+
+url = 'https://example.com:8080/path/to/resource?param1=value1&param2=value2#fragment'
+
+# Parse URL into components
+parsed = urllib.parse.urlparse(url)
+print(f"Scheme: {parsed.scheme}")
+print(f"Hostname: {parsed.hostname}")
+print(f"Port: {parsed.port}")
+print(f"Path: {parsed.path}")
+print(f"Query: {parsed.query}")
+print(f"Fragment: {parsed.fragment}")
+```
+
+#### Building URLs
+
+```python
+import urllib.parse
+
+# Build URL from components
+components = urllib.parse.ParseResult(
+    scheme='https',
+    netloc='api.example.com',
+    path='/v1/users',
+    params='',
+    query='limit=10&offset=0',
+    fragment=''
+)
+
+url = urllib.parse.urlunparse(components)
+print(url)
+```
+
+#### URL Encoding and Decoding
+
+```python
+import urllib.parse
+
+# URL encoding
+text = "Hello World & Special Characters!"
+encoded = urllib.parse.quote(text)
+print(f"Encoded: {encoded}")
+
+# URL decoding
+decoded = urllib.parse.unquote(encoded)
+print(f"Decoded: {decoded}")
+
+# Query parameter encoding
+params = {'message': 'Hello World!', 'type': 'greeting'}
+query_string = urllib.parse.urlencode(params)
+print(f"Query string: {query_string}")
+```
+
+#### Parsing Query Strings
+
+```python
+import urllib.parse
+
+query_string = 'name=John&age=30&city=New%20York'
+parsed_params = urllib.parse.parse_qs(query_string)
+print(parsed_params)
+# Output: {'name': ['John'], 'age': ['30'], 'city': ['New York']}
+
+# For single values, use parse_qs with keep_blank_values
+single_values = {k: v[0] for k, v in parsed_params.items()}
+print(single_values)
+```
+
+### Error Handling
+
+Proper error handling is crucial when working with network requests:
+
+```python
+import urllib.request
+import urllib.error
+
+try:
+    response = urllib.request.urlopen('https://httpbin.org/status/404')
+    data = response.read()
+except urllib.error.HTTPError as e:
+    print(f"HTTP Error: {e.code} - {e.reason}")
+    print(f"Response body: {e.read().decode('utf-8')}")
+except urllib.error.URLError as e:
+    print(f"URL Error: {e.reason}")
+except Exception as e:
+    print(f"Other error: {e}")
+```
+
+### Handling Redirects
+
+```python
+import urllib.request
+import urllib.error
+
+try:
+    response = urllib.request.urlopen('https://httpbin.org/redirect/3')
+    print(f"Final URL: {response.geturl()}")
+    print(f"Status: {response.getcode()}")
+except urllib.error.HTTPError as e:
+    print(f"HTTP Error: {e.code}")
+```
+
+### Authentication
+
+#### Basic Authentication
+
+```python
+import urllib.request
+import base64
+
+# Method 1: Using HTTPPasswordMgrWithDefaultRealm
+password_mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+password_mgr.add_password(None, 'https://httpbin.org', 'username', 'password')
+
+handler = urllib.request.HTTPBasicAuthHandler(password_mgr)
+opener = urllib.request.build_opener(handler)
+
+response = opener.open('https://httpbin.org/basic-auth/username/password')
+data = response.read().decode('utf-8')
+```
+
+#### Manual Basic Authentication
+
+```python
+import urllib.request
+import base64
+
+username = 'testuser'
+password = 'testpass'
+
+# Create base64 encoded credentials
+credentials = f"{username}:{password}"
+encoded_credentials = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
+
+# Create request with Authorization header
+request = urllib.request.Request('https://httpbin.org/basic-auth/testuser/testpass')
+request.add_header('Authorization', f'Basic {encoded_credentials}')
+
+response = urllib.request.urlopen(request)
+```
+
+### Handling Cookies
+
+```python
+import urllib.request
+import urllib.parse
+import http.cookiejar
+
+# Create cookie jar
+cookie_jar = http.cookiejar.CookieJar()
+
+# Create opener with cookie support
+opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_jar))
+
+# Make request (cookies will be automatically stored)
+response = opener.open('https://httpbin.org/cookies/set/sessionid/abc123')
+
+# Make another request (cookies will be automatically sent)
+response = opener.open('https://httpbin.org/cookies')
+data = response.read().decode('utf-8')
+print(data)
+```
+
+### File Downloads
+
+#### Simple File Download
+
+```python
+import urllib.request
+
+url = 'https://httpbin.org/json'
+filename = 'downloaded_data.json'
+
+urllib.request.urlretrieve(url, filename)
+print(f"File downloaded as {filename}")
+```
+
+#### Download with Progress Tracking
+
+```python
+import urllib.request
+import sys
+
+def download_progress(block_num, block_size, total_size):
+    downloaded = block_num * block_size
+    if total_size > 0:
+        percent = min(downloaded * 100 / total_size, 100)
+        sys.stdout.write(f"\rDownload progress: {percent:.1f}%")
+        sys.stdout.flush()
+
+url = 'https://httpbin.org/bytes/1000'
+filename = 'large_file.bin'
+
+urllib.request.urlretrieve(url, filename, reporthook=download_progress)
+print(f"\nDownload complete: {filename}")
+```
+
+### Working with Proxies
+
+```python
+import urllib.request
+
+# Set up proxy
+proxy_handler = urllib.request.ProxyHandler({
+    'http': 'http://proxy.example.com:8080',
+    'https': 'https://proxy.example.com:8080'
+})
+
+opener = urllib.request.build_opener(proxy_handler)
+
+# Use proxy for requests
+response = opener.open('https://httpbin.org/ip')
+data = response.read().decode('utf-8')
+```
+
+### SSL and HTTPS Handling
+
+#### Custom SSL Context
+
+```python
+import urllib.request
+import ssl
+
+# Create custom SSL context
+context = ssl.create_default_context()
+context.check_hostname = False
+context.verify_mode = ssl.CERT_NONE
+
+# Use custom context
+request = urllib.request.Request('https://self-signed.badssl.com/')
+response = urllib.request.urlopen(request, context=context)
+```
+
+### Advanced Request Customization
+
+#### Custom Opener
+
+```python
+import urllib.request
+
+# Create custom opener with multiple handlers
+cookie_jar = http.cookiejar.CookieJar()
+cookie_processor = urllib.request.HTTPCookieProcessor(cookie_jar)
+redirect_handler = urllib.request.HTTPRedirectHandler()
+
+opener = urllib.request.build_opener(
+    cookie_processor,
+    redirect_handler
+)
+
+# Install as global default (optional)
+urllib.request.install_opener(opener)
+
+# Use opener
+response = opener.open('https://httpbin.org/cookies')
+```
+
+### Timeouts and Connection Control
+
+```python
+import urllib.request
+import socket
+
+# Set global timeout
+socket.setdefaulttimeout(10)
+
+# Or set timeout for specific request
+try:
+    response = urllib.request.urlopen('https://httpbin.org/delay/5', timeout=3)
+except socket.timeout:
+    print("Request timed out")
+```
+
+### Working with FTP
+
+```python
+import urllib.request
+
+# FTP download
+ftp_url = 'ftp://ftp.example.com/path/to/file.txt'
+try:
+    response = urllib.request.urlopen(ftp_url)
+    content = response.read()
+    print(content.decode('utf-8'))
+except Exception as e:
+    print(f"FTP Error: {e}")
+```
+
+### Robots.txt Parsing
+
+```python
+import urllib.robotparser
+
+# Parse robots.txt
+rp = urllib.robotparser.RobotFileParser()
+rp.set_url('https://example.com/robots.txt')
+rp.read()
+
+# Check if URL is allowed
+can_fetch = rp.can_fetch('*', 'https://example.com/some-page')
+print(f"Can fetch: {can_fetch}")
+```
+
+### Common Patterns and Best Practices
+
+#### Session-like Behavior
+
+```python
+import urllib.request
+import http.cookiejar
+
+class URLSession:
+    def __init__(self):
+        self.cookie_jar = http.cookiejar.CookieJar()
+        self.opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(self.cookie_jar)
+        )
+    
+    def get(self, url, headers=None):
+        request = urllib.request.Request(url, headers=headers or {})
+        return self.opener.open(request)
+    
+    def post(self, url, data=None, headers=None):
+        if isinstance(data, dict):
+            data = urllib.parse.urlencode(data).encode('utf-8')
+        request = urllib.request.Request(url, data=data, headers=headers or {})
+        return self.opener.open(request)
+
+# Usage
+session = URLSession()
+response = session.get('https://httpbin.org/cookies/set/session/abc123')
+response = session.get('https://httpbin.org/cookies')
+```
+
+#### Rate Limiting
+
+```python
+import urllib.request
+import time
+
+class RateLimitedOpener:
+    def __init__(self, delay=1):
+        self.delay = delay
+        self.last_request_time = 0
+    
+    def open(self, url):
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+        
+        if time_since_last < self.delay:
+            time.sleep(self.delay - time_since_last)
+        
+        self.last_request_time = time.time()
+        return urllib.request.urlopen(url)
+
+# Usage
+opener = RateLimitedOpener(delay=2)  # 2 second delay between requests
+response = opener.open('https://httpbin.org/get')
+```
+
+### Performance Considerations
+
+For production applications, consider connection pooling and persistent connections. The urllib module creates new connections for each request, which can be inefficient for multiple requests to the same server. Consider using connection pooling libraries or implementing custom connection management for high-performance applications.
+
+### Debugging and Logging
+
+```python
+import urllib.request
+import http.client
+
+# Enable debug logging
+http.client.HTTPConnection.debuglevel = 1
+
+# Make request with debug output
+response = urllib.request.urlopen('https://httpbin.org/get')
+```
+
+**Key points:**
+
+- urllib is part of Python's standard library, requiring no additional installations
+- Always handle urllib.error.HTTPError and urllib.error.URLError exceptions
+- Use Request objects for complex requests with custom headers and data
+- urllib.parse provides comprehensive URL manipulation capabilities
+- Consider using session-like patterns for multiple related requests
+- Set appropriate timeouts to prevent hanging requests
+
+**Next steps:** For more advanced HTTP client needs, consider exploring the `requests` library, which provides a more user-friendly API, or `aiohttp` for asynchronous HTTP operations. Understanding urllib provides a solid foundation for all HTTP-related work in Python.
+
+---
+
+## `socket` Module
+
+The socket module provides access to the BSD socket interface, enabling network communication between applications across networks or on the same machine. It supports various socket types and protocols for building networked applications.
+
+### Module Import and Basic Concepts
+
+```python
+import socket
+
+# Basic socket creation
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+```
+
+### Socket Families and Types
+
+### Address Families
+
+- `AF_INET` - IPv4 Internet protocols
+- `AF_INET6` - IPv6 Internet protocols
+- `AF_UNIX` - Unix domain sockets (local communication)
+- `AF_BLUETOOTH` - Bluetooth protocols
+
+### Socket Types
+
+- `SOCK_STREAM` - TCP (reliable, connection-oriented)
+- `SOCK_DGRAM` - UDP (unreliable, connectionless)
+- `SOCK_RAW` - Raw sockets (requires privileges)
+
+### Creating Sockets
+
+### Basic Socket Creation
+
+```python
+import socket
+
+# TCP socket (IPv4)
+tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+# UDP socket (IPv4)
+udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+# IPv6 TCP socket
+ipv6_socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+
+# Unix domain socket
+unix_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+```
+
+### Socket Options
+
+```python
+# Set socket options
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+# Allow address reuse
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+# Set receive buffer size
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+
+# Set send buffer size
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+
+# Get socket options
+buffer_size = sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+```
+
+### TCP Server Implementation
+
+### Basic TCP Server
+
+```python
+import socket
+import threading
+
+def handle_client(client_socket, address):
+    try:
+        while True:
+            # Receive data from client
+            data = client_socket.recv(1024)
+            if not data:
+                break
+            
+            print(f"Received from {address}: {data.decode()}")
+            
+            # Echo back to client
+            client_socket.send(data)
+            
+    except Exception as e:
+        print(f"Error handling client {address}: {e}")
+    finally:
+        client_socket.close()
+
+def tcp_server(host='localhost', port=12345):
+    # Create socket
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    # Allow address reuse
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    
+    try:
+        # Bind socket to address
+        server_socket.bind((host, port))
+        
+        # Listen for connections
+        server_socket.listen(5)
+        print(f"Server listening on {host}:{port}")
+        
+        while True:
+            # Accept client connection
+            client_socket, address = server_socket.accept()
+            print(f"Connection from {address}")
+            
+            # Handle client in separate thread
+            client_thread = threading.Thread(
+                target=handle_client,
+                args=(client_socket, address)
+            )
+            client_thread.start()
+            
+    except Exception as e:
+        print(f"Server error: {e}")
+    finally:
+        server_socket.close()
+
+# Run server
+if __name__ == "__main__":
+    tcp_server()
+```
+
+### Advanced TCP Server with Context Manager
+
+```python
+import socket
+import threading
+from contextlib import contextmanager
+
+@contextmanager
+def tcp_server_socket(host, port):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((host, port))
+        sock.listen(5)
+        yield sock
+    finally:
+        sock.close()
+
+def advanced_tcp_server():
+    with tcp_server_socket('localhost', 12345) as server_socket:
+        print("Server started on localhost:12345")
+        
+        while True:
+            try:
+                client_socket, address = server_socket.accept()
+                threading.Thread(
+                    target=handle_client,
+                    args=(client_socket, address),
+                    daemon=True
+                ).start()
+            except KeyboardInterrupt:
+                print("Server shutting down...")
+                break
+```
+
+### TCP Client Implementation
+
+### Basic TCP Client
+
+```python
+import socket
+
+def tcp_client(host='localhost', port=12345):
+    # Create socket
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    try:
+        # Connect to server
+        client_socket.connect((host, port))
+        print(f"Connected to {host}:{port}")
+        
+        # Send data
+        message = "Hello, Server!"
+        client_socket.send(message.encode())
+        
+        # Receive response
+        response = client_socket.recv(1024)
+        print(f"Server response: {response.decode()}")
+        
+    except Exception as e:
+        print(f"Client error: {e}")
+    finally:
+        client_socket.close()
+
+# Run client
+tcp_client()
+```
+
+### Interactive TCP Client
+
+```python
+import socket
+import threading
+
+def receive_messages(sock):
+    while True:
+        try:
+            message = sock.recv(1024).decode()
+            if not message:
+                break
+            print(f"Received: {message}")
+        except:
+            break
+
+def interactive_tcp_client():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    try:
+        sock.connect(('localhost', 12345))
+        
+        # Start receiving thread
+        receive_thread = threading.Thread(target=receive_messages, args=(sock,))
+        receive_thread.daemon = True
+        receive_thread.start()
+        
+        # Send messages
+        while True:
+            message = input()
+            if message.lower() == 'quit':
+                break
+            sock.send(message.encode())
+            
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        sock.close()
+```
+
+### UDP Socket Implementation
+
+### UDP Server
+
+```python
+import socket
+
+def udp_server(host='localhost', port=12345):
+    # Create UDP socket
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    
+    try:
+        # Bind to address
+        server_socket.bind((host, port))
+        print(f"UDP Server listening on {host}:{port}")
+        
+        while True:
+            # Receive data and client address
+            data, client_address = server_socket.recvfrom(1024)
+            print(f"Received from {client_address}: {data.decode()}")
+            
+            # Send response back to client
+            response = f"Echo: {data.decode()}"
+            server_socket.sendto(response.encode(), client_address)
+            
+    except Exception as e:
+        print(f"UDP Server error: {e}")
+    finally:
+        server_socket.close()
+
+# Run UDP server
+udp_server()
+```
+
+### UDP Client
+
+```python
+import socket
+
+def udp_client(host='localhost', port=12345):
+    # Create UDP socket
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    
+    try:
+        # Send data to server
+        message = "Hello, UDP Server!"
+        client_socket.sendto(message.encode(), (host, port))
+        
+        # Receive response
+        response, server_address = client_socket.recvfrom(1024)
+        print(f"Server response: {response.decode()}")
+        
+    except Exception as e:
+        print(f"UDP Client error: {e}")
+    finally:
+        client_socket.close()
+
+# Run UDP client
+udp_client()
+```
+
+### Socket Configuration and Options
+
+### Timeout Settings
+
+```python
+import socket
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+# Set timeout for blocking operations
+sock.settimeout(10.0)  # 10 seconds
+
+# Set non-blocking mode
+sock.setblocking(False)
+
+# Get timeout setting
+timeout = sock.gettimeout()
+print(f"Socket timeout: {timeout}")
+```
+
+### Advanced Socket Options
+
+```python
+import socket
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+# Keep-alive options
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+# TCP-specific options (Linux)
+try:
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6)
+except AttributeError:
+    # Not available on all platforms
+    pass
+
+# Disable Nagle's algorithm
+sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+```
+
+### Error Handling and Exceptions
+
+### Common Socket Exceptions
+
+```python
+import socket
+
+def robust_socket_operation():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    try:
+        sock.connect(('localhost', 12345))
+        sock.send(b"Hello")
+        data = sock.recv(1024)
+        
+    except socket.error as e:
+        print(f"Socket error: {e}")
+    except socket.timeout:
+        print("Socket operation timed out")
+    except socket.gaierror as e:
+        print(f"Address resolution error: {e}")
+    except ConnectionRefusedError:
+        print("Connection refused by remote host")
+    except ConnectionResetError:
+        print("Connection reset by remote host")
+    except BrokenPipeError:
+        print("Broken pipe - remote host closed connection")
+    finally:
+        sock.close()
+```
+
+### Graceful Error Handling
+
+```python
+import socket
+import errno
+
+def handle_socket_errors(sock):
+    try:
+        data = sock.recv(1024)
+        return data
+    except socket.error as e:
+        if e.errno == errno.EAGAIN or e.errno == errno.EWOULDBLOCK:
+            # No data available (non-blocking socket)
+            return None
+        elif e.errno == errno.ECONNRESET:
+            # Connection reset by peer
+            print("Connection reset by peer")
+            return None
+        else:
+            # Other socket errors
+            print(f"Socket error: {e}")
+            raise
+```
+
+### Network Address Resolution
+
+### Host and Service Resolution
+
+```python
+import socket
+
+# Get host information
+def get_host_info(hostname):
+    try:
+        # Get IP address
+        ip_address = socket.gethostbyname(hostname)
+        print(f"IP address of {hostname}: {ip_address}")
+        
+        # Get detailed host information
+        host_info = socket.gethostbyaddr(ip_address)
+        print(f"Host info: {host_info}")
+        
+    except socket.gaierror as e:
+        print(f"Address resolution failed: {e}")
+
+# Modern address resolution
+def resolve_address(hostname, port):
+    try:
+        # Get address information
+        addr_info = socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        
+        for family, socktype, proto, canonname, sockaddr in addr_info:
+            print(f"Family: {family}, Type: {socktype}, Address: {sockaddr}")
+            
+    except socket.gaierror as e:
+        print(f"Address resolution failed: {e}")
+
+# **Example** usage
+get_host_info('google.com')
+resolve_address('google.com', 80)
+```
+
+### Local Network Information
+
+```python
+import socket
+
+# Get local hostname
+hostname = socket.gethostname()
+print(f"Local hostname: {hostname}")
+
+# Get local IP address
+local_ip = socket.gethostbyname(hostname)
+print(f"Local IP: {local_ip}")
+
+# Get fully qualified domain name
+fqdn = socket.getfqdn()
+print(f"FQDN: {fqdn}")
+```
+
+### Advanced Socket Programming
+
+### Non-blocking Sockets
+
+```python
+import socket
+import select
+
+def non_blocking_server():
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.bind(('localhost', 12345))
+    server_socket.listen(5)
+    
+    # Set non-blocking
+    server_socket.setblocking(False)
+    
+    sockets = [server_socket]
+    
+    while True:
+        # Use select to check for ready sockets
+        ready, _, _ = select.select(sockets, [], [], 1.0)
+        
+        for sock in ready:
+            if sock == server_socket:
+                # Accept new connection
+                try:
+                    client_socket, address = server_socket.accept()
+                    client_socket.setblocking(False)
+                    sockets.append(client_socket)
+                    print(f"New connection from {address}")
+                except socket.error:
+                    continue
+            else:
+                # Handle client data
+                try:
+                    data = sock.recv(1024)
+                    if data:
+                        sock.send(data)  # Echo back
+                    else:
+                        # Client disconnected
+                        sockets.remove(sock)
+                        sock.close()
+                except socket.error:
+                    sockets.remove(sock)
+                    sock.close()
+```
+
+### SSL/TLS Sockets
+
+```python
+import socket
+import ssl
+
+def ssl_client():
+    # Create SSL context
+    context = ssl.create_default_context()
+    
+    # Create socket and wrap with SSL
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    ssl_sock = context.wrap_socket(sock, server_hostname='httpbin.org')
+    
+    try:
+        ssl_sock.connect(('httpbin.org', 443))
+        
+        # Send HTTP request
+        request = b"GET /get HTTP/1.1\r\nHost: httpbin.org\r\n\r\n"
+        ssl_sock.send(request)
+        
+        # Receive response
+        response = ssl_sock.recv(4096)
+        print(response.decode())
+        
+    finally:
+        ssl_sock.close()
+
+def ssl_server():
+    # Load certificate and key
+    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    context.load_cert_chain(certfile="server.crt", keyfile="server.key")
+    
+    # Create server socket
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.bind(('localhost', 12345))
+    server_socket.listen(5)
+    
+    # Wrap with SSL
+    ssl_server_socket = context.wrap_socket(server_socket, server_side=True)
+    
+    try:
+        while True:
+            client_socket, address = ssl_server_socket.accept()
+            print(f"SSL connection from {address}")
+            
+            # Handle SSL client
+            data = client_socket.recv(1024)
+            client_socket.send(data)
+            client_socket.close()
+            
+    finally:
+        ssl_server_socket.close()
+```
+
+### Socket Server Classes
+
+### Using socketserver Module
+
+```python
+import socketserver
+
+class MyTCPHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        # Receive data
+        data = self.request.recv(1024).strip()
+        print(f"Received from {self.client_address}: {data.decode()}")
+        
+        # Send response
+        self.request.sendall(data.upper())
+
+# Create server
+server = socketserver.TCPServer(('localhost', 12345), MyTCPHandler)
+
+# Run server
+try:
+    server.serve_forever()
+except KeyboardInterrupt:
+    server.shutdown()
+```
+
+### Threaded Socket Server
+
+```python
+import socketserver
+import threading
+
+class ThreadedTCPHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        while True:
+            try:
+                data = self.request.recv(1024)
+                if not data:
+                    break
+                
+                print(f"Thread {threading.current_thread().name}: {data.decode()}")
+                self.request.sendall(data.upper())
+                
+            except Exception as e:
+                print(f"Error: {e}")
+                break
+
+class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    pass
+
+# Create threaded server
+server = ThreadedTCPServer(('localhost', 12345), ThreadedTCPHandler)
+server.serve_forever()
+```
+
+### File Transfer Implementation
+
+### File Transfer Server
+
+```python
+import socket
+import os
+
+def file_transfer_server():
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.bind(('localhost', 12345))
+    server_socket.listen(1)
+    
+    print("File transfer server listening...")
+    
+    while True:
+        client_socket, address = server_socket.accept()
+        print(f"Connection from {address}")
+        
+        try:
+            # Receive filename
+            filename = client_socket.recv(1024).decode()
+            print(f"Requested file: {filename}")
+            
+            if os.path.exists(filename):
+                # Send file size
+                file_size = os.path.getsize(filename)
+                client_socket.send(str(file_size).encode())
+                
+                # Send file content
+                with open(filename, 'rb') as file:
+                    while True:
+                        chunk = file.read(4096)
+                        if not chunk:
+                            break
+                        client_socket.send(chunk)
+                
+                print(f"File {filename} sent successfully")
+            else:
+                client_socket.send(b"0")  # File not found
+                
+        except Exception as e:
+            print(f"Error: {e}")
+        finally:
+            client_socket.close()
+```
+
+### File Transfer Client
+
+```python
+import socket
+
+def file_transfer_client(filename):
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    try:
+        client_socket.connect(('localhost', 12345))
+        
+        # Send filename
+        client_socket.send(filename.encode())
+        
+        # Receive file size
+        file_size = int(client_socket.recv(1024).decode())
+        
+        if file_size > 0:
+            # Receive file content
+            with open(f"received_{filename}", 'wb') as file:
+                received = 0
+                while received < file_size:
+                    chunk = client_socket.recv(min(4096, file_size - received))
+                    if not chunk:
+                        break
+                    file.write(chunk)
+                    received += len(chunk)
+            
+            print(f"File received successfully: received_{filename}")
+        else:
+            print("File not found on server")
+            
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        client_socket.close()
+
+# Transfer file
+file_transfer_client("example.txt")
+```
+
+### Socket Performance Optimization
+
+### Buffer Management
+
+```python
+import socket
+
+def optimized_socket_communication():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    # Optimize buffer sizes
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 65536)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)
+    
+    # Disable Nagle's algorithm for low-latency
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    
+    try:
+        sock.connect(('localhost', 12345))
+        
+        # Send large data efficiently
+        large_data = b'x' * 1000000  # 1MB of data
+        
+        # Send in chunks
+        bytes_sent = 0
+        chunk_size = 8192
+        
+        while bytes_sent < len(large_data):
+            chunk = large_data[bytes_sent:bytes_sent + chunk_size]
+            sent = sock.send(chunk)
+            bytes_sent += sent
+            
+    finally:
+        sock.close()
+```
+
+### Connection Pooling
+
+```python
+import socket
+import threading
+import queue
+
+class ConnectionPool:
+    def __init__(self, host, port, max_connections=10):
+        self.host = host
+        self.port = port
+        self.max_connections = max_connections
+        self.pool = queue.Queue(maxsize=max_connections)
+        self.lock = threading.Lock()
+        
+        # Initialize connections
+        for _ in range(max_connections):
+            conn = self._create_connection()
+            self.pool.put(conn)
+    
+    def _create_connection(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((self.host, self.port))
+        return sock
+    
+    def get_connection(self):
+        try:
+            return self.pool.get(block=False)
+        except queue.Empty:
+            return self._create_connection()
+    
+    def return_connection(self, conn):
+        try:
+            self.pool.put(conn, block=False)
+        except queue.Full:
+            conn.close()
+    
+    def close_all(self):
+        while not self.pool.empty():
+            conn = self.pool.get()
+            conn.close()
+```
+
+**Key points**: The socket module provides comprehensive network programming capabilities including TCP/UDP protocols, address resolution, SSL/TLS support, and various socket options. Proper error handling and resource management are essential for robust network applications.
+
+**Conclusion**: The socket module is fundamental for network programming in Python, enabling the creation of servers, clients, and complex networked applications. Understanding socket types, error handling, and performance optimization is crucial for building efficient and reliable network communication systems.
+
+---
+
+## `http` Module
+
+The http module is Python's built-in package for HTTP-related functionality, providing both client and server capabilities. It consists of several submodules that handle different aspects of HTTP communication, from basic HTTP status codes to full-featured web servers and cookie management.
+
+### Module Structure
+
+The http package contains four main submodules. The `http.client` module provides low-level HTTP client functionality for making HTTP requests. The `http.server` module contains classes for building HTTP servers. The `http.cookies` module handles HTTP cookie parsing and generation. The `http.cookiejar` module provides cookie storage and management for HTTP clients.
+
+### HTTP Status Codes with http.HTTPStatus
+
+The `http.HTTPStatus` enumeration provides a comprehensive collection of HTTP status codes:
+
+```python
+from http import HTTPStatus
+
+# Access status codes
+print(HTTPStatus.OK)  # 200
+print(HTTPStatus.NOT_FOUND)  # 404
+print(HTTPStatus.INTERNAL_SERVER_ERROR)  # 500
+
+# Get status code properties
+status = HTTPStatus.OK
+print(f"Code: {status.value}")
+print(f"Phrase: {status.phrase}")
+print(f"Description: {status.description}")
+```
+
+### HTTP Client with http.client
+
+The `http.client` module provides low-level HTTP client functionality:
+
+#### Basic HTTP Requests
+
+```python
+import http.client
+import json
+
+# HTTP connection
+conn = http.client.HTTPConnection('httpbin.org')
+
+# Make GET request
+conn.request('GET', '/get')
+response = conn.getresponse()
+
+print(f"Status: {response.status}")
+print(f"Reason: {response.reason}")
+print(f"Headers: {dict(response.getheaders())}")
+
+data = response.read()
+print(f"Response: {data.decode('utf-8')}")
+
+conn.close()
+```
+
+#### HTTPS Connections
+
+```python
+import http.client
+import ssl
+
+# HTTPS connection
+conn = http.client.HTTPSConnection('httpbin.org')
+
+# Make GET request
+conn.request('GET', '/get')
+response = conn.getresponse()
+
+print(f"Status: {response.status}")
+data = response.read().decode('utf-8')
+print(data)
+
+conn.close()
+```
+
+#### POST Requests with Data
+
+```python
+import http.client
+import json
+
+conn = http.client.HTTPSConnection('httpbin.org')
+
+# Prepare POST data
+post_data = {
+    'name': 'John Doe',
+    'email': 'john@example.com'
+}
+
+json_data = json.dumps(post_data)
+headers = {'Content-Type': 'application/json'}
+
+# Make POST request
+conn.request('POST', '/post', body=json_data, headers=headers)
+response = conn.getresponse()
+
+print(f"Status: {response.status}")
+result = response.read().decode('utf-8')
+print(result)
+
+conn.close()
+```
+
+#### Custom Headers and Authentication
+
+```python
+import http.client
+import base64
+
+conn = http.client.HTTPSConnection('httpbin.org')
+
+# Basic authentication
+username = 'testuser'
+password = 'testpass'
+credentials = base64.b64encode(f"{username}:{password}".encode()).decode()
+
+headers = {
+    'Authorization': f'Basic {credentials}',
+    'User-Agent': 'Python HTTP Client',
+    'Accept': 'application/json'
+}
+
+conn.request('GET', '/basic-auth/testuser/testpass', headers=headers)
+response = conn.getresponse()
+
+print(f"Status: {response.status}")
+data = response.read().decode('utf-8')
+print(data)
+
+conn.close()
+```
+
+### Connection Context Manager
+
+Using connections as context managers for automatic cleanup:
+
+```python
+import http.client
+
+with http.client.HTTPSConnection('httpbin.org') as conn:
+    conn.request('GET', '/get')
+    response = conn.getresponse()
+    data = response.read().decode('utf-8')
+    print(data)
+```
+
+### HTTP Server with http.server
+
+The `http.server` module provides classes for building HTTP servers:
+
+#### Simple HTTP Server
+
+```python
+import http.server
+import socketserver
+
+class MyHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write(b'<html><body><h1>Hello, World!</h1></body></html>')
+
+PORT = 8000
+
+with socketserver.TCPServer(("", PORT), MyHandler) as httpd:
+    print(f"Server running on port {PORT}")
+    httpd.serve_forever()
+```
+
+#### Custom HTTP Handler
+
+```python
+import http.server
+import json
+import urllib.parse
+
+class APIHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/api/status':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            
+            response = {'status': 'ok', 'message': 'Server is running'}
+            self.wfile.write(json.dumps(response).encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
+    def do_POST(self):
+        if self.path == '/api/data':
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            
+            try:
+                data = json.loads(post_data.decode('utf-8'))
+                
+                # Process data
+                response = {'received': data, 'processed': True}
+                
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(response).encode())
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+# Run server
+if __name__ == '__main__':
+    import socketserver
+    PORT = 8000
+    
+    with socketserver.TCPServer(("", PORT), APIHandler) as httpd:
+        print(f"API Server running on port {PORT}")
+        httpd.serve_forever()
+```
+
+#### File Server
+
+```python
+import http.server
+import socketserver
+import os
+
+class FileHandler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory='/path/to/files', **kwargs)
+
+PORT = 8000
+
+with socketserver.TCPServer(("", PORT), FileHandler) as httpd:
+    print(f"File server running on port {PORT}")
+    httpd.serve_forever()
+```
+
+### Cookie Management with http.cookies
+
+The `http.cookies` module handles HTTP cookie parsing and creation:
+
+#### Creating Cookies
+
+```python
+import http.cookies
+
+# Create cookie
+cookie = http.cookies.SimpleCookie()
+cookie['session_id'] = 'abc123'
+cookie['session_id']['expires'] = 'Wed, 01 Jan 2025 00:00:00 GMT'
+cookie['session_id']['path'] = '/'
+cookie['session_id']['domain'] = '.example.com'
+cookie['session_id']['secure'] = True
+cookie['session_id']['httponly'] = True
+
+print(cookie.output())
+```
+
+**Output:**
+
+```
+Set-Cookie: session_id=abc123; Domain=.example.com; expires=Wed, 01 Jan 2025 00:00:00 GMT; HttpOnly; Path=/; Secure
+```
+
+#### Parsing Cookies
+
+```python
+import http.cookies
+
+# Parse cookie string
+cookie_string = 'session_id=abc123; user_pref=dark_mode; lang=en'
+cookie = http.cookies.SimpleCookie()
+cookie.load(cookie_string)
+
+for key, morsel in cookie.items():
+    print(f"{key}: {morsel.value}")
+```
+
+#### Advanced Cookie Handling
+
+```python
+import http.cookies
+from datetime import datetime, timedelta
+
+cookie = http.cookies.SimpleCookie()
+
+# Set cookie with expiration
+cookie['auth_token'] = 'xyz789'
+expire_date = datetime.utcnow() + timedelta(hours=24)
+cookie['auth_token']['expires'] = expire_date.strftime('%a, %d %b %Y %H:%M:%S GMT')
+
+# Set cookie attributes
+cookie['preferences'] = 'theme=dark&lang=en'
+cookie['preferences']['max-age'] = 3600  # 1 hour
+cookie['preferences']['samesite'] = 'Strict'
+
+print(cookie.output())
+```
+
+### Cookie Jar with http.cookiejar
+
+The `http.cookiejar` module provides cookie storage for HTTP clients:
+
+```python
+import http.cookiejar
+import urllib.request
+
+# Create cookie jar
+cookie_jar = http.cookiejar.CookieJar()
+
+# Create opener with cookie support
+opener = urllib.request.build_opener(
+    urllib.request.HTTPCookieProcessor(cookie_jar)
+)
+
+# Make request (cookies will be stored)
+response = opener.open('https://httpbin.org/cookies/set/session/abc123')
+
+# Print stored cookies
+for cookie in cookie_jar:
+    print(f"Cookie: {cookie.name}={cookie.value}")
+    print(f"Domain: {cookie.domain}")
+    print(f"Path: {cookie.path}")
+```
+
+### Persistent Cookie Storage
+
+```python
+import http.cookiejar
+import urllib.request
+
+# Create persistent cookie jar
+cookie_jar = http.cookiejar.MozillaCookieJar('cookies.txt')
+
+# Try to load existing cookies
+try:
+    cookie_jar.load()
+except FileNotFoundError:
+    pass
+
+# Create opener
+opener = urllib.request.build_opener(
+    urllib.request.HTTPCookieProcessor(cookie_jar)
+)
+
+# Make requests
+response = opener.open('https://httpbin.org/cookies/set/persistent/true')
+
+# Save cookies to file
+cookie_jar.save()
+```
+
+### HTTP Client Error Handling
+
+```python
+import http.client
+import socket
+
+try:
+    conn = http.client.HTTPSConnection('httpbin.org', timeout=5)
+    conn.request('GET', '/status/404')
+    response = conn.getresponse()
+    
+    if response.status == 404:
+        print("Resource not found")
+    elif response.status >= 400:
+        print(f"Client error: {response.status}")
+    elif response.status >= 500:
+        print(f"Server error: {response.status}")
+    else:
+        print(f"Success: {response.status}")
+        
+except http.client.HTTPException as e:
+    print(f"HTTP error: {e}")
+except socket.timeout:
+    print("Request timed out")
+except socket.error as e:
+    print(f"Socket error: {e}")
+finally:
+    conn.close()
+```
+
+### Connection Pooling
+
+```python
+import http.client
+import threading
+
+class ConnectionPool:
+    def __init__(self, host, port=None, max_connections=10):
+        self.host = host
+        self.port = port
+        self.max_connections = max_connections
+        self.connections = []
+        self.lock = threading.Lock()
+    
+    def get_connection(self):
+        with self.lock:
+            if self.connections:
+                return self.connections.pop()
+            else:
+                if self.port:
+                    return http.client.HTTPConnection(self.host, self.port)
+                else:
+                    return http.client.HTTPSConnection(self.host)
+    
+    def return_connection(self, conn):
+        with self.lock:
+            if len(self.connections) < self.max_connections:
+                self.connections.append(conn)
+            else:
+                conn.close()
+    
+    def close_all(self):
+        with self.lock:
+            for conn in self.connections:
+                conn.close()
+            self.connections.clear()
+
+# Usage
+pool = ConnectionPool('httpbin.org')
+conn = pool.get_connection()
+conn.request('GET', '/get')
+response = conn.getresponse()
+data = response.read()
+pool.return_connection(conn)
+```
+
+### Streaming Responses
+
+```python
+import http.client
+
+conn = http.client.HTTPSConnection('httpbin.org')
+conn.request('GET', '/stream/20')
+response = conn.getresponse()
+
+# Read response in chunks
+while True:
+    chunk = response.read(1024)
+    if not chunk:
+        break
+    print(f"Received chunk: {len(chunk)} bytes")
+    # Process chunk
+    print(chunk.decode('utf-8'))
+
+conn.close()
+```
+
+### Custom HTTP Methods
+
+```python
+import http.client
+
+conn = http.client.HTTPSConnection('httpbin.org')
+
+# Custom HTTP method
+conn.request('PATCH', '/patch', body='{"op": "replace", "path": "/name", "value": "new_name"}')
+response = conn.getresponse()
+
+print(f"Status: {response.status}")
+data = response.read().decode('utf-8')
+print(data)
+
+conn.close()
+```
+
+### Server-Side Cookie Handling
+
+```python
+import http.server
+import http.cookies
+import json
+
+class CookieHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        # Parse cookies from request
+        cookie_header = self.headers.get('Cookie')
+        cookies = http.cookies.SimpleCookie()
+        
+        if cookie_header:
+            cookies.load(cookie_header)
+        
+        if self.path == '/set-cookie':
+            # Set a cookie
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            
+            # Create new cookie
+            new_cookie = http.cookies.SimpleCookie()
+            new_cookie['user_id'] = '12345'
+            new_cookie['user_id']['max-age'] = 3600
+            
+            self.send_header('Set-Cookie', new_cookie.output().split(': ')[1])
+            self.end_headers()
+            
+            self.wfile.write(b'<html><body><h1>Cookie Set!</h1></body></html>')
+        
+        elif self.path == '/show-cookies':
+            # Display cookies
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            
+            cookie_dict = {key: morsel.value for key, morsel in cookies.items()}
+            response = json.dumps(cookie_dict, indent=2)
+            self.wfile.write(response.encode())
+        
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+# Run server
+if __name__ == '__main__':
+    import socketserver
+    PORT = 8000
+    
+    with socketserver.TCPServer(("", PORT), CookieHandler) as httpd:
+        print(f"Cookie server running on port {PORT}")
+        httpd.serve_forever()
+```
+
+### HTTP/2 Support
+
+While `http.client` primarily supports HTTP/1.1, you can check for HTTP/2 support:
+
+```python
+import http.client
+import ssl
+
+# Create connection with HTTP/2 support
+context = ssl.create_default_context()
+context.set_alpn_protocols(['h2', 'http/1.1'])
+
+conn = http.client.HTTPSConnection('httpbin.org', context=context)
+conn.request('GET', '/get')
+response = conn.getresponse()
+
+print(f"Protocol: {getattr(response, 'version', 'Unknown')}")
+print(f"Status: {response.status}")
+
+conn.close()
+```
+
+### Debugging HTTP Communications
+
+```python
+import http.client
+import logging
+
+# Enable debug logging
+http.client.HTTPConnection.debuglevel = 1
+
+# Set up logging
+logging.basicConfig()
+logging.getLogger().setLevel(logging.DEBUG)
+requests_log = logging.getLogger("requests.packages.urllib3")
+requests_log.setLevel(logging.DEBUG)
+requests_log.propagate = True
+
+# Make request with debug output
+conn = http.client.HTTPSConnection('httpbin.org')
+conn.request('GET', '/get')
+response = conn.getresponse()
+data = response.read()
+
+conn.close()
+```
+
+### Performance Considerations
+
+The `http.client` module provides low-level control but requires manual connection management. For production applications, consider implementing connection pooling to reuse connections and reduce overhead. Always close connections properly to avoid resource leaks, and use context managers when possible for automatic cleanup.
+
+### Thread Safety
+
+The `http.client` connections are not thread-safe. When using multiple threads, either create separate connections for each thread or implement proper synchronization:
+
+```python
+import http.client
+import threading
+
+class ThreadSafeHTTPClient:
+    def __init__(self, host):
+        self.host = host
+        self.local = threading.local()
+    
+    def get_connection(self):
+        if not hasattr(self.local, 'connection'):
+            self.local.connection = http.client.HTTPSConnection(self.host)
+        return self.local.connection
+    
+    def request(self, method, url, **kwargs):
+        conn = self.get_connection()
+        conn.request(method, url, **kwargs)
+        return conn.getresponse()
+
+# Usage
+client = ThreadSafeHTTPClient('httpbin.org')
+response = client.request('GET', '/get')
+```
+
+**Key points:**
+
+- http.client provides low-level HTTP client functionality with full control
+- http.server enables building custom HTTP servers with minimal code
+- http.cookies handles cookie parsing and generation for both clients and servers
+- Always properly close connections to prevent resource leaks
+- Use context managers for automatic connection cleanup
+- Consider connection pooling for production applications with high request volumes
+
+**Next steps:** For more advanced HTTP functionality, explore frameworks like Flask or Django for server-side development, or libraries like `requests` for simpler client-side HTTP operations. Understanding the http module provides the foundation for working with these higher-level tools.
+
+---
 
 # Multithreading, Multiprocessing, and Asynchronous Programming
 
