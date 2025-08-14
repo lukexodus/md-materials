@@ -1,4 +1,4 @@
-Most of the bugs stem from React v18's batching state updates feature. use ReactDOM's flushSync to opt out of it. But you can't put that function inside lifecycle methods.
+Most of the bugs stem from React v18's batching state updates feature. Use ReactDOM's flushSync to opt out of it. But you can't put that function inside lifecycle methods.
 
 ***
 

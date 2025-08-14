@@ -11660,6 +11660,5771 @@ response = client.request('GET', '/get')
 
 ---
 
+## `hashlib` Module
+
+### Overview
+
+The hashlib module provides a common interface to many different secure hash and message digest algorithms. It implements hash algorithms including SHA1, SHA224, SHA256, SHA384, SHA512, MD5, and others through OpenSSL. Hash functions are mathematical algorithms that take input data of arbitrary size and produce a fixed-size string of bytes, typically used for data integrity verification, password storage, and cryptographic applications.
+
+### Core Functionality
+
+The hashlib module serves as Python's primary interface for cryptographic hash functions. It provides both FIPS-approved algorithms and additional algorithms available through OpenSSL. The module offers two main approaches: constructor functions for specific algorithms and a generic constructor that accepts algorithm names as strings.
+
+### Available Hash Algorithms
+
+#### Guaranteed Algorithms
+
+These algorithms are guaranteed to be available on all platforms:
+
+- **SHA-1** (sha1): 160-bit hash, cryptographically broken but still used for non-security purposes
+- **SHA-224** (sha224): 224-bit variant of SHA-2
+- **SHA-256** (sha256): 256-bit SHA-2, widely used and recommended
+- **SHA-384** (sha384): 384-bit SHA-2
+- **SHA-512** (sha512): 512-bit SHA-2
+- **MD5** (md5): 128-bit hash, cryptographically broken, avoid for security
+
+#### Additional Algorithms
+
+Platform-dependent algorithms available through OpenSSL include SHA-3 variants, BLAKE2, and others. Use `hashlib.algorithms_available` to see all available algorithms on your system.
+
+### Basic Usage Patterns
+
+#### Direct Constructor Method
+
+```python
+import hashlib
+
+# Create hash object
+hasher = hashlib.sha256()
+hasher.update(b'Hello, World!')
+digest = hasher.hexdigest()
+```
+
+#### Generic Constructor Method
+
+```python
+import hashlib
+
+# Using algorithm name
+hasher = hashlib.new('sha256')
+hasher.update(b'Hello, World!')
+digest = hasher.hexdigest()
+```
+
+#### One-line Hashing
+
+```python
+import hashlib
+
+# Direct hashing
+digest = hashlib.sha256(b'Hello, World!').hexdigest()
+```
+
+### Hash Object Methods
+
+#### update(data)
+
+Feeds data to the hash object. Can be called multiple times to hash large amounts of data incrementally.
+
+```python
+hasher = hashlib.sha256()
+hasher.update(b'First part')
+hasher.update(b'Second part')
+# Equivalent to hashing b'First partSecond part'
+```
+
+#### digest()
+
+Returns the digest as bytes. This is the raw binary hash value.
+
+```python
+binary_hash = hasher.digest()
+print(len(binary_hash))  # 32 bytes for SHA-256
+```
+
+#### hexdigest()
+
+Returns the digest as a hexadecimal string, which is more readable and commonly used.
+
+```python
+hex_hash = hasher.hexdigest()
+print(len(hex_hash))  # 64 characters for SHA-256
+```
+
+#### digest_size
+
+Property that returns the size of the resulting hash in bytes.
+
+```python
+print(hashlib.sha256().digest_size)  # 32
+print(hashlib.md5().digest_size)     # 16
+```
+
+#### block_size
+
+Property that returns the internal block size of the hash algorithm.
+
+```python
+print(hashlib.sha256().block_size)  # 64
+```
+
+#### name
+
+Property that returns the canonical name of the hash algorithm.
+
+```python
+print(hashlib.sha256().name)  # 'sha256'
+```
+
+#### copy()
+
+Creates a copy of the hash object, useful for computing multiple hashes with shared prefixes.
+
+```python
+base_hasher = hashlib.sha256()
+base_hasher.update(b'Common prefix')
+
+hasher1 = base_hasher.copy()
+hasher1.update(b'Suffix 1')
+
+hasher2 = base_hasher.copy()
+hasher2.update(b'Suffix 2')
+```
+
+### Advanced Features
+
+#### Key Derivation Functions
+
+The module provides PBKDF2 (Password-Based Key Derivation Function 2) for secure password hashing:
+
+```python
+import hashlib
+import os
+
+password = b'my_password'
+salt = os.urandom(32)  # Random salt
+key = hashlib.pbkdf2_hmac('sha256', password, salt, 100000)
+```
+
+#### SHAKE Algorithms
+
+SHAKE128 and SHAKE256 are extendable-output functions that can produce hashes of arbitrary length:
+
+```python
+# SHAKE256 producing 32 bytes
+shake = hashlib.shake_256()
+shake.update(b'Hello, World!')
+digest = shake.digest(32)  # Specify desired length
+```
+
+#### File Hashing
+
+Efficient hashing of large files by reading in chunks:
+
+```python
+def hash_file(filename, algorithm='sha256'):
+    hasher = hashlib.new(algorithm)
+    with open(filename, 'rb') as f:
+        for chunk in iter(lambda: f.read(4096), b''):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+```
+
+### Security Considerations
+
+#### Algorithm Selection
+
+- **Use SHA-256 or higher** for new applications
+- **Avoid MD5 and SHA-1** for cryptographic purposes due to known vulnerabilities
+- **Consider SHA-3** for applications requiring resistance to length extension attacks
+
+#### Salt Usage
+
+Always use random salts when hashing passwords or sensitive data to prevent rainbow table attacks:
+
+```python
+import os
+import hashlib
+
+def hash_password(password):
+    salt = os.urandom(32)
+    key = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+    return salt + key  # Store salt with hash
+```
+
+#### Timing Attacks
+
+Use `hmac.compare_digest()` for comparing hash values to prevent timing attacks:
+
+```python
+import hmac
+
+def verify_hash(stored_hash, provided_data):
+    calculated_hash = hashlib.sha256(provided_data).digest()
+    return hmac.compare_digest(stored_hash, calculated_hash)
+```
+
+### Practical Applications
+
+#### Data Integrity Verification
+
+```python
+def create_checksum(data):
+    return hashlib.sha256(data).hexdigest()
+
+def verify_integrity(data, expected_hash):
+    return create_checksum(data) == expected_hash
+```
+
+#### Digital Signatures and Certificates
+
+Hash functions are fundamental components in digital signature algorithms and certificate validation.
+
+#### Blockchain Technology
+
+Cryptocurrencies and blockchain systems heavily rely on hash functions for proof-of-work, merkle trees, and block linking.
+
+#### Password Storage
+
+```python
+import hashlib
+import secrets
+
+def store_password(password):
+    salt = secrets.token_hex(16)
+    hash_obj = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000)
+    return f"{salt}:{hash_obj.hex()}"
+
+def verify_password(password, stored):
+    salt, stored_hash = stored.split(':')
+    hash_obj = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000)
+    return hash_obj.hex() == stored_hash
+```
+
+### Performance Considerations
+
+#### Algorithm Speed Comparison
+
+Different algorithms have varying performance characteristics:
+
+- **MD5**: Fastest but insecure
+- **SHA-1**: Fast but deprecated for security
+- **SHA-256**: Good balance of security and performance
+- **SHA-512**: Slower but more secure
+- **SHA-3**: Variable performance, good security properties
+
+#### Memory Usage
+
+Hash functions generally have low memory requirements, but incremental hashing with `update()` is more memory-efficient for large data sets than loading everything into memory at once.
+
+#### Threading and Multiprocessing
+
+Hash objects are not thread-safe. Create separate hash objects for each thread or use appropriate synchronization mechanisms.
+
+### Error Handling
+
+#### Common Exceptions
+
+```python
+try:
+    hasher = hashlib.new('invalid_algorithm')
+except ValueError as e:
+    print(f"Algorithm not available: {e}")
+
+try:
+    hasher = hashlib.sha256()
+    hasher.update("string data")  # Must be bytes
+except TypeError as e:
+    print(f"Data must be bytes: {e}")
+```
+
+#### Algorithm Availability Check
+
+```python
+def safe_hash(data, algorithm='sha256'):
+    if algorithm not in hashlib.algorithms_available:
+        raise ValueError(f"Algorithm {algorithm} not available")
+    return hashlib.new(algorithm, data).hexdigest()
+```
+
+### Module Constants and Functions
+
+#### algorithms_guaranteed
+
+Set of algorithm names guaranteed to be available on all platforms.
+
+#### algorithms_available
+
+Set of all algorithm names available on the current platform.
+
+#### new(name, [data])
+
+Generic constructor that accepts algorithm name as string.
+
+#### pbkdf2_hmac(hash_name, password, salt, iterations, dklen=None)
+
+PBKDF2 key derivation function implementation.
+
+### Integration with Other Modules
+
+#### HMAC Module
+
+```python
+import hmac
+import hashlib
+
+# HMAC with SHA-256
+mac = hmac.new(b'secret_key', b'message', hashlib.sha256)
+print(mac.hexdigest())
+```
+
+#### Secrets Module
+
+```python
+import secrets
+import hashlib
+
+# Secure random salt generation
+salt = secrets.token_bytes(32)
+hash_value = hashlib.sha256(b'data' + salt).hexdigest()
+```
+
+### Best Practices
+
+Use appropriate algorithms for your security requirements, always include salts for password hashing, implement proper error handling for algorithm availability, consider performance implications for large-scale applications, and keep up with current cryptographic recommendations as algorithms may become deprecated over time.
+
+**Key points**: The hashlib module provides secure hash functions essential for data integrity, password storage, and cryptographic applications. Choose SHA-256 or higher for security-critical applications, always use salts with passwords, and be aware of algorithm deprecation over time.
+
+---
+
+## `threading` Module
+
+### Overview
+
+The `threading` module in Python provides a high-level interface for working with threads, allowing concurrent execution of code within a single process. It's built on top of the lower-level `_thread` module and offers object-oriented thread management with synchronization primitives.
+
+### Core Components
+
+#### Thread Class
+
+The `Thread` class is the primary way to create and manage threads. It can be used in two main ways:
+
+- Subclassing `Thread` and overriding the `run()` method
+- Passing a callable function to the `Thread` constructor
+
+```python
+import threading
+import time
+
+# Method 1: Function-based
+def worker_function(name):
+    for i in range(3):
+        print(f"Thread {name}: {i}")
+        time.sleep(1)
+
+thread1 = threading.Thread(target=worker_function, args=("Worker-1",))
+
+# Method 2: Class-based
+class WorkerThread(threading.Thread):
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+    
+    def run(self):
+        for i in range(3):
+            print(f"Thread {self.name}: {i}")
+            time.sleep(1)
+
+thread2 = WorkerThread("Worker-2")
+```
+
+#### Thread Methods and Properties
+
+**Key methods:**
+
+- `start()`: Begin thread execution
+- `join(timeout=None)`: Wait for thread to complete
+- `is_alive()`: Check if thread is currently running
+- `getName()` / `setName()`: Get/set thread name
+- `ident`: Unique thread identifier (read-only)
+- `daemon`: Boolean indicating if thread is a daemon thread
+
+### Synchronization Primitives
+
+#### Lock
+
+The most basic synchronization primitive that ensures only one thread can execute a critical section at a time.
+
+```python
+import threading
+
+lock = threading.Lock()
+shared_resource = 0
+
+def increment():
+    global shared_resource
+    for _ in range(100000):
+        with lock:  # Context manager automatically acquires and releases
+            shared_resource += 1
+
+threads = []
+for i in range(5):
+    t = threading.Thread(target=increment)
+    threads.append(t)
+    t.start()
+
+for t in threads:
+    t.join()
+```
+
+#### RLock (Reentrant Lock)
+
+Allows the same thread to acquire the lock multiple times without deadlocking itself.
+
+```python
+rlock = threading.RLock()
+
+def recursive_function(n):
+    with rlock:
+        if n > 0:
+            print(f"Level {n}")
+            recursive_function(n - 1)
+```
+
+#### Semaphore
+
+Controls access to a resource with a limited number of available slots.
+
+```python
+# Allow maximum 3 threads to access resource simultaneously
+semaphore = threading.Semaphore(3)
+
+def access_resource(thread_id):
+    with semaphore:
+        print(f"Thread {thread_id} accessing resource")
+        time.sleep(2)
+        print(f"Thread {thread_id} releasing resource")
+```
+
+#### Event
+
+Provides a simple way for threads to communicate using a boolean flag.
+
+```python
+event = threading.Event()
+
+def waiter():
+    print("Waiting for event...")
+    event.wait()
+    print("Event received!")
+
+def setter():
+    time.sleep(3)
+    print("Setting event")
+    event.set()
+```
+
+#### Condition
+
+Allows threads to wait for specific conditions and notify other threads when conditions change.
+
+```python
+condition = threading.Condition()
+items = []
+
+def consumer():
+    with condition:
+        while len(items) == 0:
+            condition.wait()
+        item = items.pop(0)
+        print(f"Consumed {item}")
+
+def producer():
+    with condition:
+        item = "data"
+        items.append(item)
+        print(f"Produced {item}")
+        condition.notify()
+```
+
+### Thread-Safe Data Structures
+
+#### Queue Module Integration
+
+The `queue` module provides thread-safe FIFO, LIFO, and priority queue implementations that work seamlessly with threading.
+
+```python
+import queue
+import threading
+
+q = queue.Queue()
+
+def producer():
+    for i in range(5):
+        q.put(f"item-{i}")
+        print(f"Produced item-{i}")
+
+def consumer():
+    while True:
+        item = q.get()
+        if item is None:
+            break
+        print(f"Consumed {item}")
+        q.task_done()
+```
+
+### Thread Local Storage
+
+`threading.local()` creates thread-specific data storage where each thread has its own copy of variables.
+
+```python
+import threading
+
+thread_local_data = threading.local()
+
+def process_data():
+    thread_local_data.value = threading.current_thread().name
+    time.sleep(1)
+    print(f"Thread {threading.current_thread().name}: {thread_local_data.value}")
+```
+
+### Advanced Features
+
+#### Thread Pooling with ThreadPoolExecutor
+
+While not part of the threading module directly, `concurrent.futures.ThreadPoolExecutor` provides efficient thread pool management.
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+import threading
+
+def worker_task(n):
+    return n * n
+
+with ThreadPoolExecutor(max_workers=4) as executor:
+    futures = [executor.submit(worker_task, i) for i in range(10)]
+    results = [future.result() for future in futures]
+```
+
+#### Daemon Threads
+
+Daemon threads automatically terminate when the main program exits, useful for background tasks.
+
+```python
+def background_task():
+    while True:
+        print("Background work...")
+        time.sleep(2)
+
+daemon_thread = threading.Thread(target=background_task)
+daemon_thread.daemon = True
+daemon_thread.start()
+```
+
+### Error Handling and Best Practices
+
+#### Exception Handling in Threads
+
+Exceptions in threads don't propagate to the main thread automatically.
+
+```python
+import sys
+import traceback
+
+def thread_with_exception():
+    try:
+        # Potentially problematic code
+        raise ValueError("Something went wrong")
+    except Exception:
+        # Log the exception
+        traceback.print_exc()
+        # Or store it for later retrieval
+        return sys.exc_info()
+
+def safe_thread_wrapper(func, *args, **kwargs):
+    try:
+        return func(*args, **kwargs)
+    except Exception as e:
+        print(f"Thread exception: {e}")
+        traceback.print_exc()
+```
+
+#### Resource Cleanup
+
+Always ensure proper cleanup of resources in threaded environments.
+
+```python
+import atexit
+
+def cleanup_threads():
+    # Cleanup code for threads
+    print("Cleaning up threads...")
+
+atexit.register(cleanup_threads)
+```
+
+### Common Patterns and Use Cases
+
+#### Producer-Consumer Pattern
+
+```python
+import threading
+import queue
+import time
+
+class ProducerConsumer:
+    def __init__(self):
+        self.queue = queue.Queue(maxsize=10)
+        self.shutdown = threading.Event()
+    
+    def producer(self, producer_id):
+        count = 0
+        while not self.shutdown.is_set():
+            item = f"item-{producer_id}-{count}"
+            self.queue.put(item)
+            print(f"Producer {producer_id} produced {item}")
+            count += 1
+            time.sleep(0.5)
+    
+    def consumer(self, consumer_id):
+        while not self.shutdown.is_set():
+            try:
+                item = self.queue.get(timeout=1)
+                print(f"Consumer {consumer_id} consumed {item}")
+                self.queue.task_done()
+            except queue.Empty:
+                continue
+```
+
+#### Worker Pool Pattern
+
+```python
+class WorkerPool:
+    def __init__(self, num_workers=4):
+        self.task_queue = queue.Queue()
+        self.workers = []
+        self.shutdown = threading.Event()
+        
+        for i in range(num_workers):
+            worker = threading.Thread(target=self._worker, args=(i,))
+            worker.start()
+            self.workers.append(worker)
+    
+    def _worker(self, worker_id):
+        while not self.shutdown.is_set():
+            try:
+                task = self.task_queue.get(timeout=1)
+                task()
+                self.task_queue.task_done()
+            except queue.Empty:
+                continue
+    
+    def submit_task(self, task):
+        self.task_queue.put(task)
+    
+    def shutdown_pool(self):
+        self.shutdown.set()
+        for worker in self.workers:
+            worker.join()
+```
+
+### Performance Considerations
+
+#### Global Interpreter Lock (GIL)
+
+Python's GIL prevents true parallel execution of Python bytecode, making threading most effective for I/O-bound tasks rather than CPU-bound tasks.
+
+**Key points:**
+
+- Threading is excellent for I/O-bound operations (file operations, network requests, database queries)
+- For CPU-bound tasks, consider `multiprocessing` module instead
+- C extensions can release the GIL for true parallelism
+
+#### Thread Overhead
+
+Each thread consumes memory (typically 8MB stack space on 64-bit systems) and has creation/context-switching overhead.
+
+### Debugging and Monitoring
+
+#### Thread Identification and Monitoring
+
+```python
+import threading
+
+def monitor_threads():
+    print(f"Active threads: {threading.active_count()}")
+    for thread in threading.enumerate():
+        print(f"Thread: {thread.name}, Alive: {thread.is_alive()}")
+
+# Get current thread
+current_thread = threading.current_thread()
+print(f"Current thread: {current_thread.name}")
+
+# Main thread reference
+main_thread = threading.main_thread()
+print(f"Main thread: {main_thread.name}")
+```
+
+#### Deadlock Detection
+
+[Inference] Common deadlock patterns can be detected through careful code review and testing, though Python doesn't provide built-in deadlock detection.
+
+```python
+# Potential deadlock scenario
+lock1 = threading.Lock()
+lock2 = threading.Lock()
+
+def thread1():
+    with lock1:
+        time.sleep(0.1)
+        with lock2:  # Potential deadlock if thread2 holds lock2
+            pass
+
+def thread2():
+    with lock2:
+        time.sleep(0.1)
+        with lock1:  # Potential deadlock if thread1 holds lock1
+            pass
+```
+
+### Common Pitfalls and Solutions
+
+#### Race Conditions
+
+Occur when multiple threads access shared data without proper synchronization.
+
+**Example of race condition:**
+
+```python
+# Problematic code
+counter = 0
+
+def increment():
+    global counter
+    temp = counter
+    temp += 1
+    counter = temp  # Race condition here
+```
+
+**Solution:**
+
+```python
+# Fixed with lock
+counter = 0
+counter_lock = threading.Lock()
+
+def increment():
+    global counter
+    with counter_lock:
+        counter += 1
+```
+
+#### Memory Leaks in Long-Running Threads
+
+Ensure proper cleanup and avoid circular references in thread objects.
+
+#### Signal Handling
+
+[Unverified] Signal handling behavior with threads can be complex, as signals are typically delivered to the main thread only.
+
+### Testing Threaded Code
+
+#### Unit Testing Considerations
+
+```python
+import unittest
+import threading
+import time
+
+class ThreadedTest(unittest.TestCase):
+    def test_concurrent_access(self):
+        results = []
+        lock = threading.Lock()
+        
+        def worker():
+            with lock:
+                results.append(threading.current_thread().name)
+        
+        threads = [threading.Thread(target=worker) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        
+        self.assertEqual(len(results), 5)
+```
+
+### Integration with Other Modules
+
+#### AsyncIO Integration
+
+[Inference] While threading and asyncio serve different concurrency models, they can be integrated when needed.
+
+```python
+import asyncio
+import threading
+
+def run_in_thread(coro):
+    def thread_target():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(coro)
+        loop.close()
+    
+    thread = threading.Thread(target=thread_target)
+    thread.start()
+    return thread
+```
+
+**Key points:**
+
+- Use threading for I/O-bound tasks with blocking operations
+- Consider asyncio for I/O-bound tasks that can benefit from async/await syntax
+- Multiprocessing for CPU-bound tasks requiring true parallelism
+- Thread-safe data structures from queue module for inter-thread communication
+- Always use synchronization primitives to protect shared resources
+- Be mindful of the GIL's impact on CPU-bound threading performance
+- Proper exception handling and resource cleanup are crucial in threaded applications
+
+The threading module provides a robust foundation for concurrent programming in Python, though understanding its limitations and appropriate use cases is essential for effective implementation.
+
+---
+
+## `multiprocessing` Module
+
+### Overview
+
+The multiprocessing module is Python's standard library solution for parallel processing that bypasses the Global Interpreter Lock (GIL) by using separate processes instead of threads. It provides a Process-like interface similar to threading but creates actual system processes, enabling true parallelism for CPU-intensive tasks. The module supports spawning processes, sharing data between processes, and synchronization primitives.
+
+### Core Concepts
+
+#### Process vs Thread Distinction
+
+Unlike threading, multiprocessing creates separate Python interpreter processes, each with its own memory space and GIL. This enables genuine parallel execution of CPU-bound tasks but introduces overhead for process creation and inter-process communication. Each process runs independently and cannot directly access variables from other processes.
+
+#### Memory Model
+
+Processes have separate memory spaces, meaning variables are not shared by default. Data sharing requires explicit mechanisms like shared memory objects, pipes, or queues. This isolation provides safety but requires careful design for data exchange between processes.
+
+#### Process Creation Methods
+
+The module supports three process start methods:
+
+- **spawn**: Creates a fresh Python interpreter (default on Windows/macOS)
+- **fork**: Copies the parent process (default on Unix, faster but can cause issues)
+- **forkserver**: Uses a server process to create new processes (Unix only, safer than fork)
+
+### Basic Process Creation
+
+#### Process Class
+
+```python
+import multiprocessing
+import time
+
+def worker_function(name, duration):
+    print(f"Worker {name} starting")
+    time.sleep(duration)
+    print(f"Worker {name} finished")
+
+# Create and start process
+process = multiprocessing.Process(target=worker_function, args=('A', 2))
+process.start()
+process.join()  # Wait for completion
+```
+
+#### Process with Return Values
+
+```python
+import multiprocessing
+
+def calculate_square(number, result_queue):
+    result = number ** 2
+    result_queue.put((number, result))
+
+def main():
+    queue = multiprocessing.Queue()
+    processes = []
+    
+    for i in range(5):
+        p = multiprocessing.Process(target=calculate_square, args=(i, queue))
+        processes.append(p)
+        p.start()
+    
+    # Collect results
+    results = []
+    for _ in range(5):
+        results.append(queue.get())
+    
+    # Wait for all processes
+    for p in processes:
+        p.join()
+    
+    print(results)
+
+if __name__ == '__main__':
+    main()
+```
+
+### Process Pools
+
+#### Pool Class
+
+The Pool class provides a convenient way to parallelize function calls across multiple processes:
+
+```python
+import multiprocessing
+
+def square_number(n):
+    return n ** 2
+
+def main():
+    with multiprocessing.Pool(processes=4) as pool:
+        numbers = [1, 2, 3, 4, 5]
+        results = pool.map(square_number, numbers)
+        print(results)  # [1, 4, 9, 16, 25]
+
+if __name__ == '__main__':
+    main()
+```
+
+#### Pool Methods
+
+**map()**: Applies function to each element in iterable
+
+```python
+results = pool.map(function, iterable)
+```
+
+**imap()**: Lazy version of map, returns iterator
+
+```python
+for result in pool.imap(function, iterable):
+    print(result)
+```
+
+**map_async()**: Asynchronous version of map
+
+```python
+async_result = pool.map_async(function, iterable)
+results = async_result.get(timeout=10)
+```
+
+**apply()**: Applies function to single set of arguments
+
+```python
+result = pool.apply(function, args=(arg1, arg2))
+```
+
+**apply_async()**: Asynchronous version of apply
+
+```python
+async_result = pool.apply_async(function, args=(arg1, arg2))
+result = async_result.get()
+```
+
+**starmap()**: Like map but unpacks arguments
+
+```python
+def add_numbers(a, b):
+    return a + b
+
+pairs = [(1, 2), (3, 4), (5, 6)]
+results = pool.starmap(add_numbers, pairs)
+```
+
+### Inter-Process Communication
+
+#### Queue
+
+Thread-safe, process-safe queue for passing data between processes:
+
+```python
+import multiprocessing
+import time
+
+def producer(queue, items):
+    for item in items:
+        queue.put(item)
+        time.sleep(0.1)
+    queue.put(None)  # Sentinel value
+
+def consumer(queue):
+    while True:
+        item = queue.get()
+        if item is None:
+            break
+        print(f"Consumed: {item}")
+
+def main():
+    queue = multiprocessing.Queue()
+    items = [1, 2, 3, 4, 5]
+    
+    p1 = multiprocessing.Process(target=producer, args=(queue, items))
+    p2 = multiprocessing.Process(target=consumer, args=(queue,))
+    
+    p1.start()
+    p2.start()
+    
+    p1.join()
+    p2.join()
+
+if __name__ == '__main__':
+    main()
+```
+
+#### Pipe
+
+Two-way communication channel between processes:
+
+```python
+import multiprocessing
+
+def sender(conn):
+    conn.send(['hello', 'world'])
+    conn.close()
+
+def receiver(conn):
+    data = conn.recv()
+    print(f"Received: {data}")
+    conn.close()
+
+def main():
+    parent_conn, child_conn = multiprocessing.Pipe()
+    
+    p1 = multiprocessing.Process(target=sender, args=(child_conn,))
+    p2 = multiprocessing.Process(target=receiver, args=(parent_conn,))
+    
+    p1.start()
+    p2.start()
+    
+    p1.join()
+    p2.join()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Shared Memory Objects
+
+#### Value and Array
+
+Shared memory objects that can be accessed by multiple processes:
+
+```python
+import multiprocessing
+import time
+
+def worker(shared_value, shared_array, index):
+    # Modify shared value
+    with shared_value.get_lock():
+        shared_value.value += 1
+    
+    # Modify shared array
+    shared_array[index] = shared_array[index] * 2
+
+def main():
+    # Shared integer
+    shared_value = multiprocessing.Value('i', 0)  # 'i' for integer
+    
+    # Shared array of integers
+    shared_array = multiprocessing.Array('i', [1, 2, 3, 4, 5])
+    
+    processes = []
+    for i in range(5):
+        p = multiprocessing.Process(target=worker, args=(shared_value, shared_array, i))
+        processes.append(p)
+        p.start()
+    
+    for p in processes:
+        p.join()
+    
+    print(f"Final shared value: {shared_value.value}")
+    print(f"Final shared array: {list(shared_array)}")
+
+if __name__ == '__main__':
+    main()
+```
+
+#### Manager Objects
+
+More flexible shared objects with higher overhead:
+
+```python
+import multiprocessing
+
+def worker(shared_dict, shared_list, name):
+    shared_dict[name] = multiprocessing.current_process().pid
+    shared_list.append(name)
+
+def main():
+    with multiprocessing.Manager() as manager:
+        shared_dict = manager.dict()
+        shared_list = manager.list()
+        
+        processes = []
+        for i in range(3):
+            name = f"Process-{i}"
+            p = multiprocessing.Process(target=worker, args=(shared_dict, shared_list, name))
+            processes.append(p)
+            p.start()
+        
+        for p in processes:
+            p.join()
+        
+        print(f"Shared dict: {dict(shared_dict)}")
+        print(f"Shared list: {list(shared_list)}")
+
+if __name__ == '__main__':
+    main()
+```
+
+### Synchronization Primitives
+
+#### Lock
+
+Prevents multiple processes from accessing shared resources simultaneously:
+
+```python
+import multiprocessing
+import time
+
+def worker_with_lock(lock, shared_resource, worker_id):
+    for i in range(3):
+        with lock:
+            print(f"Worker {worker_id}: Accessing shared resource")
+            shared_resource.value += 1
+            time.sleep(0.1)
+            print(f"Worker {worker_id}: Resource value is {shared_resource.value}")
+
+def main():
+    lock = multiprocessing.Lock()
+    shared_resource = multiprocessing.Value('i', 0)
+    
+    processes = []
+    for i in range(3):
+        p = multiprocessing.Process(target=worker_with_lock, args=(lock, shared_resource, i))
+        processes.append(p)
+        p.start()
+    
+    for p in processes:
+        p.join()
+
+if __name__ == '__main__':
+    main()
+```
+
+#### Semaphore
+
+Controls access to a resource with limited capacity:
+
+```python
+import multiprocessing
+import time
+
+def worker(semaphore, worker_id):
+    with semaphore:
+        print(f"Worker {worker_id}: Acquired semaphore")
+        time.sleep(2)
+        print(f"Worker {worker_id}: Releasing semaphore")
+
+def main():
+    # Allow only 2 processes to access resource simultaneously
+    semaphore = multiprocessing.Semaphore(2)
+    
+    processes = []
+    for i in range(5):
+        p = multiprocessing.Process(target=worker, args=(semaphore, i))
+        processes.append(p)
+        p.start()
+    
+    for p in processes:
+        p.join()
+
+if __name__ == '__main__':
+    main()
+```
+
+#### Event
+
+Simple signaling mechanism between processes:
+
+```python
+import multiprocessing
+import time
+
+def waiter(event, name):
+    print(f"{name}: Waiting for event")
+    event.wait()
+    print(f"{name}: Event received!")
+
+def setter(event):
+    time.sleep(3)
+    print("Setting event")
+    event.set()
+
+def main():
+    event = multiprocessing.Event()
+    
+    processes = []
+    for i in range(3):
+        p = multiprocessing.Process(target=waiter, args=(event, f"Waiter-{i}"))
+        processes.append(p)
+        p.start()
+    
+    setter_process = multiprocessing.Process(target=setter, args=(event,))
+    setter_process.start()
+    
+    for p in processes:
+        p.join()
+    setter_process.join()
+
+if __name__ == '__main__':
+    main()
+```
+
+#### Condition
+
+More complex synchronization primitive combining lock and event functionality:
+
+```python
+import multiprocessing
+import time
+import random
+
+def consumer(condition, items):
+    with condition:
+        condition.wait_for(lambda: len(items) > 0)
+        item = items.pop(0)
+        print(f"Consumed: {item}")
+
+def producer(condition, items):
+    for i in range(5):
+        item = random.randint(1, 100)
+        with condition:
+            items.append(item)
+            print(f"Produced: {item}")
+            condition.notify_all()
+        time.sleep(1)
+
+def main():
+    with multiprocessing.Manager() as manager:
+        condition = multiprocessing.Condition()
+        items = manager.list()
+        
+        consumers = [multiprocessing.Process(target=consumer, args=(condition, items)) for _ in range(2)]
+        producer_process = multiprocessing.Process(target=producer, args=(condition, items))
+        
+        for c in consumers:
+            c.start()
+        producer_process.start()
+        
+        producer_process.join()
+        for c in consumers:
+            c.terminate()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Process Management
+
+#### Process Properties and Methods
+
+**Process Attributes:**
+
+```python
+import multiprocessing
+
+def worker():
+    print(f"PID: {multiprocessing.current_process().pid}")
+    print(f"Name: {multiprocessing.current_process().name}")
+
+process = multiprocessing.Process(target=worker, name="MyWorker")
+print(f"Process name: {process.name}")
+print(f"Process PID: {process.pid}")  # None until started
+print(f"Is alive: {process.is_alive()}")
+
+process.start()
+print(f"Process PID: {process.pid}")
+print(f"Is alive: {process.is_alive()}")
+
+process.join()
+print(f"Exit code: {process.exitcode}")
+```
+
+**Process Control:**
+
+```python
+import multiprocessing
+import time
+
+def long_running_task():
+    for i in range(10):
+        print(f"Working... {i}")
+        time.sleep(1)
+
+process = multiprocessing.Process(target=long_running_task)
+process.start()
+
+# Terminate after 3 seconds
+time.sleep(3)
+process.terminate()
+process.join()
+
+print(f"Process terminated with exit code: {process.exitcode}")
+```
+
+#### Process Monitoring
+
+```python
+import multiprocessing
+import psutil  # External library for system monitoring
+
+def monitor_processes(processes):
+    while any(p.is_alive() for p in processes):
+        for i, process in enumerate(processes):
+            if process.is_alive():
+                try:
+                    proc_info = psutil.Process(process.pid)
+                    cpu_percent = proc_info.cpu_percent()
+                    memory_info = proc_info.memory_info()
+                    print(f"Process {i}: CPU {cpu_percent}%, Memory {memory_info.rss / 1024 / 1024:.1f}MB")
+                except psutil.NoSuchProcess:
+                    pass
+        time.sleep(1)
+```
+
+### Advanced Features
+
+#### Custom Process Classes
+
+```python
+import multiprocessing
+import time
+
+class CustomProcess(multiprocessing.Process):
+    def __init__(self, name, duration):
+        super().__init__()
+        self.name = name
+        self.duration = duration
+        self.result = None
+    
+    def run(self):
+        print(f"Custom process {self.name} starting")
+        time.sleep(self.duration)
+        self.result = f"Completed {self.name}"
+        print(f"Custom process {self.name} finished")
+
+def main():
+    processes = []
+    for i in range(3):
+        p = CustomProcess(f"Process-{i}", i + 1)
+        processes.append(p)
+        p.start()
+    
+    for p in processes:
+        p.join()
+        print(f"Result: {p.result}")
+
+if __name__ == '__main__':
+    main()
+```
+
+#### Process Context and Start Methods
+
+```python
+import multiprocessing
+
+def worker(name):
+    print(f"Worker {name} in process {multiprocessing.current_process().pid}")
+
+def main():
+    # Set start method (must be called before creating processes)
+    multiprocessing.set_start_method('spawn', force=True)
+    
+    # Or use context for specific start method
+    ctx = multiprocessing.get_context('spawn')
+    
+    processes = []
+    for i in range(3):
+        p = ctx.Process(target=worker, args=(f"Worker-{i}",))
+        processes.append(p)
+        p.start()
+    
+    for p in processes:
+        p.join()
+
+if __name__ == '__main__':
+    main()
+```
+
+#### Error Handling in Processes
+
+```python
+import multiprocessing
+import traceback
+
+def worker_with_error(should_error):
+    try:
+        if should_error:
+            raise ValueError("Intentional error")
+        return "Success"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+def error_callback(error):
+    print(f"Error callback: {error}")
+
+def success_callback(result):
+    print(f"Success callback: {result}")
+
+def main():
+    with multiprocessing.Pool(processes=2) as pool:
+        # Using error callbacks
+        results = []
+        for i, should_error in enumerate([False, True, False]):
+            result = pool.apply_async(
+                worker_with_error, 
+                args=(should_error,),
+                callback=success_callback,
+                error_callback=error_callback
+            )
+            results.append(result)
+        
+        # Get results with timeout
+        for i, result in enumerate(results):
+            try:
+                value = result.get(timeout=5)
+                print(f"Result {i}: {value}")
+            except multiprocessing.TimeoutError:
+                print(f"Result {i}: Timeout")
+            except Exception as e:
+                print(f"Result {i}: Exception {e}")
+
+if __name__ == '__main__':
+    main()
+```
+
+### Performance Optimization
+
+#### Choosing Optimal Process Count
+
+```python
+import multiprocessing
+import time
+import math
+
+def cpu_intensive_task(n):
+    # Simulate CPU-intensive work
+    result = 0
+    for i in range(n):
+        result += math.sqrt(i)
+    return result
+
+def benchmark_processes(task_count, max_processes=None):
+    if max_processes is None:
+        max_processes = multiprocessing.cpu_count()
+    
+    tasks = [100000] * task_count
+    
+    for process_count in range(1, max_processes + 1):
+        start_time = time.time()
+        
+        with multiprocessing.Pool(processes=process_count) as pool:
+            results = pool.map(cpu_intensive_task, tasks)
+        
+        end_time = time.time()
+        print(f"Processes: {process_count}, Time: {end_time - start_time:.2f}s")
+
+def main():
+    print(f"CPU count: {multiprocessing.cpu_count()}")
+    benchmark_processes(8)
+
+if __name__ == '__main__':
+    main()
+```
+
+#### Memory-Efficient Processing
+
+```python
+import multiprocessing
+import sys
+
+def process_chunk(chunk):
+    # Process data in chunks to manage memory
+    result = []
+    for item in chunk:
+        # Simulate processing
+        result.append(item * 2)
+    return result
+
+def chunk_data(data, chunk_size):
+    for i in range(0, len(data), chunk_size):
+        yield data[i:i + chunk_size]
+
+def main():
+    # Large dataset
+    large_data = list(range(1000000))
+    chunk_size = 10000
+    
+    chunks = list(chunk_data(large_data, chunk_size))
+    
+    with multiprocessing.Pool() as pool:
+        results = pool.map(process_chunk, chunks)
+    
+    # Flatten results
+    final_result = []
+    for chunk_result in results:
+        final_result.extend(chunk_result)
+    
+    print(f"Processed {len(final_result)} items")
+
+if __name__ == '__main__':
+    main()
+```
+
+### Common Patterns and Best Practices
+
+#### Producer-Consumer Pattern
+
+```python
+import multiprocessing
+import time
+import random
+
+def producer(queue, num_items):
+    for i in range(num_items):
+        item = random.randint(1, 100)
+        queue.put(item)
+        print(f"Produced: {item}")
+        time.sleep(0.1)
+    
+    # Send sentinel values to stop consumers
+    queue.put(None)
+
+def consumer(queue, consumer_id):
+    while True:
+        item = queue.get()
+        if item is None:
+            queue.put(None)  # Pass sentinel to other consumers
+            break
+        
+        # Simulate processing time
+        time.sleep(0.2)
+        print(f"Consumer {consumer_id} processed: {item}")
+
+def main():
+    queue = multiprocessing.Queue(maxsize=10)
+    
+    # Start producer
+    producer_process = multiprocessing.Process(target=producer, args=(queue, 20))
+    producer_process.start()
+    
+    # Start consumers
+    consumers = []
+    for i in range(3):
+        consumer_process = multiprocessing.Process(target=consumer, args=(queue, i))
+        consumers.append(consumer_process)
+        consumer_process.start()
+    
+    # Wait for completion
+    producer_process.join()
+    for consumer_process in consumers:
+        consumer_process.join()
+
+if __name__ == '__main__':
+    main()
+```
+
+#### Map-Reduce Pattern
+
+```python
+import multiprocessing
+from collections import defaultdict
+import string
+
+def mapper(text_chunk):
+    """Map phase: count words in text chunk"""
+    word_count = defaultdict(int)
+    words = text_chunk.lower().translate(str.maketrans('', '', string.punctuation)).split()
+    
+    for word in words:
+        word_count[word] += 1
+    
+    return dict(word_count)
+
+def reducer(word_counts_list):
+    """Reduce phase: combine word counts"""
+    total_counts = defaultdict(int)
+    
+    for word_counts in word_counts_list:
+        for word, count in word_counts.items():
+            total_counts[word] += count
+    
+    return dict(total_counts)
+
+def main():
+    # Sample text data
+    text_data = [
+        "Hello world hello universe",
+        "World of multiprocessing is great",
+        "Hello great world of Python"
+    ]
+    
+    # Map phase
+    with multiprocessing.Pool() as pool:
+        map_results = pool.map(mapper, text_data)
+    
+    # Reduce phase
+    final_counts = reducer(map_results)
+    
+    print("Word counts:", final_counts)
+
+if __name__ == '__main__':
+    main()
+```
+
+### Debugging and Logging
+
+#### Logging in Multiprocessing
+
+```python
+import multiprocessing
+import logging
+import sys
+
+def setup_logging():
+    # Configure logging for multiprocessing
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(processName)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler('multiprocessing.log')
+        ]
+    )
+
+def worker(name, shared_queue):
+    logger = logging.getLogger()
+    logger.info(f"Worker {name} starting")
+    
+    try:
+        # Simulate work
+        result = sum(range(1000000))
+        shared_queue.put((name, result))
+        logger.info(f"Worker {name} completed with result {result}")
+    except Exception as e:
+        logger.error(f"Worker {name} failed: {e}")
+        shared_queue.put((name, None))
+
+def main():
+    setup_logging()
+    logger = logging.getLogger()
+    
+    queue = multiprocessing.Queue()
+    processes = []
+    
+    for i in range(3):
+        p = multiprocessing.Process(target=worker, args=(f"Worker-{i}", queue))
+        processes.append(p)
+        p.start()
+        logger.info(f"Started process {p.name}")
+    
+    # Collect results
+    results = []
+    for _ in range(3):
+        results.append(queue.get())
+    
+    for p in processes:
+        p.join()
+        logger.info(f"Process {p.name} joined")
+    
+    logger.info(f"All results: {results}")
+
+if __name__ == '__main__':
+    main()
+```
+
+#### Exception Handling and Debugging
+
+```python
+import multiprocessing
+import traceback
+import sys
+
+def problematic_worker(x):
+    if x == 3:
+        raise ValueError(f"Problem with value {x}")
+    return x * x
+
+def safe_worker(x):
+    try:
+        return problematic_worker(x)
+    except Exception as e:
+        # Return error information instead of raising
+        return {
+            'error': str(e),
+            'traceback': traceback.format_exc(),
+            'input': x
+        }
+
+def main():
+    data = [1, 2, 3, 4, 5]
+    
+    with multiprocessing.Pool() as pool:
+        results = pool.map(safe_worker, data)
+    
+    for i, result in enumerate(results):
+        if isinstance(result, dict) and 'error' in result:
+            print(f"Error in item {i}: {result['error']}")
+            print(f"Traceback: {result['traceback']}")
+        else:
+            print(f"Result {i}: {result}")
+
+if __name__ == '__main__':
+    main()
+```
+
+### Platform-Specific Considerations
+
+#### Windows Considerations
+
+On Windows, the entire script is re-imported when starting new processes, which can cause issues if not properly protected with `if __name__ == '__main__'`. The spawn start method is default and required.
+
+#### Unix/Linux Considerations
+
+Fork start method is default but can cause issues with threads or certain libraries. Consider using spawn or forkserver for better compatibility.
+
+#### macOS Considerations
+
+Recent versions default to spawn method. Fork method may cause crashes with certain GUI frameworks.
+
+### Integration with Other Libraries
+
+#### NumPy and Scientific Computing
+
+```python
+import multiprocessing
+import numpy as np
+
+def process_array_chunk(chunk):
+    # Perform computation on numpy array chunk
+    return np.sum(chunk ** 2)
+
+def main():
+    # Large numpy array
+    large_array = np.random.rand(1000000)
+    
+    # Split into chunks
+    num_processes = multiprocessing.cpu_count()
+    chunks = np.array_split(large_array, num_processes)
+    
+    with multiprocessing.Pool() as pool:
+        results = pool.map(process_array_chunk, chunks)
+    
+    total_result = sum(results)
+    print(f"Total result: {total_result}")
+
+if __name__ == '__main__':
+    main()
+```
+
+#### Database Operations
+
+```python
+import multiprocessing
+import sqlite3
+import os
+
+def init_worker():
+    # Initialize database connection per process
+    global db_conn
+    db_conn = sqlite3.connect('worker.db')
+
+def process_data_batch(batch):
+    # Use the process-local database connection
+    cursor = db_conn.cursor()
+    results = []
+    for item in batch:
+        cursor.execute("SELECT * FROM table WHERE id = ?", (item,))
+        results.append(cursor.fetchone())
+    return results
+
+def main():
+    # Create database and table (simplified example)
+    with sqlite3.connect('worker.db') as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS table (id INTEGER, value TEXT)")
+        conn.execute("INSERT INTO table VALUES (1, 'one'), (2, 'two'), (3, 'three')")
+        conn.commit()
+    
+    data_batches = [[1, 2], [2, 3], [1, 3]]
+    
+    with multiprocessing.Pool(initializer=init_worker) as pool:
+        results = pool.map(process_data_batch, data_batches)
+    
+    print("Results:", results)
+
+if __name__ == '__main__':
+    main()
+```
+
+### Memory Management and Resource Cleanup
+
+#### Proper Resource Management
+
+```python
+import multiprocessing
+import time
+import resource
+
+def memory_intensive_worker(size):
+    # Allocate large amount of memory
+    data = [0] * size
+    
+    # Get memory usage
+    memory_usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    
+    # Process data
+    result = sum(data)
+    
+    # Explicitly delete large objects
+    del data
+    
+    return result, memory_usage
+
+def monitor_memory():
+    """Monitor system memory usage"""
+    import psutil
+    process = psutil.Process()
+    return process.memory_info().rss / 1024 / 1024  # MB
+
+def main():
+    print(f"Initial memory: {monitor_memory():.1f} MB")
+    
+    with multiprocessing.Pool(processes=2) as pool:
+        sizes = [1000000, 2000000, 1500000]
+        results = pool.map(memory_intensive_worker, sizes)
+    
+    print(f"Final memory: {monitor_memory():.1f} MB")
+    print("Results:", results)
+
+if __name__ == '__main__':
+    main()
+```
+
+**Key points**: The multiprocessing module enables true parallelism by creating separate processes, bypassing Python's GIL. Use Process class for basic parallel execution, Pool for easy function mapping, and various IPC mechanisms (Queue, Pipe, shared memory) for data exchange. Always protect main code with `if __name__ == '__main__'` and choose appropriate start methods based on platform requirements.
+
+
+---
+
+##  `itertools` Module
+
+### Overview
+
+The `itertools` module provides a collection of tools for creating iterators and working with iterable objects efficiently. It implements iterator building blocks inspired by functional programming languages and offers memory-efficient solutions for complex iteration patterns. All functions return iterators, making them suitable for processing large datasets without loading everything into memory.
+
+### Infinite Iterators
+
+#### count()
+
+Creates an arithmetic progression starting from a given number with a specified step.
+
+```python
+import itertools
+
+# Basic counting
+counter = itertools.count(10, 2)  # Start at 10, step by 2
+for i in counter:
+    if i > 20:
+        break
+    print(i)  # Outputs: 10, 12, 14, 16, 18, 20
+
+# With negative step
+countdown = itertools.count(5, -1)
+for i in countdown:
+    if i < 0:
+        break
+    print(i)  # Outputs: 5, 4, 3, 2, 1, 0
+```
+
+#### cycle()
+
+Infinitely repeats elements from an iterable in order.
+
+```python
+colors = itertools.cycle(['red', 'green', 'blue'])
+for i, color in enumerate(colors):
+    if i >= 10:
+        break
+    print(f"{i}: {color}")
+# Outputs: 0: red, 1: green, 2: blue, 3: red, 4: green...
+
+# Practical example: Round-robin assignment
+tasks = ['task1', 'task2', 'task3', 'task4']
+workers = itertools.cycle(['worker_a', 'worker_b', 'worker_c'])
+assignments = list(zip(tasks, workers))
+# [('task1', 'worker_a'), ('task2', 'worker_b'), ('task3', 'worker_c'), ('task4', 'worker_a')]
+```
+
+#### repeat()
+
+Repeats a single value either infinitely or for a specified number of times.
+
+```python
+# Infinite repetition
+ones = itertools.repeat(1)
+limited_ones = list(itertools.islice(ones, 5))  # [1, 1, 1, 1, 1]
+
+# Limited repetition
+zeros = itertools.repeat(0, 3)
+print(list(zeros))  # [0, 0, 0]
+
+# Practical example: Initialize multiple lists
+matrix = [list(itertools.repeat(0, 5)) for _ in range(3)]
+# [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
+```
+
+### Iterators Terminating on Shortest Input
+
+#### accumulate()
+
+Returns accumulated values using a binary function (default is addition).
+
+```python
+# Basic accumulation (cumulative sum)
+numbers = [1, 2, 3, 4, 5]
+cumsum = list(itertools.accumulate(numbers))
+print(cumsum)  # [1, 3, 6, 10, 15]
+
+# With custom function (cumulative product)
+import operator
+product = list(itertools.accumulate(numbers, operator.mul))
+print(product)  # [1, 2, 6, 24, 120]
+
+# With custom lambda (running maximum)
+data = [3, 1, 4, 1, 5, 9, 2, 6]
+running_max = list(itertools.accumulate(data, max))
+print(running_max)  # [3, 3, 4, 4, 5, 9, 9, 9]
+
+# Practical example: Running balance
+transactions = [100, -20, 50, -30, 25]
+balance = list(itertools.accumulate(transactions))
+print(balance)  # [100, 80, 130, 100, 125]
+```
+
+#### chain()
+
+Flattens multiple iterables into a single iterator.
+
+```python
+# Basic chaining
+list1 = [1, 2, 3]
+list2 = ['a', 'b', 'c']
+list3 = [10, 20]
+chained = list(itertools.chain(list1, list2, list3))
+print(chained)  # [1, 2, 3, 'a', 'b', 'c', 10, 20]
+
+# chain.from_iterable() for nested iterables
+nested = [[1, 2], [3, 4], [5, 6]]
+flattened = list(itertools.chain.from_iterable(nested))
+print(flattened)  # [1, 2, 3, 4, 5, 6]
+
+# Practical example: Combining multiple data sources
+users_db1 = ['alice', 'bob']
+users_db2 = ['charlie', 'diana']
+users_cache = ['eve']
+all_users = list(itertools.chain(users_db1, users_db2, users_cache))
+```
+
+#### compress()
+
+Filters elements based on corresponding boolean selectors.
+
+```python
+data = ['a', 'b', 'c', 'd', 'e']
+selectors = [1, 0, 1, 0, 1]
+filtered = list(itertools.compress(data, selectors))
+print(filtered)  # ['a', 'c', 'e']
+
+# Practical example: Filter based on conditions
+scores = [85, 92, 78, 96, 88]
+passing = [score >= 80 for score in scores]
+passing_scores = list(itertools.compress(scores, passing))
+print(passing_scores)  # [85, 92, 96, 88]
+```
+
+#### dropwhile()
+
+Drops elements from the beginning while a predicate is true, then returns the rest.
+
+```python
+numbers = [1, 3, 5, 24, 7, 11, 9, 2]
+# Drop while numbers are odd
+result = list(itertools.dropwhile(lambda x: x % 2 == 1, numbers))
+print(result)  # [24, 7, 11, 9, 2] - stops dropping after first even number
+
+# Practical example: Skip header comments in a file
+lines = ['# Comment 1', '# Comment 2', 'data line 1', 'data line 2']
+data_lines = list(itertools.dropwhile(lambda x: x.startswith('#'), lines))
+print(data_lines)  # ['data line 1', 'data line 2']
+```
+
+#### takewhile()
+
+Takes elements while a predicate is true, then stops.
+
+```python
+numbers = [1, 3, 5, 24, 7, 11]
+# Take while numbers are odd
+result = list(itertools.takewhile(lambda x: x % 2 == 1, numbers))
+print(result)  # [1, 3, 5] - stops at first even number
+
+# Practical example: Process items until a condition
+temperatures = [20, 22, 25, 30, 35, 28, 24]
+comfortable = list(itertools.takewhile(lambda x: x < 30, temperatures))
+print(comfortable)  # [20, 22, 25]
+```
+
+#### filterfalse()
+
+Returns elements where the predicate is false (opposite of filter()).
+
+```python
+numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+odd_numbers = list(itertools.filterfalse(lambda x: x % 2 == 0, numbers))
+print(odd_numbers)  # [1, 3, 5, 7, 9]
+
+# Equivalent to filter with negated condition
+even_numbers = list(filter(lambda x: x % 2 == 0, numbers))
+not_even = list(itertools.filterfalse(lambda x: x % 2 == 0, numbers))
+```
+
+#### groupby()
+
+Groups consecutive elements by a key function.
+
+```python
+# Basic grouping
+data = ['a', 'a', 'b', 'b', 'b', 'c', 'a', 'a']
+grouped = [(key, list(group)) for key, group in itertools.groupby(data)]
+print(grouped)  # [('a', ['a', 'a']), ('b', ['b', 'b', 'b']), ('c', ['c']), ('a', ['a', 'a'])]
+
+# With key function
+students = [
+    ('Alice', 'A'), ('Bob', 'B'), ('Charlie', 'A'), 
+    ('David', 'A'), ('Eve', 'B'), ('Frank', 'C')
+]
+by_grade = [(grade, list(group)) for grade, group in 
+           itertools.groupby(sorted(students, key=lambda x: x[1]), key=lambda x: x[1])]
+
+# Practical example: Group transactions by date
+transactions = [
+    ('2023-01-01', 100), ('2023-01-01', 50), 
+    ('2023-01-02', 75), ('2023-01-02', 25), ('2023-01-02', 200)
+]
+daily_totals = [(date, sum(amount for _, amount in group)) 
+               for date, group in itertools.groupby(transactions, key=lambda x: x[0])]
+```
+
+#### islice()
+
+Returns selected elements from an iterable using slice notation.
+
+```python
+numbers = range(20)
+
+# islice(iterable, stop)
+first_five = list(itertools.islice(numbers, 5))
+print(first_five)  # [0, 1, 2, 3, 4]
+
+# islice(iterable, start, stop)
+middle = list(itertools.islice(numbers, 5, 10))
+print(middle)  # [5, 6, 7, 8, 9]
+
+# islice(iterable, start, stop, step)
+every_third = list(itertools.islice(numbers, 0, 20, 3))
+print(every_third)  # [0, 3, 6, 9, 12, 15, 18]
+
+# Practical example: Pagination
+def paginate(iterable, page_size):
+    iterator = iter(iterable)
+    while True:
+        page = list(itertools.islice(iterator, page_size))
+        if not page:
+            break
+        yield page
+
+data = range(25)
+for page_num, page in enumerate(paginate(data, 7), 1):
+    print(f"Page {page_num}: {page}")
+```
+
+#### starmap()
+
+Applies a function to arguments tuples from an iterable.
+
+```python
+import operator
+
+# Basic usage with operator functions
+pairs = [(2, 5), (3, 2), (10, 3)]
+powers = list(itertools.starmap(pow, pairs))
+print(powers)  # [32, 9, 1000] - 2^5, 3^2, 10^3
+
+# With custom function
+def multiply_add(a, b, c):
+    return a * b + c
+
+data = [(2, 3, 1), (4, 5, 2), (1, 6, 3)]
+results = list(itertools.starmap(multiply_add, data))
+print(results)  # [7, 22, 9] - (2*3+1), (4*5+2), (1*6+3)
+
+# Practical example: Distance calculations
+import math
+points = [(0, 0, 3, 4), (1, 1, 4, 5)]  # (x1, y1, x2, y2)
+distances = list(itertools.starmap(
+    lambda x1, y1, x2, y2: math.sqrt((x2-x1)**2 + (y2-y1)**2), points))
+```
+
+#### tee()
+
+Creates multiple independent iterators from a single iterable.
+
+```python
+data = [1, 2, 3, 4, 5]
+iter1, iter2, iter3 = itertools.tee(data, 3)
+
+# Each iterator is independent
+print(list(iter1))  # [1, 2, 3, 4, 5]
+print(list(iter2))  # [1, 2, 3, 4, 5]
+print(list(iter3))  # [1, 2, 3, 4, 5]
+
+# Practical example: Process data in multiple ways
+def analyze_data(data):
+    sum_iter, max_iter, min_iter = itertools.tee(data, 3)
+    return sum(sum_iter), max(max_iter), min(min_iter)
+
+numbers = [3, 1, 4, 1, 5, 9, 2, 6]
+total, maximum, minimum = analyze_data(numbers)
+```
+
+#### zip_longest()
+
+Zips iterables of different lengths, filling missing values with a fillvalue.
+
+```python
+# Basic usage
+list1 = [1, 2, 3]
+list2 = ['a', 'b', 'c', 'd', 'e']
+zipped = list(itertools.zip_longest(list1, list2, fillvalue=0))
+print(zipped)  # [(1, 'a'), (2, 'b'), (3, 'c'), (0, 'd'), (0, 'e')]
+
+# Multiple iterables with different fillvalues
+names = ['Alice', 'Bob']
+ages = [25, 30, 35]
+cities = ['NYC', 'LA', 'Chicago', 'Miami']
+combined = list(itertools.zip_longest(names, ages, cities, fillvalue='N/A'))
+# [('Alice', 25, 'NYC'), ('Bob', 30, 'LA'), ('N/A', 35, 'Chicago'), ('N/A', 'N/A', 'Miami')]
+```
+
+### Combinatorial Iterators
+
+#### product()
+
+Cartesian product of input iterables.
+
+```python
+# Basic product
+colors = ['red', 'blue']
+sizes = ['S', 'M', 'L']
+combinations = list(itertools.product(colors, sizes))
+print(combinations)  
+# [('red', 'S'), ('red', 'M'), ('red', 'L'), ('blue', 'S'), ('blue', 'M'), ('blue', 'L')]
+
+# With repeat parameter
+dice_rolls = list(itertools.product(range(1, 7), repeat=2))
+print(len(dice_rolls))  # 36 - all possible pairs of dice rolls
+
+# Practical example: Generate test cases
+test_params = {
+    'browser': ['chrome', 'firefox'],
+    'os': ['windows', 'mac'],
+    'version': ['v1', 'v2']
+}
+test_cases = list(itertools.product(*test_params.values()))
+```
+
+#### permutations()
+
+Returns all permutations of an iterable.
+
+```python
+# All permutations
+letters = ['A', 'B', 'C']
+perms = list(itertools.permutations(letters))
+print(perms)  # [('A', 'B', 'C'), ('A', 'C', 'B'), ('B', 'A', 'C'), ('B', 'C', 'A'), ('C', 'A', 'B'), ('C', 'B', 'A')]
+
+# Permutations of specific length
+perms_2 = list(itertools.permutations(letters, 2))
+print(perms_2)  # [('A', 'B'), ('A', 'C'), ('B', 'A'), ('B', 'C'), ('C', 'A'), ('C', 'B')]
+
+# Practical example: Generate possible passwords
+digits = '123'
+possible_pins = [''.join(p) for p in itertools.permutations(digits, 3)]
+print(possible_pins)  # ['123', '132', '213', '231', '312', '321']
+```
+
+#### combinations()
+
+Returns combinations without repetition.
+
+```python
+# Basic combinations
+items = ['A', 'B', 'C', 'D']
+pairs = list(itertools.combinations(items, 2))
+print(pairs)  # [('A', 'B'), ('A', 'C'), ('A', 'D'), ('B', 'C'), ('B', 'D'), ('C', 'D')]
+
+# Combinations of different lengths
+for r in range(1, len(items) + 1):
+    combs = list(itertools.combinations(items, r))
+    print(f"Combinations of {r}: {len(combs)} items")
+
+# Practical example: Team selection
+players = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve']
+teams_of_3 = list(itertools.combinations(players, 3))
+print(f"Possible teams of 3: {len(teams_of_3)}")
+```
+
+#### combinations_with_replacement()
+
+Returns combinations with repetition allowed.
+
+```python
+# Basic usage
+items = ['A', 'B', 'C']
+combs_with_rep = list(itertools.combinations_with_replacement(items, 2))
+print(combs_with_rep)  # [('A', 'A'), ('A', 'B'), ('A', 'C'), ('B', 'B'), ('B', 'C'), ('C', 'C')]
+
+# Practical example: Ice cream flavors with multiple scoops
+flavors = ['vanilla', 'chocolate', 'strawberry']
+double_scoops = list(itertools.combinations_with_replacement(flavors, 2))
+print(f"Double scoop options: {len(double_scoops)}")
+```
+
+### Advanced Patterns and Use Cases
+
+#### Pairwise Iteration
+
+```python
+def pairwise(iterable):
+    """Return successive overlapping pairs from iterable."""
+    a, b = itertools.tee(iterable)
+    next(b, None)
+    return zip(a, b)
+
+# Example usage
+numbers = [1, 2, 3, 4, 5]
+pairs = list(pairwise(numbers))
+print(pairs)  # [(1, 2), (2, 3), (3, 4), (4, 5)]
+
+# Calculate differences between consecutive elements
+differences = [b - a for a, b in pairwise(numbers)]
+print(differences)  # [1, 1, 1, 1]
+```
+
+#### Sliding Window
+
+```python
+def sliding_window(iterable, n):
+    """Create a sliding window of size n over iterable."""
+    iterators = itertools.tee(iterable, n)
+    for i, iterator in enumerate(iterators):
+        for _ in range(i):
+            next(iterator, None)
+    return zip(*iterators)
+
+# Example usage
+data = [1, 2, 3, 4, 5, 6, 7]
+windows = list(sliding_window(data, 3))
+print(windows)  # [(1, 2, 3), (2, 3, 4), (3, 4, 5), (4, 5, 6), (5, 6, 7)]
+
+# Moving average calculation
+def moving_average(data, window_size):
+    windows = sliding_window(data, window_size)
+    return [sum(window) / len(window) for window in windows]
+
+prices = [10, 12, 11, 14, 13, 15, 16]
+ma_3 = moving_average(prices, 3)
+print(ma_3)  # [11.0, 12.33..., 12.66..., 14.0, 14.66...]
+```
+
+#### Flatten Nested Structures
+
+```python
+def flatten(nested_list):
+    """Recursively flatten nested lists."""
+    for item in nested_list:
+        if isinstance(item, (list, tuple)):
+            yield from flatten(item)
+        else:
+            yield item
+
+# Example usage
+nested = [1, [2, 3], [4, [5, 6]], 7]
+flat = list(flatten(nested))
+print(flat)  # [1, 2, 3, 4, 5, 6, 7]
+
+# Using itertools for simple flattening
+simple_nested = [[1, 2], [3, 4], [5, 6]]
+flat_simple = list(itertools.chain.from_iterable(simple_nested))
+print(flat_simple)  # [1, 2, 3, 4, 5, 6]
+```
+
+#### Recipe: Batching
+
+```python
+def batched(iterable, n):
+    """Batch data into tuples of length n."""
+    if n < 1:
+        raise ValueError('n must be at least one')
+    iterator = iter(iterable)
+    while True:
+        batch = tuple(itertools.islice(iterator, n))
+        if not batch:
+            break
+        yield batch
+
+# Example usage
+data = range(13)
+batches = list(batched(data, 4))
+print(batches)  # [(0, 1, 2, 3), (4, 5, 6, 7), (8, 9, 10, 11), (12,)]
+
+# Process data in chunks
+def process_in_batches(data, batch_size=100):
+    for batch in batched(data, batch_size):
+        # Process each batch
+        result = sum(batch)  # Example processing
+        yield result
+```
+
+#### Recipe: Unique Elements with Order Preservation
+
+```python
+def unique_everseen(iterable, key=None):
+    """List unique elements, preserving order. Remember all elements ever seen."""
+    seen = set()
+    seen_add = seen.add
+    if key is None:
+        for element in itertools.filterfalse(seen.__contains__, iterable):
+            seen_add(element)
+            yield element
+    else:
+        for element in iterable:
+            k = key(element)
+            if k not in seen:
+                seen_add(k)
+                yield element
+
+# Example usage
+data = [1, 2, 3, 2, 4, 3, 5, 1]
+unique = list(unique_everseen(data))
+print(unique)  # [1, 2, 3, 4, 5]
+
+# With key function
+words = ['apple', 'BANANA', 'apple', 'Cherry', 'banana']
+unique_words = list(unique_everseen(words, key=str.lower))
+print(unique_words)  # ['apple', 'BANANA', 'Cherry']
+```
+
+### Performance Considerations
+
+#### Memory Efficiency
+
+All itertools functions return iterators, not lists, making them memory-efficient for large datasets.
+
+```python
+# Memory efficient - processes one item at a time
+def process_large_dataset(filename):
+    with open(filename) as f:
+        # Chain multiple processing steps without creating intermediate lists
+        lines = (line.strip() for line in f)
+        non_empty = filter(None, lines)
+        numbers = (int(line) for line in non_empty if line.isdigit())
+        
+        # Process in batches
+        for batch in batched(numbers, 1000):
+            yield sum(batch)
+
+# Compare memory usage
+import sys
+
+# Memory intensive - creates full list
+large_list = list(range(1000000))
+print(f"List size: {sys.getsizeof(large_list)} bytes")
+
+# Memory efficient - iterator
+large_iter = itertools.count()
+print(f"Iterator size: {sys.getsizeof(large_iter)} bytes")
+```
+
+#### Performance Tips
+
+**Key points:**
+
+- Use `itertools.chain.from_iterable()` instead of nested loops for flattening
+- `itertools.accumulate()` is faster than manual accumulation loops
+- `itertools.compress()` can be more efficient than list comprehensions with conditions
+- `itertools.tee()` creates independent iterators but uses more memory as elements are consumed
+- Combinatorial functions can generate very large result sets - use with caution
+
+### Common Recipes and Patterns
+
+#### Roundrobin
+
+```python
+def roundrobin(*iterables):
+    """Visit input iterables in a round-robin fashion."""
+    pending = len(iterables)
+    nexts = itertools.cycle(iter(it).__next__ for it in iterables)
+    while pending:
+        try:
+            for next in nexts:
+                yield next()
+        except StopIteration:
+            pending -= 1
+            nexts = itertools.cycle(itertools.islice(nexts, pending))
+
+# Example usage
+result = list(roundrobin('ABC', '12345', 'xyz'))
+print(result)  # ['A', '1', 'x', 'B', '2', 'y', 'C', '3', 'z', '4', '5']
+```
+
+#### Partition
+
+```python
+def partition(predicate, iterable):
+    """Partition entries into false entries and true entries."""
+    t1, t2 = itertools.tee(iterable)
+    return itertools.filterfalse(predicate, t1), filter(predicate, t2)
+
+# Example usage
+numbers = range(10)
+evens, odds = partition(lambda x: x % 2, numbers)
+print(f"Evens: {list(evens)}")  # [0, 2, 4, 6, 8]
+print(f"Odds: {list(odds)}")    # [1, 3, 5, 7, 9]
+```
+
+#### Powerset
+
+```python
+def powerset(iterable):
+    """Return the powerset of an iterable."""
+    s = list(iterable)
+    return itertools.chain.from_iterable(
+        itertools.combinations(s, r) for r in range(len(s) + 1))
+
+# Example usage
+items = ['A', 'B', 'C']
+ps = list(powerset(items))
+print(ps)  # [(), ('A',), ('B',), ('C',), ('A', 'B'), ('A', 'C'), ('B', 'C'), ('A', 'B', 'C')]
+```
+
+### Integration with Other Python Features
+
+#### Generator Expressions
+
+```python
+# Combining itertools with generator expressions
+data = range(100)
+processed = (x**2 for x in itertools.takewhile(lambda x: x < 10, data))
+result = list(itertools.accumulate(processed))
+print(result)  # [0, 1, 5, 14, 30, 55, 91, 140, 204, 285]
+```
+
+#### Functools Integration
+
+```python
+import functools
+import operator
+
+# Using with functools.reduce
+numbers = [1, 2, 3, 4, 5]
+cumulative_products = list(itertools.accumulate(numbers, operator.mul))
+total_product = functools.reduce(operator.mul, numbers)
+
+# Partial application with itertools
+multiply_by_2 = functools.partial(operator.mul, 2)
+doubled = list(map(multiply_by_2, range(5)))
+```
+
+#### Collections Integration
+
+```python
+from collections import Counter, defaultdict
+
+# Frequency counting with groupby
+data = 'aabbccddaab'
+frequencies = {key: len(list(group)) for key, group in itertools.groupby(sorted(data))}
+print(frequencies)  # {'a': 4, 'b': 3, 'c': 2, 'd': 2}
+
+# Compare with Counter
+counter_freq = Counter(data)
+print(dict(counter_freq))  # {'a': 4, 'b': 3, 'c': 2, 'd': 2}
+```
+
+### Error Handling and Edge Cases
+
+#### Empty Iterables
+
+```python
+# Handle empty iterables gracefully
+empty_list = []
+print(list(itertools.chain(empty_list, [1, 2, 3])))  # [1, 2, 3]
+print(list(itertools.accumulate(empty_list)))  # []
+print(list(itertools.combinations(empty_list, 2)))  # []
+
+# Check for empty results
+def safe_max(iterable):
+    try:
+        return max(iterable)
+    except ValueError:
+        return None
+
+data = []
+result = safe_max(itertools.chain(data, [0]))  # Provides default
+```
+
+#### Large Combinatorial Results
+
+```python
+# Be careful with combinatorial explosions
+items = list(range(20))
+# This would create 2^20 combinations - over 1 million!
+# powerset_result = list(powerset(items))  # Don't do this!
+
+# Instead, process in chunks or limit the size
+limited_combinations = itertools.islice(
+    itertools.combinations(items, 3), 100)  # Only first 100 combinations
+safe_result = list(limited_combinations)
+```
+
+**Key points:**
+
+- Itertools functions return memory-efficient iterators, not lists
+- Combinatorial functions can generate extremely large result sets
+- All itertools objects are consumed once - use `itertools.tee()` for multiple iterations
+- Perfect for data processing pipelines and functional programming patterns
+- Excellent for handling large datasets that don't fit in memory
+- Can be combined with generator expressions and other functional programming tools
+- [Inference] Performance is generally excellent due to C implementation of core functions
+- Essential for writing efficient, readable code that processes sequences and combinations
+
+The itertools module provides a comprehensive toolkit for iterator-based programming, enabling elegant solutions to complex iteration problems while maintaining excellent performance and memory efficiency.
+
+---
+
+## `functools` Module
+
+### Overview
+
+The functools module provides utilities for working with higher-order functions and operations on callable objects. It includes tools for function composition, caching, partial application, method overloading, and functional programming patterns. The module is essential for creating decorators, optimizing function calls through memoization, and implementing advanced function manipulation techniques.
+
+### Core Functionality
+
+The functools module serves as Python's toolkit for functional programming concepts. It bridges object-oriented and functional programming paradigms by providing utilities that transform, combine, and optimize functions. The module includes both simple utilities like partial application and sophisticated features like least-recently-used caching and generic function dispatch.
+
+### Caching and Memoization
+
+#### lru_cache Decorator
+
+The Least Recently Used (LRU) cache decorator automatically caches function results, significantly improving performance for expensive computations with repeated inputs:
+
+```python
+import functools
+import time
+
+@functools.lru_cache(maxsize=128)
+def fibonacci(n):
+    if n < 2:
+        return n
+    return fibonacci(n-1) + fibonacci(n-2)
+
+@functools.lru_cache(maxsize=None)  # Unlimited cache size
+def expensive_computation(x, y):
+    time.sleep(1)  # Simulate expensive operation
+    return x * y + x ** y
+
+# Usage
+print(fibonacci(50))  # Fast due to caching
+print(expensive_computation(2, 3))  # Slow first time
+print(expensive_computation(2, 3))  # Fast second time
+
+# Cache statistics
+print(fibonacci.cache_info())  # CacheInfo(hits=48, misses=51, maxsize=128, currsize=51)
+fibonacci.cache_clear()  # Clear the cache
+```
+
+#### cache Decorator
+
+Python 3.9+ introduced a simplified cache decorator with unlimited size:
+
+```python
+import functools
+
+@functools.cache
+def factorial(n):
+    if n <= 1:
+        return 1
+    return n * factorial(n-1)
+
+print(factorial(100))  # Computed once
+print(factorial(100))  # Retrieved from cache
+```
+
+#### cached_property
+
+Creates a cached property that computes the value once and stores it:
+
+```python
+import functools
+import time
+
+class DataProcessor:
+    def __init__(self, data):
+        self.data = data
+    
+    @functools.cached_property
+    def processed_data(self):
+        print("Processing data...")
+        time.sleep(2)  # Simulate expensive processing
+        return [x * 2 for x in self.data]
+    
+    @functools.cached_property
+    def statistics(self):
+        return {
+            'mean': sum(self.processed_data) / len(self.processed_data),
+            'max': max(self.processed_data),
+            'min': min(self.processed_data)
+        }
+
+processor = DataProcessor([1, 2, 3, 4, 5])
+print(processor.processed_data)  # Processes data
+print(processor.processed_data)  # Returns cached result
+print(processor.statistics)      # Uses cached processed_data
+```
+
+### Partial Application
+
+#### partial Function
+
+Creates a new partial object which behaves like a function with some arguments pre-filled:
+
+```python
+import functools
+
+def multiply(x, y, z):
+    return x * y * z
+
+# Create partial functions
+double = functools.partial(multiply, 2)      # Pre-fill x=2
+triple_by_two = functools.partial(multiply, 2, 3)  # Pre-fill x=2, y=3
+
+print(double(3, 4))      # multiply(2, 3, 4) = 24
+print(triple_by_two(5))  # multiply(2, 3, 5) = 30
+
+# Partial with keyword arguments
+def greet(greeting, name, punctuation="!"):
+    return f"{greeting}, {name}{punctuation}"
+
+hello = functools.partial(greet, "Hello")
+formal_hello = functools.partial(greet, "Hello", punctuation=".")
+
+print(hello("Alice"))           # "Hello, Alice!"
+print(formal_hello("Bob"))      # "Hello, Bob."
+```
+
+#### partialmethod
+
+Similar to partial but designed for methods in class definitions:
+
+```python
+import functools
+
+class Calculator:
+    def operation(self, a, b, op):
+        if op == 'add':
+            return a + b
+        elif op == 'multiply':
+            return a * b
+        elif op == 'power':
+            return a ** b
+    
+    add = functools.partialmethod(operation, op='add')
+    multiply = functools.partialmethod(operation, op='multiply')
+    power = functools.partialmethod(operation, op='power')
+
+calc = Calculator()
+print(calc.add(5, 3))       # 8
+print(calc.multiply(4, 6))  # 24
+print(calc.power(2, 8))     # 256
+```
+
+### Function Composition and Transformation
+
+#### reduce Function
+
+Applies a function of two arguments cumulatively to items in an iterable:
+
+```python
+import functools
+
+# Sum all numbers
+numbers = [1, 2, 3, 4, 5]
+total = functools.reduce(lambda x, y: x + y, numbers)
+print(total)  # 15
+
+# Find maximum
+maximum = functools.reduce(lambda x, y: x if x > y else y, numbers)
+print(maximum)  # 5
+
+# Factorial using reduce
+def factorial_reduce(n):
+    return functools.reduce(lambda x, y: x * y, range(1, n + 1))
+
+print(factorial_reduce(5))  # 120
+
+# String concatenation
+words = ['Hello', 'world', 'from', 'Python']
+sentence = functools.reduce(lambda x, y: x + ' ' + y, words)
+print(sentence)  # "Hello world from Python"
+
+# Complex data processing
+data = [{'value': 10}, {'value': 20}, {'value': 30}]
+total_value = functools.reduce(lambda acc, item: acc + item['value'], data, 0)
+print(total_value)  # 60
+```
+
+#### wraps Decorator
+
+Essential for creating proper decorators that preserve function metadata:
+
+```python
+import functools
+import time
+
+def timing_decorator(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        print(f"{func.__name__} took {end_time - start_time:.4f} seconds")
+        return result
+    return wrapper
+
+@timing_decorator
+def slow_function():
+    """This function is intentionally slow."""
+    time.sleep(1)
+    return "Done"
+
+print(slow_function.__name__)  # "slow_function" (preserved)
+print(slow_function.__doc__)   # "This function is intentionally slow." (preserved)
+result = slow_function()
+```
+
+#### update_wrapper Function
+
+Lower-level function used by wraps to copy metadata:
+
+```python
+import functools
+
+def manual_decorator(func):
+    def wrapper(*args, **kwargs):
+        print(f"Calling {func.__name__}")
+        return func(*args, **kwargs)
+    
+    # Manually update wrapper metadata
+    functools.update_wrapper(wrapper, func)
+    return wrapper
+
+@manual_decorator
+def example_function():
+    """Example function documentation."""
+    return "Hello"
+
+print(example_function.__name__)  # "example_function"
+print(example_function.__doc__)   # "Example function documentation."
+```
+
+### Generic Functions and Single Dispatch
+
+#### singledispatch Decorator
+
+Creates a generic function that behaves differently based on the type of its first argument:
+
+```python
+import functools
+from collections.abc import Sequence
+
+@functools.singledispatch
+def process_data(arg):
+    """Default implementation for unknown types."""
+    print(f"Processing unknown type: {type(arg)}")
+    return str(arg)
+
+@process_data.register
+def _(arg: int):
+    print("Processing integer")
+    return arg * 2
+
+@process_data.register
+def _(arg: str):
+    print("Processing string")
+    return arg.upper()
+
+@process_data.register
+def _(arg: list):
+    print("Processing list")
+    return [x * 2 for x in arg]
+
+@process_data.register(tuple)
+def process_tuple(arg):
+    print("Processing tuple")
+    return tuple(x * 2 for x in arg)
+
+# Usage
+print(process_data(5))           # Processing integer -> 10
+print(process_data("hello"))     # Processing string -> "HELLO"
+print(process_data([1, 2, 3]))   # Processing list -> [2, 4, 6]
+print(process_data((1, 2, 3)))   # Processing tuple -> (2, 4, 6)
+print(process_data(3.14))        # Processing unknown type -> "3.14"
+```
+
+#### singledispatchmethod
+
+Similar to singledispatch but for methods:
+
+```python
+import functools
+
+class DataFormatter:
+    @functools.singledispatchmethod
+    def format(self, arg):
+        return f"Unknown format for {type(arg)}"
+    
+    @format.register
+    def _(self, arg: int):
+        return f"Integer: {arg:,}"
+    
+    @format.register
+    def _(self, arg: float):
+        return f"Float: {arg:.2f}"
+    
+    @format.register
+    def _(self, arg: str):
+        return f"String: '{arg}'"
+    
+    @format.register
+    def _(self, arg: list):
+        return f"List with {len(arg)} items: {arg}"
+
+formatter = DataFormatter()
+print(formatter.format(1000))      # Integer: 1,000
+print(formatter.format(3.14159))   # Float: 3.14
+print(formatter.format("hello"))   # String: 'hello'
+print(formatter.format([1, 2, 3])) # List with 3 items: [1, 2, 3]
+```
+
+### Advanced Decorators and Utilities
+
+#### Custom Caching Decorators
+
+Building custom caching mechanisms using functools principles:
+
+```python
+import functools
+import time
+import threading
+
+def timed_cache(expiry_seconds):
+    """Custom cache with time-based expiry."""
+    def decorator(func):
+        cache = {}
+        lock = threading.Lock()
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = str(args) + str(sorted(kwargs.items()))
+            current_time = time.time()
+            
+            with lock:
+                if key in cache:
+                    result, timestamp = cache[key]
+                    if current_time - timestamp < expiry_seconds:
+                        return result
+                    else:
+                        del cache[key]
+                
+                result = func(*args, **kwargs)
+                cache[key] = (result, current_time)
+                return result
+        
+        return wrapper
+    return decorator
+
+@timed_cache(expiry_seconds=5)
+def get_current_time():
+    return time.time()
+
+print(get_current_time())  # Fresh call
+time.sleep(2)
+print(get_current_time())  # Cached result
+time.sleep(4)
+print(get_current_time())  # Fresh call (cache expired)
+```
+
+#### Retry Decorator
+
+Using functools to create sophisticated retry mechanisms:
+
+```python
+import functools
+import random
+import time
+
+def retry(max_attempts=3, delay=1, backoff=2):
+    """Retry decorator with exponential backoff."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            current_delay = delay
+            
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        raise e
+                    
+                    print(f"Attempt {attempts} failed: {e}. Retrying in {current_delay}s...")
+                    time.sleep(current_delay)
+                    current_delay *= backoff
+            
+        return wrapper
+    return decorator
+
+@retry(max_attempts=3, delay=0.5, backoff=2)
+def unreliable_function():
+    if random.random() < 0.7:  # 70% chance of failure
+        raise Exception("Random failure")
+    return "Success!"
+
+try:
+    result = unreliable_function()
+    print(result)
+except Exception as e:
+    print(f"Final failure: {e}")
+```
+
+### Functional Programming Patterns
+
+#### Composition and Chaining
+
+Creating function composition utilities:
+
+```python
+import functools
+
+def compose(*functions):
+    """Compose multiple functions into one."""
+    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
+
+def pipe(value, *functions):
+    """Apply functions in sequence to a value."""
+    return functools.reduce(lambda acc, func: func(acc), functions, value)
+
+# Example functions
+def add_one(x):
+    return x + 1
+
+def multiply_by_two(x):
+    return x * 2
+
+def square(x):
+    return x ** 2
+
+# Function composition
+composed = compose(square, multiply_by_two, add_one)
+print(composed(3))  # square(multiply_by_two(add_one(3))) = square(8) = 64
+
+# Pipeline approach
+result = pipe(3, add_one, multiply_by_two, square)
+print(result)  # Same result: 64
+
+# More complex example
+def format_number(x):
+    return f"Result: {x}"
+
+pipeline_result = pipe(
+    5,
+    lambda x: x * 2,
+    lambda x: x + 10,
+    lambda x: x ** 0.5,
+    round,
+    format_number
+)
+print(pipeline_result)  # "Result: 4"
+```
+
+#### Currying Implementation
+
+Implementing currying using functools:
+
+```python
+import functools
+
+def curry(func, arity=None):
+    """Convert a function to its curried form."""
+    if arity is None:
+        arity = func.__code__.co_argcount
+    
+    def curried(*args, **kwargs):
+        if len(args) + len(kwargs) >= arity:
+            return func(*args, **kwargs)
+        return lambda *more_args, **more_kwargs: curried(*(args + more_args), **{**kwargs, **more_kwargs})
+    
+    return curried
+
+# Example usage
+def add_three_numbers(a, b, c):
+    return a + b + c
+
+curried_add = curry(add_three_numbers)
+
+# All these are equivalent:
+print(add_three_numbers(1, 2, 3))  # 6
+print(curried_add(1)(2)(3))        # 6
+print(curried_add(1, 2)(3))        # 6
+print(curried_add(1)(2, 3))        # 6
+
+# Partial application through currying
+add_five = curried_add(2)(3)  # Waiting for one more argument
+print(add_five(4))  # 9
+```
+
+### Performance Optimization Techniques
+
+#### Cache Optimization Strategies
+
+Advanced caching techniques for different scenarios:
+
+```python
+import functools
+import sys
+import weakref
+import threading
+
+class AdvancedCache:
+    """Custom cache with size limits and weak references."""
+    
+    def __init__(self, maxsize=128, typed=False):
+        self.maxsize = maxsize
+        self.typed = typed
+        self.cache = {}
+        self.access_order = []
+        self.lock = threading.RLock()
+        self.hits = 0
+        self.misses = 0
+    
+    def __call__(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = self._make_key(args, kwargs)
+            
+            with self.lock:
+                if key in self.cache:
+                    self.hits += 1
+                    self._update_access(key)
+                    return self.cache[key]
+                
+                self.misses += 1
+                result = func(*args, **kwargs)
+                
+                if len(self.cache) >= self.maxsize:
+                    self._evict_lru()
+                
+                self.cache[key] = result
+                self.access_order.append(key)
+                return result
+        
+        wrapper.cache_info = lambda: {
+            'hits': self.hits,
+            'misses': self.misses,
+            'currsize': len(self.cache),
+            'maxsize': self.maxsize
+        }
+        wrapper.cache_clear = self._clear
+        return wrapper
+    
+    def _make_key(self, args, kwargs):
+        key = args
+        if kwargs:
+            key += tuple(sorted(kwargs.items()))
+        if self.typed:
+            key += tuple(type(arg) for arg in args)
+        return key
+    
+    def _update_access(self, key):
+        self.access_order.remove(key)
+        self.access_order.append(key)
+    
+    def _evict_lru(self):
+        if self.access_order:
+            lru_key = self.access_order.pop(0)
+            del self.cache[lru_key]
+    
+    def _clear(self):
+        with self.lock:
+            self.cache.clear()
+            self.access_order.clear()
+            self.hits = 0
+            self.misses = 0
+
+@AdvancedCache(maxsize=50)
+def expensive_function(n):
+    return sum(i ** 2 for i in range(n))
+
+# Usage
+print(expensive_function(1000))
+print(expensive_function.cache_info())
+```
+
+#### Memory-Efficient Caching
+
+Implementing weak reference caching for memory-sensitive applications:
+
+```python
+import functools
+import weakref
+import gc
+
+def weak_lru_cache(maxsize=128):
+    """LRU cache that doesn't prevent garbage collection of results."""
+    def decorator(func):
+        cache = {}
+        access_order = []
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = str(args) + str(sorted(kwargs.items()))
+            
+            # Clean up dead weak references
+            dead_keys = [k for k, ref in cache.items() if ref() is None]
+            for dead_key in dead_keys:
+                del cache[dead_key]
+                if dead_key in access_order:
+                    access_order.remove(dead_key)
+            
+            if key in cache:
+                result = cache[key]()
+                if result is not None:
+                    # Move to end (most recently used)
+                    access_order.remove(key)
+                    access_order.append(key)
+                    return result
+                else:
+                    del cache[key]
+            
+            # Compute new result
+            result = func(*args, **kwargs)
+            
+            # Evict LRU if at capacity
+            while len(cache) >= maxsize and access_order:
+                lru_key = access_order.pop(0)
+                cache.pop(lru_key, None)
+            
+            # Store weak reference
+            try:
+                cache[key] = weakref.ref(result)
+                access_order.append(key)
+            except TypeError:
+                # Can't create weak reference to this type
+                pass
+            
+            return result
+        
+        return wrapper
+    return decorator
+
+class ExpensiveObject:
+    def __init__(self, data):
+        self.data = data
+        self.processed = [x ** 2 for x in data]
+
+@weak_lru_cache(maxsize=10)
+def create_expensive_object(size):
+    return ExpensiveObject(list(range(size)))
+
+# Usage
+obj1 = create_expensive_object(1000)
+obj2 = create_expensive_object(1000)  # Same object from cache
+print(obj1 is obj2)  # True
+
+del obj1, obj2  # Objects can be garbage collected
+gc.collect()
+obj3 = create_expensive_object(1000)  # New object (old one was collected)
+```
+
+### Integration with Async Programming
+
+#### Async Function Utilities
+
+Extending functools concepts to asynchronous programming:
+
+```python
+import functools
+import asyncio
+import time
+
+def async_lru_cache(maxsize=128):
+    """LRU cache for async functions."""
+    def decorator(func):
+        cache = {}
+        access_order = []
+        
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            key = str(args) + str(sorted(kwargs.items()))
+            
+            if key in cache:
+                # Move to end (most recently used)
+                access_order.remove(key)
+                access_order.append(key)
+                return cache[key]
+            
+            # Evict LRU if at capacity
+            if len(cache) >= maxsize and access_order:
+                lru_key = access_order.pop(0)
+                del cache[lru_key]
+            
+            # Compute new result
+            result = await func(*args, **kwargs)
+            cache[key] = result
+            access_order.append(key)
+            return result
+        
+        wrapper.cache_clear = lambda: cache.clear() or access_order.clear()
+        return wrapper
+    return decorator
+
+@async_lru_cache(maxsize=50)
+async def async_expensive_operation(n):
+    await asyncio.sleep(0.1)  # Simulate async I/O
+    return sum(i ** 2 for i in range(n))
+
+async def main():
+    start = time.time()
+    
+    # First calls (cache misses)
+    results = await asyncio.gather(
+        async_expensive_operation(100),
+        async_expensive_operation(200),
+        async_expensive_operation(100),  # Cache hit
+    )
+    
+    end = time.time()
+    print(f"Results: {results}")
+    print(f"Time taken: {end - start:.2f}s")
+
+# Run the async example
+# asyncio.run(main())
+```
+
+#### Async Retry Decorator
+
+```python
+import functools
+import asyncio
+import random
+
+def async_retry(max_attempts=3, delay=1, backoff=2):
+    """Async retry decorator with exponential backoff."""
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            attempts = 0
+            current_delay = delay
+            
+            while attempts < max_attempts:
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as e:
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        raise e
+                    
+                    print(f"Attempt {attempts} failed: {e}. Retrying in {current_delay}s...")
+                    await asyncio.sleep(current_delay)
+                    current_delay *= backoff
+            
+        return wrapper
+    return decorator
+
+@async_retry(max_attempts=3, delay=0.5, backoff=2)
+async def unreliable_async_function():
+    await asyncio.sleep(0.1)
+    if random.random() < 0.7:  # 70% chance of failure
+        raise Exception("Random async failure")
+    return "Async success!"
+```
+
+### Testing and Debugging Utilities
+
+#### Function Introspection and Testing
+
+Tools for analyzing and testing functions enhanced with functools:
+
+```python
+import functools
+import inspect
+import time
+
+def debug_calls(func):
+    """Decorator that logs function calls and performance."""
+    call_count = 0
+    total_time = 0
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        nonlocal call_count, total_time
+        call_count += 1
+        
+        start_time = time.time()
+        try:
+            result = func(*args, **kwargs)
+            success = True
+            error = None
+        except Exception as e:
+            result = None
+            success = False
+            error = e
+        finally:
+            end_time = time.time()
+            duration = end_time - start_time
+            total_time += duration
+        
+        print(f"Call #{call_count} to {func.__name__}")
+        print(f"  Args: {args}, Kwargs: {kwargs}")
+        print(f"  Duration: {duration:.4f}s")
+        print(f"  Success: {success}")
+        if not success:
+            print(f"  Error: {error}")
+        print(f"  Average time: {total_time/call_count:.4f}s")
+        print("-" * 40)
+        
+        if not success:
+            raise error
+        return result
+    
+    wrapper.call_count = lambda: call_count
+    wrapper.total_time = lambda: total_time
+    wrapper.average_time = lambda: total_time / call_count if call_count > 0 else 0
+    
+    return wrapper
+
+@debug_calls
+@functools.lru_cache(maxsize=32)
+def fibonacci_debug(n):
+    if n < 2:
+        return n
+    return fibonacci_debug(n-1) + fibonacci_debug(n-2)
+
+# Usage
+result = fibonacci_debug(10)
+print(f"Final result: {result}")
+print(f"Cache info: {fibonacci_debug.cache_info()}")
+```
+
+#### Mock and Test Utilities
+
+Using functools for testing scenarios:
+
+```python
+import functools
+from unittest.mock import MagicMock
+
+def mock_with_cache(func):
+    """Create a mock that respects caching behavior."""
+    original_func = func
+    mock = MagicMock()
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        # Check if original function is cached
+        if hasattr(original_func, 'cache_info'):
+            cache_info = original_func.cache_info()
+            mock.cache_hits = cache_info.hits
+            mock.cache_misses = cache_info.misses
+            mock.cache_size = cache_info.currsize
+        
+        result = original_func(*args, **kwargs)
+        mock(*args, **kwargs)  # Record the call
+        return result
+    
+    wrapper.mock = mock
+    return wrapper
+
+@functools.lru_cache(maxsize=10)
+def expensive_computation(x, y):
+    return x ** y
+
+# Wrap with mock
+mocked_computation = mock_with_cache(expensive_computation)
+
+# Use the function
+result1 = mocked_computation(2, 10)
+result2 = mocked_computation(2, 10)  # Cache hit
+
+# Check mock statistics
+print(f"Function called {mocked_computation.mock.call_count} times")
+print(f"Cache hits: {mocked_computation.mock.cache_hits}")
+print(f"Cache misses: {mocked_computation.mock.cache_misses}")
+```
+
+### Real-World Applications
+
+#### Web Framework Utilities
+
+Common patterns in web development using functools:
+
+```python
+import functools
+import time
+from typing import Dict, Any
+
+def rate_limit(calls_per_minute=60):
+    """Rate limiting decorator for API endpoints."""
+    def decorator(func):
+        call_times = {}
+        
+        @functools.wraps(func)
+        def wrapper(user_id, *args, **kwargs):
+            current_time = time.time()
+            minute_ago = current_time - 60
+            
+            # Clean old entries
+            if user_id in call_times:
+                call_times[user_id] = [t for t in call_times[user_id] if t > minute_ago]
+            else:
+                call_times[user_id] = []
+            
+            # Check rate limit
+            if len(call_times[user_id]) >= calls_per_minute:
+                raise Exception(f"Rate limit exceeded for user {user_id}")
+            
+            # Record this call
+            call_times[user_id].append(current_time)
+            
+            return func(user_id, *args, **kwargs)
+        
+        return wrapper
+    return decorator
+
+@rate_limit(calls_per_minute=10)
+def api_endpoint(user_id: str, data: Dict[str, Any]):
+    return f"Processing data for user {user_id}: {data}"
+
+# Usage
+try:
+    for i in range(15):  # Exceed rate limit
+        result = api_endpoint("user123", {"request": i})
+        print(result)
+except Exception as e:
+    print(f"Rate limit error: {e}")
+```
+
+#### Data Processing Pipelines
+
+Using functools for data transformation pipelines:
+
+```python
+import functools
+from typing import List, Callable, Any
+
+def pipeline(*transforms: Callable) -> Callable:
+    """Create a data processing pipeline."""
+    return functools.reduce(lambda f, g: lambda x: g(f(x)), transforms)
+
+def batch_process(batch_size: int = 100):
+    """Process data in batches."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(data: List[Any]) -> List[Any]:
+            results = []
+            for i in range(0, len(data), batch_size):
+                batch = data[i:i + batch_size]
+                batch_results = func(batch)
+                results.extend(batch_results)
+            return results
+        return wrapper
+    return decorator
+
+# Data transformation functions
+def clean_data(items: List[str]) -> List[str]:
+    return [item.strip().lower() for item in items if item.strip()]
+
+def validate_data(items: List[str]) -> List[str]:
+    return [item for item in items if len(item) > 2]
+
+def enrich_data(items: List[str]) -> List[Dict[str, Any]]:
+    return [{"value": item, "length": len(item), "processed_at": time.time()} for item in items]
+
+@batch_process(batch_size=50)
+def process_batch(batch: List[str]) -> List[Dict[str, Any]]:
+    return pipeline(clean_data, validate_data, enrich_data)(batch)
+
+# Usage
+raw_data = ["  Hello  ", "Hi", "A", "World", "Python", "  ", "Code"]
+processed_data = process_batch(raw_data)
+print(processed_data)
+```
+
+### Best Practices and Common Pitfalls
+
+#### Cache Key Design
+
+Proper cache key generation for complex data types:
+
+```python
+import functools
+import json
+import hashlib
+
+def smart_cache(maxsize=128):
+    """Cache with intelligent key generation."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # Create a stable key for complex objects
+            key_data = {
+                'args': [_serialize_arg(arg) for arg in args],
+                'kwargs': {k: _serialize_arg(v) for k, v in kwargs.items()}
+            }
+            key = hashlib.md5(json.dumps(key_data, sort_keys=True).encode()).hexdigest()
+            return key
+        
+        def _serialize_arg(arg):
+            if hasattr(arg, '__dict__'):
+                return {'__type__': type(arg).__name__, '__dict__': arg.__dict__}
+            elif isinstance(arg, (list, tuple, set)):
+                return [_serialize_arg(item) for item in arg]
+            elif isinstance(arg, dict):
+                return {k: _serialize_arg(v) for k, v in arg.items()}
+            else:
+                return arg
+        
+        # Apply lru_cache with the custom key function
+        cached_func = functools.lru_cache(maxsize=maxsize)(func)
+        
+        @functools.wraps(func)
+        def final_wrapper(*args, **kwargs):
+            return cached_func(*args, **kwargs)
+        
+        return final_wrapper
+    return decorator
+
+class DataObject:
+    def __init__(self, name, value):
+        self.name = name
+        self.value = value
+
+@smart_cache(maxsize=50)
+def process_complex_data(obj: DataObject, multiplier: int = 1):
+    return obj.value * multiplier
+
+# Usage
+obj1 = DataObject("test", 10)
+obj2 = DataObject("test", 10)  # Same content, different instance
+
+result1 = process_complex_data(obj1, 2)
+result2 = process_complex_data(obj2, 2)  # Should use cache
+```
+
+#### Thread Safety Considerations
+
+Ensuring thread-safe operations with functools utilities:
+
+```python
+import functools
+import threading
+import time
+import random
+
+def thread_safe_cache(maxsize=128):
+    """Thread-safe cache implementation."""
+    def decorator(func):
+        cache = {}
+        access_order = []
+        lock = threading.RLock()
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = str(args) + str(kwargs)
+            
+            with lock:
+                if key in cache:
+                    # Move to end (most recently used)
+                    access_order.remove(key)
+                    access_order.append(key)
+                    return cache[key]
+                
+                # Evict LRU if at capacity
+                if len(cache) >= maxsize and access_order:
+                    lru_key = access_order.pop(0)
+                    del cache[lru_key]
+            
+            # Compute result outside of lock to allow concurrent computation
+            result = func(*args, **kwargs)
+            
+            with lock:
+                cache[key] = result
+                access_order.append(key)
+                return result
+        
+        wrapper.cache_clear = lambda: _clear_cache(cache, access_order, lock)
+        wrapper.cache_info = lambda: _get_cache_info(cache, lock)
+        return wrapper
+    
+    def _clear_cache(cache, access_order, lock):
+        with lock:
+            cache.clear()
+            access_order.clear()
+    
+    def _get_cache_info(cache, lock):
+        with lock:
+            return {'size': len(cache), 'maxsize': maxsize}
+    
+    return decorator
+
+@thread_safe_cache(maxsize=20)
+def thread_safe_computation(n):
+    time.sleep(0.1)  # Simulate work
+    return n ** 2
+
+def worker_thread(thread_id):
+    for i in range(10):
+        value = random.randint(1, 5)
+        result = thread_safe_computation(value)
+        print(f"Thread {thread_id}: f({value}) = {result}")
+
+# Test with multiple threads
+threads = []
+for i in range(3):
+    thread = threading.Thread(target=worker_thread, args=(i,))
+    threads.append(thread)
+    thread.start()
+
+for thread in threads:
+    thread.join()
+
+print(f"Cache info: {thread_safe_computation.cache_info()}")
+```
+
+### Error Handling and Robustness
+
+#### Graceful Degradation
+
+Implementing fallback mechanisms for cached functions:
+
+```python
+import functools
+import logging
+import pickle
+import os
+
+def persistent_cache(cache_file="function_cache.pkl", fallback_on_error=True):
+    """Cache that persists to disk and gracefully handles errors."""
+    def decorator(func):
+        cache = {}
+        
+        # Load cache from disk
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'rb') as f:
+                    cache = pickle.load(f)
+                logging.info(f"Loaded {len(cache)} items from cache file")
+            except Exception as e:
+                logging.warning(f"Failed to load cache: {e}")
+                cache = {}
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = str(args) + str(kwargs)
+            
+            # Try to get from cache
+            if key in cache:
+                try:
+                    return cache[key]
+                except Exception as e:
+                    logging.warning(f"Cache retrieval error: {e}")
+                    if not fallback_on_error:
+                        raise
+                    # Continue to compute fresh result
+            
+            # Compute result
+            try:
+                result = func(*args, **kwargs)
+                cache[key] = result
+                
+                # Persist to disk
+                try:
+                    with open(cache_file, 'wb') as f:
+                        pickle.dump(cache, f)
+                except Exception as e:
+                    logging.warning(f"Failed to persist cache: {e}")
+                
+                return result
+            except Exception as e:
+                logging.error(f"Function execution error: {e}")
+                if not fallback_on_error:
+                    raise
+                
+                # Return cached result if available, even if stale
+                if key in cache:
+                    logging.info("Returning stale cached result due to execution error")
+                    return cache[key]
+                raise
+        
+        wrapper.cache_clear = lambda: _clear_persistent_cache(cache, cache_file)
+        return wrapper
+    
+    def _clear_persistent_cache(cache, cache_file):
+        cache.clear()
+        try:
+            if os.path.exists(cache_file):
+                os.remove(cache_file)
+        except Exception as e:
+            logging.warning(f"Failed to remove cache file: {e}")
+    
+    return decorator
+
+@persistent_cache("computation_cache.pkl")
+def expensive_computation_with_fallback(x, y):
+    if x == 0:  # Simulate occasional errors
+        raise ValueError("Cannot compute with x=0")
+    return x ** y + y ** x
+
+# Usage with error handling
+for x in [1, 2, 0, 3, 0]:  # Include error cases
+    try:
+        result = expensive_computation_with_fallback(x, 2)
+        print(f"f({x}, 2) = {result}")
+    except Exception as e:
+        print(f"Error computing f({x}, 2): {e}")
+```
+
+#### Input Validation and Sanitization
+
+Combining functools with input validation:
+
+```python
+import functools
+from typing import Union, List, Any
+import inspect
+
+def validate_types(**type_hints):
+    """Decorator that validates function argument types."""
+    def decorator(func):
+        sig = inspect.signature(func)
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # Bind arguments to parameters
+            bound_args = sig.bind(*args, **kwargs)
+            bound_args.apply_defaults()
+            
+            # Validate types
+            for param_name, value in bound_args.arguments.items():
+                if param_name in type_hints:
+                    expected_type = type_hints[param_name]
+                    if not isinstance(value, expected_type):
+                        raise TypeError(
+                            f"Parameter '{param_name}' must be {expected_type.__name__}, "
+                            f"got {type(value).__name__}"
+                        )
+            
+            return func(*args, **kwargs)
+        
+        return wrapper
+    return decorator
+
+def sanitize_inputs(sanitizers: dict):
+    """Decorator that sanitizes function inputs."""
+    def decorator(func):
+        sig = inspect.signature(func)
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            bound_args = sig.bind(*args, **kwargs)
+            bound_args.apply_defaults()
+            
+            # Apply sanitizers
+            for param_name, value in bound_args.arguments.items():
+                if param_name in sanitizers:
+                    sanitizer = sanitizers[param_name]
+                    bound_args.arguments[param_name] = sanitizer(value)
+            
+            return func(*bound_args.args, **bound_args.kwargs)
+        
+        return wrapper
+    return decorator
+
+# Sanitizer functions
+def sanitize_string(s):
+    if not isinstance(s, str):
+        s = str(s)
+    return s.strip().lower()
+
+def sanitize_positive_int(n):
+    return max(1, int(abs(n)))
+
+@validate_types(name=str, age=int, scores=list)
+@sanitize_inputs({
+    'name': sanitize_string,
+    'age': sanitize_positive_int
+})
+@functools.lru_cache(maxsize=100)
+def process_student_data(name: str, age: int, scores: List[float]):
+    avg_score = sum(scores) / len(scores) if scores else 0
+    return {
+        'name': name,
+        'age': age,
+        'average_score': avg_score,
+        'grade': 'A' if avg_score >= 90 else 'B' if avg_score >= 80 else 'C'
+    }
+
+# Usage
+try:
+    result1 = process_student_data("  ALICE  ", -25, [85.5, 92.0, 88.5])
+    print(result1)  # name sanitized to "alice", age to 25
+    
+    result2 = process_student_data("  alice  ", 25, [85.5, 92.0, 88.5])
+    print("Cache hit:", result1 == result2)  # Should be cache hit due to sanitization
+    
+    # This will raise TypeError
+    process_student_data(123, "not_an_int", [85.5])
+except TypeError as e:
+    print(f"Validation error: {e}")
+```
+
+### Advanced Memory Management
+
+#### Weak Reference Caching for Large Objects
+
+Managing memory efficiently with large cached objects:
+
+```python
+import functools
+import weakref
+import gc
+from typing import Optional, Dict, Any
+
+class WeakValueCache:
+    """Cache that holds weak references to values to prevent memory leaks."""
+    
+    def __init__(self, maxsize: int = 128):
+        self.maxsize = maxsize
+        self.cache: Dict[Any, weakref.ref] = {}
+        self.access_order = []
+        self.hits = 0
+        self.misses = 0
+    
+    def get(self, key):
+        if key in self.cache:
+            ref = self.cache[key]
+            value = ref()
+            if value is not None:
+                self.hits += 1
+                # Update access order
+                self.access_order.remove(key)
+                self.access_order.append(key)
+                return value
+            else:
+                # Dead reference, clean up
+                del self.cache[key]
+                if key in self.access_order:
+                    self.access_order.remove(key)
+        
+        self.misses += 1
+        return None
+    
+    def set(self, key, value):
+        # Clean up dead references
+        self._cleanup_dead_refs()
+        
+        # Evict LRU if at capacity
+        while len(self.cache) >= self.maxsize and self.access_order:
+            lru_key = self.access_order.pop(0)
+            self.cache.pop(lru_key, None)
+        
+        try:
+            def cleanup_callback(ref):
+                # Remove from cache when object is garbage collected
+                if key in self.cache and self.cache[key] is ref:
+                    del self.cache[key]
+                    if key in self.access_order:
+                        self.access_order.remove(key)
+            
+            self.cache[key] = weakref.ref(value, cleanup_callback)
+            self.access_order.append(key)
+        except TypeError:
+            # Cannot create weak reference to this type
+            pass
+    
+    def _cleanup_dead_refs(self):
+        dead_keys = []
+        for key, ref in self.cache.items():
+            if ref() is None:
+                dead_keys.append(key)
+        
+        for key in dead_keys:
+            del self.cache[key]
+            if key in self.access_order:
+                self.access_order.remove(key)
+    
+    def cache_info(self):
+        self._cleanup_dead_refs()
+        return {
+            'hits': self.hits,
+            'misses': self.misses,
+            'currsize': len(self.cache),
+            'maxsize': self.maxsize
+        }
+    
+    def clear(self):
+        self.cache.clear()
+        self.access_order.clear()
+        self.hits = 0
+        self.misses = 0
+
+def weak_cache(maxsize=128):
+    """Decorator using weak reference cache."""
+    def decorator(func):
+        cache = WeakValueCache(maxsize)
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = str(args) + str(kwargs)
+            
+            # Try cache first
+            result = cache.get(key)
+            if result is not None:
+                return result
+            
+            # Compute and cache
+            result = func(*args, **kwargs)
+            cache.set(key, result)
+            return result
+        
+        wrapper.cache_info = cache.cache_info
+        wrapper.cache_clear = cache.clear
+        return wrapper
+    
+    return decorator
+
+class LargeDataObject:
+    """Simulate a large object that should be eligible for garbage collection."""
+    def __init__(self, size):
+        self.data = list(range(size))  # Large list
+        self.size = size
+    
+    def __repr__(self):
+        return f"LargeDataObject(size={self.size})"
+
+@weak_cache(maxsize=5)
+def create_large_object(size):
+    print(f"Creating large object of size {size}")
+    return LargeDataObject(size)
+
+# Usage demonstration
+obj1 = create_large_object(1000)
+obj2 = create_large_object(1000)  # Cache hit
+print(f"Same object: {obj1 is obj2}")
+
+# Force garbage collection
+del obj1, obj2
+gc.collect()
+
+# Next call should create new object (old one was collected)
+obj3 = create_large_object(1000)
+print(f"Cache info: {create_large_object.cache_info()}")
+```
+
+### Functional Programming Advanced Patterns
+
+#### Monadic Error Handling
+
+Implementing functional error handling patterns:
+
+```python
+import functools
+from typing import Union, Callable, Any, TypeVar
+
+T = TypeVar('T')
+U = TypeVar('U')
+
+class Result:
+    """Monadic result type for error handling."""
+    
+    def __init__(self, value=None, error=None):
+        self.value = value
+        self.error = error
+        self.is_success = error is None
+    
+    def bind(self, func: Callable[[T], 'Result[U]']) -> 'Result[U]':
+        """Monadic bind operation."""
+        if not self.is_success:
+            return Result(error=self.error)
+        try:
+            return func(self.value)
+        except Exception as e:
+            return Result(error=str(e))
+    
+    def map(self, func: Callable[[T], U]) -> 'Result[U]':
+        """Map operation for successful results."""
+        if not self.is_success:
+            return Result(error=self.error)
+        try:
+            return Result(value=func(self.value))
+        except Exception as e:
+            return Result(error=str(e))
+    
+    def get_or_else(self, default):
+        """Get value or return default if error."""
+        return self.value if self.is_success else default
+    
+    def __repr__(self):
+        if self.is_success:
+            return f"Success({self.value})"
+        return f"Error({self.error})"
+
+def safe_function(func):
+    """Decorator that wraps function to return Result."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            result = func(*args, **kwargs)
+            return Result(value=result)
+        except Exception as e:
+            return Result(error=str(e))
+    return wrapper
+
+@safe_function
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Division by zero")
+    return a / b
+
+@safe_function
+def square_root(x):
+    if x < 0:
+        raise ValueError("Cannot take square root of negative number")
+    return x ** 0.5
+
+# Monadic composition
+def safe_computation(a, b):
+    return (divide(a, b)
+            .bind(lambda x: Result(value=x * 2))
+            .bind(lambda x: square_root(x)))
+
+# Usage
+result1 = safe_computation(8, 2)  # Success: sqrt((8/2)*2) = sqrt(8) ≈ 2.83
+result2 = safe_computation(8, 0)  # Error: division by zero
+result3 = safe_computation(-8, 2) # Error: negative square root
+
+print(result1)  # Success(2.8284271247461903)
+print(result2)  # Error(Division by zero)
+print(result3)  # Error(Cannot take square root of negative number)
+
+# Safe value extraction
+safe_value = result1.get_or_else(0)
+print(f"Safe value: {safe_value}")
+```
+
+#### Lazy Evaluation and Generators
+
+Combining functools with lazy evaluation:
+
+```python
+import functools
+from typing import Iterator, Callable, Any
+
+class LazySequence:
+    """Lazy sequence with functional operations."""
+    
+    def __init__(self, generator_func):
+        self.generator_func = generator_func
+    
+    def map(self, func):
+        def new_generator():
+            for item in self.generator_func():
+                yield func(item)
+        return LazySequence(new_generator)
+    
+    def filter(self, predicate):
+        def new_generator():
+            for item in self.generator_func():
+                if predicate(item):
+                    yield item
+        return LazySequence(new_generator)
+    
+    def take(self, n):
+        def new_generator():
+            count = 0
+            for item in self.generator_func():
+                if count >= n:
+                    break
+                yield item
+                count += 1
+        return LazySequence(new_generator)
+    
+    def reduce(self, func, initial=None):
+        iterator = iter(self.generator_func())
+        if initial is None:
+            value = next(iterator)
+        else:
+            value = initial
+        
+        for item in iterator:
+            value = func(value, item)
+        return value
+    
+    def to_list(self):
+        return list(self.generator_func())
+    
+    def __iter__(self):
+        return iter(self.generator_func())
+
+def lazy_range(start, stop=None, step=1):
+    """Create a lazy range sequence."""
+    if stop is None:
+        stop = start
+        start = 0
+    
+    def generator():
+        current = start
+        while current < stop:
+            yield current
+            current += step
+    
+    return LazySequence(generator)
+
+def memoize_generator(func):
+    """Memoize a generator function."""
+    cache = {}
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        key = str(args) + str(kwargs)
+        if key not in cache:
+            cache[key] = list(func(*args, **kwargs))
+        return iter(cache[key])
+    
+    return wrapper
+
+@memoize_generator
+def fibonacci_sequence(limit):
+    """Generate Fibonacci sequence up to limit."""
+    a, b = 0, 1
+    while a < limit:
+        yield a
+        a, b = b, a + b
+
+# Usage examples
+# Lazy sequence operations
+lazy_nums = lazy_range(1, 1000000)  # Million numbers, not computed yet
+result = (lazy_nums
+          .filter(lambda x: x % 2 == 0)    # Even numbers
+          .map(lambda x: x ** 2)           # Square them
+          .take(10)                        # First 10
+          .to_list())                      # Materialize
+
+print("First 10 squares of even numbers:", result)
+
+# Memoized generator
+fib1 = list(fibonacci_sequence(100))  # Computed and cached
+fib2 = list(fibonacci_sequence(100))  # Retrieved from cache
+print("Fibonacci numbers < 100:", fib1)
+print("Same result:", fib1 == fib2)
+
+# Functional composition with lazy evaluation
+def compose_lazy(*functions):
+    """Compose functions to work with lazy sequences."""
+    def composed(lazy_seq):
+        return functools.reduce(lambda seq, func: func(seq), functions, lazy_seq)
+    return composed
+
+# Create a processing pipeline
+pipeline = compose_lazy(
+    lambda seq: seq.filter(lambda x: x > 10),
+    lambda seq: seq.map(lambda x: x * 3),
+    lambda seq: seq.take(5)
+)
+
+processed = pipeline(lazy_range(1, 100))
+print("Pipeline result:", processed.to_list())
+```
+
+### Integration with Modern Python Features
+
+#### Type Hints and Generic Functions
+
+Advanced type-safe functional programming:
+
+```python
+import functools
+from typing import TypeVar, Generic, List, Dict, Callable, Optional, Union
+from dataclasses import dataclass
+
+T = TypeVar('T')
+U = TypeVar('U')
+V = TypeVar('V')
+
+@dataclass
+class Person:
+    name: str
+    age: int
+    email: str
+
+class TypedCache(Generic[T]):
+    """Type-safe cache implementation."""
+    
+    def __init__(self, maxsize: int = 128):
+        self.cache: Dict[str, T] = {}
+        self.maxsize = maxsize
+        self.access_order: List[str] = []
+    
+    def get(self, key: str) -> Optional[T]:
+        if key in self.cache:
+            self.access_order.remove(key)
+            self.access_order.append(key)
+            return self.cache[key]
+        return None
+    
+    def set(self, key: str, value: T) -> None:
+        if len(self.cache) >= self.maxsize and self.access_order:
+            lru_key = self.access_order.pop(0)
+            del self.cache[lru_key]
+        
+        self.cache[key] = value
+        self.access_order.append(key)
+
+def typed_lru_cache(maxsize: int = 128) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    """Type-safe LRU cache decorator."""
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        cache: TypedCache[T] = TypedCache(maxsize)
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> T:
+            key = str(args) + str(kwargs)
+            
+            result = cache.get(key)
+            if result is not None:
+                return result
+            
+            result = func(*args, **kwargs)
+            cache.set(key, result)
+            return result
+        
+        return wrapper
+    return decorator
+
+@typed_lru_cache(maxsize=50)
+def get_person_info(person_id: int) -> Person:
+    # Simulate database lookup
+    return Person(
+        name=f"Person_{person_id}",
+        age=25 + (person_id % 50),
+        email=f"person{person_id}@example.com"
+    )
+
+@typed_lru_cache(maxsize=100)
+def compute_statistics(numbers: List[float]) -> Dict[str, float]:
+    return {
+        'mean': sum(numbers) / len(numbers),
+        'max': max(numbers),
+        'min': min(numbers),
+        'std': (sum((x - sum(numbers)/len(numbers))**2 for x in numbers) / len(numbers))**0.5
+    }
+
+# Usage with full type safety
+person: Person = get_person_info(123)
+stats: Dict[str, float] = compute_statistics([1.0, 2.0, 3.0, 4.0, 5.0])
+
+print(f"Person: {person}")
+print(f"Statistics: {stats}")
+```
+
+**Key points**: The functools module provides essential tools for functional programming in Python, including caching with lru_cache, partial application, function composition with reduce, generic function dispatch with singledispatch, and proper decorator creation with wraps. It enables performance optimization through memoization, code reuse through partial functions, and elegant function transformation patterns. Master these utilities for writing more efficient, maintainable, and functionally-oriented Python code.
+
+Important related topics include understanding decorator patterns, performance profiling for cache optimization, thread safety in concurrent applications, memory management with weak references, and integration with modern Python type hints for better code safety and documentation.
+
+---
+
+## Python Collections Module
+
+### Overview
+
+The `collections` module provides specialized container datatypes that extend Python's built-in containers (dict, list, set, tuple). These containers offer additional functionality, better performance for specific use cases, and more convenient APIs for common patterns. The module includes both concrete implementations and abstract base classes for creating custom containers.
+
+### Counter
+
+A `Counter` is a dict subclass for counting hashable objects, essentially a multiset or bag implementation.
+
+#### Basic Usage
+
+```python
+from collections import Counter
+
+# Creating counters
+c1 = Counter(['a', 'b', 'c', 'a', 'b', 'b'])
+print(c1)  # Counter({'b': 3, 'a': 2, 'c': 1})
+
+c2 = Counter({'red': 4, 'blue': 2})
+print(c2)  # Counter({'red': 4, 'blue': 2})
+
+c3 = Counter(cats=4, dogs=2)
+print(c3)  # Counter({'cats': 4, 'dogs': 2})
+
+# From string
+c4 = Counter('hello world')
+print(c4)  # Counter({'l': 3, 'o': 2, 'h': 1, 'e': 1, ' ': 1, 'w': 1, 'r': 1, 'd': 1})
+```
+
+#### Counter Methods
+
+```python
+c = Counter('abracadabra')
+
+# Most common elements
+print(c.most_common())     # [('a', 5), ('b', 2), ('r', 2), ('c', 1), ('d', 1)]
+print(c.most_common(3))    # [('a', 5), ('b', 2), ('r', 2)]
+
+# Elements (returns iterator over elements)
+print(list(c.elements()))  # ['a', 'a', 'a', 'a', 'a', 'b', 'b', 'r', 'r', 'c', 'd']
+
+# Update and subtract
+c.update('aabbcc')
+print(c)  # Counter({'a': 7, 'b': 4, 'c': 2, 'r': 2, 'd': 1})
+
+c.subtract('abc')
+print(c)  # Counter({'a': 6, 'b': 3, 'r': 2, 'c': 1, 'd': 1})
+
+# Total count
+print(c.total())  # 13 (sum of all counts)
+```
+
+#### Counter Arithmetic
+
+```python
+c1 = Counter(['a', 'b', 'c', 'a', 'b', 'b'])
+c2 = Counter(['a', 'b', 'b', 'd'])
+
+# Addition (combine counts)
+print(c1 + c2)  # Counter({'b': 5, 'a': 3, 'c': 1, 'd': 1})
+
+# Subtraction (subtract counts, keep positive)
+print(c1 - c2)  # Counter({'b': 1, 'c': 1})
+
+# Intersection (minimum counts)
+print(c1 & c2)  # Counter({'a': 1, 'b': 2})
+
+# Union (maximum counts)
+print(c1 | c2)  # Counter({'b': 3, 'a': 2, 'c': 1, 'd': 1})
+```
+
+#### Practical Examples
+
+```python
+# Word frequency analysis
+text = "the quick brown fox jumps over the lazy dog the fox"
+word_freq = Counter(text.split())
+print(word_freq.most_common(3))  # [('the', 2), ('fox', 2), ('quick', 1)]
+
+# Character frequency in DNA sequence
+dna = "ATCGATCGATCG"
+nucleotide_count = Counter(dna)
+gc_content = (nucleotide_count['G'] + nucleotide_count['C']) / len(dna)
+print(f"GC Content: {gc_content:.2%}")
+
+# Inventory management
+inventory = Counter(apples=10, oranges=5, bananas=3)
+sold = Counter(apples=3, oranges=2, bananas=1)
+remaining = inventory - sold
+print(f"Remaining inventory: {remaining}")
+```
+
+### defaultdict
+
+A `defaultdict` is a dict subclass that calls a factory function to supply missing values.
+
+#### Basic Usage
+
+```python
+from collections import defaultdict
+
+# With list as default factory
+dd_list = defaultdict(list)
+dd_list['key1'].append('value1')
+dd_list['key2'].append('value2')
+print(dict(dd_list))  # {'key1': ['value1'], 'key2': ['value2']}
+
+# With int as default factory (useful for counting)
+dd_int = defaultdict(int)
+for char in 'hello':
+    dd_int[char] += 1
+print(dict(dd_int))  # {'h': 1, 'e': 1, 'l': 2, 'o': 1}
+
+# With set as default factory
+dd_set = defaultdict(set)
+dd_set['fruits'].add('apple')
+dd_set['fruits'].add('banana')
+print(dict(dd_set))  # {'fruits': {'apple', 'banana'}}
+```
+
+#### Custom Default Factories
+
+```python
+# Custom factory function
+def default_value():
+    return "N/A"
+
+dd_custom = defaultdict(default_value)
+print(dd_custom['missing_key'])  # "N/A"
+
+# Lambda factory
+dd_lambda = defaultdict(lambda: [0, 0])
+dd_lambda['coordinates'][0] = 10
+dd_lambda['coordinates'][1] = 20
+print(dict(dd_lambda))  # {'coordinates': [10, 20]}
+
+# Nested defaultdict
+nested_dd = defaultdict(lambda: defaultdict(int))
+nested_dd['user1']['score'] += 10
+nested_dd['user1']['attempts'] += 1
+nested_dd['user2']['score'] += 20
+print(dict(nested_dd))  # {'user1': defaultdict(<class 'int'>, {'score': 10, 'attempts': 1}), 'user2': defaultdict(<class 'int'>, {'score': 20})}
+```
+
+#### Practical Examples
+
+```python
+# Group items by category
+from collections import defaultdict
+
+items = [
+    ('apple', 'fruit'),
+    ('carrot', 'vegetable'),
+    ('banana', 'fruit'),
+    ('broccoli', 'vegetable'),
+    ('orange', 'fruit')
+]
+
+grouped = defaultdict(list)
+for item, category in items:
+    grouped[category].append(item)
+
+print(dict(grouped))  # {'fruit': ['apple', 'banana', 'orange'], 'vegetable': ['carrot', 'broccoli']}
+
+# Build adjacency list for graph
+edges = [('A', 'B'), ('A', 'C'), ('B', 'D'), ('C', 'D')]
+graph = defaultdict(set)
+for src, dest in edges:
+    graph[src].add(dest)
+    graph[dest].add(src)  # Undirected graph
+
+# Track student grades by subject
+grades = [
+    ('Alice', 'Math', 95),
+    ('Bob', 'Math', 87),
+    ('Alice', 'Science', 92),
+    ('Bob', 'Science', 89)
+]
+
+student_grades = defaultdict(lambda: defaultdict(list))
+for student, subject, grade in grades:
+    student_grades[student][subject].append(grade)
+```
+
+### deque
+
+A `deque` (double-ended queue) provides O(1) appends and pops from both ends, unlike lists which have O(n) operations for the beginning.
+
+#### Basic Operations
+
+```python
+from collections import deque
+
+# Creating deques
+d1 = deque([1, 2, 3, 4, 5])
+d2 = deque('hello')
+d3 = deque(maxlen=3)  # Bounded deque
+
+print(d1)  # deque([1, 2, 3, 4, 5])
+print(d2)  # deque(['h', 'e', 'l', 'l', 'o'])
+```
+
+#### Deque Methods
+
+```python
+d = deque([1, 2, 3])
+
+# Append operations
+d.append(4)           # Add to right
+d.appendleft(0)       # Add to left
+print(d)              # deque([0, 1, 2, 3, 4])
+
+# Pop operations
+right = d.pop()       # Remove from right
+left = d.popleft()    # Remove from left
+print(f"Removed: {left}, {right}")  # Removed: 0, 4
+print(d)              # deque([1, 2, 3])
+
+# Extend operations
+d.extend([4, 5])      # Extend right
+d.extendleft([0, -1]) # Extend left (note: order reversed)
+print(d)              # deque([-1, 0, 1, 2, 3, 4, 5])
+
+# Rotation
+d.rotate(2)           # Rotate right by 2
+print(d)              # deque([4, 5, -1, 0, 1, 2, 3])
+
+d.rotate(-3)          # Rotate left by 3
+print(d)              # deque([0, 1, 2, 3, 4, 5, -1])
+```
+
+#### Bounded Deques
+
+```python
+# Fixed-size deque (LRU-like behavior)
+recent_items = deque(maxlen=3)
+for i in range(6):
+    recent_items.append(i)
+    print(f"Added {i}: {recent_items}")
+
+# Output:
+# Added 0: deque([0], maxlen=3)
+# Added 1: deque([0, 1], maxlen=3)
+# Added 2: deque([0, 1, 2], maxlen=3)
+# Added 3: deque([1, 2, 3], maxlen=3)  # 0 was removed
+# Added 4: deque([2, 3, 4], maxlen=3)  # 1 was removed
+# Added 5: deque([3, 4, 5], maxlen=3)  # 2 was removed
+```
+
+#### Practical Examples
+
+```python
+# Sliding window maximum
+def sliding_window_maximum(arr, k):
+    from collections import deque
+    dq = deque()
+    result = []
+    
+    for i in range(len(arr)):
+        # Remove elements outside window
+        while dq and dq[0] <= i - k:
+            dq.popleft()
+        
+        # Remove smaller elements from rear
+        while dq and arr[dq[-1]] <= arr[i]:
+            dq.pop()
+        
+        dq.append(i)
+        
+        # Add to result if window is complete
+        if i >= k - 1:
+            result.append(arr[dq[0]])
+    
+    return result
+
+# Palindrome checker
+def is_palindrome(s):
+    d = deque(s.lower())
+    while len(d) > 1:
+        if d.popleft() != d.pop():
+            return False
+    return True
+
+print(is_palindrome("racecar"))  # True
+print(is_palindrome("hello"))    # False
+
+# Breadth-first search
+def bfs(graph, start):
+    visited = set()
+    queue = deque([start])
+    result = []
+    
+    while queue:
+        vertex = queue.popleft()
+        if vertex not in visited:
+            visited.add(vertex)
+            result.append(vertex)
+            queue.extend(neighbor for neighbor in graph[vertex] 
+                        if neighbor not in visited)
+    
+    return result
+```
+
+### OrderedDict
+
+An `OrderedDict` is a dict subclass that remembers insertion order. [Inference] While regular dicts in Python 3.7+ maintain insertion order, OrderedDict provides additional ordering-related methods and guarantees order preservation across all Python versions.
+
+#### Basic Usage
+
+```python
+from collections import OrderedDict
+
+# Regular dict vs OrderedDict
+regular_dict = {'a': 1, 'b': 2, 'c': 3}
+ordered_dict = OrderedDict([('a', 1), ('b', 2), ('c', 3)])
+
+print(regular_dict)  # {'a': 1, 'b': 2, 'c': 3}
+print(ordered_dict)  # OrderedDict([('a', 1), ('b', 2), ('c', 3)])
+```
+
+#### OrderedDict Methods
+
+```python
+od = OrderedDict([('a', 1), ('b', 2), ('c', 3)])
+
+# Move to end
+od.move_to_end('a')
+print(od)  # OrderedDict([('b', 2), ('c', 3), ('a', 1)])
+
+# Move to beginning
+od.move_to_end('c', last=False)
+print(od)  # OrderedDict([('c', 3), ('b', 2), ('a', 1)])
+
+# Pop last item (LIFO)
+last_item = od.popitem(last=True)
+print(f"Popped: {last_item}")  # Popped: ('a', 1)
+
+# Pop first item (FIFO)
+first_item = od.popitem(last=False)
+print(f"Popped: {first_item}")  # Popped: ('c', 3)
+print(od)  # OrderedDict([('b', 2)])
+```
+
+#### Practical Examples
+
+```python
+# LRU Cache implementation
+class LRUCache:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.cache = OrderedDict()
+    
+    def get(self, key):
+        if key in self.cache:
+            # Move to end (most recently used)
+            self.cache.move_to_end(key)
+            return self.cache[key]
+        return None
+    
+    def put(self, key, value):
+        if key in self.cache:
+            # Update existing key
+            self.cache.move_to_end(key)
+        elif len(self.cache) >= self.capacity:
+            # Remove least recently used
+            self.cache.popitem(last=False)
+        self.cache[key] = value
+
+# Configuration with ordered sections
+config = OrderedDict()
+config['database'] = {'host': 'localhost', 'port': 5432}
+config['cache'] = {'host': 'redis', 'port': 6379}
+config['logging'] = {'level': 'INFO', 'file': 'app.log'}
+
+# Maintain order when iterating
+for section, settings in config.items():
+    print(f"[{section}]")
+    for key, value in settings.items():
+        print(f"{key} = {value}")
+```
+
+### namedtuple
+
+`namedtuple` creates tuple subclasses with named fields, providing a lightweight way to create classes for storing data.
+
+#### Basic Usage
+
+```python
+from collections import namedtuple
+
+# Define a named tuple
+Point = namedtuple('Point', ['x', 'y'])
+p1 = Point(10, 20)
+print(p1)        # Point(x=10, y=20)
+print(p1.x, p1.y)  # 10 20
+
+# Alternative field specification
+Person = namedtuple('Person', 'name age city')
+person1 = Person('Alice', 30, 'New York')
+print(person1.name)  # Alice
+
+# With defaults (Python 3.7+)
+Employee = namedtuple('Employee', ['name', 'id', 'department'], defaults=['IT'])
+emp1 = Employee('Bob', 123)
+print(emp1)  # Employee(name='Bob', id=123, department='IT')
+```
+
+#### namedtuple Methods
+
+```python
+Point = namedtuple('Point', ['x', 'y', 'z'])
+p = Point(1, 2, 3)
+
+# _asdict() - convert to dictionary
+print(p._asdict())  # {'x': 1, 'y': 2, 'z': 3}
+
+# _replace() - create new instance with some fields changed
+p2 = p._replace(x=10)
+print(p2)  # Point(x=10, y=2, z=3)
+
+# _fields - tuple of field names
+print(Point._fields)  # ('x', 'y', 'z')
+
+# _make() - create instance from iterable
+coords = [4, 5, 6]
+p3 = Point._make(coords)
+print(p3)  # Point(x=4, y=5, z=6)
+
+# Tuple operations still work
+print(p[0])     # 1 (indexing)
+print(len(p))   # 3 (length)
+x, y, z = p     # unpacking
+```
+
+#### Practical Examples
+
+```python
+# Database record representation
+Record = namedtuple('Record', ['id', 'name', 'email', 'created_at'])
+
+def fetch_users():
+    # Simulate database fetch
+    raw_data = [
+        (1, 'Alice', 'alice@example.com', '2023-01-01'),
+        (2, 'Bob', 'bob@example.com', '2023-01-02')
+    ]
+    return [Record._make(row) for row in raw_data]
+
+users = fetch_users()
+for user in users:
+    print(f"User {user.name} ({user.email}) created on {user.created_at}")
+
+# RGB color representation
+Color = namedtuple('Color', ['red', 'green', 'blue'])
+
+def hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip('#')
+    return Color(*[int(hex_color[i:i+2], 16) for i in (0, 2, 4)])
+
+red = hex_to_rgb('#FF0000')
+print(red)  # Color(red=255, green=0, blue=0)
+
+# Geometric calculations
+Point = namedtuple('Point', ['x', 'y'])
+
+def distance(p1, p2):
+    return ((p1.x - p2.x)**2 + (p1.y - p2.y)**2)**0.5
+
+p1 = Point(0, 0)
+p2 = Point(3, 4)
+print(f"Distance: {distance(p1, p2)}")  # Distance: 5.0
+
+# Configuration objects
+Config = namedtuple('Config', ['host', 'port', 'timeout', 'retries'], defaults=['localhost', 8080, 30, 3])
+config = Config(host='production.com', port=443)
+print(config)  # Config(host='production.com', port=443, timeout=30, retries=3)
+```
+
+### ChainMap
+
+`ChainMap` groups multiple dicts or mappings together to create a single, updateable view.
+
+#### Basic Usage
+
+```python
+from collections import ChainMap
+
+dict1 = {'a': 1, 'b': 2}
+dict2 = {'b': 3, 'c': 4}
+dict3 = {'c': 5, 'd': 6}
+
+# Create chain map
+cm = ChainMap(dict1, dict2, dict3)
+print(cm)  # ChainMap({'a': 1, 'b': 2}, {'b': 3, 'c': 4}, {'c': 5, 'd': 6})
+
+# Lookup (searches in order)
+print(cm['a'])  # 1 (from dict1)
+print(cm['b'])  # 2 (from dict1, not dict2)
+print(cm['c'])  # 4 (from dict2, not dict3)
+print(cm['d'])  # 6 (from dict3)
+
+# List all keys
+print(list(cm.keys()))    # ['d', 'c', 'b', 'a']
+print(list(cm.values()))  # [6, 4, 2, 1]
+```
+
+#### ChainMap Methods
+
+```python
+dict1 = {'a': 1, 'b': 2}
+dict2 = {'c': 3, 'd': 4}
+cm = ChainMap(dict1, dict2)
+
+# new_child() - add new dict at front
+child_cm = cm.new_child({'e': 5})
+print(child_cm)  # ChainMap({'e': 5}, {'a': 1, 'b': 2}, {'c': 3, 'd': 4})
+
+# parents - all maps except the first
+print(cm.parents)  # ChainMap({'c': 3, 'd': 4})
+
+# maps - list of all mappings
+print(cm.maps)  # [{'a': 1, 'b': 2}, {'c': 3, 'd': 4}]
+
+# Updates affect only the first mapping
+cm['a'] = 10  # Updates dict1
+cm['f'] = 6   # Adds to dict1
+print(dict1)  # {'a': 10, 'b': 2, 'f': 6}
+print(dict2)  # {'c': 3, 'd': 4} (unchanged)
+```
+
+#### Practical Examples
+
+```python
+# Configuration hierarchy (command line > config file > defaults)
+defaults = {'host': 'localhost', 'port': 8080, 'debug': False}
+config_file = {'host': 'production.com', 'port': 443}
+command_line = {'debug': True}
+
+config = ChainMap(command_line, config_file, defaults)
+print(f"Host: {config['host']}")      # production.com (from config_file)
+print(f"Port: {config['port']}")      # 443 (from config_file)
+print(f"Debug: {config['debug']}")    # True (from command_line)
+
+# Nested scope simulation
+def outer_function():
+    outer_vars = {'x': 1, 'y': 2}
+    
+    def inner_function():
+        inner_vars = {'y': 3, 'z': 4}
+        # Simulate variable lookup: local -> outer -> global
+        scope = ChainMap(inner_vars, outer_vars, globals())
+        print(f"x: {scope.get('x', 'Not found')}")  # 1 (from outer)
+        print(f"y: {scope.get('y', 'Not found')}")  # 3 (from inner)
+        print(f"z: {scope.get('z', 'Not found')}")  # 4 (from inner)
+    
+    inner_function()
+
+# Environment variable override
+import os
+app_defaults = {'timeout': 30, 'retries': 3, 'verbose': False}
+app_config = ChainMap(os.environ, app_defaults)
+
+# Use environment variable if set, otherwise use default
+timeout = int(app_config.get('TIMEOUT', app_config['timeout']))
+```
+
+### UserDict, UserList, UserString
+
+These are wrapper classes that provide a base for creating custom container types.
+
+#### UserDict
+
+```python
+from collections import UserDict
+
+class CaseInsensitiveDict(UserDict):
+    def __setitem__(self, key, value):
+        super().__setitem__(key.lower(), value)
+    
+    def __getitem__(self, key):
+        return super().__getitem__(key.lower())
+    
+    def __contains__(self, key):
+        return super().__contains__(key.lower())
+    
+    def __delitem__(self, key):
+        super().__delitem__(key.lower())
+
+# Usage
+ci_dict = CaseInsensitiveDict()
+ci_dict['Name'] = 'Alice'
+ci_dict['AGE'] = 30
+
+print(ci_dict['name'])  # Alice
+print(ci_dict['age'])   # 30
+print('NAME' in ci_dict)  # True
+
+# Validation dictionary
+class ValidatedDict(UserDict):
+    def __init__(self, validator_func, *args, **kwargs):
+        self.validator = validator_func
+        super().__init__(*args, **kwargs)
+    
+    def __setitem__(self, key, value):
+        if not self.validator(key, value):
+            raise ValueError(f"Invalid value: {value} for key: {key}")
+        super().__setitem__(key, value)
+
+def validate_age(key, value):
+    return key == 'age' and isinstance(value, int) and 0 <= value <= 150
+
+age_dict = ValidatedDict(validate_age)
+age_dict['age'] = 25  # OK
+# age_dict['age'] = -5  # Would raise ValueError
+```
+
+#### UserList
+
+```python
+from collections import UserList
+
+class UniqueList(UserList):
+    def append(self, item):
+        if item not in self.data:
+            super().append(item)
+    
+    def extend(self, items):
+        for item in items:
+            self.append(item)
+    
+    def insert(self, index, item):
+        if item not in self.data:
+            super().insert(index, item)
+
+# Usage
+ul = UniqueList([1, 2, 3])
+ul.append(2)  # Won't add duplicate
+ul.extend([3, 4, 5])  # Only 4 and 5 will be added
+print(ul)  # [1, 2, 3, 4, 5]
+
+# Statistics list
+class StatsList(UserList):
+    @property
+    def mean(self):
+        return sum(self.data) / len(self.data) if self.data else 0
+    
+    @property
+    def median(self):
+        sorted_data = sorted(self.data)
+        n = len(sorted_data)
+        if n % 2 == 0:
+            return (sorted_data[n//2 - 1] + sorted_data[n//2]) / 2
+        return sorted_data[n//2]
+
+stats = StatsList([1, 3, 5, 7, 9])
+print(f"Mean: {stats.mean}")    # Mean: 5.0
+print(f"Median: {stats.median}")  # Median: 5
+```
+
+### Abstract Base Classes
+
+The collections.abc module provides abstract base classes for containers.
+
+#### Common ABCs
+
+```python
+from collections.abc import Mapping, MutableMapping, Sequence, MutableSequence
+
+# Check if object implements interface
+print(isinstance({}, Mapping))           # True
+print(isinstance([], Sequence))          # True
+print(isinstance([], MutableSequence))   # True
+
+# Custom container that implements ABC
+class ReadOnlyDict(Mapping):
+    def __init__(self, data):
+        self._data = data
+    
+    def __getitem__(self, key):
+        return self._data[key]
+    
+    def __iter__(self):
+        return iter(self._data)
+    
+    def __len__(self):
+        return len(self._data)
+
+# Usage
+rod = ReadOnlyDict({'a': 1, 'b': 2})
+print(rod['a'])     # 1
+print(len(rod))     # 2
+print(list(rod))    # ['a', 'b']
+# rod['c'] = 3      # Would work but we haven't implemented __setitem__
+```
+
+### Performance Comparisons
+
+#### List vs Deque Performance
+
+```python
+import time
+from collections import deque
+
+# Comparing append/pop performance
+def time_operations(container_type, n=100000):
+    container = container_type()
+    
+    # Time appends
+    start = time.time()
+    for i in range(n):
+        container.append(i)
+    append_time = time.time() - start
+    
+    # Time pops from left (if supported)
+    if hasattr(container, 'popleft'):
+        start = time.time()
+        while container:
+            container.popleft()
+        pop_time = time.time() - start
+    else:
+        start = time.time()
+        while container:
+            container.pop(0)  # Inefficient for lists
+        pop_time = time.time() - start
+    
+    return append_time, pop_time
+
+# [Inference] Deques are significantly faster for operations at both ends
+list_append, list_pop = time_operations(list, 10000)
+deque_append, deque_pop = time_operations(deque, 10000)
+
+print(f"List - Append: {list_append:.4f}s, Pop from start: {list_pop:.4f}s")
+print(f"Deque - Append: {deque_append:.4f}s, Pop from start: {deque_pop:.4f}s")
+```
+
+#### Counter vs Manual Counting
+
+```python
+import time
+from collections import Counter
+
+data = ['apple', 'banana', 'apple', 'cherry', 'banana', 'apple'] * 10000
+
+# Manual counting
+start = time.time()
+manual_count = {}
+for item in data:
+    manual_count[item] = manual_count.get(item, 0) + 1
+manual_time = time.time() - start
+
+# Counter
+start = time.time()
+counter_count = Counter(data)
+counter_time = time.time() - start
+
+print(f"Manual counting: {manual_time:.4f}s")
+print(f"Counter: {counter_time:.4f}s")
+# [Inference] Counter is typically faster due to C implementation
+```
+
+### Memory Usage Considerations
+
+#### namedtuple vs Class vs dict
+
+```python
+import sys
+from collections import namedtuple
+
+# Regular class
+class RegularPoint:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+# namedtuple
+NamedPoint = namedtuple('Point', ['x', 'y'])
+
+# Compare memory usage
+regular = RegularPoint(1, 2)
+named = NamedPoint(1, 2)
+dict_point = {'x': 1, 'y': 2}
+
+print(f"Regular class: {sys.getsizeof(regular)} bytes")
+print(f"namedtuple: {sys.getsizeof(named)} bytes")
+print(f"dict: {sys.getsizeof(dict_point)} bytes")
+# [Inference] namedtuples are typically more memory-efficient than dicts and regular classes
+```
+
+### Best Practices and Common Patterns
+
+#### When to Use Each Container
+
+**Key points:**
+
+- **Counter**: Frequency counting, multiset operations, statistical analysis
+- **defaultdict**: Grouping data, avoiding KeyError, building nested structures
+- **deque**: Queue/stack operations, sliding windows, bounded collections
+- **OrderedDict**: When insertion order matters and you need ordering methods
+- **namedtuple**: Lightweight data containers, replacing simple classes
+- **ChainMap**: Configuration hierarchies, scope simulation, layered lookups
+
+#### Common Patterns
+
+```python
+# Pattern 1: Grouping with defaultdict
+from collections import defaultdict
+def group_by(iterable, key_func):
+    groups = defaultdict(list)
+    for item in iterable:
+        groups[key_func(item)].append(item)
+    return dict(groups)
+
+# Pattern 2: Frequency analysis with Counter
+def analyze_text(text):
+    words = text.lower().split()
+    word_freq = Counter(words)
+    char_freq = Counter(text.lower().replace(' ', ''))
+    return {
+        'word_count': len(words),
+        'unique_words': len(word_freq),
+        'most_common_word': word_freq.most_common(1)[0] if word_freq else None,
+        'char_distribution': dict(char_freq.most_common(5))
+    }
+
+# Pattern 3: LRU-like behavior with deque
+def recent_items_tracker(maxsize=10):
+    items = deque(maxlen=maxsize)
+    def add_item(item):
+        if item in items:
+            items.remove(item)  # Remove old occurrence
+        items.append(item)  # Add to end
+        return list(items)
+    return add_item
+
+# Pattern 4: Configuration management with ChainMap
+def create_config(*config_sources):
+    """Create configuration from multiple sources (later sources have higher priority)"""
+    return ChainMap(*reversed(config_sources))
+```
+
+### Error Handling and Edge Cases
+
+#### Handling Missing Keys
+
+```python
+from collections import defaultdict, Counter
+
+# defaultdict with None factory
+dd = defaultdict(lambda: None)
+print(dd['missing'])  # None (instead of KeyError)
+
+# Counter with missing keys
+c = Counter(['a', 'b', 'c'])
+print(c['missing'])  # 0 (not KeyError)
+
+# ChainMap with missing keys
+from collections import ChainMap
+
+cm = ChainMap({'a': 1}, {'b': 2})
+print(cm.get('missing', 'default'))  # 'default'
+# print(cm['missing'])  # Would raise KeyError
+```
+
+#### Thread Safety Considerations
+
+```python
+import threading
+from collections import defaultdict, deque, Counter
+
+# [Unverified] Most collections types are not thread-safe for modifications
+# Use locks for concurrent access
+lock = threading.Lock()
+shared_counter = Counter()
+
+def thread_safe_count(items):
+    with lock:
+        shared_counter.update(items)
+
+# For deque, some operations are atomic, but complex operations need locks
+shared_deque = deque()
+
+def safe_deque_operation():
+    with lock:
+        if shared_deque:  # Check and pop atomically
+            return shared_deque.popleft()
+    return None
+```
+
+#### Handling Large Data Sets
+
+```python
+# Memory-efficient processing with generators
+def process_large_file(filename):
+    word_count = Counter()
+    
+    def word_generator():
+        with open(filename, 'r') as f:
+            for line in f:
+                for word in line.strip().split():
+                    yield word.lower()
+    
+    # Process in chunks to avoid memory issues
+    chunk_size = 10000
+    words = word_generator()
+    while True:
+        chunk = []
+        try:
+            for _ in range(chunk_size):
+                chunk.append(next(words))
+        except StopIteration:
+            if chunk:
+                word_count.update(chunk)
+            break
+        word_count.update(chunk)
+    
+    return word_count
+
+# Bounded collections for streaming data
+class BoundedDefaultDict(defaultdict):
+    def __init__(self, default_factory, max_size):
+        super().__init__(default_factory)
+        self.max_size = max_size
+    
+    def __setitem__(self, key, value):
+        if len(self) >= self.max_size and key not in self:
+            # Remove oldest item (simple LRU-like behavior)
+            oldest_key = next(iter(self))
+            del self[oldest_key]
+        super().__setitem__(key, value)
+```
+
+### Advanced Use Cases
+
+#### Custom Collection Combinations
+
+```python
+from collections import defaultdict, Counter, deque
+
+class MultiLevelCounter:
+    """Counter that tracks items at multiple hierarchy levels"""
+    def __init__(self):
+        self.counters = defaultdict(Counter)
+    
+    def add(self, category, item):
+        self.counters[category][item] += 1
+        self.counters['_total'][item] += 1
+    
+    def get_category_stats(self, category):
+        return dict(self.counters[category])
+    
+    def get_global_stats(self):
+        return dict(self.counters['_total'])
+    
+    def most_common_global(self, n=None):
+        return self.counters['_total'].most_common(n)
+
+# Usage
+mlc = MultiLevelCounter()
+mlc.add('fruits', 'apple')
+mlc.add('fruits', 'banana')
+mlc.add('vegetables', 'carrot')
+mlc.add('fruits', 'apple')
+
+print(mlc.get_category_stats('fruits'))  # {'apple': 2, 'banana': 1}
+print(mlc.most_common_global())          # [('apple', 2), ('banana', 1), ('carrot', 1)]
+
+class TimestampedDeque:
+    """Deque with automatic timestamping"""
+    def __init__(self, maxlen=None):
+        self.items = deque(maxlen=maxlen)
+        self.timestamps = deque(maxlen=maxlen)
+    
+    def append(self, item):
+        import time
+        self.items.append(item)
+        self.timestamps.append(time.time())
+    
+    def get_recent(self, seconds):
+        import time
+        cutoff = time.time() - seconds
+        recent_items = []
+        for item, timestamp in zip(self.items, self.timestamps):
+            if timestamp >= cutoff:
+                recent_items.append((item, timestamp))
+        return recent_items
+    
+    def __len__(self):
+        return len(self.items)
+    
+    def __iter__(self):
+        return zip(self.items, self.timestamps)
+
+# Usage
+td = TimestampedDeque(maxlen=100)
+td.append('event1')
+import time; time.sleep(1)
+td.append('event2')
+recent = td.get_recent(0.5)  # Get events from last 0.5 seconds
+```
+
+#### Data Processing Pipelines
+
+```python
+from collections import defaultdict, Counter, deque
+from functools import reduce
+import operator
+
+class DataPipeline:
+    """Process data through multiple collection-based stages"""
+    def __init__(self):
+        self.stages = []
+    
+    def add_grouping_stage(self, key_func):
+        def group_stage(data):
+            grouped = defaultdict(list)
+            for item in data:
+                grouped[key_func(item)].append(item)
+            return dict(grouped)
+        self.stages.append(group_stage)
+        return self
+    
+    def add_counting_stage(self):
+        def count_stage(data):
+            if isinstance(data, dict):
+                return {k: Counter(v) for k, v in data.items()}
+            return Counter(data)
+        self.stages.append(count_stage)
+        return self
+    
+    def add_filtering_stage(self, predicate):
+        def filter_stage(data):
+            if isinstance(data, dict):
+                return {k: [item for item in v if predicate(item)] 
+                       for k, v in data.items()}
+            return [item for item in data if predicate(item)]
+        self.stages.append(filter_stage)
+        return self
+    
+    def process(self, data):
+        return reduce(lambda d, stage: stage(d), self.stages, data)
+
+# Example usage
+transactions = [
+    {'type': 'purchase', 'amount': 100, 'category': 'food'},
+    {'type': 'purchase', 'amount': 50, 'category': 'transport'},
+    {'type': 'refund', 'amount': 25, 'category': 'food'},
+    {'type': 'purchase', 'amount': 75, 'category': 'food'},
+]
+
+pipeline = (DataPipeline()
+           .add_grouping_stage(lambda x: x['type'])
+           .add_filtering_stage(lambda x: x['amount'] > 30)
+           .add_counting_stage())
+
+result = pipeline.process(transactions)
+print(result)
+```
+
+#### Caching and Memoization Patterns
+
+```python
+from collections import OrderedDict
+from functools import wraps
+
+class TTLCache:
+    """Time-to-live cache using OrderedDict"""
+    def __init__(self, maxsize=128, ttl=300):
+        self.maxsize = maxsize
+        self.ttl = ttl
+        self.cache = OrderedDict()
+        self.timestamps = {}
+    
+    def _is_expired(self, key):
+        import time
+        return time.time() - self.timestamps.get(key, 0) > self.ttl
+    
+    def get(self, key):
+        if key in self.cache and not self._is_expired(key):
+            # Move to end (LRU behavior)
+            self.cache.move_to_end(key)
+            return self.cache[key]
+        elif key in self.cache:
+            # Remove expired item
+            del self.cache[key]
+            del self.timestamps[key]
+        return None
+    
+    def set(self, key, value):
+        import time
+        if key in self.cache:
+            self.cache.move_to_end(key)
+        elif len(self.cache) >= self.maxsize:
+            # Remove oldest
+            oldest = next(iter(self.cache))
+            del self.cache[oldest]
+            del self.timestamps[oldest]
+        
+        self.cache[key] = value
+        self.timestamps[key] = time.time()
+
+def ttl_memoize(ttl=300, maxsize=128):
+    """Decorator for TTL memoization"""
+    def decorator(func):
+        cache = TTLCache(maxsize, ttl)
+        
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Create cache key
+            key = str(args) + str(sorted(kwargs.items()))
+            
+            result = cache.get(key)
+            if result is not None:
+                return result
+            
+            result = func(*args, **kwargs)
+            cache.set(key, result)
+            return result
+        
+        wrapper.cache_info = lambda: {
+            'size': len(cache.cache),
+            'maxsize': cache.maxsize,
+            'ttl': cache.ttl
+        }
+        wrapper.cache_clear = lambda: cache.cache.clear()
+        
+        return wrapper
+    return decorator
+
+# Usage
+@ttl_memoize(ttl=60, maxsize=100)
+def expensive_calculation(n):
+    import time
+    time.sleep(1)  # Simulate expensive operation
+    return n ** 2
+
+result = expensive_calculation(5)  # Takes 1 second
+result = expensive_calculation(5)  # Returns immediately from cache
+```
+
+### Integration with Other Modules
+
+#### JSON Serialization
+
+```python
+import json
+from collections import OrderedDict, namedtuple, Counter
+
+# OrderedDict with JSON
+data = OrderedDict([('name', 'Alice'), ('age', 30), ('city', 'NYC')])
+json_str = json.dumps(data)
+loaded = json.loads(json_str, object_pairs_hook=OrderedDict)
+print(type(loaded))  # <class 'collections.OrderedDict'>
+
+# namedtuple with JSON
+Person = namedtuple('Person', ['name', 'age', 'city'])
+person = Person('Bob', 25, 'LA')
+
+# Convert to dict for JSON serialization
+person_dict = person._asdict()
+json_str = json.dumps(person_dict)
+
+# Load back as namedtuple
+loaded_dict = json.loads(json_str)
+loaded_person = Person(**loaded_dict)
+
+# Counter with JSON
+counter = Counter(['a', 'b', 'a', 'c', 'b', 'a'])
+counter_json = json.dumps(dict(counter))
+loaded_counter = Counter(json.loads(counter_json))
+```
+
+#### Pickle Support
+
+```python
+import pickle
+from collections import defaultdict, deque, Counter
+
+# Most collections types are pickle-able
+dd = defaultdict(list)
+dd['key'].append('value')
+
+pickled = pickle.dumps(dd)
+unpickled = pickle.loads(pickled)
+print(type(unpickled))  # <class 'collections.defaultdict'>
+print(unpickled.default_factory)  # <class 'list'>
+
+# Custom collections need special handling
+class CustomCounter(Counter):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.creation_time = __import__('time').time()
+    
+    def __reduce__(self):
+        # Custom pickle support
+        return (self.__class__, (dict(self),))
+
+cc = CustomCounter(['a', 'b', 'a'])
+pickled_cc = pickle.dumps(cc)
+unpickled_cc = pickle.loads(pickled_cc)
+```
+
+#### Database Integration
+
+```python
+from collections import namedtuple, defaultdict
+import sqlite3
+
+# Using namedtuple for database records
+def fetch_users_as_namedtuple():
+    conn = sqlite3.connect(':memory:')
+    conn.execute('CREATE TABLE users (id INTEGER, name TEXT, email TEXT)')
+    conn.execute("INSERT INTO users VALUES (1, 'Alice', 'alice@example.com')")
+    conn.execute("INSERT INTO users VALUES (2, 'Bob', 'bob@example.com')")
+    
+    User = namedtuple('User', ['id', 'name', 'email'])
+    cursor = conn.execute('SELECT * FROM users')
+    
+    users = [User(*row) for row in cursor.fetchall()]
+    conn.close()
+    return users
+
+# Grouping database results
+def group_users_by_domain():
+    users = fetch_users_as_namedtuple()
+    by_domain = defaultdict(list)
+    
+    for user in users:
+        domain = user.email.split('@')[1]
+        by_domain[domain].append(user)
+    
+    return dict(by_domain)
+
+users_by_domain = group_users_by_domain()
+print(users_by_domain)
+```
+
+### Testing Collections-Based Code
+
+```python
+import unittest
+from collections import Counter, defaultdict, deque
+
+class TestCollections(unittest.TestCase):
+    def test_counter_operations(self):
+        c1 = Counter(['a', 'b', 'c', 'a'])
+        c2 = Counter(['a', 'b', 'b'])
+        
+        # Test arithmetic operations
+        result = c1 + c2
+        expected = Counter({'a': 3, 'b': 3, 'c': 1})
+        self.assertEqual(result, expected)
+        
+        # Test most_common
+        self.assertEqual(c1.most_common(2), [('a', 2), ('b', 1)])
+    
+    def test_defaultdict_behavior(self):
+        dd = defaultdict(list)
+        dd['key'].append('value')
+        
+        # Test that missing keys create default values
+        self.assertEqual(dd['missing'], [])
+        self.assertIsInstance(dd['missing'], list)
+    
+    def test_deque_performance(self):
+        d = deque(maxlen=3)
+        
+        # Test bounded behavior
+        for i in range(5):
+            d.append(i)
+        
+        self.assertEqual(len(d), 3)
+        self.assertEqual(list(d), [2, 3, 4])
+    
+    def test_custom_collections(self):
+        # Test custom collection behavior
+        class ValidatedList(list):
+            def append(self, item):
+                if not isinstance(item, int):
+                    raise TypeError("Only integers allowed")
+                super().append(item)
+        
+        vl = ValidatedList([1, 2, 3])
+        vl.append(4)
+        self.assertEqual(vl, [1, 2, 3, 4])
+        
+        with self.assertRaises(TypeError):
+            vl.append('string')
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
+### Performance Optimization Tips
+
+#### Choosing the Right Collection
+
+```python
+import timeit
+from collections import deque, defaultdict, Counter
+
+# Benchmark different approaches
+def benchmark_counting():
+    data = ['apple', 'banana', 'apple'] * 1000
+    
+    # Method 1: Manual dictionary
+    def manual_count():
+        counts = {}
+        for item in data:
+            counts[item] = counts.get(item, 0) + 1
+        return counts
+    
+    # Method 2: defaultdict
+    def defaultdict_count():
+        counts = defaultdict(int)
+        for item in data:
+            counts[item] += 1
+        return dict(counts)
+    
+    # Method 3: Counter
+    def counter_count():
+        return Counter(data)
+    
+    # [Inference] Counter is typically fastest for this use case
+    manual_time = timeit.timeit(manual_count, number=1000)
+    defaultdict_time = timeit.timeit(defaultdict_count, number=1000)
+    counter_time = timeit.timeit(counter_count, number=1000)
+    
+    print(f"Manual: {manual_time:.4f}s")
+    print(f"defaultdict: {defaultdict_time:.4f}s")
+    print(f"Counter: {counter_time:.4f}s")
+
+# Memory usage optimization
+def memory_efficient_grouping(items, key_func):
+    """Group items without storing all in memory at once"""
+    # Instead of defaultdict(list) which stores all items
+    # Use generator-based approach for large datasets
+    sorted_items = sorted(items, key=key_func)
+    
+    from itertools import groupby
+    for key, group in groupby(sorted_items, key=key_func):
+        yield key, list(group)
+```
+
+### Common Antipatterns and Solutions
+
+#### Avoiding Performance Pitfalls
+
+```python
+# ANTIPATTERN: Using list for frequent left operations
+def bad_queue():
+    queue = []
+    for i in range(1000):
+        queue.append(i)
+    
+    # This is O(n) for each operation!
+    while queue:
+        item = queue.pop(0)  # Bad!
+
+# SOLUTION: Use deque
+def good_queue():
+    from collections import deque
+    queue = deque()
+    for i in range(1000):
+        queue.append(i)
+    
+    # This is O(1) for each operation
+    while queue:
+        item = queue.popleft()  # Good!
+
+# ANTIPATTERN: Manual grouping when defaultdict is available
+def bad_grouping(items):
+    groups = {}
+    for item in items:
+        key = item['category']
+        if key not in groups:
+            groups[key] = []  # Manual check
+        groups[key].append(item)
+    return groups
+
+# SOLUTION: Use defaultdict
+def good_grouping(items):
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for item in items:
+        groups[item['category']].append(item)  # No manual check needed
+    return dict(groups)
+```
+
+#### Avoiding Memory Leaks
+
+```python
+# ANTIPATTERN: Keeping references in collections
+class DataProcessor:
+    def __init__(self):
+        self.cache = {}  # Can grow indefinitely
+    
+    def process(self, data):
+        result = expensive_operation(data)
+        self.cache[id(data)] = result  # Memory leak!
+        return result
+
+# SOLUTION: Use bounded collections
+class BetterDataProcessor:
+    def __init__(self, cache_size=1000):
+        from collections import OrderedDict
+        self.cache = OrderedDict()
+        self.cache_size = cache_size
+    
+    def process(self, data):
+        cache_key = hash(str(data))  # Better key
+        
+        if cache_key in self.cache:
+            self.cache.move_to_end(cache_key)
+            return self.cache[cache_key]
+        
+        result = expensive_operation(data)
+        
+        if len(self.cache) >= self.cache_size:
+            self.cache.popitem(last=False)  # Remove oldest
+        
+        self.cache[cache_key] = result
+        return result
+
+def expensive_operation(data):
+    # Placeholder for expensive operation
+    return data * 2
+```
+
+**Key points:**
+
+- Collections module provides specialized containers optimized for specific use cases
+- Counter excels at frequency analysis and multiset operations
+- defaultdict eliminates KeyError handling and simplifies grouping operations
+- deque provides O(1) operations at both ends, perfect for queues and stacks
+- OrderedDict maintains insertion order with additional ordering methods
+- namedtuple creates lightweight, immutable record types
+- ChainMap enables layered lookups across multiple mappings
+- UserDict, UserList, UserString provide bases for custom container types
+- [Inference] Most collections types are implemented in C for optimal performance
+- Choose the right collection type based on your specific access patterns and requirements
+- Be mindful of memory usage with unbounded collections
+- Thread safety requires explicit synchronization for most collection operations
+- Integration with JSON, pickle, and databases is straightforward for most types
+
+The collections module is essential for writing efficient, readable Python code that handles complex data structures and access patterns elegantly.
+
+---
+
 # Multithreading, Multiprocessing, and Asynchronous Programming
 
 ## **Asynchronous Programming Using `asyncio'**
@@ -12665,3 +18430,131 @@ pip freeze > requirements.txt
 ✅ **Keep dependencies isolated**  
 ✅ **Ensure reproducibility** (especially for deployment)  
 ✅ **Work on different Python versions easily**
+
+
+---
+
+## Weak References
+
+### What is a Weak Reference in Python?
+
+A **weak reference** lets you refer to an object **without increasing its reference count**. This means the object can still be garbage-collected even if weak references to it exist.
+
+**Why use weak references?**
+
+* Avoid **memory leaks** in large object graphs.
+* Useful in caching and memoization.
+* Prevent objects from being kept alive just because some “helper” object references them.
+
+---
+
+### How to Use `weakref`
+
+The `weakref` module provides tools for weak references.
+
+#### Example — Basic Weak Reference
+
+```python
+import weakref
+
+class MyClass:
+    pass
+
+obj = MyClass()
+
+# Create a weak reference
+weak_obj = weakref.ref(obj)
+
+# Call the weak reference to get the object back
+print(weak_obj())      # <__main__.MyClass object at 0x...>
+
+# Delete the original object
+del obj
+
+# Now the weak reference returns None
+print(weak_obj())      # None
+```
+
+---
+
+### `weakref` in Collections
+
+If you want to keep a **collection** of weak references, use:
+
+* `weakref.WeakSet` — for a set of weak references
+* `weakref.WeakKeyDictionary` — keys are weak references
+* `weakref.WeakValueDictionary` — values are weak references
+
+---
+
+#### Example — WeakValueDictionary
+
+A cache that auto-clears items when values are garbage collected:
+
+```python
+import weakref
+
+class Data:
+    def __init__(self, name):
+        self.name = name
+
+cache = weakref.WeakValueDictionary()
+
+d = Data("example")
+
+cache["item"] = d
+
+print(cache["item"].name)  # example
+
+del d
+
+# Now the object is gone
+print(cache.get("item"))   # None
+```
+
+---
+
+### Weak Reference Callbacks
+
+Weak references can register a **callback** that runs when the object is about to be finalized:
+
+```python
+import weakref
+
+class MyClass:
+    pass
+
+def on_finalize(wr):
+    print("Object has been garbage-collected!")
+
+obj = MyClass()
+wr = weakref.ref(obj, on_finalize)
+
+del obj
+# prints: Object has been garbage-collected!
+```
+
+---
+
+### Why Not Just Use Normal References?
+
+Normal references keep objects alive. For instance:
+
+```python
+refs = []
+obj = MyClass()
+refs.append(obj)
+# obj will never be freed as long as refs points to it
+```
+
+A weak reference avoids that problem.
+
+---
+
+**Summary:**
+
+* Weak references don’t increase an object’s ref count.
+* Object can still be garbage-collected.
+* Useful for caches and memory-sensitive structures.
+* Provided by Python’s `weakref` module.
+

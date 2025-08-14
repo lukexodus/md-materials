@@ -1,4 +1,4 @@
-# Comprehensive Syllabus: Understanding Authentication Processes
+# Authentication Processes
 
 ---
 
@@ -179,4 +179,3 @@
 - **Biometric Authentication Prototype**:
     - Explore the use of hardware-based security for login
 
-This syllabus covers both theoretical concepts and practical applications, ensuring a thorough understanding of authentication systems and their role in modern web security.
