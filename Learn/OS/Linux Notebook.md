@@ -1367,13 +1367,10 @@ to the referenced file or directory.
 
 ### Types of Commands
 
-• An executable program like all those files we saw in /usr/bin. Within this category, programs can be compiled binaries such as programs written in C and C++, or programs written in scripting languages such as the shell, Perl, Python, Ruby, and so on. 
-
-• A command built into the shell itself. bash supports a number of commands internally called shell builtins. The cd command, for example, is a shell builtin. 
-
-• A shell function. Shell functions are miniature shell scripts incorporated into the environment.
-
-• An alias. Aliases are commands that we can define ourselves, built from other commands.
+- An executable program like all those files we saw in /usr/bin. Within this category, programs can be compiled binaries such as programs written in C and C++, or programs written in scripting languages such as the shell, Perl, Python, Ruby, and so on. 
+- A command built into the shell itself. bash supports a number of commands internally called shell builtins. The cd command, for example, is a shell builtin. 
+- A shell function. Shell functions are miniature shell scripts incorporated into the environment.
+- An alias. Aliases are commands that we can define ourselves, built from other commands.
 
 
 ### README and Other Program Documentation Files
