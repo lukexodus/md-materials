@@ -2634,7 +2634,7 @@ find [OPTION]... [PATH]... [EXPRESSION]
 - **`-ls`**: Lists matches in `ls -l` format.  
 
 #### Filtering by Attributes
-- **`-size [+-]N[UNIT]`**: Matches files by size (e.g., `+1M` for >1MB, units: `b`, `c`, `k`, `M`, `G`).  
+- **`-size [+-]N[UNIT]`**: Matches files by size (e.g., `+1M` for >1MB, units: `b` (512-byte), `c` (byte), `k`, `M`, `G`).  
 - **`-mtime [+-]N`**: Matches files by modification time (days ago).  
 - **`-atime [+-]N`**: Matches files by access time (days ago).  
 - **`-ctime [+-]N`**: Matches files by status change time (days ago).  

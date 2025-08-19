@@ -1,4 +1,4 @@
-## **Syllabus of Computer Architecture & Organization**
+## **Syllabus**
 
 ### **Unit 1: Introduction to Computer Architecture**
 
