@@ -916,7 +916,7 @@ Class and ID selectors provide more targeted styling options than element select
 - Multiple classes can be applied to one element
 - Only one ID should be used per element
 
-### Universal Selector (*)
+### Universal Selector (`*`)
 
 The universal selector matches all elements in the document. It's represented by an asterisk (*) and is often used for CSS resets, box-sizing declarations, or applying global styles. While powerful, it should be used judiciously as it can impact performance and cascade behavior.
 
