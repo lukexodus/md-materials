@@ -3147,6 +3147,25 @@ One-dimensional arrays are collections of elements of the same data type stored 
 data_type array_name[size];
 ```
 
+```python
+array = [1, 2, 2, 3, 3, 3, 3]  # length information
+
+array.append(2)
+num = len(array)
+
+last_element = array[--num]
+
+
+```
+
+```c
+int array = {1, 2, 3, 4, 5, 6}
+
+int length = sizeof(array) / sizeof(int)
+
+int last_element = array[--length]
+```
+
 **Memory Layout:** Arrays are stored in consecutive memory addresses, where each element occupies the memory space required by its data type. The array name represents the address of the first element.
 
 **Index Access:** Array elements are accessed using zero-based indexing, where the first element is at index 0 and the last element is at index (size-1).
@@ -3162,7 +3181,8 @@ data_type array_name[size];
 
 ```c
 int numbers[5];           // Declaration of integer array
-int ages[10] = {0};       // Declaration with initialization to zero
+int ages[5] = {0};       // Declaration with initialization to zero
+
 float prices[3];          // Declaration of float array
 
 // Accessing elements
@@ -3183,6 +3203,34 @@ for(int i = 0; i < 5; i++) {
     printf("Element %d: %d\n", i, arr[i]);
 }
 ```
+
+
+```c
+char *str = "Luke Labasan"; // Immutable
+
+char str2[] = "Python"; // Mutable
+```
+
+
+
+```c
+
+#define NUM2 321
+
+int main() {
+   const int NUM = 123; // (10101010100101)
+   
+   // NUM = 12;
+   int myNum = NUM2;
+}
+
+
+
+```
+
+
+
+
 
 ## Multi-Dimensional Arrays
 
@@ -3279,7 +3327,7 @@ int sparse[3][3] = {{1}, {0, 2}, {0, 0, 3}};
 **Designated Initializers (C99):** Allows initialization of specific array elements by index.
 
 ```c
-int arr[10] = {[0] = 1, [5] = 10, [9] = 100};
+int arr[10] = {[1] = 2, [4] = 5};
 int matrix[3][3] = {[1][1] = 5, [2][0] = 7};
 ```
 
@@ -3461,13 +3509,22 @@ char str2[] = "Hello";            // Size automatically set to 6 (including \0)
 char str3[10] = "World";          // Partially filled, rest initialized to \0
 char str4[] = {'H', 'i', '\0'};   // Manual character initialization
 char str5[20] = {0};              // All elements initialized to \0
+
+// String = array of characters
+char choco[] = "choco"; // length = 6, extra null char
+
+// Null character?
+printf("choco"); printf("mint")
 ```
 
 **String Literals vs Character Arrays:**
 
 ```c
 char *ptr = "Hello";              // Pointer to string literal (read-only)
+
 char arr[] = "Hello";             // Modifiable character array copy
+
+pointer? == address
 ```
 
 **String Input/Output:**
