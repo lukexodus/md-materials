@@ -15734,3 +15734,11539 @@ SELECT ST_MakeLine(
 
 ---
 
+# Performance Optimization in Supabase
+
+Performance optimization is essential for building scalable applications with Supabase. PostgreSQL provides robust tools for analyzing and improving database performance, from query optimization to infrastructure-level improvements. Understanding these concepts helps you build applications that remain responsive as data grows.
+
+## Query Performance Analysis
+
+Query performance analysis involves identifying slow queries, understanding their execution characteristics, and determining optimization opportunities.
+
+### Identifying Slow Queries
+
+PostgreSQL tracks query statistics through the `pg_stat_statements` extension. In Supabase, you can enable and query this extension to find performance bottlenecks.
+
+```sql
+-- Enable pg_stat_statements (may require admin privileges)
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+-- Find slowest queries by total time
+SELECT 
+  query,
+  calls,
+  total_exec_time,
+  mean_exec_time,
+  max_exec_time,
+  stddev_exec_time
+FROM pg_stat_statements
+ORDER BY total_exec_time DESC
+LIMIT 20;
+
+-- Find queries with highest average execution time
+SELECT 
+  query,
+  calls,
+  mean_exec_time,
+  total_exec_time
+FROM pg_stat_statements
+WHERE calls > 100
+ORDER BY mean_exec_time DESC
+LIMIT 20;
+
+-- Find queries called most frequently
+SELECT 
+  query,
+  calls,
+  total_exec_time,
+  mean_exec_time
+FROM pg_stat_statements
+ORDER BY calls DESC
+LIMIT 20;
+```
+
+### Monitoring Query Patterns
+
+```sql
+-- Analyze queries by pattern
+SELECT 
+  LEFT(query, 50) as query_start,
+  COUNT(*) as similar_queries,
+  SUM(calls) as total_calls,
+  AVG(mean_exec_time) as avg_execution_time
+FROM pg_stat_statements
+GROUP BY LEFT(query, 50)
+ORDER BY avg_execution_time DESC;
+
+-- Check cache hit ratio
+SELECT 
+  SUM(blks_hit) as cache_hits,
+  SUM(blks_read) as disk_reads,
+  SUM(blks_hit) / NULLIF(SUM(blks_hit) + SUM(blks_read), 0) * 100 as cache_hit_ratio
+FROM pg_stat_database
+WHERE datname = current_database();
+```
+
+### Query Timing
+
+```sql
+-- Enable timing for individual queries
+\timing on
+
+-- Measure specific query execution
+SELECT COUNT(*) FROM users WHERE created_at > NOW() - INTERVAL '30 days';
+
+-- Use pg_stat_statements for aggregate timing
+SELECT 
+  calls,
+  total_exec_time / 1000.0 as total_seconds,
+  mean_exec_time as avg_milliseconds,
+  query
+FROM pg_stat_statements
+WHERE query ILIKE '%users%'
+ORDER BY total_exec_time DESC;
+```
+
+## EXPLAIN and Query Plans
+
+EXPLAIN shows how PostgreSQL executes queries, revealing the query planner's strategy and helping identify optimization opportunities.
+
+### Basic EXPLAIN
+
+```sql
+-- Show query plan
+EXPLAIN 
+SELECT u.email, COUNT(o.id) as order_count
+FROM users u
+LEFT JOIN orders o ON u.id = o.user_id
+WHERE u.created_at > '2024-01-01'
+GROUP BY u.email;
+```
+
+**Example output interpretation:**
+
+```
+HashAggregate  (cost=1234.56..1456.78 rows=1000 width=40)
+  Group Key: u.email
+  ->  Hash Left Join  (cost=123.45..234.56 rows=5000 width=32)
+        Hash Cond: (u.id = o.user_id)
+        ->  Seq Scan on users u  (cost=0.00..100.00 rows=1000 width=24)
+              Filter: (created_at > '2024-01-01'::date)
+        ->  Hash  (cost=100.00..100.00 rows=10000 width=16)
+              ->  Seq Scan on orders o  (cost=0.00..100.00 rows=10000 width=16)
+```
+
+### EXPLAIN ANALYZE
+
+EXPLAIN ANALYZE executes the query and provides actual runtime statistics:
+
+```sql
+EXPLAIN ANALYZE
+SELECT * FROM products 
+WHERE category_id = 5 
+AND price > 100
+ORDER BY created_at DESC
+LIMIT 10;
+```
+
+**Key metrics:**
+
+- **Planning Time**: Time spent planning the query
+- **Execution Time**: Actual time to execute
+- **Actual rows vs Estimated rows**: Shows estimation accuracy
+- **Buffers**: Shows disk I/O activity
+
+```sql
+-- Include buffer information
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM large_table WHERE indexed_column = 'value';
+```
+
+### Understanding Query Plan Nodes
+
+**Seq Scan (Sequential Scan)**
+
+```sql
+EXPLAIN SELECT * FROM users WHERE email LIKE '%@example.com';
+-- Shows: Seq Scan on users
+```
+
+Reads entire table. Appropriate for small tables or when most rows match. Consider indexing if filtering on specific columns.
+
+**Index Scan**
+
+```sql
+CREATE INDEX idx_users_email ON users(email);
+EXPLAIN SELECT * FROM users WHERE email = 'user@example.com';
+-- Shows: Index Scan using idx_users_email on users
+```
+
+Uses index to find specific rows. Efficient for selective queries.
+
+**Index Only Scan**
+
+```sql
+CREATE INDEX idx_users_email_created ON users(email, created_at);
+EXPLAIN SELECT email, created_at FROM users WHERE email = 'user@example.com';
+-- Shows: Index Only Scan using idx_users_email_created on users
+```
+
+Retrieves all data from index without accessing table. Most efficient when possible.
+
+**Bitmap Index Scan**
+
+```sql
+EXPLAIN SELECT * FROM users WHERE age > 25 AND age < 35;
+-- May show: Bitmap Index Scan on idx_users_age
+```
+
+[Inference] Used when multiple rows match or combining multiple indexes. Builds bitmap of matching pages before fetching.
+
+**Nested Loop Join**
+
+```sql
+EXPLAIN 
+SELECT * FROM orders o
+JOIN users u ON o.user_id = u.id
+WHERE u.id = 123;
+-- May show: Nested Loop
+```
+
+Iterates through one table and looks up matches in another. Efficient for small result sets.
+
+**Hash Join**
+
+```sql
+EXPLAIN 
+SELECT * FROM orders o
+JOIN products p ON o.product_id = p.id;
+-- May show: Hash Join
+```
+
+Builds hash table of one side, probes with other. Good for larger joins.
+
+**Merge Join**
+
+```sql
+EXPLAIN 
+SELECT * FROM table1 t1
+JOIN table2 t2 ON t1.sorted_col = t2.sorted_col;
+-- May show: Merge Join
+```
+
+Requires both sides sorted. Efficient for large sorted datasets.
+
+### Analyzing Specific Issues
+
+```sql
+-- Check if indexes are being used
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM orders 
+WHERE user_id = 'abc123' 
+AND created_at > NOW() - INTERVAL '7 days';
+
+-- Look for:
+-- - "Seq Scan" when index expected
+-- - High "actual time" values
+-- - "Buffers: shared read=" indicating disk I/O
+-- - Large difference between estimated and actual rows
+
+-- Check join performance
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT u.email, o.total
+FROM users u
+JOIN orders o ON u.id = o.user_id
+WHERE o.status = 'pending';
+```
+
+### Query Plan Visualization
+
+[Inference] Various tools can visualize EXPLAIN output for easier analysis:
+
+- pgAdmin's graphical explain
+- Online tools like explain.dalibo.com or explain.depesz.com
+- PostgreSQL extensions for visual query plans
+
+## Index Strategies
+
+Indexes are data structures that improve query performance by allowing rapid data lookup. Proper indexing is critical for database performance.
+
+### When to Create Indexes
+
+**Create indexes for:**
+
+- Columns frequently used in WHERE clauses
+- Foreign key columns used in JOINs
+- Columns used in ORDER BY or GROUP BY
+- Columns with high cardinality (many distinct values)
+
+**Avoid indexes for:**
+
+- Small tables (under a few thousand rows)
+- Columns with low cardinality (few distinct values like boolean fields)
+- Columns rarely queried
+- Tables with frequent writes and rare reads
+
+### B-tree Indexes (Default)
+
+Standard index type for most operations: equality, range queries, sorting.
+
+```sql
+-- Single column index
+CREATE INDEX idx_users_email ON users(email);
+
+-- Composite index (column order matters)
+CREATE INDEX idx_orders_user_date ON orders(user_id, created_at);
+
+-- Partial index (indexes subset of rows)
+CREATE INDEX idx_active_users ON users(email) 
+WHERE is_active = true AND deleted_at IS NULL;
+
+-- Expression index
+CREATE INDEX idx_users_lower_email ON users(LOWER(email));
+
+-- Index with sort order
+CREATE INDEX idx_posts_published_desc ON posts(published_at DESC);
+```
+
+### Composite Index Column Order
+
+Column order in composite indexes significantly impacts effectiveness:
+
+```sql
+-- Good: Most selective column first
+CREATE INDEX idx_orders_status_user_date ON orders(user_id, status, created_at);
+
+-- This index efficiently supports:
+SELECT * FROM orders WHERE user_id = 123;  -- Uses index
+SELECT * FROM orders WHERE user_id = 123 AND status = 'pending';  -- Uses index
+SELECT * FROM orders WHERE user_id = 123 AND status = 'pending' AND created_at > '2024-01-01';  -- Uses index
+
+-- But NOT:
+SELECT * FROM orders WHERE status = 'pending';  -- Cannot use index efficiently
+SELECT * FROM orders WHERE created_at > '2024-01-01';  -- Cannot use index efficiently
+```
+
+**Rule of thumb:** Order columns by selectivity (most selective first) and query pattern frequency.
+
+### Specialized Index Types
+
+**GIN (Generalized Inverted Index)**
+
+For full-text search, JSONB, arrays:
+
+```sql
+-- JSONB index
+CREATE INDEX idx_users_metadata ON users USING GIN(metadata);
+
+-- Query
+SELECT * FROM users WHERE metadata @> '{"role": "admin"}';
+
+-- Array index
+CREATE INDEX idx_tags ON posts USING GIN(tags);
+
+-- Query
+SELECT * FROM posts WHERE tags @> ARRAY['postgresql', 'database'];
+
+-- Full-text search
+CREATE INDEX idx_posts_search ON posts USING GIN(to_tsvector('english', title || ' ' || content));
+
+-- Query
+SELECT * FROM posts 
+WHERE to_tsvector('english', title || ' ' || content) @@ to_tsquery('postgresql & performance');
+```
+
+**GiST (Generalized Search Tree)**
+
+For geometric data, full-text search, range types:
+
+```sql
+-- Range types
+CREATE INDEX idx_event_timerange ON events USING GIST(time_range);
+
+-- Query
+SELECT * FROM events 
+WHERE time_range && tstzrange('2024-01-01', '2024-01-31');
+
+-- Geometric data
+CREATE INDEX idx_locations_point ON locations USING GIST(coordinates);
+```
+
+**BRIN (Block Range Index)**
+
+For very large tables with naturally ordered data:
+
+```sql
+-- Efficient for time-series or sequential data
+CREATE INDEX idx_logs_timestamp ON logs USING BRIN(created_at);
+
+-- Much smaller than B-tree but less precise
+-- Good for append-only tables with hundreds of millions of rows
+```
+
+**Hash Indexes**
+
+For equality comparisons only (rarely used):
+
+```sql
+-- Only supports = operator
+CREATE INDEX idx_hash_user_id ON sessions USING HASH(user_id);
+```
+
+[Unverified] Hash indexes may have limitations compared to B-tree indexes in terms of recovery and replication in some PostgreSQL configurations.
+
+### Index Maintenance
+
+```sql
+-- View index usage statistics
+SELECT 
+  schemaname,
+  tablename,
+  indexname,
+  idx_scan as index_scans,
+  idx_tup_read as tuples_read,
+  idx_tup_fetch as tuples_fetched,
+  pg_size_pretty(pg_relation_size(indexrelid)) as index_size
+FROM pg_stat_user_indexes
+ORDER BY idx_scan ASC;
+
+-- Find unused indexes
+SELECT 
+  schemaname,
+  tablename,
+  indexname,
+  idx_scan,
+  pg_size_pretty(pg_relation_size(indexrelid)) as index_size
+FROM pg_stat_user_indexes
+WHERE idx_scan = 0
+  AND indexname NOT LIKE 'pg_toast%'
+ORDER BY pg_relation_size(indexrelid) DESC;
+
+-- Check index bloat
+SELECT 
+  schemaname,
+  tablename,
+  indexname,
+  pg_size_pretty(pg_relation_size(indexrelid)) as size
+FROM pg_stat_user_indexes
+ORDER BY pg_relation_size(indexrelid) DESC;
+
+-- Rebuild bloated index
+REINDEX INDEX idx_name;
+
+-- Rebuild all indexes on a table
+REINDEX TABLE table_name;
+```
+
+### Covering Indexes
+
+Include additional columns to enable index-only scans:
+
+```sql
+-- Without covering
+CREATE INDEX idx_orders_user ON orders(user_id);
+SELECT user_id, total FROM orders WHERE user_id = 123;
+-- Requires table access for 'total'
+
+-- With covering (INCLUDE clause)
+CREATE INDEX idx_orders_user_covering ON orders(user_id) INCLUDE (total, created_at);
+SELECT user_id, total, created_at FROM orders WHERE user_id = 123;
+-- Index-only scan possible
+```
+
+### Partial Indexes
+
+Index only relevant rows to save space and improve performance:
+
+```sql
+-- Index only active users
+CREATE INDEX idx_active_users_email ON users(email) 
+WHERE is_active = true;
+
+-- Index only recent orders
+CREATE INDEX idx_recent_orders ON orders(user_id, created_at)
+WHERE created_at > NOW() - INTERVAL '90 days';
+
+-- Index only unpaid invoices
+CREATE INDEX idx_unpaid_invoices ON invoices(user_id)
+WHERE status = 'unpaid';
+```
+
+### Index Monitoring Best Practices
+
+```sql
+-- Create monitoring query for regular execution
+WITH index_stats AS (
+  SELECT
+    schemaname,
+    tablename,
+    indexname,
+    idx_scan,
+    idx_tup_read,
+    idx_tup_fetch,
+    pg_size_pretty(pg_relation_size(indexrelid)) as size,
+    pg_relation_size(indexrelid) as size_bytes
+  FROM pg_stat_user_indexes
+)
+SELECT 
+  *,
+  CASE 
+    WHEN idx_scan = 0 THEN 'UNUSED'
+    WHEN idx_scan < 100 THEN 'RARELY_USED'
+    ELSE 'ACTIVE'
+  END as usage_category
+FROM index_stats
+WHERE size_bytes > 1000000  -- Larger than 1MB
+ORDER BY idx_scan ASC, size_bytes DESC;
+```
+
+## Connection Pooling
+
+Connection pooling manages database connections efficiently by reusing existing connections rather than creating new ones for each request.
+
+### Why Connection Pooling Matters
+
+Each PostgreSQL connection consumes memory and CPU. Creating connections is expensive:
+
+- Connection overhead: ~10-50ms per connection
+- Memory per connection: ~2-10MB
+- PostgreSQL has connection limits
+
+Without pooling, high-traffic applications quickly exhaust available connections or waste resources constantly creating/destroying connections.
+
+### Supabase Connection Pooling
+
+Supabase provides built-in connection pooling through PgBouncer with two modes:
+
+**Transaction Mode (Recommended)**
+
+```javascript
+// Connection string format
+const connectionString = 'postgresql://postgres:[PASSWORD]@[PROJECT_REF].pooler.supabase.com:6543/postgres'
+
+// Using with Supabase client
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  'https://[PROJECT_REF].supabase.co',
+  '[ANON_KEY]'
+)
+```
+
+Transaction mode releases connections after each transaction, allowing maximum connection reuse. [Inference] This mode is suitable for most serverless and API applications.
+
+**Session Mode**
+
+```javascript
+// Port 5432 for session mode
+const connectionString = 'postgresql://postgres:[PASSWORD]@[PROJECT_REF].pooler.supabase.com:5432/postgres'
+```
+
+Session mode maintains connection for entire client session. Required for:
+
+- Prepared statements
+- Advisory locks
+- Listen/Notify
+- Temporary tables
+
+### Connection Pool Configuration
+
+```javascript
+// Using postgres.js with pooling
+import postgres from 'postgres'
+
+const sql = postgres(connectionString, {
+  max: 10,                    // Maximum pool size
+  idle_timeout: 20,           // Seconds before idle connection closed
+  connect_timeout: 10,        // Seconds to wait for connection
+  max_lifetime: 60 * 30,      // Maximum connection lifetime (30 min)
+})
+```
+
+### Pool Size Recommendations
+
+[Inference] Calculate appropriate pool size:
+
+- **Formula**: `connections = ((core_count * 2) + effective_spindle_count)`
+- **Serverless**: 1-5 connections per function instance
+- **Traditional servers**: 10-20 connections per application server
+- **Total**: Sum of all applications should not exceed PostgreSQL's `max_connections`
+
+```sql
+-- Check current connection limit
+SHOW max_connections;
+
+-- Monitor active connections
+SELECT 
+  COUNT(*) as total_connections,
+  COUNT(*) FILTER (WHERE state = 'active') as active,
+  COUNT(*) FILTER (WHERE state = 'idle') as idle,
+  COUNT(*) FILTER (WHERE state = 'idle in transaction') as idle_in_transaction
+FROM pg_stat_activity
+WHERE datname = current_database();
+
+-- View connections by application
+SELECT 
+  application_name,
+  state,
+  COUNT(*)
+FROM pg_stat_activity
+WHERE datname = current_database()
+GROUP BY application_name, state
+ORDER BY COUNT(*) DESC;
+```
+
+### Connection Pooling Anti-patterns
+
+**Avoid:**
+
+```javascript
+// BAD: Creating new pool for each request
+app.get('/users', async (req, res) => {
+  const pool = new Pool({ connectionString })  // Don't do this!
+  const result = await pool.query('SELECT * FROM users')
+  await pool.end()
+  res.json(result.rows)
+})
+
+// BAD: Not releasing connections
+const client = await pool.connect()
+await client.query('SELECT * FROM users')
+// Missing: client.release()
+```
+
+**Correct approach:**
+
+```javascript
+// GOOD: Reuse pool instance
+const pool = new Pool({ connectionString })
+
+app.get('/users', async (req, res) => {
+  const result = await pool.query('SELECT * FROM users')
+  res.json(result.rows)
+})
+
+// GOOD: Always release connections
+const client = await pool.connect()
+try {
+  await client.query('BEGIN')
+  await client.query('INSERT INTO users ...')
+  await client.query('COMMIT')
+} catch (e) {
+  await client.query('ROLLBACK')
+  throw e
+} finally {
+  client.release()  // Always release
+}
+```
+
+### Monitoring Connection Pool Health
+
+```sql
+-- Create monitoring function
+CREATE OR REPLACE FUNCTION get_connection_stats()
+RETURNS TABLE(
+  total_connections bigint,
+  active_connections bigint,
+  idle_connections bigint,
+  idle_in_transaction bigint,
+  waiting_connections bigint
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    COUNT(*),
+    COUNT(*) FILTER (WHERE state = 'active'),
+    COUNT(*) FILTER (WHERE state = 'idle'),
+    COUNT(*) FILTER (WHERE state = 'idle in transaction'),
+    COUNT(*) FILTER (WHERE wait_event_type IS NOT NULL)
+  FROM pg_stat_activity
+  WHERE datname = current_database();
+END;
+$$ LANGUAGE plpgsql;
+
+-- Check for connection leaks (idle in transaction)
+SELECT 
+  pid,
+  usename,
+  application_name,
+  state,
+  NOW() - state_change as duration,
+  query
+FROM pg_stat_activity
+WHERE state = 'idle in transaction'
+  AND NOW() - state_change > INTERVAL '5 minutes';
+```
+
+## Caching Strategies
+
+Caching reduces database load by storing frequently accessed data in faster storage layers.
+
+### Application-Level Caching
+
+**In-memory caching with Redis/Upstash:**
+
+```javascript
+import { createClient } from '@supabase/supabase-js'
+import Redis from 'ioredis'
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
+const redis = new Redis(REDIS_URL)
+
+async function getUser(userId) {
+  // Check cache first
+  const cached = await redis.get(`user:${userId}`)
+  if (cached) {
+    return JSON.parse(cached)
+  }
+  
+  // Cache miss: fetch from database
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', userId)
+    .single()
+  
+  if (data) {
+    // Cache for 5 minutes
+    await redis.setex(`user:${userId}`, 300, JSON.stringify(data))
+  }
+  
+  return data
+}
+```
+
+**Cache invalidation:**
+
+```javascript
+// Invalidate on update
+async function updateUser(userId, updates) {
+  const { data, error } = await supabase
+    .from('users')
+    .update(updates)
+    .eq('id', userId)
+    .select()
+    .single()
+  
+  if (data) {
+    // Invalidate cache
+    await redis.del(`user:${userId}`)
+    // Or update cache
+    await redis.setex(`user:${userId}`, 300, JSON.stringify(data))
+  }
+  
+  return data
+}
+```
+
+### Query Result Caching
+
+```javascript
+// Cache expensive queries
+async function getDashboardStats(userId) {
+  const cacheKey = `dashboard:${userId}`
+  const cached = await redis.get(cacheKey)
+  
+  if (cached) return JSON.parse(cached)
+  
+  // Expensive aggregation query
+  const { data } = await supabase.rpc('get_dashboard_stats', { 
+    p_user_id: userId 
+  })
+  
+  // Cache for 15 minutes
+  await redis.setex(cacheKey, 900, JSON.stringify(data))
+  return data
+}
+```
+
+### PostgreSQL Built-in Caching
+
+PostgreSQL maintains several cache layers automatically:
+
+**Shared Buffer Cache:**
+
+```sql
+-- Check cache hit ratio (should be > 99%)
+SELECT 
+  SUM(heap_blks_read) as heap_read,
+  SUM(heap_blks_hit) as heap_hit,
+  SUM(heap_blks_hit) / (SUM(heap_blks_hit) + SUM(heap_blks_read)) * 100 as cache_hit_ratio
+FROM pg_statio_user_tables;
+
+-- View cached table data
+SELECT 
+  schemaname,
+  tablename,
+  pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size,
+  heap_blks_hit,
+  heap_blks_read,
+  heap_blks_hit::float / NULLIF((heap_blks_hit + heap_blks_read), 0) * 100 as hit_ratio
+FROM pg_statio_user_tables
+ORDER BY heap_blks_read DESC
+LIMIT 20;
+```
+
+### Materialized Views
+
+Materialized views cache complex query results:
+
+```sql
+-- Create materialized view
+CREATE MATERIALIZED VIEW user_order_summary AS
+SELECT 
+  u.id,
+  u.email,
+  COUNT(o.id) as total_orders,
+  SUM(o.total) as total_spent,
+  MAX(o.created_at) as last_order_date,
+  AVG(o.total) as avg_order_value
+FROM users u
+LEFT JOIN orders o ON u.id = o.user_id
+GROUP BY u.id, u.email;
+
+-- Create index on materialized view
+CREATE INDEX idx_mv_user_order_summary ON user_order_summary(id);
+
+-- Query materialized view (fast)
+SELECT * FROM user_order_summary WHERE id = '123';
+
+-- Refresh materialized view
+REFRESH MATERIALIZED VIEW user_order_summary;
+
+-- Refresh without locking (allows concurrent reads)
+REFRESH MATERIALIZED VIEW CONCURRENTLY user_order_summary;
+```
+
+**Automated refresh:**
+
+```sql
+-- Create function to refresh materialized view
+CREATE OR REPLACE FUNCTION refresh_user_summary()
+RETURNS void AS $$
+BEGIN
+  REFRESH MATERIALIZED VIEW CONCURRENTLY user_order_summary;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Schedule using pg_cron extension (if available)
+-- SELECT cron.schedule('refresh-user-summary', '*/30 * * * *', 'SELECT refresh_user_summary()');
+```
+
+[Unverified] pg_cron availability may vary depending on Supabase plan and configuration.
+
+### Cache Warming
+
+```sql
+-- Preload frequently accessed data into cache
+SELECT pg_prewarm('users');
+SELECT pg_prewarm('orders');
+
+-- Check what's in cache
+SELECT 
+  c.relname,
+  count(*) AS buffers,
+  pg_size_pretty(count(*) * 8192) as size
+FROM pg_buffercache b
+INNER JOIN pg_class c ON b.relfilenode = pg_relation_filenode(c.oid)
+WHERE b.reldatabase IN (0, (SELECT oid FROM pg_database WHERE datname = current_database()))
+GROUP BY c.relname
+ORDER BY count(*) DESC
+LIMIT 20;
+```
+
+### Caching Best Practices
+
+**Cache appropriate data:**
+
+- Reference data that changes infrequently
+- Expensive computed results
+- Frequently accessed user data
+- API responses
+
+**Avoid caching:**
+
+- Data requiring real-time accuracy
+- User-specific sensitive data (without proper encryption)
+- Data that changes frequently relative to cache duration
+
+**Set appropriate TTLs:**
+
+```javascript
+const CACHE_DURATIONS = {
+  STATIC_DATA: 3600,      // 1 hour
+  USER_PROFILE: 300,      // 5 minutes
+  DASHBOARD_STATS: 900,   // 15 minutes
+  SEARCH_RESULTS: 60,     // 1 minute
+}
+```
+
+## N+1 Query Problems
+
+N+1 queries occur when an application executes one query to fetch a list, then N additional queries to fetch related data for each item. This pattern severely impacts performance.
+
+### Identifying N+1 Problems
+
+**Anti-pattern example:**
+
+```javascript
+// BAD: N+1 query problem
+const { data: users } = await supabase
+  .from('users')
+  .select('id, email')
+  .limit(10)
+
+// This executes 10 additional queries!
+for (const user of users) {
+  const { data: orders } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('user_id', user.id)
+  
+  user.orders = orders
+}
+```
+
+This results in 11 queries total (1 + 10).
+
+### Solutions
+
+**Use JOIN or nested select:**
+
+```javascript
+// GOOD: Single query with join
+const { data: users } = await supabase
+  .from('users')
+  .select(`
+    id,
+    email,
+    orders (
+      id,
+      total,
+      created_at
+    )
+  `)
+  .limit(10)
+```
+
+**Use IN clause with batching:**
+
+```javascript
+// GOOD: Two queries total
+const { data: users } = await supabase
+  .from('users')
+  .select('id, email')
+  .limit(10)
+
+const userIds = users.map(u => u.id)
+
+const { data: orders } = await supabase
+  .from('orders')
+  .select('*')
+  .in('user_id', userIds)
+
+// Group orders by user in application
+const ordersByUser = orders.reduce((acc, order) => {
+  if (!acc[order.user_id]) acc[order.user_id] = []
+  acc[order.user_id].push(order)
+  return acc
+}, {})
+
+users.forEach(user => {
+  user.orders = ordersByUser[user.id] || []
+})
+```
+
+### PostgreSQL-Level Detection
+
+```sql
+-- Monitor for patterns indicating N+1
+SELECT 
+  LEFT(query, 100) as query_pattern,
+  calls,
+  mean_exec_time,
+  total_exec_time
+FROM pg_stat_statements
+WHERE calls > 1000
+  AND query LIKE '%WHERE%=%'
+ORDER BY calls DESC;
+```
+
+### Complex N+1 Example
+
+```javascript
+// BAD: Multiple levels of N+1
+async function getBadUserData() {
+  const users = await db.query('SELECT * FROM users LIMIT 10')
+  
+  for (const user of users) {
+    user.orders = await db.query('SELECT * FROM orders WHERE user_id = ?', [user.id])
+    
+    for (const order of user.orders) {
+      order.items = await db.query('SELECT * FROM order_items WHERE order_id = ?', [order.id])
+      // 10 users * 5 orders * query = 50 additional queries
+    }
+  }
+  
+  return users
+}
+
+// GOOD: Single optimized query
+async function getGoodUserData() {
+  const { data } = await supabase
+    .from('users')
+    .select(`
+      *,
+      orders (
+        *,
+        order_items (
+          *,
+          product:products (
+            id,
+            name,
+            price
+          )
+        )
+      )
+    `)
+    .limit(10)
+  
+  return data
+}
+```
+
+### Using Database Functions for Complex Queries
+
+```sql
+-- Create function to return nested data
+CREATE OR REPLACE FUNCTION get_user_with_orders(p_user_id uuid)
+RETURNS json AS $$
+BEGIN
+  RETURN (
+    SELECT json_build_object(
+      'user', row_to_json(u.*),
+      'orders', COALESCE(
+        (
+          SELECT json_agg(
+            json_build_object(
+              'order', row_to_json(o.*),
+              'items', (
+                SELECT json_agg(row_to_json(oi.*))
+                FROM order_items oi
+                WHERE oi.order_id = o.id
+              )
+            )
+          )
+          FROM orders o
+          WHERE o.user_id = u.id
+        ),
+        '[]'::json
+      )
+    )
+    FROM users u
+    WHERE u.id = p_user_id
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- Call from application
+const { data } = await supabase.rpc('get_user_with_orders', {
+  p_user_id: userId
+})
+```
+
+## Batch Operations
+
+Batch operations process multiple records in single queries, dramatically improving performance over iterative operations.
+
+### Batch Inserts
+
+```javascript
+// BAD: Individual inserts
+for (const user of users) {
+  await supabase
+    .from('users')
+    .insert({ email: user.email, name: user.name })
+}
+
+// GOOD: Batch insert
+await supabase
+  .from('users')
+  .insert(users.map(u => ({ email: u.email, name: u.name })))
+```
+
+```sql
+-- SQL batch insert
+INSERT INTO users (email, name, role)
+VALUES 
+  ('user1@example.com', 'User One', 'member'),
+  ('user2@example.com', 'User Two', 'member'),
+  ('user3@example.com', 'User Three', 'admin')
+ON CONFLICT (email) DO UPDATE
+SET name = EXCLUDED.name, role = EXCLUDED.role;
+```
+
+### Batch Updates
+
+```javascript
+// BAD: Individual updates
+for (const orderId of orderIds) {
+  await supabase
+    .from('orders')
+    .update({ status: 'shipped' })
+    .eq('id', orderId)
+}
+
+// GOOD: Batch update
+await supabase
+  .from('orders')
+  .update({ status: 'shipped' })
+  .in('id', orderIds)
+```
+
+```sql
+-- SQL batch update with CASE
+UPDATE products
+SET price = CASE id
+  WHEN '550e8400-e29b-41d4-a716-446655440001' THEN 99.99
+  WHEN '550e8400-e29b-41d4-a716-446655440002' THEN 149.99
+  WHEN '550e8400-e29b-41d4-a716-446655440003' THEN 199.99
+END
+WHERE id IN (
+  '550e8400-e29b-41d4-a716-446655440001',
+  '550e8400-e29b-41d4-a716-446655440002',
+  '550e8400-e29b-41d4-a716-446655440003'
+);
+
+-- Update from temporary table
+CREATE TEMP TABLE price_updates (
+  product_id uuid,
+  new_price numeric
+);
+
+INSERT INTO price_updates VALUES
+  ('550e8400-e29b-41d4-a716-446655440001', 99.99),
+  ('550e8400-e29b-41d4-a716-446655440002', 149.99);
+
+UPDATE products p
+SET price = pu.new_price
+FROM price_updates pu
+WHERE p.id = pu.product_id;
+```
+
+### Batch Deletes
+
+```javascript
+// BAD: Individual deletes
+for (const id of idsToDelete) {
+  await supabase
+    .from('old_records')
+    .delete()
+    .eq('id', id)
+}
+
+// GOOD: Batch delete
+await supabase
+  .from('old_records')
+  .delete()
+  .in('id', idsToDelete)
+```
+
+```sql
+-- SQL batch delete
+DELETE FROM logs
+WHERE created_at < NOW() - INTERVAL '90 days';
+
+-- Batch delete with JOIN
+DELETE FROM order_items oi
+USING orders o
+WHERE oi.order_id = o.id
+  AND o.status = 'cancelled'
+  AND o.created_at < NOW() - INTERVAL '30 days';
+```
+
+### COPY for Bulk Data Loading
+
+```sql
+-- Most efficient for large data imports
+COPY users (email, name, created_at)
+FROM '/path/to/users.csv'
+WITH (FORMAT csv, HEADER true);
+
+-- Or from program
+COPY users (email, name)
+FROM STDIN
+WITH (FORMAT csv);
+```
+
+```javascript
+// Using node-postgres COPY
+import { pipeline } from 'stream'
+import { from as copyFrom } from 'pg-copy-streams'
+
+const client = await pool.connect()
+const stream = client.query(copyFrom('COPY users (email, name) FROM STDIN CSV'))
+
+const dataStream = /* your data source stream */
+await pipeline(dataStream, stream)
+client.release()
+```
+
+### Batch Processing Patterns
+
+**Chunked processing:**
+```javascript
+// Process large dataset in chunks
+async function processBatchInChunks(items, chunkSize = 1000) {
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize)
+    
+    await supabase
+      .from('table')
+      .insert(chunk)
+    
+    console.log(`Processed ${i + chunk.length} of ${items.length}`)
+  }
+}
+```
+
+**Parallel batch operations:**
+```javascript
+// Process multiple batches concurrently
+async function parallelBatchProcess(items, batchSize = 1000, concurrency = 5) {
+  const batches = []
+  for (let i = 0; i < items.length; i += batchSize) {
+    batches.push(items.slice(i, i + batchSize))
+  }
+  
+  // Process batches with limited concurrency
+  for (let i = 0; i < batches.length; i += concurrency) {
+    const batchGroup = batches.slice(i, i + concurrency)
+    
+    await Promise.all(
+      batchGroup.map(batch =>
+        supabase.from('table').insert(batch)
+      )
+    )
+    
+    console.log(`Completed ${Math.min(i + concurrency, batches.length)} of ${batches.length} batches`)
+  }
+}
+```
+
+### Batch Upsert (Insert or Update)
+
+```javascript
+// Supabase batch upsert
+await supabase
+  .from('products')
+  .upsert(
+    products.map(p => ({
+      id: p.id,
+      name: p.name,
+      price: p.price,
+      updated_at: new Date().toISOString()
+    })),
+    { onConflict: 'id' }
+  )
+```
+
+```sql
+-- SQL upsert with DO UPDATE
+INSERT INTO products (id, name, price, stock)
+VALUES 
+  ('prod-1', 'Product 1', 99.99, 100),
+  ('prod-2', 'Product 2', 149.99, 50)
+ON CONFLICT (id) DO UPDATE
+SET 
+  name = EXCLUDED.name,
+  price = EXCLUDED.price,
+  stock = products.stock + EXCLUDED.stock,
+  updated_at = NOW();
+```
+
+### Using UNNEST for Batch Operations
+
+```sql
+-- Batch insert using UNNEST
+INSERT INTO users (email, name, role)
+SELECT * FROM UNNEST(
+  ARRAY['user1@example.com', 'user2@example.com', 'user3@example.com'],
+  ARRAY['User One', 'User Two', 'User Three'],
+  ARRAY['member', 'member', 'admin']
+) AS t(email, name, role);
+
+-- Batch update using UNNEST
+UPDATE products p
+SET price = u.new_price
+FROM UNNEST(
+  ARRAY['prod-1', 'prod-2', 'prod-3']::uuid[],
+  ARRAY[99.99, 149.99, 199.99]::numeric[]
+) AS u(product_id, new_price)
+WHERE p.id = u.product_id;
+```
+
+### Batch Performance Comparison
+
+```sql
+-- Measure batch vs individual operations
+DO $$
+DECLARE
+  start_time timestamp;
+  end_time timestamp;
+  i integer;
+BEGIN
+  -- Individual inserts
+  start_time := clock_timestamp();
+  FOR i IN 1..1000 LOOP
+    INSERT INTO test_table (value) VALUES (i);
+  END LOOP;
+  end_time := clock_timestamp();
+  RAISE NOTICE 'Individual inserts: %', end_time - start_time;
+  
+  -- Batch insert
+  start_time := clock_timestamp();
+  INSERT INTO test_table (value)
+  SELECT generate_series(1001, 2000);
+  end_time := clock_timestamp();
+  RAISE NOTICE 'Batch insert: %', end_time - start_time;
+END $$;
+```
+
+[Inference] Batch operations are typically 10-100x faster than individual operations, depending on network latency, transaction overhead, and data size.
+
+## Database Statistics
+
+PostgreSQL maintains statistics about table contents to help the query planner make optimal decisions. Accurate statistics are essential for good query performance.
+
+### Understanding Statistics
+
+```sql
+-- View table statistics
+SELECT 
+  schemaname,
+  tablename,
+  n_live_tup as live_rows,
+  n_dead_tup as dead_rows,
+  n_mod_since_analyze as modifications_since_analyze,
+  last_vacuum,
+  last_autovacuum,
+  last_analyze,
+  last_autoanalyze
+FROM pg_stat_user_tables
+ORDER BY n_mod_since_analyze DESC;
+
+-- View column statistics
+SELECT 
+  tablename,
+  attname as column_name,
+  n_distinct,
+  correlation,
+  most_common_vals,
+  most_common_freqs
+FROM pg_stats
+WHERE schemaname = 'public'
+  AND tablename = 'users';
+```
+
+### Manual Statistics Update
+
+```sql
+-- Analyze specific table
+ANALYZE users;
+
+-- Analyze specific columns
+ANALYZE users (email, created_at);
+
+-- Analyze all tables
+ANALYZE;
+
+-- Verbose analyze (shows detailed info)
+ANALYZE VERBOSE users;
+```
+
+### Autovacuum and Autoanalyze
+
+PostgreSQL automatically runs VACUUM and ANALYZE through the autovacuum daemon:
+
+```sql
+-- Check autovacuum settings
+SHOW autovacuum;
+SHOW autovacuum_analyze_threshold;
+SHOW autovacuum_analyze_scale_factor;
+
+-- View autovacuum activity
+SELECT 
+  schemaname,
+  tablename,
+  last_autovacuum,
+  last_autoanalyze,
+  n_dead_tup,
+  n_mod_since_analyze
+FROM pg_stat_user_tables
+WHERE schemaname = 'public'
+ORDER BY last_autoanalyze ASC NULLS FIRST;
+```
+
+### Statistics Configuration
+
+```sql
+-- Adjust statistics target for specific columns
+ALTER TABLE users ALTER COLUMN email SET STATISTICS 1000;
+-- Default is 100, higher = more accurate but slower ANALYZE
+
+-- Reset to default
+ALTER TABLE users ALTER COLUMN email SET STATISTICS -1;
+
+-- Set statistics target for entire table
+ALTER TABLE users SET (autovacuum_analyze_scale_factor = 0.05);
+```
+
+### Monitoring Statistics Staleness
+
+```sql
+-- Find tables with stale statistics
+SELECT 
+  schemaname,
+  tablename,
+  n_live_tup as rows,
+  n_mod_since_analyze as changes_since_analyze,
+  ROUND(100.0 * n_mod_since_analyze / NULLIF(n_live_tup, 0), 2) as pct_changed,
+  last_autoanalyze
+FROM pg_stat_user_tables
+WHERE n_live_tup > 1000
+  AND n_mod_since_analyze > n_live_tup * 0.1
+ORDER BY n_mod_since_analyze DESC;
+```
+
+### Statistics and Query Planning
+
+```sql
+-- See how statistics affect query plans
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM users WHERE created_at > NOW() - INTERVAL '7 days';
+
+-- Check if planner estimates are accurate
+-- Compare "rows=X" (estimate) vs "actual rows=Y"
+
+-- If estimates are way off, analyze the table
+ANALYZE users;
+
+-- Rerun explain to see improved estimates
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM users WHERE created_at > NOW() - INTERVAL '7 days';
+```
+
+### Extended Statistics
+
+For correlated columns, create extended statistics:
+
+```sql
+-- Create extended statistics for correlated columns
+CREATE STATISTICS users_city_state_stats (dependencies)
+ON city, state FROM users;
+
+-- Create multivariate statistics
+CREATE STATISTICS products_category_price_stats (ndistinct, dependencies)
+ON category_id, price FROM products;
+
+-- Analyze to populate extended statistics
+ANALYZE users;
+ANALYZE products;
+
+-- View extended statistics
+SELECT * FROM pg_statistic_ext;
+```
+
+[Inference] Extended statistics help the planner understand correlations between columns, improving estimates for multi-column WHERE clauses.
+
+## Read Replicas
+
+[Unverified] Read replicas are available in Supabase's Pro and Enterprise plans. They provide horizontally scaled read capacity by replicating data from the primary database to one or more replica databases.
+
+### Read Replica Benefits
+
+- Distribute read load across multiple databases
+- Reduce load on primary database
+- Improve query performance for read-heavy workloads
+- Geographic distribution for lower latency
+- Dedicated resources for analytics or reporting
+
+### Using Read Replicas
+
+```javascript
+// Primary connection (reads and writes)
+const supabasePrimary = createClient(PRIMARY_URL, ANON_KEY)
+
+// Read replica connection (reads only)
+const supabaseReplica = createClient(REPLICA_URL, ANON_KEY)
+
+// Write to primary
+await supabasePrimary
+  .from('users')
+  .insert({ email: 'new@example.com' })
+
+// Read from replica
+const { data } = await supabaseReplica
+  .from('users')
+  .select('*')
+  .limit(100)
+```
+
+### Replication Lag Considerations
+
+[Inference] Read replicas operate asynchronously, meaning there's typically a small delay (replication lag) between writes to primary and visibility on replicas:
+
+```javascript
+// Handle replication lag
+async function createAndVerify(data) {
+  // Write to primary
+  const { data: created } = await supabasePrimary
+    .from('users')
+    .insert(data)
+    .select()
+    .single()
+  
+  // Read from primary immediately after write
+  // to avoid replication lag issues
+  const { data: verified } = await supabasePrimary
+    .from('users')
+    .select('*')
+    .eq('id', created.id)
+    .single()
+  
+  return verified
+}
+
+// For non-critical reads, use replica
+async function getUsers(filters) {
+  return await supabaseReplica
+    .from('users')
+    .select('*')
+    .match(filters)
+}
+```
+
+### Read Replica Patterns
+
+**Pattern 1: Route by operation type**
+```javascript
+class DatabaseRouter {
+  constructor(primary, replica) {
+    this.primary = primary
+    this.replica = replica
+  }
+  
+  async read(table, query) {
+    return await this.replica.from(table).select(query)
+  }
+  
+  async write(table, data) {
+    return await this.primary.from(table).insert(data)
+  }
+  
+  async update(table, id, data) {
+    return await this.primary.from(table).update(data).eq('id', id)
+  }
+}
+```
+
+**Pattern 2: Dedicated analytics queries**
+```javascript
+// Heavy analytics on replica to avoid affecting primary
+async function getAnalyticsReport() {
+  const { data } = await supabaseReplica.rpc('generate_sales_report', {
+    start_date: '2024-01-01',
+    end_date: '2024-12-31'
+  })
+  
+  return data
+}
+```
+
+**Pattern 3: Geographic distribution**
+```javascript
+// Use replica closest to user
+const getUserRegion = (userLocation) => {
+  // Determine nearest replica based on user location
+}
+
+const replicaUrl = getUserRegion(userLocation)
+const supabase = createClient(replicaUrl, ANON_KEY)
+```
+
+### Monitoring Replication
+
+```sql
+-- Check replication lag (on primary)
+SELECT 
+  client_addr,
+  state,
+  sent_lsn,
+  write_lsn,
+  flush_lsn,
+  replay_lsn,
+  sync_state,
+  pg_wal_lsn_diff(sent_lsn, replay_lsn) as lag_bytes
+FROM pg_stat_replication;
+
+-- Monitor replication slots
+SELECT 
+  slot_name,
+  slot_type,
+  active,
+  pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) as retained_bytes
+FROM pg_replication_slots;
+```
+
+## Database Size Management
+
+Managing database size is crucial for performance, cost control, and operational efficiency.
+
+### Monitoring Database Size
+
+```sql
+-- Overall database size
+SELECT 
+  pg_database.datname,
+  pg_size_pretty(pg_database_size(pg_database.datname)) as size
+FROM pg_database
+ORDER BY pg_database_size(pg_database.datname) DESC;
+
+-- Table sizes with indexes
+SELECT 
+  schemaname,
+  tablename,
+  pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as total_size,
+  pg_size_pretty(pg_relation_size(schemaname||'.'||tablename)) as table_size,
+  pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename) - 
+                 pg_relation_size(schemaname||'.'||tablename)) as indexes_size
+FROM pg_tables
+WHERE schemaname = 'public'
+ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
+
+-- Largest tables
+SELECT 
+  tablename,
+  pg_size_pretty(pg_total_relation_size(tablename::regclass)) as size,
+  pg_total_relation_size(tablename::regclass) as bytes
+FROM pg_tables
+WHERE schemaname = 'public'
+ORDER BY pg_total_relation_size(tablename::regclass) DESC
+LIMIT 20;
+
+-- Largest indexes
+SELECT 
+  schemaname,
+  tablename,
+  indexname,
+  pg_size_pretty(pg_relation_size(indexrelid)) as size
+FROM pg_stat_user_indexes
+ORDER BY pg_relation_size(indexrelid) DESC
+LIMIT 20;
+```
+
+### Table Bloat
+
+Table bloat occurs when tables contain dead rows not yet reclaimed by VACUUM:
+
+```sql
+-- Detect table bloat
+SELECT 
+  schemaname,
+  tablename,
+  pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size,
+  n_dead_tup as dead_rows,
+  n_live_tup as live_rows,
+  ROUND(100.0 * n_dead_tup / NULLIF(n_live_tup + n_dead_tup, 0), 2) as bloat_pct
+FROM pg_stat_user_tables
+WHERE n_live_tup > 0
+ORDER BY n_dead_tup DESC;
+
+-- Manual vacuum to reclaim space
+VACUUM FULL users;  -- Rewrites entire table, locks table
+VACUUM users;       -- Marks space as reusable, doesn't return to OS
+```
+
+### Index Bloat
+
+```sql
+-- Estimate index bloat
+SELECT 
+  schemaname,
+  tablename,
+  indexname,
+  pg_size_pretty(pg_relation_size(indexrelid)) as size,
+  idx_scan as scans,
+  idx_tup_read as tuples_read,
+  idx_tup_fetch as tuples_fetched
+FROM pg_stat_user_indexes
+ORDER BY pg_relation_size(indexrelid) DESC;
+
+-- Rebuild bloated indexes
+REINDEX TABLE users;
+REINDEX INDEX idx_users_email;
+```
+
+### Data Archival Strategies
+
+**Time-based partitioning for archival:**
+```sql
+-- Create partitioned table
+CREATE TABLE logs (
+  id bigserial,
+  message text,
+  created_at timestamptz NOT NULL
+) PARTITION BY RANGE (created_at);
+
+-- Create partitions
+CREATE TABLE logs_2024_01 PARTITION OF logs
+  FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+
+CREATE TABLE logs_2024_02 PARTITION OF logs
+  FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+
+-- Archive old partitions
+-- Detach partition
+ALTER TABLE logs DETACH PARTITION logs_2024_01;
+
+-- Export to archive
+COPY logs_2024_01 TO '/archive/logs_2024_01.csv' WITH CSV HEADER;
+
+-- Drop old partition
+DROP TABLE logs_2024_01;
+```
+
+**Soft delete for data retention:**
+```sql
+-- Add deleted_at column
+ALTER TABLE users ADD COLUMN deleted_at timestamptz;
+
+-- Create index for active records
+CREATE INDEX idx_users_active ON users(id) WHERE deleted_at IS NULL;
+
+-- Soft delete
+UPDATE users SET deleted_at = NOW() WHERE id = 'user-id';
+
+-- Periodically hard delete old soft-deleted records
+DELETE FROM users 
+WHERE deleted_at < NOW() - INTERVAL '90 days';
+```
+
+### Compression
+
+**TOAST compression:**
+PostgreSQL automatically compresses large values using TOAST (The Oversized-Attribute Storage Technique):
+
+```sql
+-- Check TOAST settings
+SELECT 
+  relname,
+  reltoastrelid,
+  pg_size_pretty(pg_total_relation_size(reltoastrelid)) as toast_size
+FROM pg_class
+WHERE reltoastrelid <> 0
+ORDER BY pg_total_relation_size(reltoastrelid) DESC;
+
+-- Modify column storage
+ALTER TABLE documents ALTER COLUMN content SET STORAGE EXTENDED;  -- Compress + move to TOAST
+ALTER TABLE documents ALTER COLUMN content SET STORAGE EXTERNAL;  -- Move to TOAST, no compression
+ALTER TABLE documents ALTER COLUMN content SET STORAGE MAIN;      -- Keep inline, compress if needed
+```
+
+**Column-level compression (PostgreSQL 14+):**
+```sql
+-- Use compression for specific column
+ALTER TABLE documents ALTER COLUMN content SET COMPRESSION lz4;
+
+-- Check compression method
+SELECT 
+  attname,
+  attcompression
+FROM pg_attribute
+WHERE attrelid = 'documents'::regclass
+  AND attnum > 0;
+```
+
+### Data Retention Policies
+
+```sql
+-- Create function for data cleanup
+CREATE OR REPLACE FUNCTION cleanup_old_data()
+RETURNS void AS $$
+BEGIN
+  -- Delete old logs
+  DELETE FROM logs WHERE created_at < NOW() - INTERVAL '30 days';
+  
+  -- Delete old sessions
+  DELETE FROM sessions WHERE expires_at < NOW();
+  
+  -- Archive old orders
+  INSERT INTO archived_orders
+  SELECT * FROM orders 
+  WHERE created_at < NOW() - INTERVAL '2 years';
+  
+  DELETE FROM orders 
+  WHERE created_at < NOW() - INTERVAL '2 years';
+  
+  -- Log cleanup activity
+  INSERT INTO maintenance_log (activity, executed_at)
+  VALUES ('data_cleanup', NOW());
+END;
+$$ LANGUAGE plpgsql;
+
+-- Schedule cleanup (using pg_cron if available)
+-- SELECT cron.schedule('nightly-cleanup', '0 2 * * *', 'SELECT cleanup_old_data()');
+```
+
+### Monitoring Growth Trends
+
+```sql
+-- Create table to track size over time
+CREATE TABLE database_size_history (
+  id serial PRIMARY KEY,
+  table_name text,
+  table_size bigint,
+  index_size bigint,
+  total_size bigint,
+  recorded_at timestamptz DEFAULT NOW()
+);
+
+-- Function to record sizes
+CREATE OR REPLACE FUNCTION record_table_sizes()
+RETURNS void AS $$
+BEGIN
+  INSERT INTO database_size_history (table_name, table_size, index_size, total_size)
+  SELECT 
+    tablename,
+    pg_relation_size(schemaname||'.'||tablename),
+    pg_total_relation_size(schemaname||'.'||tablename) - pg_relation_size(schemaname||'.'||tablename),
+    pg_total_relation_size(schemaname||'.'||tablename)
+  FROM pg_tables
+  WHERE schemaname = 'public';
+END;
+$$ LANGUAGE plpgsql;
+
+-- Query growth trends
+SELECT 
+  table_name,
+  pg_size_pretty(MAX(total_size) FILTER (WHERE recorded_at > NOW() - INTERVAL '1 day')) as current_size,
+  pg_size_pretty(MAX(total_size) FILTER (WHERE recorded_at > NOW() - INTERVAL '8 days' AND recorded_at < NOW() - INTERVAL '7 days')) as week_ago,
+  pg_size_pretty(MAX(total_size) - MIN(total_size)) as growth
+FROM database_size_history
+WHERE recorded_at > NOW() - INTERVAL '8 days'
+GROUP BY table_name
+ORDER BY MAX(total_size) DESC;
+```
+
+### Storage Optimization Best Practices
+
+**Choose appropriate data types:**
+```sql
+-- Bad: Wastes space
+CREATE TABLE products (
+  id text,                    -- UUID as text: 36 bytes
+  price numeric(20, 10),      -- Overly precise
+  in_stock boolean            -- 1 byte but aligned
+);
+
+-- Good: Optimized
+CREATE TABLE products (
+  id uuid,                    -- UUID type: 16 bytes
+  price integer,              -- Cents as integer: 4 bytes
+  in_stock boolean
+);
+```
+
+**Normalize appropriately:**
+```sql
+-- Denormalized: Repeated data
+CREATE TABLE orders (
+  id uuid PRIMARY KEY,
+  customer_email text,
+  customer_name text,
+  customer_address text
+  -- Customer data repeated in every order
+);
+
+-- Normalized: Reference data
+CREATE TABLE customers (
+  id uuid PRIMARY KEY,
+  email text,
+  name text,
+  address text
+);
+
+CREATE TABLE orders (
+  id uuid PRIMARY KEY,
+  customer_id uuid REFERENCES customers(id)
+  -- Reference instead of duplication
+);
+```
+
+**Use appropriate indexes:**
+```sql
+-- Remove redundant indexes
+-- If you have idx_users_email_name(email, name)
+-- Then idx_users_email(email) is redundant
+
+-- Find duplicate indexes
+SELECT 
+  pg_size_pretty(SUM(pg_relation_size(idx))::bigint) as size,
+  (array_agg(idx))[1] as idx1,
+  (array_agg(idx))[2] as idx2
+FROM (
+  SELECT 
+    indexrelid::regclass as idx,
+    indrelid,
+    indkey::text
+  FROM pg_index
+) sub
+GROUP BY indrelid, indkey
+HAVING COUNT(*) > 1;
+```
+
+**Important related topics:**
+- **Vacuum strategies and configuration** - Fine-tuning autovacuum for your workload
+- **Query optimization techniques** - Advanced strategies beyond basic indexing
+- **Monitoring and alerting setup** - Building comprehensive performance monitoring
+- **Connection pool tuning** - Optimizing pool parameters for your specific needs
+- **Performance testing methodologies** - Load testing and benchmarking approaches
+
+---
+
+# Security Best Practices
+
+Security in Supabase requires a multi-layered approach combining database-level protections, API security, client-side safeguards, and operational practices. Supabase provides built-in security features, but proper configuration and implementation are critical to protecting your application and user data.
+
+## API Key Management
+
+Supabase projects include two primary API keys with different security profiles and use cases.
+
+**Anon (public) key:**
+
+The anon key is safe to expose in client-side code, mobile apps, and public repositories. It provides access only to data permitted by Row Level Security policies. This key authenticates requests but grants no inherent privileges beyond what RLS policies explicitly allow. When users are unauthenticated, requests using the anon key can only access publicly available data as defined by your policies.
+
+**Service role key:**
+
+The service role key bypasses all Row Level Security policies and should never be exposed in client-side code, version control, or publicly accessible locations. This key has superuser-level access to your database and should only be used in secure server-side environments, backend services, administrative scripts, or CI/CD pipelines. [Inference: Exposing the service role key would grant unrestricted database access to anyone who obtains it]
+
+**Key rotation:**
+
+Rotate API keys if compromised or as periodic security practice. In your Supabase project settings under API, you can generate new keys. After rotation, update all applications and services using the old keys. [Unverified: The exact process for key rotation and whether old keys are immediately invalidated or have a grace period may vary]
+
+**Environment-specific keys:**
+
+Use different Supabase projects for development, staging, and production environments, each with distinct API keys. This prevents development testing from affecting production data and limits the blast radius of potential security incidents.
+
+**Storage practices:**
+
+- Store keys in environment variables, never hardcode them
+- Use secrets management systems (AWS Secrets Manager, HashiCorp Vault, Doppler)
+- Add `.env` files to `.gitignore` to prevent accidental commits
+- Use platform-specific secure storage on mobile (Keychain on iOS, Keystore on Android)
+- Implement key access controls limiting which team members can view service role keys
+
+**Monitoring key usage:**
+
+Monitor API logs for unusual patterns indicating compromised keys such as unexpected geographic locations, abnormal request volumes, or unauthorized access attempts. [Inference: Supabase likely provides logging capabilities for this purpose, though specific monitoring features may vary by plan]
+
+## RLS Policy Design
+
+Row Level Security policies enforce authorization at the database level, ensuring users can only access data they're permitted to see regardless of how they connect to the database.
+
+**Enabling RLS:**
+
+```sql
+ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
+```
+
+Without policies defined, enabling RLS blocks all access. You must explicitly create policies granting permissions.
+
+**Policy structure:**
+
+Policies consist of:
+
+- **Operation**: SELECT, INSERT, UPDATE, DELETE, or ALL
+- **Role**: Which database role the policy applies to (typically `authenticated` or `anon`)
+- **USING clause**: Boolean expression determining which rows are visible (for SELECT/UPDATE/DELETE)
+- **WITH CHECK clause**: Boolean expression validating new/modified rows (for INSERT/UPDATE)
+
+**Basic ownership pattern:**
+
+```sql
+CREATE POLICY "Users can view own data"
+ON profiles FOR SELECT
+TO authenticated
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own data"
+ON profiles FOR UPDATE
+TO authenticated
+USING (auth.uid() = user_id)
+WITH CHECK (auth.uid() = user_id);
+```
+
+**Public read, authenticated write:**
+
+```sql
+CREATE POLICY "Anyone can read posts"
+ON posts FOR SELECT
+TO anon, authenticated
+USING (true);
+
+CREATE POLICY "Authenticated users can insert posts"
+ON posts FOR INSERT
+TO authenticated
+WITH CHECK (auth.uid() = author_id);
+```
+
+**Role-based access:**
+
+```sql
+CREATE POLICY "Admins can do everything"
+ON sensitive_data FOR ALL
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM user_roles
+    WHERE user_roles.user_id = auth.uid()
+    AND user_roles.role = 'admin'
+  )
+);
+```
+
+**Multi-tenancy pattern:**
+
+```sql
+CREATE POLICY "Users see only their organization's data"
+ON documents FOR SELECT
+TO authenticated
+USING (
+  organization_id IN (
+    SELECT organization_id FROM user_organizations
+    WHERE user_id = auth.uid()
+  )
+);
+```
+
+**Time-based access:**
+
+```sql
+CREATE POLICY "View published posts only"
+ON posts FOR SELECT
+TO anon, authenticated
+USING (
+  status = 'published'
+  AND published_at <= NOW()
+);
+```
+
+**Design principles:**
+
+- **Deny by default**: Enable RLS on all tables and explicitly grant permissions
+- **Test thoroughly**: RLS policies can be complex; test with different user roles and scenarios
+- **Avoid performance bottlenecks**: Complex subqueries in policies can slow down queries; consider denormalizing data or using indexed columns
+- **Use consistent patterns**: Apply similar policy structures across related tables
+- **Document policies**: Add comments explaining business logic behind complex policies
+- **Separate concerns**: Create distinct policies for each operation rather than using ALL when possible
+
+**Helper functions:**
+
+Create reusable functions for common checks:
+
+```sql
+CREATE FUNCTION is_admin()
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM user_roles
+    WHERE user_id = auth.uid() AND role = 'admin'
+  );
+$$ LANGUAGE SQL STABLE SECURITY DEFINER;
+
+CREATE POLICY "Admins manage users"
+ON users FOR ALL
+TO authenticated
+USING (is_admin());
+```
+
+**Common pitfalls:**
+
+- Forgetting to enable RLS on new tables
+- Using USING clause when WITH CHECK is needed (allows reading data but prevents modifying it appropriately)
+- Creating overly complex policies that degrade performance
+- Not testing policies with actual user sessions
+- Assuming policies cascade to related tables (each table needs its own policies)
+
+## Input Validation
+
+Input validation prevents malformed, malicious, or unexpected data from entering your database and protects against various attack vectors.
+
+**Database-level constraints:**
+
+PostgreSQL constraints provide the first line of defense:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT NOT NULL UNIQUE CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'),
+  age INTEGER CHECK (age >= 0 AND age <= 150),
+  username TEXT NOT NULL CHECK (LENGTH(username) BETWEEN 3 AND 30),
+  status TEXT CHECK (status IN ('active', 'suspended', 'deleted')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+**Check constraints** enforce business rules at the database level. They execute on every insert and update, rejecting invalid data before it's committed.
+
+**Domain types:**
+
+Create reusable validation logic with custom domains:
+
+```sql
+CREATE DOMAIN email_address AS TEXT
+CHECK (VALUE ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$');
+
+CREATE DOMAIN positive_integer AS INTEGER
+CHECK (VALUE > 0);
+
+CREATE TABLE products (
+  id UUID PRIMARY KEY,
+  contact_email email_address,
+  quantity positive_integer
+);
+```
+
+**Triggers for complex validation:**
+
+```sql
+CREATE FUNCTION validate_phone_number()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.phone !~ '^\+?[1-9]\d{1,14}$' THEN
+    RAISE EXCEPTION 'Invalid phone number format';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER check_phone_before_insert
+BEFORE INSERT OR UPDATE ON contacts
+FOR EACH ROW
+EXECUTE FUNCTION validate_phone_number();
+```
+
+**Client-side validation:**
+
+While not a security measure (client-side code can be bypassed), client validation improves user experience:
+
+```javascript
+// Example validation before Supabase insert
+function validateUserInput(data) {
+  const errors = {};
+  
+  if (!data.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+    errors.email = 'Valid email required';
+  }
+  
+  if (!data.username || data.username.length < 3) {
+    errors.username = 'Username must be at least 3 characters';
+  }
+  
+  if (data.age && (data.age < 0 || data.age > 150)) {
+    errors.age = 'Age must be between 0 and 150';
+  }
+  
+  return Object.keys(errors).length === 0 ? null : errors;
+}
+```
+
+**Server-side validation with Edge Functions:**
+
+For complex validation logic not suitable for database constraints:
+
+```javascript
+// Edge Function for validation
+const validateOrder = (order) => {
+  if (!order.items || order.items.length === 0) {
+    throw new Error('Order must contain at least one item');
+  }
+  
+  if (order.total_amount !== calculateTotal(order.items)) {
+    throw new Error('Total amount mismatch');
+  }
+  
+  // Additional business logic validation
+};
+```
+
+**Validation strategies:**
+
+- **Whitelist over blacklist**: Define what's allowed rather than what's forbidden
+- **Type checking**: Ensure data types match expected schemas
+- **Length limits**: Prevent excessively long inputs that could cause performance issues
+- **Format validation**: Use regular expressions for structured data (emails, phone numbers, URLs)
+- **Range validation**: Numeric values within acceptable bounds
+- **Referential integrity**: Foreign key constraints validate relationships automatically
+- **Sanitization**: Strip or escape potentially dangerous characters where appropriate
+
+**JSON validation:**
+
+For JSONB columns, use JSON Schema validation:
+
+```sql
+CREATE TABLE settings (
+  id UUID PRIMARY KEY,
+  config JSONB NOT NULL,
+  CONSTRAINT valid_config CHECK (
+    jsonb_typeof(config->'timeout') = 'number'
+    AND (config->>'timeout')::int BETWEEN 1 AND 3600
+  )
+);
+```
+
+## SQL Injection Prevention
+
+SQL injection occurs when untrusted input is concatenated into SQL queries, allowing attackers to manipulate query logic. Supabase's architecture provides strong protection against SQL injection when used correctly.
+
+**How Supabase prevents SQL injection:**
+
+PostgREST and Supabase client libraries use parameterized queries exclusively. User input is never directly concatenated into SQL statements. All filters, values, and parameters are passed as bound parameters, which PostgreSQL treats as data, not executable code.
+
+**Safe query examples:**
+
+Using Supabase client library (JavaScript):
+
+```javascript
+// Safe - parameters are bound, not concatenated
+const { data, error } = await supabase
+  .from('users')
+  .select('*')
+  .eq('email', userInput); // userInput is safely parameterized
+
+// Safe - insertion with bound values
+const { data, error } = await supabase
+  .from('posts')
+  .insert({ 
+    title: userTitle,  // Safely parameterized
+    content: userContent 
+  });
+```
+
+**Unsafe patterns to avoid:**
+
+When writing custom database functions or using direct SQL:
+
+```sql
+-- UNSAFE - vulnerable to SQL injection
+CREATE FUNCTION search_users(search_term TEXT)
+RETURNS SETOF users AS $$
+BEGIN
+  RETURN QUERY EXECUTE 
+    'SELECT * FROM users WHERE name LIKE ''%' || search_term || '%''';
+  -- If search_term contains SQL, it will execute
+END;
+$$ LANGUAGE plpgsql;
+```
+
+**Safe function implementation:**
+
+```sql
+-- SAFE - uses parameterized query
+CREATE FUNCTION search_users(search_term TEXT)
+RETURNS SETOF users AS $$
+BEGIN
+  RETURN QUERY 
+    SELECT * FROM users 
+    WHERE name ILIKE '%' || search_term || '%';
+  -- Concatenation here is safe; search_term is treated as data
+END;
+$$ LANGUAGE plpgsql;
+```
+
+For dynamic SQL when necessary, use `EXECUTE` with `USING`:
+
+```sql
+CREATE FUNCTION dynamic_query(table_name TEXT, search_value TEXT)
+RETURNS TABLE(result JSONB) AS $$
+BEGIN
+  -- Validate table_name against whitelist first
+  IF table_name NOT IN ('users', 'posts', 'comments') THEN
+    RAISE EXCEPTION 'Invalid table name';
+  END IF;
+  
+  RETURN QUERY EXECUTE 
+    format('SELECT row_to_json(t) FROM %I AS t WHERE name = $1', table_name)
+  USING search_value;  -- Safely bound parameter
+END;
+$$ LANGUAGE plpgsql;
+```
+
+**Protection layers:**
+
+- **Client libraries**: Automatically parameterize all queries
+- **PostgREST**: Converts REST API calls to parameterized PostgreSQL queries
+- **Row Level Security**: Even if injection were possible, RLS limits accessible data
+- **Database functions**: Write secure functions using parameterized queries
+- **Input validation**: Validate and constrain input before it reaches the database
+
+**Direct database access:**
+
+If connecting directly to PostgreSQL (not through Supabase APIs), always use parameterized queries:
+
+```javascript
+// Node.js with pg library - Safe
+const result = await pool.query(
+  'SELECT * FROM users WHERE email = $1',
+  [userEmail]  // Parameterized
+);
+
+// UNSAFE - never do this
+const result = await pool.query(
+  `SELECT * FROM users WHERE email = '${userEmail}'`
+);
+```
+
+**Best practices:**
+
+- Always use Supabase client libraries or PostgREST API for queries
+- Never construct SQL strings by concatenating user input
+- If writing custom database functions, use parameters or `EXECUTE ... USING`
+- Validate and whitelist dynamic identifiers (table names, column names) when absolutely necessary
+- Apply principle of least privilege through RLS and database roles
+- Regularly audit custom SQL code for injection vulnerabilities
+
+[Inference: While Supabase's architecture makes SQL injection extremely difficult through normal usage, custom database functions and direct database connections require careful implementation]
+
+## XSS Protection
+
+Cross-Site Scripting (XSS) attacks inject malicious scripts into web applications, potentially stealing user data, session tokens, or performing unauthorized actions. XSS protection requires careful handling of user-generated content in your frontend application.
+
+**Supabase's role:**
+
+Supabase stores data as-is without modification and returns exactly what was stored. The database does not automatically sanitize or escape content. XSS protection is primarily a frontend responsibility, though database design can support security measures.
+
+**Frontend protection strategies:**
+
+**Framework-native escaping:**
+
+Modern frameworks provide automatic XSS protection:
+
+```javascript
+// React - automatically escapes by default
+function UserProfile({ user }) {
+  return (
+    <div>
+      <h1>{user.name}</h1>  {/* Automatically escaped */}
+      <p>{user.bio}</p>      {/* Automatically escaped */}
+    </div>
+  );
+}
+
+// Vue - automatically escapes
+<template>
+  <div>
+    <h1>{{ user.name }}</h1>  <!-- Automatically escaped -->
+    <p>{{ user.bio }}</p>      <!-- Automatically escaped -->
+  </div>
+</template>
+```
+
+**Dangerous HTML rendering:**
+
+When you must render HTML content, use sanitization libraries:
+
+```javascript
+import DOMPurify from 'dompurify';
+
+function ArticleContent({ article }) {
+  // Sanitize before rendering
+  const sanitizedHTML = DOMPurify.sanitize(article.html_content, {
+    ALLOWED_TAGS: ['p', 'b', 'i', 'em', 'strong', 'a', 'ul', 'ol', 'li'],
+    ALLOWED_ATTR: ['href', 'title']
+  });
+  
+  return (
+    <div dangerouslySetInnerHTML={{ __html: sanitizedHTML }} />
+  );
+}
+```
+
+**Content Security Policy (CSP):**
+
+Implement CSP headers to restrict script execution:
+
+```html
+<!-- In your HTML head or via server headers -->
+<meta http-equiv="Content-Security-Policy" 
+      content="default-src 'self'; 
+               script-src 'self' https://trusted-cdn.com;
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' data: https:;">
+```
+
+**Input sanitization at storage:**
+
+While XSS protection happens at rendering, you can sanitize on storage as defense-in-depth:
+
+```javascript
+import DOMPurify from 'dompurify';
+
+// Sanitize before storing
+const sanitizedContent = DOMPurify.sanitize(userInput, {
+  ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'a', 'p'],
+  ALLOWED_ATTR: ['href']
+});
+
+await supabase
+  .from('posts')
+  .insert({ content: sanitizedContent });
+```
+
+**Attribute-based attacks:**
+
+Be cautious with user-controlled attributes:
+
+```javascript
+// UNSAFE - user can inject javascript: URLs
+<a href={userProvidedURL}>Link</a>
+
+// SAFE - validate URL scheme
+function SafeLink({ url, children }) {
+  const isSafe = url.startsWith('http://') || url.startsWith('https://');
+  const safeUrl = isSafe ? url : '#';
+  
+  return <a href={safeUrl}>{children}</a>;
+}
+```
+
+**Database patterns supporting XSS protection:**
+
+Store content type metadata:
+
+```sql
+CREATE TABLE posts (
+  id UUID PRIMARY KEY,
+  content TEXT NOT NULL,
+  content_type TEXT NOT NULL CHECK (content_type IN ('plaintext', 'markdown', 'html')),
+  -- Store original + sanitized versions
+  content_raw TEXT,
+  content_sanitized TEXT
+);
+```
+
+**Markdown over HTML:**
+
+When possible, accept Markdown instead of raw HTML and render with a safe parser:
+
+```javascript
+import ReactMarkdown from 'react-markdown';
+
+function Post({ post }) {
+  return (
+    <ReactMarkdown>
+      {post.markdown_content}
+    </ReactMarkdown>
+  );
+}
+```
+
+**Protection checklist:**
+
+- Never use `dangerouslySetInnerHTML`, `v-html`, or equivalent without sanitization
+- Always sanitize user-generated HTML with DOMPurify or similar
+- Implement Content Security Policy headers
+- Validate and whitelist URL schemes for user-provided links
+- Use framework-native escaping for dynamic content
+- Prefer Markdown or plain text over HTML when possible
+- Escape content in attributes (`title`, `alt`, etc.)
+- Be especially careful with user-controlled JavaScript event handlers
+
+**Session token protection:**
+
+Store authentication tokens securely to prevent XSS-based theft:
+
+```javascript
+// Supabase handles this automatically, storing tokens in httpOnly contexts
+// [Inference: Exact storage mechanism may vary by client library and platform]
+
+// Don't store sensitive tokens in localStorage if XSS risk exists
+// Prefer httpOnly cookies or secure framework-managed storage
+```
+
+## CORS Configuration
+
+Cross-Origin Resource Sharing (CORS) controls which domains can access your Supabase API from browsers. Proper CORS configuration prevents unauthorized websites from making requests to your backend.
+
+**Default behavior:**
+
+[Unverified: Supabase's default CORS configuration] likely allows requests from any origin for the REST API when using the anon key. This enables rapid development but should be restricted for production applications.
+
+**Configuring allowed origins:**
+
+In your Supabase project dashboard under Settings > API, configure allowed origins:
+
+- Development: `http://localhost:3000`, `http://localhost:5173`
+- Production: `https://yourdomain.com`, `https://app.yourdomain.com`
+- Wildcards: Use cautiously, like `https://*.yourdomain.com` for subdomains
+
+**CORS headers:**
+
+When configured, Supabase returns appropriate headers:
+
+```
+Access-Control-Allow-Origin: https://yourdomain.com
+Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS
+Access-Control-Allow-Headers: authorization, x-client-info, apikey, content-type
+Access-Control-Max-Age: 86400
+```
+
+**Security implications:**
+
+**Overly permissive CORS** (allowing all origins with `*`) can expose your API:
+
+- Malicious websites can make authenticated requests if users have valid sessions
+- Data can be exfiltrated from users' browsers
+- CSRF-like attacks become possible
+
+**Restrictive CORS** limits attack surface by ensuring only your trusted domains can access the API.
+
+**Multiple domains:**
+
+For applications across multiple domains (e.g., marketing site and app):
+
+```
+Allowed origins:
+- https://www.mysite.com
+- https://app.mysite.com  
+- https://admin.mysite.com
+```
+
+**Mobile and native applications:**
+
+Mobile apps don't encounter CORS restrictions as CORS is a browser-specific security mechanism. React Native, Flutter, and native mobile apps can call Supabase APIs without CORS configuration. However, the anon key should still be protected through RLS policies.
+
+**Edge Functions and CORS:**
+
+For custom Edge Functions, manually configure CORS headers:
+
+```javascript
+// Edge Function with CORS
+Deno.serve(async (req) => {
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      headers: {
+        'Access-Control-Allow-Origin': 'https://yourdomain.com',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'authorization, content-type',
+      },
+    });
+  }
+  
+  // Process request
+  const data = await processRequest(req);
+  
+  // Return with CORS headers
+  return new Response(JSON.stringify(data), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': 'https://yourdomain.com',
+    },
+  });
+});
+```
+
+**Development vs production:**
+
+Use environment-specific configurations:
+
+- **Development**: Allow `localhost` with various ports
+- **Staging**: Allow staging domain only
+- **Production**: Allow production domains only
+
+Avoid using wildcard origins in production environments.
+
+**Testing CORS:**
+
+Test CORS configuration by making requests from different origins:
+
+```javascript
+// From browser console on unauthorized domain
+fetch('https://your-project.supabase.co/rest/v1/users', {
+  headers: {
+    'apikey': 'your-anon-key'
+  }
+})
+.then(r => console.log('Success:', r))
+.catch(e => console.log('Blocked by CORS:', e));
+```
+
+**Best practices:**
+
+- Explicitly list allowed origins rather than using wildcards
+- Restrict to HTTPS origins in production (not `http://`)
+- Regularly audit and remove unused origins
+- Use environment variables for origin configuration across environments
+- Remember CORS is defense-in-depth, not primary security (rely on authentication and RLS)
+- Document why each origin is allowed
+
+## Rate Limiting
+
+Rate limiting prevents abuse, protects infrastructure, and ensures fair resource allocation across users.
+
+**Built-in rate limits:**
+
+Supabase implements rate limiting at multiple layers:
+
+**API request limits [Unverified - specific values may vary by plan]:**
+
+- REST API requests per minute per IP address
+- Realtime connection limits per project
+- Authentication operations per hour
+- Storage API operations per second
+
+**Plan-based limits:**
+
+- **Free tier**: Lower limits suitable for development and small projects
+- **Pro tier**: Higher limits with burst capacity
+- **Team/Enterprise**: Custom limits negotiated based on needs
+
+**Rate limit response:**
+
+When exceeded, the API returns:
+
+```
+HTTP/1.1 429 Too Many Requests
+Content-Type: application/json
+
+{
+  "message": "API rate limit exceeded",
+  "hint": "Retry after some time"
+}
+```
+
+Response headers indicate current status:
+
+```
+X-RateLimit-Limit: 500
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1640000060
+Retry-After: 60
+```
+
+**Application-level rate limiting:**
+
+Implement additional rate limiting in Edge Functions:
+
+```javascript
+// Simple in-memory rate limiter (for single-instance Edge Functions)
+const rateLimits = new Map();
+
+function checkRateLimit(userId, maxRequests = 10, windowMs = 60000) {
+  const now = Date.now();
+  const userLimits = rateLimits.get(userId) || { count: 0, resetTime: now + windowMs };
+  
+  // Reset if window expired
+  if (now > userLimits.resetTime) {
+    userLimits.count = 0;
+    userLimits.resetTime = now + windowMs;
+  }
+  
+  userLimits.count++;
+  rateLimits.set(userId, userLimits);
+  
+  if (userLimits.count > maxRequests) {
+    return {
+      allowed: false,
+      retryAfter: Math.ceil((userLimits.resetTime - now) / 1000)
+    };
+  }
+  
+  return { allowed: true };
+}
+```
+
+**Database-level rate limiting:**
+
+Track and limit actions using database tables:
+
+```sql
+CREATE TABLE rate_limits (
+  user_id UUID NOT NULL,
+  action TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 1,
+  window_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, action, window_start)
+);
+
+CREATE FUNCTION check_rate_limit(
+  p_user_id UUID,
+  p_action TEXT,
+  p_max_requests INTEGER,
+  p_window_interval INTERVAL
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_count INTEGER;
+BEGIN
+  -- Clean old windows
+  DELETE FROM rate_limits
+  WHERE window_start < NOW() - p_window_interval;
+  
+  -- Get current count
+  SELECT COALESCE(SUM(count), 0) INTO v_count
+  FROM rate_limits
+  WHERE user_id = p_user_id
+    AND action = p_action
+    AND window_start >= NOW() - p_window_interval;
+  
+  -- Check limit
+  IF v_count >= p_max_requests THEN
+    RETURN FALSE;
+  END IF;
+  
+  -- Increment count
+  INSERT INTO rate_limits (user_id, action, window_start, count)
+  VALUES (p_user_id, p_action, DATE_TRUNC('minute', NOW()), 1)
+  ON CONFLICT (user_id, action, window_start)
+  DO UPDATE SET count = rate_limits.count + 1;
+  
+  RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+**Client-side strategies:**
+
+**Exponential backoff:**
+
+```javascript
+async function fetchWithRetry(fetchFn, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const result = await fetchFn();
+      return result;
+    } catch (error) {
+      if (error.status === 429) {
+        const retryAfter = error.headers?.['retry-after'] || Math.pow(2, i);
+        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+```
+
+**Request throttling:**
+
+```javascript
+// Throttle requests using a queue
+class RequestQueue {
+  constructor(maxRequestsPerSecond) {
+    this.queue = [];
+    this.processing = false;
+    this.interval = 1000 / maxRequestsPerSecond;
+  }
+  
+  async enqueue(request) {
+    return new Promise((resolve, reject) => {
+      this.queue.push({ request, resolve, reject });
+      this.process();
+    });
+  }
+  
+  async process() {
+    if (this.processing || this.queue.length === 0) return;
+    
+    this.processing = true;
+    const { request, resolve, reject } = this.queue.shift();
+    
+    try {
+      const result = await request();
+      resolve(result);
+    } catch (error) {
+      reject(error);
+    }
+    
+    setTimeout(() => {
+      this.processing = false;
+      this.process();
+    }, this.interval);
+  }
+}
+```
+
+**Mitigation strategies:**
+
+- Cache frequently accessed data client-side
+- Use Realtime subscriptions instead of polling
+- Batch operations when possible
+- Implement pagination for large datasets
+- Use efficient queries with proper filtering and selection
+- Upgrade to higher-tier plans for increased limits
+- Distribute load across multiple API keys for microservices [Inference: This may violate terms of service; verify documentation]
+
+**Monitoring:**
+
+Track rate limit headers in your application:
+
+```javascript
+const { data, error } = await supabase.from('users').select('*');
+
+// Check response headers (if accessible in your client library)
+const remaining = response.headers['x-ratelimit-remaining'];
+const resetTime = response.headers['x-ratelimit-reset'];
+
+if (remaining < 10) {
+  console.warn('Approaching rate limit');
+}
+```
+
+## Audit Logging
+
+Audit logging tracks who accessed what data and when, providing accountability, security monitoring, and compliance support.
+
+**Database-level audit logging:**
+
+Create audit tables to track data changes:
+
+```sql
+CREATE TABLE audit_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  table_name TEXT NOT NULL,
+  record_id UUID NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('INSERT', 'UPDATE', 'DELETE')),
+  old_data JSONB,
+  new_data JSONB,
+  user_id UUID,
+  ip_address INET,
+  user_agent TEXT,
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Create index for common queries
+CREATE INDEX idx_audit_log_table_record ON audit_log(table_name, record_id);
+CREATE INDEX idx_audit_log_user ON audit_log(user_id, timestamp DESC);
+CREATE INDEX idx_audit_log_timestamp ON audit_log(timestamp DESC);
+```
+
+**Automatic audit triggers:**
+
+```sql
+CREATE OR REPLACE FUNCTION audit_trigger_function()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    INSERT INTO audit_log (table_name, record_id, action, new_data, user_id)
+    VALUES (TG_TABLE_NAME, NEW.id, 'INSERT', to_jsonb(NEW), auth.uid());
+    RETURN NEW;
+    
+  ELSIF TG_OP = 'UPDATE' THEN
+    INSERT INTO audit_log (table_name, record_id, action, old_data, new_data, user_id)
+    VALUES (TG_TABLE_NAME, NEW.id, 'UPDATE', to_jsonb(OLD), to_jsonb(NEW), auth.uid());
+    RETURN NEW;
+    
+  ELSIF TG_OP = 'DELETE' THEN
+    INSERT INTO audit_log (table_name, record_id, action, old_data, user_id)
+    VALUES (TG_TABLE_NAME, OLD.id, 'DELETE', to_jsonb(OLD), auth.uid());
+    RETURN OLD;
+  END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Apply to sensitive tables
+CREATE TRIGGER audit_users
+AFTER INSERT OR UPDATE OR DELETE ON users
+FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
+
+CREATE TRIGGER audit_financial_records
+AFTER INSERT OR UPDATE OR DELETE ON transactions
+FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
+```
+
+**Selective field auditing:**
+
+For tables with sensitive data, audit only specific fields:
+
+```sql
+CREATE FUNCTION audit_sensitive_fields()
+RETURNS TRIGGER AS $$
+DECLARE
+  old_sensitive JSONB;
+  new_sensitive JSONB;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    -- Only log changes to sensitive fields
+    old_sensitive := jsonb_build_object(
+      'email', OLD.email,
+      'phone', OLD.phone,
+      'ssn', OLD.ssn
+    );
+    new_sensitive := jsonb_build_object(
+      'email', NEW.email,
+      'phone', NEW.phone,
+      'ssn', NEW.ssn
+    );
+    
+    -- Only insert if sensitive fields changed
+    IF old_sensitive IS DISTINCT FROM new_sensitive THEN
+      INSERT INTO audit_log (table_name, record_id, action, old_data, new_data, user_id)
+      VALUES (TG_TABLE_NAME, NEW.id, 'UPDATE', old_sensitive, new_sensitive, auth.uid());
+    END IF;
+  END IF;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+**Authentication event logging:**
+
+Track authentication events:
+
+```sql
+CREATE TABLE auth_audit_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID,
+  event_type TEXT NOT NULL CHECK (event_type IN (
+    'login', 'logout', 'signup', 'password_reset', 
+    'password_change', 'failed_login', 'mfa_enabled', 'mfa_disabled'
+)),
+  ip_address INET,
+  user_agent TEXT,
+  success BOOLEAN NOT NULL,
+  error_message TEXT,
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_auth_audit_user ON auth_audit_log(user_id, timestamp DESC);
+CREATE INDEX idx_auth_audit_event ON auth_audit_log(event_type, timestamp DESC);
+CREATE INDEX idx_auth_audit_failed ON auth_audit_log(success, timestamp DESC) WHERE success = FALSE;
+```
+
+**Capturing request metadata:**
+
+Use Edge Functions to log API access with additional context:
+
+```javascript
+// Edge Function with audit logging
+Deno.serve(async (req) => {
+  const startTime = Date.now();
+  const user = await getUserFromRequest(req);
+  const ipAddress = req.headers.get('x-forwarded-for') || 
+                    req.headers.get('x-real-ip');
+  const userAgent = req.headers.get('user-agent');
+  
+  try {
+    // Process request
+    const result = await processRequest(req, user);
+    
+    // Log successful access
+    await logAuditEvent({
+      userId: user?.id,
+      action: 'api_access',
+      resource: new URL(req.url).pathname,
+      success: true,
+      ipAddress,
+      userAgent,
+      responseTime: Date.now() - startTime
+    });
+    
+    return new Response(JSON.stringify(result));
+  } catch (error) {
+    // Log failed access
+    await logAuditEvent({
+      userId: user?.id,
+      action: 'api_access',
+      resource: new URL(req.url).pathname,
+      success: false,
+      errorMessage: error.message,
+      ipAddress,
+      userAgent,
+      responseTime: Date.now() - startTime
+    });
+    
+    throw error;
+  }
+});
+```
+
+**Read access logging:**
+
+Since triggers don't fire on SELECT, implement read logging through functions:
+
+```sql
+CREATE FUNCTION get_sensitive_record(record_id UUID)
+RETURNS TABLE (/* columns */) AS $$
+BEGIN
+  -- Log the access
+  INSERT INTO audit_log (table_name, record_id, action, user_id)
+  VALUES ('sensitive_data', record_id, 'SELECT', auth.uid());
+  
+  -- Return the data
+  RETURN QUERY
+  SELECT * FROM sensitive_data WHERE id = record_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+```
+
+**Audit log retention:**
+
+Implement retention policies to manage audit log size:
+
+```sql
+-- Archive old audit logs
+CREATE TABLE audit_log_archive (
+  LIKE audit_log INCLUDING ALL
+);
+
+-- Partition by time for efficient archiving
+CREATE TABLE audit_log_2024_q1 PARTITION OF audit_log
+  FOR VALUES FROM ('2024-01-01') TO ('2024-04-01');
+
+-- Function to archive old logs
+CREATE FUNCTION archive_old_audit_logs(older_than INTERVAL)
+RETURNS INTEGER AS $$
+DECLARE
+  rows_archived INTEGER;
+BEGIN
+  WITH archived AS (
+    DELETE FROM audit_log
+    WHERE timestamp < NOW() - older_than
+    RETURNING *
+  )
+  INSERT INTO audit_log_archive
+  SELECT * FROM archived;
+  
+  GET DIAGNOSTICS rows_archived = ROW_COUNT;
+  RETURN rows_archived;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Schedule with pg_cron (if available)
+-- SELECT cron.schedule('archive-audit-logs', '0 2 * * 0', 
+--   'SELECT archive_old_audit_logs(''1 year'')');
+```
+
+**Querying audit logs:**
+
+Useful audit queries:
+
+```sql
+-- Recent changes to specific record
+SELECT * FROM audit_log
+WHERE table_name = 'users' AND record_id = 'specific-uuid'
+ORDER BY timestamp DESC;
+
+-- All actions by specific user
+SELECT 
+  table_name,
+  action,
+  timestamp,
+  new_data
+FROM audit_log
+WHERE user_id = 'user-uuid'
+ORDER BY timestamp DESC;
+
+-- Failed authentication attempts
+SELECT 
+  user_id,
+  ip_address,
+  COUNT(*) as attempts,
+  MAX(timestamp) as last_attempt
+FROM auth_audit_log
+WHERE event_type = 'failed_login'
+  AND timestamp > NOW() - INTERVAL '1 hour'
+GROUP BY user_id, ip_address
+HAVING COUNT(*) > 5;
+
+-- Data access patterns
+SELECT 
+  user_id,
+  table_name,
+  COUNT(*) as access_count,
+  COUNT(DISTINCT record_id) as unique_records
+FROM audit_log
+WHERE action = 'SELECT'
+  AND timestamp > NOW() - INTERVAL '24 hours'
+GROUP BY user_id, table_name
+ORDER BY access_count DESC;
+```
+
+**Performance considerations:**
+
+- Use asynchronous logging to avoid slowing down main operations [Inference: May require background jobs or message queues]
+- Implement table partitioning for large audit tables
+- Index frequently queried columns (user_id, timestamp, table_name)
+- Archive old logs to separate tables
+- Consider storing audit logs in separate database for critical systems
+- Summarize old audit data rather than keeping full details indefinitely
+
+**Compliance requirements:**
+
+Different regulations require specific audit capabilities:
+
+- **GDPR**: Log access to personal data, data exports, deletions
+- **HIPAA**: Track all access to protected health information
+- **SOC 2**: Comprehensive logging of security-relevant events
+- **PCI DSS**: Log access to cardholder data with retention requirements
+
+**Security for audit logs:**
+
+Protect audit logs themselves:
+
+```sql
+-- Restrict access to audit logs
+ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Only admins can view audit logs"
+ON audit_log FOR SELECT
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM user_roles
+    WHERE user_id = auth.uid() AND role = 'admin'
+  )
+);
+
+-- Prevent modification of audit logs
+CREATE POLICY "No one can modify audit logs"
+ON audit_log FOR UPDATE
+USING (false);
+
+CREATE POLICY "No one can delete audit logs"
+ON audit_log FOR DELETE
+USING (false);
+
+-- Make audit trigger function SECURITY DEFINER to bypass RLS
+-- Already shown in audit_trigger_function above
+```
+
+## Secrets Management
+
+Secrets management involves securely storing, accessing, and rotating sensitive credentials, API keys, and configuration values.
+
+**What qualifies as secrets:**
+
+- Database connection strings
+- Service role API keys
+- Third-party API keys (Stripe, SendGrid, AWS)
+- Encryption keys
+- OAuth client secrets
+- Webhook signing secrets
+- Private keys and certificates
+
+**Never store in:**
+
+- Version control (Git repositories)
+- Client-side code
+- Unencrypted database columns
+- Application logs
+- Error messages
+- URL parameters
+
+**Environment variables:**
+
+The primary method for managing secrets in applications:
+
+```bash
+# .env file (never commit this)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+STRIPE_SECRET_KEY=sk_live_...
+SENDGRID_API_KEY=SG....
+
+# .env.example file (commit this as template)
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+STRIPE_SECRET_KEY=
+```
+
+**Accessing environment variables:**
+
+```javascript
+// Node.js
+const supabaseUrl = process.env.SUPABASE_URL;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// Validate presence
+if (!serviceRoleKey) {
+  throw new Error('SUPABASE_SERVICE_ROLE_KEY not configured');
+}
+```
+
+**.gitignore configuration:**
+
+```
+# .gitignore
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets/
+```
+
+**Secrets management services:**
+
+For production environments, use dedicated secrets management:
+
+**AWS Secrets Manager:**
+
+```javascript
+import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
+
+async function getSecret(secretName) {
+  const client = new SecretsManagerClient({ region: "us-east-1" });
+  const response = await client.send(
+    new GetSecretValueCommand({ SecretId: secretName })
+  );
+  return JSON.parse(response.SecretString);
+}
+
+const secrets = await getSecret('prod/supabase/credentials');
+const supabase = createClient(secrets.url, secrets.serviceRoleKey);
+```
+
+**HashiCorp Vault:**
+
+```javascript
+import vault from 'node-vault';
+
+const client = vault({
+  endpoint: process.env.VAULT_ADDR,
+  token: process.env.VAULT_TOKEN
+});
+
+const { data } = await client.read('secret/data/supabase');
+const serviceRoleKey = data.data.service_role_key;
+```
+
+**Cloud platform secrets:**
+
+```javascript
+// Google Cloud Secret Manager
+import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+
+const client = new SecretManagerServiceClient();
+const [version] = await client.accessSecretVersion({
+  name: 'projects/PROJECT_ID/secrets/supabase-key/versions/latest',
+});
+const secret = version.payload.data.toString();
+
+// Azure Key Vault
+import { SecretClient } from "@azure/keyvault-secrets";
+import { DefaultAzureCredential } from "@azure/identity";
+
+const credential = new DefaultAzureCredential();
+const client = new SecretClient(vaultUrl, credential);
+const secret = await client.getSecret("supabase-service-key");
+```
+
+**Edge Functions secrets:**
+
+Supabase Edge Functions support environment variables:
+
+```javascript
+// Set in Supabase dashboard or CLI
+// Access in Edge Function:
+Deno.serve(async (req) => {
+  const apiKey = Deno.env.get('THIRD_PARTY_API_KEY');
+  
+  if (!apiKey) {
+    return new Response('Configuration error', { status: 500 });
+  }
+  
+  // Use the secret
+  const response = await fetch('https://api.example.com/data', {
+    headers: { 'Authorization': `Bearer ${apiKey}` }
+  });
+  
+  return response;
+});
+```
+
+**Database encryption for sensitive data:**
+
+For secrets that must be stored in the database:
+
+```sql
+-- Install pgcrypto extension
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- Store encrypted data
+CREATE TABLE api_credentials (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id),
+  service_name TEXT NOT NULL,
+  encrypted_key BYTEA NOT NULL,  -- Encrypted API key
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Encryption function
+CREATE FUNCTION encrypt_api_key(api_key TEXT, encryption_key TEXT)
+RETURNS BYTEA AS $$
+  SELECT pgp_sym_encrypt(api_key, encryption_key);
+$$ LANGUAGE SQL;
+
+-- Decryption function
+CREATE FUNCTION decrypt_api_key(encrypted_data BYTEA, encryption_key TEXT)
+RETURNS TEXT AS $$
+  SELECT pgp_sym_decrypt(encrypted_data, encryption_key);
+$$ LANGUAGE SQL;
+
+-- Usage
+INSERT INTO api_credentials (user_id, service_name, encrypted_key)
+VALUES (
+  auth.uid(),
+  'stripe',
+  encrypt_api_key('sk_live_...', current_setting('app.encryption_key'))
+);
+```
+
+**Key rotation:**
+
+Implement regular secret rotation:
+
+```javascript
+// Automated key rotation example
+async function rotateApiKey() {
+  // Generate new key
+  const newKey = await generateNewApiKey();
+  
+  // Update in secrets manager
+  await secretsManager.updateSecret({
+    SecretId: 'prod/api-key',
+    SecretString: newKey
+  });
+  
+  // Update in Supabase if stored there
+  await supabase
+    .from('service_configs')
+    .update({ api_key_version: 'v2', updated_at: new Date() })
+    .eq('service', 'third_party');
+  
+  // Notify monitoring
+  await notifyKeyRotation('third_party', 'v2');
+  
+  // Schedule old key deprecation (allow grace period)
+  await scheduleOldKeyDeprecation('v1', 7); // 7 days
+}
+```
+
+**Accessing secrets in CI/CD:**
+
+```yaml
+# GitHub Actions example
+name: Deploy
+on: [push]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Deploy to production
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          npx supabase db push
+```
+
+**Best practices:**
+
+- Use different secrets for each environment (dev, staging, production)
+- Implement least privilege - grant minimal necessary access
+- Rotate secrets regularly (quarterly or after personnel changes)
+- Audit secret access and usage
+- Never log secrets or include in error messages
+- Use short-lived tokens when possible
+- Implement secret expiration policies
+- Monitor for exposed secrets in code repositories (use tools like GitGuardian, TruffleHog)
+- Encrypt secrets at rest and in transit
+- Document secret ownership and rotation procedures
+
+**Emergency revocation:**
+
+Have procedures for immediate secret revocation:
+
+```javascript
+async function emergencyRevocation(secretId) {
+  // Immediately disable the compromised secret
+  await secretsManager.putSecretValue({
+    SecretId: secretId,
+    SecretString: 'REVOKED'
+  });
+  
+  // Generate and deploy new secret
+  const newSecret = await generateNewSecret();
+  await deployNewSecret(newSecret);
+  
+  // Notify security team
+  await alertSecurityTeam({
+    severity: 'critical',
+    secret: secretId,
+    action: 'revoked',
+    timestamp: new Date()
+  });
+  
+  // Log incident
+  await logSecurityIncident({
+    type: 'secret_compromise',
+    secretId,
+    revocationTime: new Date()
+  });
+}
+```
+
+## Secure File Uploads
+
+File uploads introduce security risks including malware distribution, unauthorized access, storage abuse, and code execution vulnerabilities.
+
+**Supabase Storage security:**
+
+Supabase Storage provides built-in security features:
+
+- **Authentication required**: Files are protected by RLS policies
+- **Size limits**: Configurable maximum file sizes
+- **MIME type validation**: Restrict allowed file types
+- **Public vs private buckets**: Control access patterns
+
+**Creating secure buckets:**
+
+```javascript
+// Create a private bucket
+const { data, error } = await supabase
+  .storage
+  .createBucket('user-documents', {
+    public: false,  // Requires authentication
+    fileSizeLimit: 52428800,  // 50MB limit
+    allowedMimeTypes: ['application/pdf', 'image/jpeg', 'image/png']
+  });
+```
+
+**Storage RLS policies:**
+
+Apply Row Level Security to storage objects:
+
+```sql
+-- Policy: Users can only upload to their own folder
+CREATE POLICY "Users can upload to own folder"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (
+  bucket_id = 'user-documents'
+  AND (storage.foldername(name))[1] = auth.uid()::text
+);
+
+-- Policy: Users can only read their own files
+CREATE POLICY "Users can view own files"
+ON storage.objects FOR SELECT
+TO authenticated
+USING (
+  bucket_id = 'user-documents'
+  AND (storage.foldername(name))[1] = auth.uid()::text
+);
+
+-- Policy: Users can delete their own files
+CREATE POLICY "Users can delete own files"
+ON storage.objects FOR DELETE
+TO authenticated
+USING (
+  bucket_id = 'user-documents'
+  AND (storage.foldername(name))[1] = auth.uid()::text
+);
+
+-- Policy: Public read for avatar bucket
+CREATE POLICY "Anyone can view avatars"
+ON storage.objects FOR SELECT
+TO public
+USING (bucket_id = 'avatars');
+```
+
+**Client-side upload validation:**
+
+```javascript
+async function secureUpload(file, userId) {
+  // Validate file size (5MB limit)
+  const maxSize = 5 * 1024 * 1024;
+  if (file.size > maxSize) {
+    throw new Error('File too large. Maximum size is 5MB.');
+  }
+  
+  // Validate file type
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
+  if (!allowedTypes.includes(file.type)) {
+    throw new Error('Invalid file type. Only images and PDFs allowed.');
+  }
+  
+  // Validate file extension matches MIME type
+  const extension = file.name.split('.').pop().toLowerCase();
+  const mimeToExt = {
+    'image/jpeg': ['jpg', 'jpeg'],
+    'image/png': ['png'],
+    'image/gif': ['gif'],
+    'application/pdf': ['pdf']
+  };
+  
+  const validExtensions = mimeToExt[file.type] || [];
+  if (!validExtensions.includes(extension)) {
+    throw new Error('File extension does not match file type.');
+  }
+  
+  // Generate safe filename
+  const timestamp = Date.now();
+  const randomString = Math.random().toString(36).substring(7);
+  const safeFilename = `${userId}/${timestamp}-${randomString}.${extension}`;
+  
+  // Upload to Supabase Storage
+  const { data, error } = await supabase.storage
+    .from('user-documents')
+    .upload(safeFilename, file, {
+      cacheControl: '3600',
+      upsert: false
+    });
+  
+  if (error) throw error;
+  
+  return data;
+}
+```
+
+**Server-side validation with Edge Functions:**
+
+```javascript
+// Edge Function for server-side validation
+import { createClient } from '@supabase/supabase-js';
+
+Deno.serve(async (req) => {
+  const formData = await req.formData();
+  const file = formData.get('file');
+  
+  if (!file) {
+    return new Response('No file provided', { status: 400 });
+  }
+  
+  // Read file header to verify actual file type (magic bytes)
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  
+  // Check file signature (magic bytes)
+  const signatures = {
+    'image/jpeg': [[0xFF, 0xD8, 0xFF]],
+    'image/png': [[0x89, 0x50, 0x4E, 0x47]],
+    'application/pdf': [[0x25, 0x50, 0x44, 0x46]]
+  };
+  
+  let validSignature = false;
+  for (const [mimeType, sigs] of Object.entries(signatures)) {
+    for (const sig of sigs) {
+      if (sig.every((byte, i) => bytes[i] === byte)) {
+        validSignature = true;
+        break;
+      }
+    }
+  }
+  
+  if (!validSignature) {
+    return new Response('Invalid file type', { status: 400 });
+  }
+  
+  // Proceed with upload
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL'),
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  );
+  
+  const filename = `verified/${crypto.randomUUID()}`;
+  const { data, error } = await supabase.storage
+    .from('secure-uploads')
+    .upload(filename, buffer, {
+      contentType: file.type
+    });
+  
+  if (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  return new Response(JSON.stringify({ path: data.path }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+});
+```
+
+**Malware scanning:**
+
+[Inference: Supabase doesn't include built-in malware scanning; this requires external integration]
+
+```javascript
+// Integration with malware scanning service
+async function scanAndUpload(file, userId) {
+  // Upload to temporary location
+  const tempPath = `temp/${crypto.randomUUID()}`;
+  await supabase.storage
+    .from('temp-uploads')
+    .upload(tempPath, file);
+  
+  // Get download URL
+  const { data: { publicUrl } } = supabase.storage
+    .from('temp-uploads')
+    .getPublicUrl(tempPath);
+  
+  // Scan with external service (e.g., VirusTotal, ClamAV)
+  const scanResult = await scanFile(publicUrl);
+  
+  if (scanResult.malicious) {
+    // Delete infected file
+    await supabase.storage
+      .from('temp-uploads')
+      .remove([tempPath]);
+    
+    throw new Error('File failed security scan');
+  }
+  
+  // Move to permanent location
+  const finalPath = `${userId}/${Date.now()}-${file.name}`;
+  await supabase.storage
+    .from('user-documents')
+    .move(`temp-uploads/${tempPath}`, `user-documents/${finalPath}`);
+  
+  return finalPath;
+}
+```
+
+**Image processing and sanitization:**
+
+```javascript
+// Process images to strip metadata and resize
+import sharp from 'sharp';
+
+async function processAndUploadImage(file, userId) {
+  const buffer = await file.arrayBuffer();
+  
+  // Process image: resize, strip metadata, convert format
+  const processed = await sharp(buffer)
+    .resize(1920, 1080, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 85 })  // Convert to JPEG
+    .withMetadata(false)    // Strip EXIF data
+    .toBuffer();
+  
+  const filename = `${userId}/${Date.now()}.jpg`;
+  
+  const { data, error } = await supabase.storage
+    .from('images')
+    .upload(filename, processed, {
+      contentType: 'image/jpeg',
+      cacheControl: '3600'
+    });
+  
+  return data;
+}
+```
+
+**Preventing path traversal:**
+
+```javascript
+// Sanitize filenames to prevent path traversal
+function sanitizeFilename(filename) {
+  // Remove path separators and special characters
+  return filename
+    .replace(/[^a-zA-Z0-9.-]/g, '_')  // Replace special chars
+    .replace(/\.+/g, '.')             // Prevent multiple dots
+    .substring(0, 255);               // Limit length
+}
+
+// Use with user-provided filenames
+const userFilename = sanitizeFilename(file.name);
+const securePath = `${userId}/${Date.now()}-${userFilename}`;
+```
+
+**Quota management:**
+
+```sql
+-- Track user storage usage
+CREATE TABLE storage_quotas (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id),
+  bytes_used BIGINT NOT NULL DEFAULT 0,
+  bytes_limit BIGINT NOT NULL DEFAULT 1073741824,  -- 1GB default
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Function to check and update quota
+CREATE FUNCTION check_storage_quota(
+  p_user_id UUID,
+  p_file_size BIGINT
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_quota RECORD;
+BEGIN
+  SELECT * INTO v_quota
+  FROM storage_quotas
+  WHERE user_id = p_user_id;
+  
+  IF NOT FOUND THEN
+    -- Create default quota
+    INSERT INTO storage_quotas (user_id, bytes_used)
+    VALUES (p_user_id, 0);
+    v_quota.bytes_used := 0;
+    v_quota.bytes_limit := 1073741824;
+  END IF;
+  
+  -- Check if upload would exceed quota
+  IF v_quota.bytes_used + p_file_size > v_quota.bytes_limit THEN
+    RETURN FALSE;
+  END IF;
+  
+  -- Update usage
+  UPDATE storage_quotas
+  SET bytes_used = bytes_used + p_file_size,
+      updated_at = NOW()
+  WHERE user_id = p_user_id;
+  
+  RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+**Secure file serving:**
+
+```javascript
+// Generate temporary signed URLs
+async function getSecureFileUrl(filePath, expiresIn = 3600) {
+  const { data, error } = await supabase.storage
+    .from('user-documents')
+    .createSignedUrl(filePath, expiresIn);
+  
+  if (error) throw error;
+  
+  return data.signedUrl;  // URL expires after specified time
+}
+
+// Verify user has access before generating URL
+async function getFileForUser(filePath, userId) {
+  // Check ownership
+  const [folderUserId] = filePath.split('/');
+  
+  if (folderUserId !== userId) {
+    throw new Error('Unauthorized access');
+  }
+  
+  return await getSecureFileUrl(filePath);
+}
+```
+
+**Content Disposition headers:**
+
+Prevent XSS through file downloads:
+
+```javascript
+// Set Content-Disposition to force download
+const { data, error } = await supabase.storage
+  .from('user-documents')
+  .download(filePath, {
+    download: true  // Forces download instead of inline display
+  });
+```
+
+**Best practices:**
+
+- Always validate file types on server-side (client validation can be bypassed)
+- Use magic byte detection, not just file extensions or MIME types
+- Implement file size limits appropriate to your use case
+- Store files with generated names, not user-provided names
+- Scan uploaded files for malware when handling user content
+- Strip metadata from images (can contain sensitive information)
+- Use signed URLs with expiration for private files
+- Implement storage quotas per user or organization
+- Separate upload location from serving location
+- Use Content-Disposition headers to control how files are handled
+- Log all upload and access activities
+- Regularly audit and clean up unused files
+
+---
+
+**Key related topics:**
+
+- **Database Backups & Recovery** - protecting data through automated backups
+- **Supabase Auth Configuration** - securing authentication flows and user management
+- **Network Security** - SSL/TLS configuration and secure connections
+- **Compliance Frameworks** - implementing GDPR, HIPAA, SOC 2 requirements
+- **Incident Response** - procedures for handling security breaches
+
+---
+
+# Testing in Supabase
+
+Testing Supabase applications requires validating database functions, security policies, client integrations, and serverless functions to ensure data integrity and correct application behavior.
+
+## Unit Testing Database Functions
+
+Database functions contain business logic that must be tested in isolation to verify correct behavior across different inputs and edge cases.
+
+### Testing Setup with pgTAP
+
+```sql
+-- Enable pgTAP extension
+CREATE EXTENSION IF NOT EXISTS pgtap;
+
+-- Create test schema
+CREATE SCHEMA IF NOT EXISTS tests;
+```
+
+### Basic Function Tests
+
+```sql
+-- Function to test
+CREATE OR REPLACE FUNCTION calculate_order_total(order_id bigint)
+RETURNS numeric AS $$
+  SELECT COALESCE(SUM(quantity * price), 0)
+  FROM order_items
+  WHERE order_id = calculate_order_total.order_id;
+$$ LANGUAGE sql;
+
+-- Test function
+CREATE OR REPLACE FUNCTION tests.test_calculate_order_total()
+RETURNS SETOF TEXT AS $$
+BEGIN
+  -- Setup test data
+  INSERT INTO orders (id, customer_id) VALUES (999, 1);
+  INSERT INTO order_items (order_id, product_id, quantity, price)
+  VALUES 
+    (999, 1, 2, 10.00),
+    (999, 2, 3, 15.00);
+
+  -- Test calculation
+  RETURN NEXT is(
+    calculate_order_total(999),
+    65.00::numeric,
+    'Order total should be 65.00'
+  );
+
+  -- Test empty order
+  INSERT INTO orders (id, customer_id) VALUES (998, 1);
+  RETURN NEXT is(
+    calculate_order_total(998),
+    0::numeric,
+    'Empty order should return 0'
+  );
+
+  -- Cleanup
+  DELETE FROM order_items WHERE order_id IN (999, 998);
+  DELETE FROM orders WHERE id IN (999, 998);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Run test
+SELECT * FROM runtests('tests'::name);
+```
+
+### Testing Function Return Types
+
+```sql
+CREATE OR REPLACE FUNCTION tests.test_function_signature()
+RETURNS SETOF TEXT AS $$
+BEGIN
+  RETURN NEXT has_function(
+    'public',
+    'calculate_order_total',
+    ARRAY['bigint'],
+    'Function calculate_order_total should exist'
+  );
+
+  RETURN NEXT function_returns(
+    'public',
+    'calculate_order_total',
+    ARRAY['bigint'],
+    'numeric',
+    'Function should return numeric'
+  );
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### Testing Error Handling
+
+```sql
+CREATE OR REPLACE FUNCTION divide_numbers(a numeric, b numeric)
+RETURNS numeric AS $$
+BEGIN
+  IF b = 0 THEN
+    RAISE EXCEPTION 'Division by zero';
+  END IF;
+  RETURN a / b;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION tests.test_divide_numbers()
+RETURNS SETOF TEXT AS $$
+BEGIN
+  -- Test normal operation
+  RETURN NEXT is(
+    divide_numbers(10, 2),
+    5::numeric,
+    'Should divide correctly'
+  );
+
+  -- Test error condition
+  RETURN NEXT throws_ok(
+    'SELECT divide_numbers(10, 0)',
+    'P0001',
+    'Division by zero',
+    'Should raise exception for division by zero'
+  );
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### Testing with Node.js and Jest
+
+```javascript
+// supabase.test.js
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+)
+
+describe('Database Functions', () => {
+  beforeAll(async () => {
+    // Setup test data
+    await supabase.from('orders').insert({ id: 999, customer_id: 1 })
+    await supabase.from('order_items').insert([
+      { order_id: 999, product_id: 1, quantity: 2, price: 10.00 },
+      { order_id: 999, product_id: 2, quantity: 3, price: 15.00 }
+    ])
+  })
+
+  afterAll(async () => {
+    // Cleanup
+    await supabase.from('order_items').delete().eq('order_id', 999)
+    await supabase.from('orders').delete().eq('id', 999)
+  })
+
+  test('calculate_order_total returns correct sum', async () => {
+    const { data, error } = await supabase
+      .rpc('calculate_order_total', { order_id: 999 })
+    
+    expect(error).toBeNull()
+    expect(data).toBe(65.00)
+  })
+
+  test('calculate_order_total handles empty orders', async () => {
+    await supabase.from('orders').insert({ id: 998, customer_id: 1 })
+    
+    const { data, error } = await supabase
+      .rpc('calculate_order_total', { order_id: 998 })
+    
+    expect(error).toBeNull()
+    expect(data).toBe(0)
+    
+    await supabase.from('orders').delete().eq('id', 998)
+  })
+})
+```
+
+### Testing Complex Functions with Transactions
+
+```javascript
+describe('Transaction Functions', () => {
+  test('create_order_with_items handles rollback', async () => {
+    const { data, error } = await supabase.rpc('create_order_with_items', {
+      customer_id: 1,
+      items: [
+        { product_id: 999999, quantity: 1, price: 10 } // Invalid product
+      ]
+    })
+    
+    expect(error).not.toBeNull()
+    
+    // Verify no partial data was created
+    const { data: orders } = await supabase
+      .from('orders')
+      .select()
+      .eq('customer_id', 1)
+      .order('created_at', { ascending: false })
+      .limit(1)
+    
+    // [Inference] Assuming the order was not created due to transaction rollback
+    expect(orders.length).toBe(0)
+  })
+})
+```
+
+## Testing RLS Policies
+
+Row Level Security policies enforce access control at the database level and require thorough testing to prevent security vulnerabilities.
+
+### RLS Policy Structure
+
+```sql
+-- Example policies
+CREATE POLICY "Users can view own data"
+ON profiles FOR SELECT
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own data"
+ON profiles FOR UPDATE
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Admins can view all data"
+ON profiles FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM users
+    WHERE users.id = auth.uid()
+    AND users.role = 'admin'
+  )
+);
+```
+
+### Testing RLS with pgTAP
+
+```sql
+CREATE OR REPLACE FUNCTION tests.test_rls_user_isolation()
+RETURNS SETOF TEXT AS $$
+DECLARE
+  user1_id uuid := gen_random_uuid();
+  user2_id uuid := gen_random_uuid();
+BEGIN
+  -- Setup test data
+  INSERT INTO profiles (user_id, name) VALUES
+    (user1_id, 'User 1'),
+    (user2_id, 'User 2');
+
+  -- Test as user1
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', user1_id)::text, true);
+  
+  RETURN NEXT is(
+    (SELECT COUNT(*) FROM profiles WHERE user_id = user1_id),
+    1::bigint,
+    'User should see own profile'
+  );
+
+  RETURN NEXT is(
+    (SELECT COUNT(*) FROM profiles WHERE user_id = user2_id),
+    0::bigint,
+    'User should not see other profiles'
+  );
+
+  -- Cleanup
+  DELETE FROM profiles WHERE user_id IN (user1_id, user2_id);
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### Testing RLS with JavaScript
+
+```javascript
+// rls.test.js
+import { createClient } from '@supabase/supabase-js'
+
+describe('RLS Policies', () => {
+  let user1Client, user2Client
+  let user1, user2
+
+  beforeAll(async () => {
+    // Create test users
+    const adminClient = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    )
+
+    const { data: userData1 } = await adminClient.auth.admin.createUser({
+      email: 'user1@test.com',
+      password: 'password123',
+      email_confirm: true
+    })
+    user1 = userData1.user
+
+    const { data: userData2 } = await adminClient.auth.admin.createUser({
+      email: 'user2@test.com',
+      password: 'password123',
+      email_confirm: true
+    })
+    user2 = userData2.user
+
+    // Create authenticated clients
+    user1Client = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_ANON_KEY
+    )
+    await user1Client.auth.signInWithPassword({
+      email: 'user1@test.com',
+      password: 'password123'
+    })
+
+    user2Client = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_ANON_KEY
+    )
+    await user2Client.auth.signInWithPassword({
+      email: 'user2@test.com',
+      password: 'password123'
+    })
+
+    // Insert test data
+    await user1Client.from('profiles').insert({
+      user_id: user1.id,
+      name: 'User 1'
+    })
+    await user2Client.from('profiles').insert({
+      user_id: user2.id,
+      name: 'User 2'
+    })
+  })
+
+  afterAll(async () => {
+    const adminClient = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    )
+    await adminClient.auth.admin.deleteUser(user1.id)
+    await adminClient.auth.admin.deleteUser(user2.id)
+  })
+
+  test('users can only view own profiles', async () => {
+    const { data, error } = await user1Client
+      .from('profiles')
+      .select()
+    
+    expect(error).toBeNull()
+    expect(data).toHaveLength(1)
+    expect(data[0].user_id).toBe(user1.id)
+  })
+
+  test('users cannot update other profiles', async () => {
+    const { error } = await user1Client
+      .from('profiles')
+      .update({ name: 'Hacked' })
+      .eq('user_id', user2.id)
+    
+    expect(error).not.toBeNull()
+    
+    // Verify data unchanged
+    const { data } = await user2Client
+      .from('profiles')
+      .select()
+      .eq('user_id', user2.id)
+      .single()
+    
+    expect(data.name).toBe('User 2')
+  })
+
+  test('users can update own profile', async () => {
+    const { error } = await user1Client
+      .from('profiles')
+      .update({ name: 'Updated Name' })
+      .eq('user_id', user1.id)
+    
+    expect(error).toBeNull()
+    
+    const { data } = await user1Client
+      .from('profiles')
+      .select()
+      .eq('user_id', user1.id)
+      .single()
+    
+    expect(data.name).toBe('Updated Name')
+  })
+})
+```
+
+### Testing Role-Based Policies
+
+```javascript
+describe('Role-Based RLS', () => {
+  let adminClient, userClient
+
+  beforeAll(async () => {
+    // Setup admin and regular user
+    const serviceClient = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    )
+
+    // Create admin user
+    const { data: adminData } = await serviceClient.auth.admin.createUser({
+      email: 'admin@test.com',
+      password: 'password123',
+      email_confirm: true,
+      user_metadata: { role: 'admin' }
+    })
+
+    adminClient = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_ANON_KEY
+    )
+    await adminClient.auth.signInWithPassword({
+      email: 'admin@test.com',
+      password: 'password123'
+    })
+
+    // Create regular user
+    const { data: userData } = await serviceClient.auth.admin.createUser({
+      email: 'user@test.com',
+      password: 'password123',
+      email_confirm: true
+    })
+
+    userClient = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_ANON_KEY
+    )
+    await userClient.auth.signInWithPassword({
+      email: 'user@test.com',
+      password: 'password123'
+    })
+  })
+
+  test('admin can view all profiles', async () => {
+    const { data, error } = await adminClient
+      .from('profiles')
+      .select()
+    
+    expect(error).toBeNull()
+    expect(data.length).toBeGreaterThan(1)
+  })
+
+  test('regular user cannot view all profiles', async () => {
+    const { data, error } = await userClient
+      .from('profiles')
+      .select()
+    
+    // Should only see own profile
+    expect(data.length).toBe(1)
+  })
+})
+```
+
+### Testing Anonymous Access
+
+```javascript
+test('anonymous users cannot access protected data', async () => {
+  const anonClient = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_ANON_KEY
+  )
+
+  const { data, error } = await anonClient
+    .from('profiles')
+    .select()
+  
+  expect(data).toEqual([])
+})
+
+test('public data is accessible anonymously', async () => {
+  const anonClient = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_ANON_KEY
+  )
+
+  const { data, error } = await anonClient
+    .from('public_posts')
+    .select()
+  
+  expect(error).toBeNull()
+  expect(data.length).toBeGreaterThan(0)
+})
+```
+
+## Integration Testing with Supabase
+
+Integration tests verify the complete flow of operations across database, authentication, and client interactions.
+
+### Test Environment Setup
+
+```javascript
+// test-config.js
+export const testConfig = {
+  supabaseUrl: process.env.SUPABASE_TEST_URL,
+  supabaseAnonKey: process.env.SUPABASE_TEST_ANON_KEY,
+  supabaseServiceKey: process.env.SUPABASE_TEST_SERVICE_KEY
+}
+
+// test-helpers.js
+import { createClient } from '@supabase/supabase-js'
+import { testConfig } from './test-config'
+
+export const createTestClient = () => {
+  return createClient(testConfig.supabaseUrl, testConfig.supabaseAnonKey)
+}
+
+export const createAdminClient = () => {
+  return createClient(testConfig.supabaseUrl, testConfig.supabaseServiceKey)
+}
+
+export const cleanupTestData = async (tableName, filters = {}) => {
+  const admin = createAdminClient()
+  let query = admin.from(tableName).delete()
+  
+  Object.entries(filters).forEach(([key, value]) => {
+    query = query.eq(key, value)
+  })
+  
+  await query
+}
+```
+
+### End-to-End Flow Testing
+
+```javascript
+// integration.test.js
+import { createTestClient, createAdminClient, cleanupTestData } from './test-helpers'
+
+describe('Order Creation Flow', () => {
+  let client, admin, testUser
+
+  beforeAll(async () => {
+    client = createTestClient()
+    admin = createAdminClient()
+
+    // Create test user
+    const { data } = await admin.auth.admin.createUser({
+      email: 'test@example.com',
+      password: 'testpass123',
+      email_confirm: true
+    })
+    testUser = data.user
+
+    // Sign in
+    await client.auth.signInWithPassword({
+      email: 'test@example.com',
+      password: 'testpass123'
+    })
+  })
+
+  afterAll(async () => {
+    await cleanupTestData('order_items', { order_id: 999 })
+    await cleanupTestData('orders', { id: 999 })
+    await admin.auth.admin.deleteUser(testUser.id)
+  })
+
+  test('complete order creation and retrieval', async () => {
+    // Step 1: Create order
+    const { data: order, error: orderError } = await client
+      .from('orders')
+      .insert({
+        id: 999,
+        customer_id: testUser.id,
+        status: 'pending'
+      })
+      .select()
+      .single()
+
+    expect(orderError).toBeNull()
+    expect(order.id).toBe(999)
+
+    // Step 2: Add order items
+    const { data: items, error: itemsError } = await client
+      .from('order_items')
+      .insert([
+        { order_id: 999, product_id: 1, quantity: 2, price: 10.00 },
+        { order_id: 999, product_id: 2, quantity: 1, price: 20.00 }
+      ])
+      .select()
+
+    expect(itemsError).toBeNull()
+    expect(items).toHaveLength(2)
+
+    // Step 3: Calculate total
+    const { data: total, error: totalError } = await client
+      .rpc('calculate_order_total', { order_id: 999 })
+
+    expect(totalError).toBeNull()
+    expect(total).toBe(40.00)
+
+    // Step 4: Retrieve order with items
+    const { data: fullOrder, error: fetchError } = await client
+      .from('orders')
+      .select(`
+        *,
+        order_items (
+          product_id,
+          quantity,
+          price
+        )
+      `)
+      .eq('id', 999)
+      .single()
+
+    expect(fetchError).toBeNull()
+    expect(fullOrder.order_items).toHaveLength(2)
+  })
+})
+```
+
+### Testing Real-time Subscriptions
+
+```javascript
+describe('Real-time Subscriptions', () => {
+  test('receives insert notifications', async (done) => {
+    const client = createTestClient()
+    let receivedData = null
+
+    const channel = client
+      .channel('test-channel')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages'
+        },
+        (payload) => {
+          receivedData = payload.new
+        }
+      )
+      .subscribe()
+
+    // Wait for subscription to be ready
+    await new Promise(resolve => setTimeout(resolve, 1000))
+
+    // Insert test data
+    await client.from('messages').insert({
+      content: 'Test message',
+      user_id: testUser.id
+    })
+
+    // Wait for notification
+    await new Promise(resolve => setTimeout(resolve, 2000))
+
+    expect(receivedData).not.toBeNull()
+    expect(receivedData.content).toBe('Test message')
+
+    await channel.unsubscribe()
+    done()
+  }, 10000)
+})
+```
+
+### Testing File Storage
+
+```javascript
+describe('Storage Operations', () => {
+  const bucketName = 'test-bucket'
+  
+  beforeAll(async () => {
+    const admin = createAdminClient()
+    await admin.storage.createBucket(bucketName, { public: false })
+  })
+
+  afterAll(async () => {
+    const admin = createAdminClient()
+    const { data: files } = await admin.storage.from(bucketName).list()
+    await Promise.all(
+      files.map(file => admin.storage.from(bucketName).remove([file.name]))
+    )
+    await admin.storage.deleteBucket(bucketName)
+  })
+
+  test('upload and download file', async () => {
+    const client = createTestClient()
+    const fileName = 'test-file.txt'
+    const fileContent = 'Hello, Supabase!'
+
+    // Upload
+    const { error: uploadError } = await client.storage
+      .from(bucketName)
+      .upload(fileName, new Blob([fileContent], { type: 'text/plain' }))
+
+    expect(uploadError).toBeNull()
+
+    // Download
+    const { data, error: downloadError } = await client.storage
+      .from(bucketName)
+      .download(fileName)
+
+    expect(downloadError).toBeNull()
+    const text = await data.text()
+    expect(text).toBe(fileContent)
+  })
+
+  test('respects storage policies', async () => {
+    const client = createTestClient()
+    
+    // Attempt to access another user's file
+    const { error } = await client.storage
+      .from(bucketName)
+      .download('unauthorized-file.txt')
+
+    expect(error).not.toBeNull()
+  })
+})
+```
+
+## Mocking Supabase Client
+
+Mocking the Supabase client enables fast unit tests without database dependencies and allows testing error scenarios.
+
+### Jest Mock Setup
+
+```javascript
+// __mocks__/@supabase/supabase-js.js
+export const createClient = jest.fn(() => ({
+  from: jest.fn(() => ({
+    select: jest.fn().mockReturnThis(),
+    insert: jest.fn().mockReturnThis(),
+    update: jest.fn().mockReturnThis(),
+    delete: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn(),
+  })),
+  auth: {
+    signInWithPassword: jest.fn(),
+    signUp: jest.fn(),
+    signOut: jest.fn(),
+    getSession: jest.fn(),
+  },
+  rpc: jest.fn(),
+  storage: {
+    from: jest.fn(() => ({
+      upload: jest.fn(),
+      download: jest.fn(),
+      remove: jest.fn(),
+    })),
+  },
+}))
+```
+
+### Using Mocks in Tests
+
+```javascript
+// service.test.js
+jest.mock('@supabase/supabase-js')
+import { createClient } from '@supabase/supabase-js'
+import { UserService } from './user-service'
+
+describe('UserService', () => {
+  let mockSupabase
+  let userService
+
+  beforeEach(() => {
+    mockSupabase = createClient()
+    userService = new UserService(mockSupabase)
+  })
+
+  afterEach(() => {
+    jest.clearAllMocks()
+  })
+
+  test('getUserById returns user data', async () => {
+    const mockUser = { id: 1, name: 'John Doe', email: 'john@example.com' }
+    
+    mockSupabase.from().select().eq().single.mockResolvedValue({
+      data: mockUser,
+      error: null
+    })
+
+    const result = await userService.getUserById(1)
+
+    expect(mockSupabase.from).toHaveBeenCalledWith('users')
+    expect(mockSupabase.from().select).toHaveBeenCalled()
+    expect(mockSupabase.from().eq).toHaveBeenCalledWith('id', 1)
+    expect(result).toEqual(mockUser)
+  })
+
+  test('getUserById handles errors', async () => {
+    const mockError = { message: 'User not found' }
+    
+    mockSupabase.from().select().eq().single.mockResolvedValue({
+      data: null,
+      error: mockError
+    })
+
+    await expect(userService.getUserById(999)).rejects.toThrow('User not found')
+  })
+})
+```
+
+### Manual Mock Implementation
+
+```javascript
+// supabase-mock.js
+export class SupabaseMock {
+  constructor() {
+    this.data = {
+      users: [],
+      orders: [],
+    }
+  }
+
+  from(table) {
+    return {
+      select: (columns = '*') => ({
+        eq: (column, value) => ({
+          single: async () => {
+            const item = this.data[table].find(row => row[column] === value)
+            return { data: item || null, error: item ? null : { message: 'Not found' } }
+          },
+          then: async (resolve) => {
+            const items = this.data[table].filter(row => row[column] === value)
+            resolve({ data: items, error: null })
+          }
+        }),
+        then: async (resolve) => {
+          resolve({ data: this.data[table], error: null })
+        }
+      }),
+      insert: (rows) => ({
+        select: () => ({
+          then: async (resolve) => {
+            const newRows = Array.isArray(rows) ? rows : [rows]
+            this.data[table].push(...newRows)
+            resolve({ data: newRows, error: null })
+          }
+        })
+      }),
+      update: (updates) => ({
+        eq: (column, value) => ({
+          then: async (resolve) => {
+            this.data[table] = this.data[table].map(row =>
+              row[column] === value ? { ...row, ...updates } : row
+            )
+            resolve({ data: null, error: null })
+          }
+        })
+      }),
+      delete: () => ({
+        eq: (column, value) => ({
+          then: async (resolve) => {
+            this.data[table] = this.data[table].filter(row => row[column] !== value)
+            resolve({ data: null, error: null })
+          }
+        })
+      })
+    }
+  }
+
+  reset() {
+    Object.keys(this.data).forEach(key => {
+      this.data[key] = []
+    })
+  }
+}
+```
+
+### Using Manual Mock
+
+```javascript
+import { SupabaseMock } from './supabase-mock'
+
+describe('UserService with Manual Mock', () => {
+  let supabase
+  let userService
+
+  beforeEach(() => {
+    supabase = new SupabaseMock()
+    supabase.data.users = [
+      { id: 1, name: 'John Doe', email: 'john@example.com' },
+      { id: 2, name: 'Jane Smith', email: 'jane@example.com' }
+    ]
+    userService = new UserService(supabase)
+  })
+
+  test('getAllUsers returns all users', async () => {
+    const users = await userService.getAllUsers()
+    expect(users).toHaveLength(2)
+  })
+
+  test('createUser adds new user', async () => {
+    await userService.createUser({
+      id: 3,
+      name: 'Bob Johnson',
+      email: 'bob@example.com'
+    })
+
+    expect(supabase.data.users).toHaveLength(3)
+    expect(supabase.data.users[2].name).toBe('Bob Johnson')
+  })
+})
+```
+
+## Test Database Setup
+
+A dedicated test database ensures tests run in isolation without affecting production or development data.
+
+### Local Test Database with Docker
+
+```yaml
+# docker-compose.test.yml
+version: '3.8'
+services:
+  postgres:
+    image: supabase/postgres:15.1.0.117
+    environment:
+      POSTGRES_DB: test_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "54322:5432"
+    volumes:
+      - ./test-migrations:/docker-entrypoint-initdb.d
+```
+
+```bash
+# Start test database
+docker-compose -f docker-compose.test.yml up -d
+
+# Run migrations
+psql -h localhost -p 54322 -U postgres -d test_db -f migrations/001_initial.sql
+```
+
+### Supabase CLI Test Project
+
+```bash
+# Initialize local Supabase project
+supabase init
+
+# Start local instance
+supabase start
+
+# Apply migrations
+supabase db push
+
+# Get connection details
+supabase status
+```
+
+```javascript
+// test-setup.js
+import { createClient } from '@supabase/supabase-js'
+import { execSync } from 'child_process'
+
+export const setupTestDatabase = async () => {
+  // Reset database
+  execSync('supabase db reset --local', { stdio: 'inherit' })
+
+  // Create client
+  const supabase = createClient(
+    process.env.SUPABASE_LOCAL_URL || 'http://localhost:54321',
+    process.env.SUPABASE_LOCAL_ANON_KEY
+  )
+
+  return supabase
+}
+
+// jest.setup.js
+beforeAll(async () => {
+  global.supabase = await setupTestDatabase()
+})
+```
+
+### Database Snapshots
+
+```javascript
+// snapshot.js
+import { execSync } from 'child_process'
+import fs from 'fs'
+
+export class DatabaseSnapshot {
+  constructor(connectionString) {
+    this.connectionString = connectionString
+    this.snapshotPath = './test-snapshots'
+  }
+
+  async create(name) {
+    if (!fs.existsSync(this.snapshotPath)) {
+      fs.mkdirSync(this.snapshotPath)
+    }
+
+    execSync(
+      `pg_dump ${this.connectionString} > ${this.snapshotPath}/${name}.sql`,
+      { stdio: 'inherit' }
+    )
+  }
+
+  async restore(name) {
+    execSync(
+      `psql ${this.connectionString} < ${this.snapshotPath}/${name}.sql`,
+      { stdio: 'inherit' }
+    )
+  }
+}
+```
+
+```javascript
+// Usage in tests
+import { DatabaseSnapshot } from './snapshot'
+
+describe('Test Suite with Snapshots', () => {
+  const snapshot = new DatabaseSnapshot(process.env.TEST_DATABASE_URL)
+
+  beforeAll(async () => {
+    await snapshot.create('clean-state')
+  })
+
+  afterEach(async () => {
+    await snapshot.restore('clean-state')
+  })
+
+  // Tests here
+})
+```
+
+### Isolated Test Transactions
+
+```javascript
+// transaction-wrapper.js
+export const withTransaction = async (supabase, testFn) => {
+  const { data, error } = await supabase.rpc('begin_test_transaction')
+  
+  try {
+    await testFn(supabase)
+  } finally {
+    await supabase.rpc('rollback_test_transaction')
+  }
+}
+```
+
+```sql
+-- Transaction management functions
+CREATE OR REPLACE FUNCTION begin_test_transaction()
+RETURNS void AS $$
+BEGIN
+  -- Create savepoint
+  EXECUTE 'SAVEPOINT test_transaction';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION rollback_test_transaction()
+RETURNS void AS $$
+BEGIN
+  -- Rollback to savepoint
+  EXECUTE 'ROLLBACK TO SAVEPOINT test_transaction';
+END;
+$$ LANGUAGE plpgsql;
+```
+
+## Seed Data Management
+
+Seed data provides consistent test fixtures and ensures reproducible test conditions.
+
+### SQL Seed Files
+
+```sql
+-- seeds/test-data.sql
+-- Clear existing data
+TRUNCATE users, orders, order_items CASCADE;
+
+-- Insert test users
+INSERT INTO users (id, email, name, role) VALUES
+  (1, 'admin@test.com', 'Admin User', 'admin'),
+  (2, 'user@test.com', 'Regular User', 'user'),
+  (3, 'test@test.com', 'Test User', 'user');
+
+-- Insert test orders
+INSERT INTO orders (id, user_id, status, total, created_at) VALUES
+  (1, 2, 'completed', 100.00, '2025-01-01'),
+  (2, 2, 'pending', 50.00, '2025-01-15'),
+  (3, 3, 'completed', 75.00, '2025-02-01');
+
+-- Insert order items
+INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
+  (1, 1, 2, 25.00),
+  (1, 2, 2, 25.00),
+  (2, 1, 1, 25.00),
+  (2, 3, 1, 25.00),
+  (3, 2, 3, 25.00);
+
+-- Insert test products
+INSERT INTO products (id, name, price, category, stock) VALUES
+  (1, 'Product A', 25.00, 'electronics', 100),
+  (2, 'Product B', 25.00, 'books', 50),
+  (3, 'Product C', 25.00, 'electronics', 75);
+```
+
+### JavaScript Seed Functions
+
+```javascript
+// seeds/seed-data.js
+export const seedUsers = async (supabase) => {
+  const users = [
+    { id: 1, email: 'admin@test.com', name: 'Admin User', role: 'admin' },
+    { id: 2, email: 'user@test.com', name: 'Regular User', role: 'user' },
+    { id: 3, email: 'test@test.com', name: 'Test User', role: 'user' }
+  ]
+
+  const { error } = await supabase.from('users').insert(users)
+  if (error) throw error
+  
+  return users
+}
+
+export const seedOrders = async (supabase, userIds) => {
+  const orders = [
+    { id: 1, user_id: userIds[1], status: 'completed', total: 100.00 },
+    { id: 2, user_id: userIds[1], status: 'pending', total: 50.00 },
+    { id: 3, user_id: userIds[2], status: 'completed', total: 75.00 }
+  ]
+
+  const { error } = await supabase.from('orders').insert(orders)
+  if (error) throw error
+  
+  return orders
+}
+
+export const seedProducts = async (supabase) => {
+  const products = [
+    { id: 1, name: 'Product A', price: 25.00, category: 'electronics', stock: 100 },
+    { id: 2, name: 'Product B', price: 25.00, category: 'books', stock: 50 },
+    { id: 3, name: 'Product C', price: 25.00, category: 'electronics', stock: 75 }
+  ]
+
+  const { error } = await supabase.from('products').insert(products)
+  if (error) throw error
+  
+  return products
+}
+
+export const seedAll = async (supabase) => {
+  const users = await seedUsers(supabase)
+  const products = await seedProducts(supabase)
+  const orders = await seedOrders(supabase, users.map(u => u.id))
+  
+  return { users, products, orders }
+}
+```
+
+### Factory Pattern for Test Data
+
+```javascript
+// factories/user.factory.js
+import { faker } from '@faker-js/faker'
+
+export class UserFactory {
+  static create(overrides = {}) {
+    return {
+      id: faker.number.int(),
+      email: faker.internet.email(),
+      name: faker.person.fullName(),
+      role: 'user',
+      created_at: faker.date.past(),
+      ...overrides
+    }
+  }
+
+  static createMany(count, overrides = {}) {
+    return Array.from({ length: count }, () => this.create(overrides))
+  }
+
+  static async insert(supabase, overrides = {}) {
+    const user = this.create(overrides)
+    const { data, error } = await supabase
+      .from('users')
+      .insert(user)
+      .select()
+      .single()
+    
+    if (error) throw error
+    return data
+  }
+
+  static async insertMany(supabase, count, overrides = {}) {
+    const users = this.createMany(count, overrides)
+    const { data, error } = await supabase
+      .from('users')
+      .insert(users)
+      .select()
+    
+    if (error) throw error
+    return data
+  }
+}
+```
+
+```javascript
+// factories/order.factory.js
+import { faker } from '@faker-js/faker'
+
+export class OrderFactory {
+  static create(overrides = {}) {
+    return {
+      id: faker.number.int(),
+      user_id: overrides.user_id || 1,
+      status: faker.helpers.arrayElement(['pending', 'completed', 'cancelled']),
+      total: parseFloat(faker.commerce.price()),
+      created_at: faker.date.past(),
+      ...overrides
+    }
+  }
+
+  static async insert(supabase, overrides = {}) {
+    const order = this.create(overrides)
+    const { data, error } = await supabase
+      .from('orders')
+      .insert(order)
+      .select()
+      .single()
+    
+    if (error) throw error
+    return data
+  }
+
+  static async createWithItems(supabase, userId, itemCount = 3) {
+    const order = await this.insert(supabase, { user_id: userId })
+    
+    const items = Array.from({ length: itemCount }, () => ({
+      order_id: order.id,
+      product_id: faker.number.int({ min: 1, max: 100 }),
+      quantity: faker.number.int({ min: 1, max: 5 }),
+      price: parseFloat(faker.commerce.price())
+    }))
+
+    const { data: orderItems, error } = await supabase
+      .from('order_items')
+      .insert(items)
+      .select()
+
+    if (error) throw error
+    
+    return { ...order, items: orderItems }
+  }
+}
+```
+
+### Using Factories in Tests
+
+```javascript
+import { UserFactory } from './factories/user.factory'
+import { OrderFactory } from './factories/order.factory'
+
+describe('Order Service', () => {
+  let testUser, testOrders
+
+  beforeEach(async () => {
+    // Create test user with factory
+    testUser = await UserFactory.insert(supabase, {
+      email: 'test@example.com',
+      role: 'user'
+    })
+
+    // Create multiple test orders
+    testOrders = await Promise.all([
+      OrderFactory.insert(supabase, { user_id: testUser.id, status: 'completed' }),
+      OrderFactory.insert(supabase, { user_id: testUser.id, status: 'pending' }),
+      OrderFactory.insert(supabase, { user_id: testUser.id, status: 'cancelled' })
+    ])
+  })
+
+  afterEach(async () => {
+    await supabase.from('order_items').delete().in('order_id', testOrders.map(o => o.id))
+    await supabase.from('orders').delete().in('id', testOrders.map(o => o.id))
+    await supabase.from('users').delete().eq('id', testUser.id)
+  })
+
+  test('getUserOrders returns correct orders', async () => {
+    const orders = await orderService.getUserOrders(testUser.id)
+    expect(orders).toHaveLength(3)
+  })
+})
+```
+
+### Seed Data Builder Pattern
+
+```javascript
+// seed-builder.js
+export class SeedBuilder {
+  constructor(supabase) {
+    this.supabase = supabase
+    this.cleanup = []
+  }
+
+  async withUser(data = {}) {
+    const user = await UserFactory.insert(this.supabase, data)
+    this.cleanup.push({ table: 'users', id: user.id })
+    return user
+  }
+
+  async withOrder(userId, data = {}) {
+    const order = await OrderFactory.insert(this.supabase, { 
+      user_id: userId, 
+      ...data 
+    })
+    this.cleanup.push({ table: 'orders', id: order.id })
+    return order
+  }
+
+  async withProduct(data = {}) {
+    const product = await ProductFactory.insert(this.supabase, data)
+    this.cleanup.push({ table: 'products', id: product.id })
+    return product
+  }
+
+  async destroy() {
+    // Delete in reverse order to respect foreign keys
+    for (const item of this.cleanup.reverse()) {
+      await this.supabase.from(item.table).delete().eq('id', item.id)
+    }
+    this.cleanup = []
+  }
+}
+```
+
+```javascript
+// Usage
+describe('Complex Scenario', () => {
+  let seed
+
+  beforeEach(() => {
+    seed = new SeedBuilder(supabase)
+  })
+
+  afterEach(async () => {
+    await seed.destroy()
+  })
+
+  test('full order flow', async () => {
+    const user = await seed.withUser({ email: 'buyer@test.com' })
+    const product = await seed.withProduct({ name: 'Test Product', price: 50.00 })
+    const order = await seed.withOrder(user.id, { status: 'pending' })
+
+    // Test logic here
+  })
+})
+```
+
+## CI/CD Integration
+
+Continuous integration ensures tests run automatically on every code change, maintaining code quality and catching issues early.
+
+### GitHub Actions Workflow
+
+```yaml
+# .github/workflows/test.yml
+name: Test Suite
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_TEST_URL }}
+  SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_TEST_ANON_KEY }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_KEY }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: supabase/postgres:15.1.0.117
+        env:
+          POSTGRES_DB: test_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start Supabase local
+        run: supabase start
+
+      - name: Run database migrations
+        run: supabase db push
+
+      - name: Seed test database
+        run: npm run seed:test
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Run integration tests
+        run: npm run test:integration
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/coverage-final.json
+          flags: unittests
+          name: codecov-umbrella
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop
+```
+
+### GitLab CI Configuration
+
+```yaml
+# .gitlab-ci.yml
+variables:
+  POSTGRES_DB: test_db
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+  POSTGRES_HOST_AUTH_METHOD: trust
+
+stages:
+  - setup
+  - test
+  - cleanup
+
+before_script:
+  - npm ci
+
+services:
+  - postgres:15
+
+setup_database:
+  stage: setup
+  image: supabase/postgres:15.1.0.117
+  script:
+    - psql -h postgres -U postgres -d test_db -f migrations/001_initial.sql
+    - psql -h postgres -U postgres -d test_db -f seeds/test-data.sql
+  only:
+    - merge_requests
+    - main
+
+unit_tests:
+  stage: test
+  image: node:18
+  script:
+    - npm run test:unit -- --coverage
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+
+integration_tests:
+  stage: test
+  image: node:18
+  services:
+    - postgres:15
+  variables:
+    DATABASE_URL: postgresql://postgres:postgres@postgres:5432/test_db
+  script:
+    - npm run test:integration
+  dependencies:
+    - setup_database
+
+e2e_tests:
+  stage: test
+  image: node:18
+  services:
+    - postgres:15
+  script:
+    - npm run test:e2e
+  dependencies:
+    - setup_database
+  only:
+    - merge_requests
+    - main
+
+cleanup:
+  stage: cleanup
+  script:
+    - echo "Cleaning up test resources"
+  when: always
+```
+
+### CircleCI Configuration
+
+```yaml
+# .circleci/config.yml
+version: 2.1
+
+orbs:
+  node: circleci/node@5.0.2
+
+jobs:
+  test:
+    docker:
+      - image: cimg/node:18.16
+      - image: supabase/postgres:15.1.0.117
+        environment:
+          POSTGRES_DB: test_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+
+    steps:
+      - checkout
+      
+      - node/install-packages:
+          pkg-manager: npm
+
+      - run:
+          name: Wait for database
+          command: |
+            dockerize -wait tcp://localhost:5432 -timeout 1m
+
+      - run:
+          name: Run migrations
+          command: |
+            psql -h localhost -U postgres -d test_db -f migrations/001_initial.sql
+
+      - run:
+          name: Seed database
+          command: npm run seed:test
+
+      - run:
+          name: Run tests
+          command: npm run test:ci
+
+      - store_test_results:
+          path: test-results
+
+      - store_artifacts:
+          path: coverage
+
+workflows:
+  test_and_deploy:
+    jobs:
+      - test:
+          filters:
+            branches:
+              only:
+                - main
+                - develop
+```
+
+### Package.json Test Scripts
+
+```json
+{
+  "scripts": {
+    "test": "jest",
+    "test:unit": "jest --testPathPattern=unit",
+    "test:integration": "jest --testPathPattern=integration",
+    "test:e2e": "jest --testPathPattern=e2e",
+    "test:ci": "jest --ci --coverage --maxWorkers=2",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "seed:test": "node scripts/seed-test-db.js",
+    "db:reset": "supabase db reset --local",
+    "db:setup": "npm run db:reset && npm run seed:test"
+  }
+}
+```
+
+### Pre-commit Hooks
+
+```yaml
+# .husky/pre-commit
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+npm run test:unit
+```
+
+```json
+// package.json
+{
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix",
+      "jest --bail --findRelatedTests"
+    ]
+  }
+}
+```
+
+### Docker Compose for CI
+
+```yaml
+# docker-compose.ci.yml
+version: '3.8'
+
+services:
+  postgres:
+    image: supabase/postgres:15.1.0.117
+    environment:
+      POSTGRES_DB: test_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  test-runner:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/test_db
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+    command: npm run test:ci
+```
+
+## Testing Edge Functions
+
+Edge Functions are serverless functions deployed to Supabase's edge network, requiring specialized testing approaches.
+
+### Edge Function Structure
+
+```typescript
+// supabase/functions/hello/index.ts
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+serve(async (req) => {
+  try {
+    const { name } = await req.json()
+    
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+    )
+
+    const { data, error } = await supabase
+      .from('greetings')
+      .insert({ name, message: `Hello, ${name}!` })
+      .select()
+      .single()
+
+    if (error) throw error
+
+    return new Response(
+      JSON.stringify(data),
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+  } catch (error) {
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+})
+```
+
+### Local Edge Function Testing
+
+```typescript
+// supabase/functions/hello/index.test.ts
+import { assertEquals } from 'https://deno.land/std@0.168.0/testing/asserts.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'http://localhost:54321'
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || 'your-anon-key'
+
+Deno.test('hello function returns greeting', async () => {
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/hello`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+    },
+    body: JSON.stringify({ name: 'World' })
+  })
+
+  const data = await response.json()
+  
+  assertEquals(response.status, 200)
+  assertEquals(data.message, 'Hello, World!')
+})
+
+Deno.test('hello function handles missing name', async () => {
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/hello`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+    },
+    body: JSON.stringify({})
+  })
+
+  assertEquals(response.status, 400)
+})
+```
+
+### Running Edge Function Tests
+
+```bash
+# Start Supabase locally
+supabase start
+
+# Serve function locally
+supabase functions serve hello --env-file .env.local
+
+# Run tests
+deno test --allow-net --allow-env supabase/functions/hello/index.test.ts
+```
+
+### Mocking Edge Function Dependencies
+
+```typescript
+// supabase/functions/_shared/supabase-mock.ts
+export class SupabaseMock {
+  private mockData: Record<string, any[]> = {}
+
+  from(table: string) {
+    return {
+      insert: (data: any) => ({
+        select: () => ({
+          single: async () => {
+            const record = Array.isArray(data) ? data[0] : data
+            this.mockData[table] = this.mockData[table] || []
+            this.mockData[table].push(record)
+            return { data: record, error: null }
+          }
+        })
+      }),
+      select: () => ({
+        eq: (column: string, value: any) => ({
+          single: async () => {
+            const items = this.mockData[table] || []
+            const item = items.find(i => i[column] === value)
+            return { data: item || null, error: item ? null : { message: 'Not found' } }
+          }
+        })
+      })
+    }
+  }
+
+  reset() {
+    this.mockData = {}
+  }
+}
+```
+
+### Integration Testing Edge Functions
+
+```javascript
+// tests/edge-functions.test.js
+import { createClient } from '@supabase/supabase-js'
+
+describe('Edge Functions Integration', () => {
+  const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_ANON_KEY
+  )
+
+  test('hello function creates database record', async () => {
+    const { data, error } = await supabase.functions.invoke('hello', {
+      body: { name: 'Test User' }
+    })
+
+    expect(error).toBeNull()
+    expect(data.message).toBe('Hello, Test User!')
+
+    // Verify database record
+    const { data: greeting } = await supabase
+      .from('greetings')
+      .select()
+      .eq('name', 'Test User')
+      .single()
+
+    expect(greeting).not.toBeNull()
+    expect(greeting.message).toBe('Hello, Test User!')
+
+    // Cleanup
+    await supabase.from('greetings').delete().eq('name', 'Test User')
+  })
+
+  test('authenticated function requires auth', async () => {
+    const anonClient = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_ANON_KEY
+    )
+
+    const { error } = await anonClient.functions.invoke('protected-function')
+
+    expect(error).not.toBeNull()
+    expect(error.message).toContain('auth')
+  })
+})
+```
+
+### Testing Edge Function Authorization
+
+```typescript
+// supabase/functions/protected/index.ts
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+serve(async (req) => {
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader) {
+    return new Response(
+      JSON.stringify({ error: 'Authorization required' }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    {
+      global: {
+        headers: { Authorization: authHeader }
+      }
+    }
+  )
+
+  const { data: { user }, error } = await supabase.auth.getUser()
+
+  if (error || !user) {
+    return new Response(
+      JSON.stringify({ error: 'Invalid token' }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+
+  return new Response(
+    JSON.stringify({ message: `Hello, ${user.email}!` }),
+    { headers: { 'Content-Type': 'application/json' } }
+  )
+})
+```
+
+```typescript
+// Test with authentication
+Deno.test('protected function requires valid JWT', async () => {
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+  // Sign in test user
+  const { data: authData } = await supabase.auth.signInWithPassword({
+    email: 'test@example.com',
+    password: 'testpass123'
+  })
+
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/protected`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${authData.session.access_token}`
+    }
+  })
+
+  assertEquals(response.status, 200)
+})
+```
+
+### Edge Function CI/CD
+
+```yaml
+# .github/workflows/edge-functions.yml
+name: Edge Functions Tests
+
+on:
+  push:
+    paths:
+      - 'supabase/functions/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+
+      - name: Start Supabase
+        run: supabase start
+
+      - name: Run Edge Function tests
+        run: |
+          for func in supabase/functions/*/index.test.ts; do
+            deno test --allow-all "$func"
+          done
+
+      - name: Deploy Edge Functions
+        if: github.ref == 'refs/heads/main'
+        run: |
+          supabase functions deploy
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+```
+
+**Key Points:**
+
+- Unit tests validate database functions using pgTAP in PostgreSQL or Jest/Vitest in JavaScript
+- RLS policy testing requires creating authenticated test clients and verifying access controls across different user contexts
+- Integration tests verify complete workflows including database operations, authentication, and real-time features
+- Mocking the Supabase client enables fast unit tests without database dependencies
+- Dedicated test databases with Docker or Supabase CLI provide isolation from production environments
+- Seed data through SQL files, JavaScript functions, or factory patterns ensures consistent test fixtures
+- CI/CD pipelines automate test execution on GitHub Actions, GitLab CI, or CircleCI
+- Edge Functions require Deno-based testing with local serving and deployment validation
+
+**Important subtopics to explore:**
+
+- Performance testing and load testing strategies
+- Visual regression testing for UI components
+- Contract testing for API boundaries
+- Snapshot testing for data structures
+- Test coverage analysis and reporting
+- Security testing and penetration testing approaches
+
+---
+
+# Migrations & Version Control
+
+Database migrations in Supabase provide systematic, version-controlled approaches to evolving database schemas over time. They enable teams to track, apply, and reverse database changes while maintaining data integrity across development, staging, and production environments. Supabase uses SQL-based migrations managed through the CLI, integrating with Git workflows for collaborative development.
+
+## Database Migration Strategies
+
+Migration strategies determine how database schema changes are planned, tested, and deployed across environments. Effective strategies balance safety, reversibility, and team coordination.
+
+**Migration-first development:**
+
+Changes to database schema begin as migration files rather than manual SQL execution. This ensures all modifications are tracked, reviewable, and reproducible. Every schema change—whether adding tables, modifying columns, or adjusting constraints—should exist as a migration file committed to version control.
+
+**Incremental vs. comprehensive migrations:**
+
+Incremental migrations apply small, focused changes in sequence. Each migration handles a single logical change (adding one table, modifying one column). This approach simplifies debugging and rollback but creates more migration files over time.
+
+Comprehensive migrations group related changes into single migration files. This reduces the total number of migrations but makes individual changes harder to isolate and reverse.
+
+**Development workflow patterns:**
+
+Create migrations locally using `supabase migration new migration-name`. This generates a timestamped SQL file in `supabase/migrations/`. Write the schema changes, test locally using `supabase db reset` to apply all migrations to a fresh database, then commit the migration file to version control.
+
+**Environment progression:**
+
+Migrations flow through environments: local development → staging → production. Each environment maintains its own migration history table tracking which migrations have been applied. The `supabase db push` command applies pending migrations to remote databases.
+
+**Zero-downtime strategies:**
+
+For production systems requiring continuous availability, implement migrations in phases:
+
+1. **Additive phase**: Add new columns/tables without removing old ones
+2. **Dual-write phase**: Application writes to both old and new structures
+3. **Migration phase**: Backfill data from old to new structures
+4. **Switchover phase**: Application reads from new structures
+5. **Cleanup phase**: Remove old structures in subsequent migration
+
+**Example zero-downtime migration:**
+
+```sql
+-- Migration 1: Add new column (additive)
+ALTER TABLE users ADD COLUMN email_normalized TEXT;
+
+-- Migration 2: Backfill data
+UPDATE users SET email_normalized = LOWER(TRIM(email));
+
+-- Migration 3: Add constraint and index
+ALTER TABLE users ALTER COLUMN email_normalized SET NOT NULL;
+CREATE UNIQUE INDEX idx_users_email_normalized ON users(email_normalized);
+
+-- Migration 4: Remove old column (cleanup, after application updated)
+-- ALTER TABLE users DROP COLUMN email;
+```
+
+**Testing strategies:**
+
+Test migrations in isolation before deployment. Use `supabase db reset` to rebuild your local database from scratch, verifying migrations apply cleanly. Create seed data to validate schema changes don't break expected data patterns.
+
+**Documentation practices:**
+
+Include comments in migration files explaining the purpose and any special considerations:
+
+```sql
+-- Migration: Add user preferences table
+-- Purpose: Store user-specific settings separate from core user data
+-- Dependencies: Requires users table
+-- Rollback notes: Safe to rollback if no preferences data exists
+
+CREATE TABLE user_preferences (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  theme TEXT DEFAULT 'light',
+  notifications_enabled BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Coordination strategies:**
+
+For teams, establish migration ownership. Assign one developer to create and test each migration. Use pull request reviews specifically focused on migration correctness, ensuring reviewers verify both forward and backward compatibility.
+
+## Migration File Creation
+
+Migration files are SQL scripts with timestamps that define schema changes. The Supabase CLI generates these files with proper naming conventions and structure.
+
+**Creating new migrations:**
+
+```bash
+supabase migration new create_products_table
+```
+
+This generates a file like `supabase/migrations/20241004120000_create_products_table.sql` with a timestamp prefix ensuring chronological ordering.
+
+**File naming conventions:**
+
+Migration names should be descriptive and use snake_case. Names become part of the migration history and help identify changes quickly:
+
+- `create_orders_table.sql`
+- `add_email_index_to_users.sql`
+- `modify_products_price_precision.sql`
+- `create_audit_triggers.sql`
+
+**Basic migration structure:**
+
+```sql
+-- Create products table with basic fields
+CREATE TABLE products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  description TEXT,
+  price DECIMAL(10, 2) NOT NULL,
+  stock_quantity INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Add indexes for common queries
+CREATE INDEX idx_products_name ON products(name);
+CREATE INDEX idx_products_created_at ON products(created_at DESC);
+
+-- Enable Row Level Security
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+
+-- Create policies
+CREATE POLICY "Public read access" ON products
+  FOR SELECT USING (true);
+
+CREATE POLICY "Authenticated users can insert" ON products
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+```
+
+**Multiple table migrations:**
+
+```sql
+-- Create related tables in a single migration
+CREATE TABLE categories (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL UNIQUE,
+  slug TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  price DECIMAL(10, 2) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_products_category ON products(category_id);
+```
+
+**Adding columns to existing tables:**
+
+```sql
+-- Add social media fields to users table
+ALTER TABLE users ADD COLUMN twitter_handle TEXT;
+ALTER TABLE users ADD COLUMN linkedin_url TEXT;
+ALTER TABLE users ADD COLUMN github_username TEXT;
+
+-- Add constraints
+ALTER TABLE users ADD CONSTRAINT twitter_handle_format 
+  CHECK (twitter_handle IS NULL OR twitter_handle ~ '^@?[A-Za-z0-9_]{1,15}$');
+```
+
+**Creating indexes:**
+
+```sql
+-- Add performance indexes
+CREATE INDEX idx_orders_user_id ON orders(user_id);
+CREATE INDEX idx_orders_created_at ON orders(created_at DESC);
+CREATE INDEX idx_orders_status ON orders(status) WHERE status != 'completed';
+
+-- Composite indexes for common queries
+CREATE INDEX idx_orders_user_status ON orders(user_id, status);
+
+-- Full-text search indexes
+CREATE INDEX idx_products_search ON products USING GIN (to_tsvector('english', name || ' ' || description));
+```
+
+**Creating functions and triggers:**
+
+```sql
+-- Create updated_at trigger function
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply trigger to tables
+CREATE TRIGGER update_products_updated_at
+  BEFORE UPDATE ON products
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_users_updated_at
+  BEFORE UPDATE ON users
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+```
+
+**Creating views:**
+
+```sql
+-- Create materialized view for reporting
+CREATE MATERIALIZED VIEW order_summary AS
+SELECT 
+  DATE_TRUNC('day', created_at) AS order_date,
+  COUNT(*) AS total_orders,
+  SUM(total_amount) AS total_revenue,
+  AVG(total_amount) AS avg_order_value
+FROM orders
+WHERE status = 'completed'
+GROUP BY DATE_TRUNC('day', created_at);
+
+-- Add index to materialized view
+CREATE INDEX idx_order_summary_date ON order_summary(order_date DESC);
+```
+
+**Setting up Row Level Security:**
+
+```sql
+-- Enable RLS on table
+ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
+
+-- Create policies
+CREATE POLICY "Users can view published posts" ON posts
+  FOR SELECT USING (status = 'published' OR author_id = auth.uid());
+
+CREATE POLICY "Users can insert their own posts" ON posts
+  FOR INSERT WITH CHECK (author_id = auth.uid());
+
+CREATE POLICY "Users can update their own posts" ON posts
+  FOR UPDATE USING (author_id = auth.uid());
+
+CREATE POLICY "Users can delete their own posts" ON posts
+  FOR DELETE USING (author_id = auth.uid());
+```
+
+**Creating enum types:**
+
+```sql
+-- Create custom enum types
+CREATE TYPE order_status AS ENUM ('pending', 'processing', 'shipped', 'delivered', 'cancelled');
+CREATE TYPE user_role AS ENUM ('user', 'moderator', 'admin');
+
+-- Use enum in table
+CREATE TABLE orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  status order_status DEFAULT 'pending',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Foreign key relationships:**
+
+```sql
+-- Create tables with proper foreign key constraints
+CREATE TABLE authors (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL
+);
+
+CREATE TABLE books (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  author_id UUID NOT NULL REFERENCES authors(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  isbn TEXT UNIQUE
+);
+
+-- Junction table for many-to-many
+CREATE TABLE book_categories (
+  book_id UUID REFERENCES books(id) ON DELETE CASCADE,
+  category_id UUID REFERENCES categories(id) ON DELETE CASCADE,
+  PRIMARY KEY (book_id, category_id)
+);
+```
+
+## Schema Versioning
+
+Schema versioning tracks the state of your database structure over time. Supabase maintains a migration history table that records which migrations have been applied.
+
+**Migration history tracking:**
+
+Supabase stores applied migrations in the `supabase_migrations.schema_migrations` table. Each row contains the migration version (timestamp), name, and execution details. This table enables the system to determine which migrations need to be applied.
+
+**Version numbering:**
+
+Migrations use timestamp-based versioning: `YYYYMMDDHHMMSS`. This format ensures chronological ordering and prevents version conflicts when multiple developers create migrations simultaneously. The timestamp reflects when the migration file was created, not when it was applied.
+
+**Viewing migration status:**
+
+Check which migrations have been applied locally:
+
+```bash
+supabase migration list
+```
+
+This displays migration files and their application status. Applied migrations show with indicators, while pending migrations appear unmarked.
+
+**Local vs. remote version synchronization:**
+
+Local and remote databases may have different migration states. Before pushing migrations to production, verify the remote database's current state:
+
+```bash
+supabase db pull
+```
+
+This fetches the remote schema and identifies differences between local migrations and the remote database state.
+
+**Handling version conflicts:**
+
+When multiple developers create migrations simultaneously, timestamp conflicts rarely occur but can happen. If two migrations have identical timestamps, rename one migration file with a later timestamp:
+
+```bash
+mv supabase/migrations/20241004120000_add_field.sql \
+   supabase/migrations/20241004120001_add_field.sql
+```
+
+**Version control integration:**
+
+Commit migration files to Git immediately after creation. Include both the migration file and any related code changes in the same commit or pull request, ensuring database and application code remain synchronized.
+
+**Baseline migrations:**
+
+[Inference] For existing databases, create a baseline migration capturing the current schema state. This migration serves as the starting point for future changes:
+
+```sql
+-- Baseline migration: existing schema as of 2024-10-04
+-- Generated from existing database structure
+
+CREATE TABLE users (...);
+CREATE TABLE products (...);
+-- ... existing schema
+```
+
+**Schema drift detection:**
+
+Schema drift occurs when manual changes are made directly to databases bypassing migrations. Detect drift by comparing the migration-generated schema with the actual database schema:
+
+```bash
+supabase db diff
+```
+
+This identifies tables, columns, or constraints present in the database but not defined in migrations, or vice versa.
+
+**Migration squashing:**
+
+[Inference] Long-running projects accumulate many migrations. Consider periodically squashing old migrations into a single baseline migration. This reduces the number of files and speeds up database recreation, though it loses granular history.
+
+**Semantic versioning for major changes:**
+
+While migrations use timestamp versioning, document major schema overhauls in release notes. Associate migration sets with application version numbers to track which migrations correspond to which application releases.
+
+## Forward and Backward Migrations
+
+Forward migrations apply schema changes, while backward migrations (rollbacks) reverse them. Designing reversible migrations enables safe rollback when issues arise.
+
+**Forward migration patterns:**
+
+Forward migrations should be idempotent when possible, allowing safe re-application. Use conditional checks:
+
+```sql
+-- Safe to run multiple times
+CREATE TABLE IF NOT EXISTS products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL
+);
+
+-- Add column only if it doesn't exist
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'users' AND column_name = 'phone'
+  ) THEN
+    ALTER TABLE users ADD COLUMN phone TEXT;
+  END IF;
+END $$;
+```
+
+**Reversible operations:**
+
+Some operations are naturally reversible:
+
+- `CREATE TABLE` ↔ `DROP TABLE`
+- `ADD COLUMN` ↔ `DROP COLUMN`
+- `CREATE INDEX` ↔ `DROP INDEX`
+- `ALTER TABLE ADD CONSTRAINT` ↔ `ALTER TABLE DROP CONSTRAINT`
+
+**Irreversible operations:**
+
+Certain operations cannot be safely reversed:
+
+- `DROP COLUMN` (data loss)
+- `DROP TABLE` (data loss)
+- Data type changes that truncate values
+- Constraint additions that reject existing data
+
+**Creating rollback migrations:**
+
+Create explicit rollback migrations for changes requiring reversal:
+
+```sql
+-- Forward migration: 20241004120000_add_user_roles.sql
+CREATE TYPE user_role AS ENUM ('user', 'admin');
+ALTER TABLE users ADD COLUMN role user_role DEFAULT 'user';
+
+-- Rollback migration: 20241004120001_rollback_user_roles.sql
+ALTER TABLE users DROP COLUMN role;
+DROP TYPE user_role;
+```
+
+**Backward-compatible changes:**
+
+Design migrations that don't break existing application code:
+
+```sql
+-- Bad: Breaking change - renames column immediately
+ALTER TABLE users RENAME COLUMN email TO email_address;
+
+-- Good: Backward-compatible approach
+-- Step 1: Add new column
+ALTER TABLE users ADD COLUMN email_address TEXT;
+
+-- Step 2: Backfill data
+UPDATE users SET email_address = email;
+
+-- Step 3: In later migration (after application updated), remove old column
+-- ALTER TABLE users DROP COLUMN email;
+```
+
+**Safe column removal:**
+
+Before removing columns, ensure no application code references them:
+
+```sql
+-- Migration 1: Mark column as deprecated (add comment)
+COMMENT ON COLUMN users.legacy_field IS 'DEPRECATED: Remove after 2024-12-01';
+
+-- Migration 2: After confirming no usage, remove column
+ALTER TABLE users DROP COLUMN legacy_field;
+```
+
+**Constraint modifications:**
+
+Add constraints with consideration for existing data:
+
+```sql
+-- May fail if existing data violates constraint
+-- ALTER TABLE products ADD CONSTRAINT price_positive CHECK (price > 0);
+
+-- Safe approach: Add constraint as NOT VALID, then validate
+ALTER TABLE products ADD CONSTRAINT price_positive CHECK (price > 0) NOT VALID;
+
+-- Clean up invalid data first
+UPDATE products SET price = 0.01 WHERE price <= 0;
+
+-- Now validate the constraint
+ALTER TABLE products VALIDATE CONSTRAINT price_positive;
+```
+
+**Function versioning:**
+
+When modifying functions, create new versions rather than replacing:
+
+```sql
+-- Forward migration
+CREATE OR REPLACE FUNCTION calculate_total_v2(order_id UUID)
+RETURNS DECIMAL AS $$
+  -- New implementation
+$$ LANGUAGE sql;
+
+-- Backward migration
+CREATE OR REPLACE FUNCTION calculate_total_v2(order_id UUID)
+RETURNS DECIMAL AS $$
+  -- Revert to previous implementation
+$$ LANGUAGE sql;
+```
+
+**Testing rollbacks:**
+
+Test rollback procedures in development environments:
+
+```bash
+# Apply migration
+supabase db reset
+
+# Verify schema
+supabase db diff
+
+# Apply rollback migration
+supabase migration new rollback_feature_x
+
+# Verify rollback worked correctly
+supabase db diff
+```
+
+## Data Migrations
+
+Data migrations transform or move data within databases, distinct from schema migrations that alter structure. They handle data cleanup, format changes, and bulk updates.
+
+**Simple data updates:**
+
+```sql
+-- Update existing records to new format
+UPDATE users 
+SET email = LOWER(TRIM(email))
+WHERE email != LOWER(TRIM(email));
+
+-- Populate new column from existing data
+UPDATE products
+SET slug = LOWER(REGEXP_REPLACE(name, '[^a-zA-Z0-9]+', '-', 'g'))
+WHERE slug IS NULL;
+```
+
+**Conditional data migrations:**
+
+```sql
+-- Migrate data only for specific conditions
+UPDATE orders
+SET shipping_cost = 0
+WHERE total_amount > 100 AND shipping_cost IS NULL;
+
+-- Set default values based on existing data
+UPDATE users
+SET subscription_tier = CASE
+  WHEN total_purchases > 1000 THEN 'premium'
+  WHEN total_purchases > 100 THEN 'standard'
+  ELSE 'basic'
+END
+WHERE subscription_tier IS NULL;
+```
+
+**Batch processing for large datasets:**
+
+```sql
+-- Process data in batches to avoid long locks
+DO $$
+DECLARE
+  batch_size INTEGER := 1000;
+  processed INTEGER := 0;
+  total INTEGER;
+BEGIN
+  SELECT COUNT(*) INTO total FROM users WHERE legacy_field IS NOT NULL;
+  
+  LOOP
+    UPDATE users
+    SET new_field = TRANSFORM_FUNCTION(legacy_field)
+    WHERE id IN (
+      SELECT id FROM users 
+      WHERE legacy_field IS NOT NULL 
+      LIMIT batch_size
+    );
+    
+    processed := processed + batch_size;
+    
+    EXIT WHEN NOT FOUND OR processed >= total;
+    
+    -- Add delay between batches to reduce load
+    PERFORM pg_sleep(0.1);
+  END LOOP;
+END $$;
+```
+
+**Moving data between tables:**
+
+```sql
+-- Migrate data to new normalized structure
+INSERT INTO addresses (user_id, street, city, country)
+SELECT 
+  id,
+  address_street,
+  address_city,
+  address_country
+FROM users
+WHERE address_street IS NOT NULL;
+
+-- Update foreign key references
+UPDATE users u
+SET address_id = a.id
+FROM addresses a
+WHERE a.user_id = u.id;
+```
+
+**Data transformation migrations:**
+
+```sql
+-- Convert JSON column to separate fields
+ALTER TABLE products ADD COLUMN price DECIMAL(10,2);
+ALTER TABLE products ADD COLUMN currency TEXT;
+
+UPDATE products
+SET 
+  price = (metadata->>'price')::DECIMAL,
+  currency = metadata->>'currency'
+WHERE metadata IS NOT NULL;
+```
+
+**Aggregating data:**
+
+```sql
+-- Create summary records from detailed data
+INSERT INTO monthly_sales_summary (year, month, total_revenue, order_count)
+SELECT 
+  EXTRACT(YEAR FROM created_at) AS year,
+  EXTRACT(MONTH FROM created_at) AS month,
+  SUM(total_amount) AS total_revenue,
+  COUNT(*) AS order_count
+FROM orders
+WHERE created_at >= '2024-01-01'
+GROUP BY EXTRACT(YEAR FROM created_at), EXTRACT(MONTH FROM created_at)
+ON CONFLICT (year, month) DO UPDATE SET
+  total_revenue = EXCLUDED.total_revenue,
+  order_count = EXCLUDED.order_count;
+```
+
+**Deduplication migrations:**
+
+```sql
+-- Remove duplicate records, keeping the newest
+DELETE FROM products
+WHERE id NOT IN (
+  SELECT DISTINCT ON (sku) id
+  FROM products
+  ORDER BY sku, created_at DESC
+);
+
+-- Or using window functions
+DELETE FROM products
+WHERE id IN (
+  SELECT id FROM (
+    SELECT id, ROW_NUMBER() OVER (PARTITION BY sku ORDER BY created_at DESC) AS rn
+    FROM products
+  ) t
+  WHERE rn > 1
+);
+```
+
+**Data validation after migration:**
+
+```sql
+-- Verify migration results
+DO $$
+DECLARE
+  invalid_count INTEGER;
+BEGIN
+  SELECT COUNT(*) INTO invalid_count
+  FROM users
+  WHERE email NOT LIKE '%@%';
+  
+  IF invalid_count > 0 THEN
+    RAISE EXCEPTION 'Data migration failed: % invalid emails found', invalid_count;
+  END IF;
+END $$;
+```
+
+**Backfilling with data enrichment:**
+
+```sql
+-- Enrich existing records with calculated values
+UPDATE products
+SET 
+  search_vector = to_tsvector('english', name || ' ' || COALESCE(description, '')),
+  popularity_score = (
+    SELECT COUNT(*) FROM order_items WHERE product_id = products.id
+  )
+WHERE search_vector IS NULL;
+```
+
+**Safe data removal:**
+
+```sql
+-- Soft delete before hard delete
+UPDATE users 
+SET deleted_at = NOW()
+WHERE last_login < NOW() - INTERVAL '2 years'
+  AND deleted_at IS NULL;
+
+-- After verification period, hard delete
+DELETE FROM users
+WHERE deleted_at < NOW() - INTERVAL '90 days';
+```
+
+## Migration Rollback Strategies
+
+Rollback strategies enable recovery when migrations cause issues in production. Planning rollback approaches before deploying migrations reduces risk and downtime.
+
+**Immediate rollback approach:**
+
+Create explicit rollback migrations in advance:
+
+```bash
+# Create forward migration
+supabase migration new add_feature_x
+
+# Immediately create rollback migration
+supabase migration new rollback_feature_x
+```
+
+Write rollback SQL that reverses the forward migration completely:
+
+```sql
+-- Forward: 20241004120000_add_feature_x.sql
+CREATE TABLE feature_data (...);
+ALTER TABLE users ADD COLUMN feature_flag BOOLEAN DEFAULT false;
+
+-- Rollback: 20241004120001_rollback_feature_x.sql
+ALTER TABLE users DROP COLUMN feature_flag;
+DROP TABLE feature_data;
+```
+
+**Database backups before migrations:**
+
+Always create database backups before applying migrations to production:
+
+```bash
+# Backup production database
+pg_dump -h your-db-host -U postgres -d your_database > backup_pre_migration.sql
+
+# Apply migration
+supabase db push
+
+# If problems occur, restore backup
+psql -h your-db-host -U postgres -d your_database < backup_pre_migration.sql
+```
+
+**Point-in-time recovery:**
+
+[Unverified] Supabase projects may support point-in-time recovery, allowing database restoration to any moment before a problematic migration. Check your project's backup settings and retention periods.
+
+**Gradual rollout strategy:**
+
+Apply migrations to subsets of data first:
+
+```sql
+-- Phase 1: Apply to 10% of users
+UPDATE users
+SET new_feature_enabled = true
+WHERE id IN (
+  SELECT id FROM users 
+  WHERE MOD(HASHTEXT(id::TEXT), 10) = 0
+);
+
+-- Monitor for issues before proceeding
+
+-- Phase 2: Apply to remaining users
+UPDATE users
+SET new_feature_enabled = true
+WHERE new_feature_enabled = false;
+```
+
+**Feature flags in migrations:**
+
+Include feature flags in schema changes, allowing application-level rollback without database changes:
+
+```sql
+ALTER TABLE users ADD COLUMN use_new_system BOOLEAN DEFAULT false;
+
+-- Application can toggle behavior without migration rollback
+-- If issues occur, disable at application level
+```
+
+**Two-phase rollback:**
+
+For complex migrations, implement rollback in phases:
+
+```sql
+-- Phase 1: Disable new functionality
+ALTER TABLE products DISABLE TRIGGER new_feature_trigger;
+
+-- Phase 2: After confirming stability, remove completely
+DROP TRIGGER new_feature_trigger ON products;
+ALTER TABLE products DROP COLUMN new_feature_data;
+```
+
+**Rollback testing:**
+
+Test rollback procedures in staging environments:
+
+```bash
+# Staging environment
+supabase link --project-ref staging-project
+
+# Apply migration
+supabase migration new test_feature
+supabase db push
+
+# Test application with migration
+
+# Apply rollback
+supabase migration new rollback_test_feature
+supabase db push
+
+# Verify application still functions
+```
+
+**Documentation for rollback procedures:**
+
+Document rollback steps in migration files:
+
+```sql
+/*
+ROLLBACK PROCEDURE:
+1. Apply rollback migration: 20241004120001_rollback_user_preferences.sql
+2. Restart application servers to clear caches
+3. Verify users.preferences column removed
+4. Monitor error logs for 30 minutes
+
+ROLLBACK RISK: Medium
+- No data loss (column is nullable)
+- Application gracefully handles missing column
+
+RECOVERY TIME: ~5 minutes
+*/
+
+ALTER TABLE users DROP COLUMN preferences;
+```
+
+**Partial rollback strategies:**
+
+Sometimes full rollback isn't necessary. Remove only problematic portions:
+
+```sql
+-- Forward migration added multiple elements
+CREATE TABLE new_feature (...);
+ALTER TABLE users ADD COLUMN feature_flag BOOLEAN;
+CREATE INDEX idx_user_feature ON users(feature_flag);
+
+-- Partial rollback: Keep table but remove index if causing performance issues
+DROP INDEX idx_user_feature;
+```
+
+**Monitoring-driven rollback:**
+
+Establish monitoring thresholds that trigger rollback:
+
+- Error rate increases above baseline
+- Query performance degrades beyond acceptable limits
+- Application metrics show user impact
+
+Automate rollback triggers based on these metrics in your deployment pipeline.
+
+## Team Collaboration Workflows
+
+Team collaboration on database migrations requires coordination to prevent conflicts and maintain database integrity across multiple developers and environments.
+
+**Migration ownership:**
+
+Assign each migration to a specific developer responsible for creation, testing, and deployment. This person ensures the migration is correct and handles issues during deployment.
+
+**Pull request reviews:**
+
+Require code reviews for all migrations before merging:
+
+- **Schema review**: Verify table structures, relationships, and constraints are correct
+- **Performance review**: Check for missing indexes, potentially slow queries
+- **Backward compatibility**: Ensure changes don't break existing application code
+- **Rollback plan**: Confirm rollback strategy is documented and tested
+
+**Branch naming conventions:**
+
+Use consistent branch naming for migration work:
+
+```
+feature/add-user-preferences-table
+migration/optimize-product-indexes
+hotfix/fix-orders-constraint
+```
+
+**Merge order coordination:**
+
+When multiple developers create migrations simultaneously, coordinate merge order to maintain chronological migration sequence:
+
+1. First developer merges migration A (timestamp: 120000)
+2. Second developer rebases, ensuring migration B has later timestamp (120001)
+3. Second developer merges migration B
+
+**Communication protocols:**
+
+Establish communication channels for migration coordination:
+
+- Announce migration plans before creating them
+- Share migration status in team chat during deployment
+- Document breaking changes prominently
+- Create calendar entries for scheduled production migrations
+
+**Shared development database:**
+
+[Inference] Teams may maintain a shared development database separate from individual local databases. This environment tests migration interactions before staging deployment.
+
+**Migration review checklist:**
+
+```markdown
+## Migration Review Checklist
+
+- [ ] Migration file follows naming convention
+- [ ] SQL syntax is valid
+- [ ] Indexes added for foreign keys and frequent queries
+- [ ] RLS policies defined if applicable
+- [ ] Backward compatible with current application code
+- [ ] Rollback strategy documented
+- [ ] Tested locally with `supabase db reset`
+- [ ] No hardcoded production values
+- [ ] Comments explain complex logic
+- [ ] Related application code changes included
+```
+
+**Handling migration conflicts:**
+
+When two developers create migrations with conflicting changes:
+
+```bash
+# Developer A creates migration adding column 'status'
+# Developer B creates migration adding column 'state'
+
+# Resolution:
+1. Discuss which change should proceed
+2. Developer B updates migration to use agreed-upon column name
+3. Update application code accordingly
+4. Merge in sequence
+```
+
+**Pairing for complex migrations:**
+
+Schedule pair programming sessions for complex migrations involving data transformations or significant schema changes. Two perspectives reduce errors and improve design.
+
+**Migration documentation requirements:**
+
+Maintain a MIGRATIONS.md file documenting major changes:
+
+```markdown
+# Migration History
+
+## 2024-10-04: User Preferences System
+- **Migration**: `20241004120000_add_user_preferences.sql`
+- **Purpose**: Add user customization options
+- **Breaking Changes**: None
+- **Rollback**: `20241004120001_rollback_user_preferences.sql`
+- **Deployment Notes**: Applied to production 2024-10-05 03:00 UTC
+
+## 2024-10-01: Product Search Optimization
+- **Migration**: `20241001150000_add_product_search_index.sql`
+- **Purpose**: Improve search query performance
+- **Performance Impact**: Index creation takes ~2 minutes
+- **Deployment Notes**: Deployed during maintenance window
+```
+
+**Testing coordination:**
+
+Establish shared testing protocols:
+
+- All migrations must pass in local environment
+- Migrations must succeed in staging before production approval
+- Integration tests must pass with new schema
+- Performance tests verify no degradation
+
+**Emergency migration procedures:**
+
+Define fast-track procedures for critical hotfix migrations:
+
+1. Create migration with clear HOTFIX prefix
+2. Expedited review by senior developer
+3. Deploy to staging for minimal validation
+4. Deploy to production with rollback plan ready
+5. Monitor closely for 1 hour post-deployment
+
+## Branching and Preview Environments
+
+Branching strategies and preview environments enable parallel development of database changes while maintaining stability in shared environments.
+
+**Git branching strategies:**
+
+**Feature branch workflow:**
+
+```bash
+# Create feature branch
+git checkout -b feature/add-notifications-system
+
+# Create migration
+supabase migration new create_notifications_table
+
+# Develop and test locally
+supabase db reset
+
+# Commit migration
+git add supabase/migrations/
+git commit -m "Add notifications system migration"
+
+# Push and create PR
+git push origin feature/add-notifications-system
+```
+
+**Long-running branches:**
+
+For features requiring multiple migrations over time:
+
+```bash
+# Create long-lived feature branch
+git checkout -b feature/multi-tenant-support
+
+# Create migrations incrementally
+supabase migration new add_tenant_id_column
+# ... develop ...
+supabase migration new migrate_tenant_data
+# ... develop ...
+supabase migration new add_tenant_constraints
+
+# Periodically merge main into feature branch
+git merge main
+
+# Final merge when complete
+```
+
+**Migration conflicts resolution:**
+
+When rebasing or merging branches with migrations:
+
+```bash
+# Rebase feature branch onto main
+git rebase main
+
+# If migration timestamps conflict, rename
+mv supabase/migrations/20241004120000_my_migration.sql \
+   supabase/migrations/20241004130000_my_migration.sql
+
+# Update application code if needed
+git add .
+git rebase --continue
+```
+
+**Preview environments:**
+
+[Unverified] Supabase may support creating preview databases for pull requests, allowing each feature branch to have its own database instance.
+
+**Manual preview environment setup:**
+
+Create separate Supabase projects for preview environments:
+
+```bash
+# Link to preview project
+supabase link --project-ref preview-project-ref
+
+# Apply migrations to preview
+supabase db push
+
+# Test application against preview database
+SUPABASE_URL=https://preview-project.supabase.co npm run dev
+```
+
+**Seeding preview environments:**
+
+Create seed scripts for preview databases:
+
+```sql
+-- supabase/seed.sql
+INSERT INTO users (id, email, name) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'test@example.com', 'Test User'),
+  ('22222222-2222-2222-2222-222222222222', 'admin@example.com', 'Admin User');
+
+INSERT INTO products (name, price) VALUES
+  ('Test Product 1', 99.99),
+  ('Test Product 2', 49.99);
+```
+
+Apply seeds to preview:
+
+```bash
+supabase db reset  # Applies migrations and seeds
+```
+
+**Environment-specific migrations:**
+
+[Inference] Avoid creating environment-specific migrations. Instead, use configuration or feature flags to handle environment differences. All environments should use identical migration sets.
+
+**Parallel development isolation:**
+
+Each developer maintains their own local database:
+
+```bash
+# Developer 1 - local development
+supabase start  # Starts local Supabase
+supabase db reset  # Applies all migrations
+
+# Developer 2 - separate local instance
+supabase start  # Independent local database
+supabase db reset  # Same migrations, different data
+```
+
+**Preview database lifecycle:**
+
+Establish lifecycle policies for preview environments:
+
+- Create preview database when PR is opened
+- Apply branch's migrations automatically
+- Destroy preview database when PR is merged/closed
+- Limit preview database retention to 7-14 days
+
+**Continuous integration with migrations:**
+
+Configure CI/CD pipelines to test migrations:
+
+```yaml
+# .github/workflows/test-migrations.yml
+name: Test Migrations
+
+on: [pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+      
+      - name: Start Supabase
+        run: supabase start
+      
+      - name: Run migrations
+        run: supabase db reset
+      
+      - name: Verify schema
+        run: supabase db diff --schema public
+      
+      - name: Run tests
+        run: npm test
+```
+
+**Schema comparison across branches:**
+
+Compare schema between branches before merging:
+
+```bash
+# Check out main branch
+git checkout main
+supabase db reset
+pg_dump --schema-only > main_schema.sql
+
+# Check out feature branch
+git checkout feature/my-feature
+supabase db reset
+pg_dump --schema-only > feature_schema.sql
+
+# Compare schemas
+diff main_schema.sql feature_schema.sql
+```
+
+**Branch protection for migrations:**
+
+Configure repository branch protection rules:
+
+- Require migration review approval from database-experienced team members
+- Require CI tests to pass before merging
+- Prevent direct pushes to main branch
+- Require up-to-date branches before merging
+
+**Preview environment URLs:**
+
+When using preview environments, generate predictable URLs for testing:
+
+```
+Main: https://main-project.supabase.co
+Feature: https://feature-123-preview.supabase.co
+PR #45: https://pr-45-preview.supabase.co
+```
+
+**Environment synchronization:**
+
+Keep environments synchronized with production schema:
+
+```bash
+# Pull production schema to update local
+supabase db pull --project-ref production-ref
+
+# Generate migration from differences
+supabase db diff --file sync_with_production
+
+# Review and commit sync migration
+git add supabase/migrations/
+git commit -m "Sync with production schema"
+```
+
+**Migration testing in CI/CD:**
+
+```yaml
+# .github/workflows/migration-tests.yml
+name: Migration Tests
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+
+jobs:
+  test-migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Setup Supabase
+        uses: supabase/setup-cli@v1
+      
+      - name: Start local Supabase
+        run: supabase start
+      
+      - name: Test forward migrations
+        run: supabase db reset
+      
+      - name: Run integration tests
+        run: npm run test:integration
+      
+      - name: Test migration idempotency
+        run: supabase db reset
+      
+      - name: Validate schema
+        run: |
+          supabase db diff > schema_diff.txt
+          if [ -s schema_diff.txt ]; then
+            echo "Schema drift detected"
+            cat schema_diff.txt
+            exit 1
+          fi
+```
+
+**Collaborative migration planning:**
+
+Use planning documents for major migrations:
+
+```markdown
+# Migration Plan: User Multi-Factor Authentication
+
+## Goal
+Add MFA support to user authentication system
+
+## Migration Sequence
+
+### Migration 1: Add MFA tables
+- `user_mfa_methods` table
+- `user_mfa_backup_codes` table
+- Indexes and foreign keys
+
+### Migration 2: Add user MFA preferences
+- Add `mfa_enabled` column to users
+- Add `mfa_required` column to users
+- Default to false for backward compatibility
+
+### Migration 3: Create MFA functions
+- `generate_backup_codes()` function
+- `verify_mfa_code()` function
+- `rotate_mfa_secret()` function
+
+## Timeline
+- Week 1: Development and local testing
+- Week 2: Staging deployment and testing
+- Week 3: Production deployment (off-peak hours)
+
+## Rollback Strategy
+Each migration has corresponding rollback migration prepared
+
+## Testing Requirements
+- Unit tests for MFA functions
+- Integration tests for authentication flow
+- Load testing with MFA enabled
+
+## Dependencies
+- Application code changes in PR #234
+- Updated authentication documentation
+
+## Team Assignments
+- Database: @developer1
+- Backend: @developer2
+- Frontend: @developer3
+- QA: @tester1
+```
+
+**Preview environment automation:**
+
+[Inference] Automate preview environment creation with scripts:
+
+```bash
+#!/bin/bash
+# scripts/create-preview-env.sh
+
+PR_NUMBER=$1
+BRANCH_NAME=$2
+
+# Create preview project (if using Supabase API)
+PREVIEW_REF="pr-${PR_NUMBER}-preview"
+
+echo "Creating preview environment for PR #${PR_NUMBER}"
+
+# Link to preview project
+supabase link --project-ref ${PREVIEW_REF}
+
+# Apply migrations
+supabase db reset
+
+# Apply seed data
+psql $DATABASE_URL < supabase/seed.sql
+
+echo "Preview environment ready at https://${PREVIEW_REF}.supabase.co"
+```
+
+**Cross-team migration reviews:**
+
+For migrations affecting multiple teams:
+
+```markdown
+## Cross-Team Migration Review
+
+**Migration**: Add analytics events table
+**Affected Teams**: Backend, Data Engineering, Analytics
+
+### Backend Team Review
+- [ ] Schema design approved
+- [ ] Performance impact assessed
+- [ ] Integration points identified
+
+### Data Engineering Review
+- [ ] ETL pipeline compatibility verified
+- [ ] Data warehouse sync requirements noted
+- [ ] Partitioning strategy approved
+
+### Analytics Team Review
+- [ ] Event schema matches requirements
+- [ ] Reporting queries validated
+- [ ] Dashboard updates planned
+```
+
+**Handling emergency schema fixes:**
+
+Process for urgent production schema fixes:
+
+```bash
+# Create hotfix branch from main
+git checkout main
+git pull
+git checkout -b hotfix/fix-critical-constraint
+
+# Create migration
+supabase migration new hotfix_remove_invalid_constraint
+
+# Write minimal fix
+cat > supabase/migrations/20241004150000_hotfix_remove_invalid_constraint.sql << EOF
+-- HOTFIX: Remove invalid constraint causing production errors
+-- Ticket: URGENT-123
+-- Deployed: 2024-10-04 15:00 UTC
+
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS invalid_status_check;
+
+-- Add correct constraint
+ALTER TABLE orders ADD CONSTRAINT valid_status_check 
+  CHECK (status IN ('pending', 'processing', 'completed', 'cancelled'));
+EOF
+
+# Test locally
+supabase db reset
+
+# Fast-track review
+git add supabase/migrations/
+git commit -m "HOTFIX: Remove invalid constraint"
+git push origin hotfix/fix-critical-constraint
+
+# Create PR with URGENT label
+# Deploy immediately after approval
+```
+
+**Branch cleanup procedures:**
+
+Clean up migrations from abandoned branches:
+
+```bash
+# List branches with migrations
+git branch --all | grep feature/
+
+# Check if branch is stale
+git log feature/old-feature --since="30 days ago"
+
+# If abandoned, document and delete
+echo "Branch feature/old-feature abandoned, migrations never deployed" >> MIGRATION_LOG.md
+git branch -D feature/old-feature
+git push origin --delete feature/old-feature
+```
+
+**Environment promotion workflow:**
+
+Promote migrations through environments systematically:
+
+```
+Local → Staging → Production
+
+1. Developer creates migration locally
+2. PR merged to main
+3. Auto-deploy to staging
+4. QA testing in staging
+5. Scheduled production deployment
+6. Post-deployment monitoring
+```
+
+**Staging environment parity:**
+
+Maintain staging environment that mirrors production:
+
+```bash
+# Periodic staging refresh from production
+pg_dump production_db | psql staging_db
+
+# Apply any new migrations
+supabase link --project-ref staging-project
+supabase db push
+
+# Anonymize sensitive data
+psql staging_db << EOF
+UPDATE users SET 
+  email = 'user_' || id || '@example.com',
+  phone = NULL;
+UPDATE orders SET customer_notes = 'Test data';
+EOF
+```
+
+**Documenting deployment procedures:**
+
+Create deployment runbooks for migrations:
+
+```markdown
+# Production Migration Deployment - User MFA System
+
+## Pre-Deployment Checklist
+- [ ] Staging testing completed successfully
+- [ ] Rollback migration prepared and tested
+- [ ] Database backup created
+- [ ] Team notified of deployment window
+- [ ] Monitoring dashboards open
+
+## Deployment Steps
+
+1. **Verify current state** (15:00 UTC)
+   ``bash
+   supabase migration list --project-ref production
+   ``
+
+2. **Create backup** (15:05 UTC)
+    
+    `bash
+    ./scripts/backup-production.sh
+    ``
+    
+3. **Apply migration** (15:10 UTC)
+    
+    ``bash
+    supabase db push --project-ref production
+    ``
+    
+4. **Verify schema** (15:15 UTC)
+    
+    `bash
+    supabase db diff --project-ref production
+    `
+    
+5. **Run validation queries** (15:20 UTC)
+    
+    ```sql
+    SELECT COUNT(*) FROM user_mfa_methods;
+    SELECT * FROM users WHERE mfa_enabled = true LIMIT 5;
+    ``
+    
+2. **Deploy application code** (15:25 UTC)
+   
+    - Deploy backend services
+    - Deploy frontend assets
+    - Verify health checks
+      
+3. **Monitor for 30 minutes** (15:30-16:00 UTC)
+   
+    - Check error rates
+    - Monitor query performance
+    - Verify user reports
+
+## Rollback Procedure
+
+If issues detected:
+
+1. **Stop deployment**
+    
+    ``bash
+    ./scripts/stop-deployment.sh
+    ``
+    
+2. **Apply rollback migration**
+    
+    `bash
+    supabase migration new rollback_mfa_system
+    supabase db push --project-ref production
+    ``
+    
+3. **Revert application code**
+    
+    ``bash
+    ./scripts/deploy-previous-version.sh
+    ``
+    
+4. **Verify rollback**
+    
+    - Confirm old schema restored
+    - Test core functionality
+    - Monitor error rates
+
+## Post-Deployment
+
+- [ ] Update MIGRATIONS.md with deployment notes
+- [ ] Close deployment ticket
+- [ ] Schedule retrospective if issues occurred
+- [ ] Archive backup after 30 days
+```
+
+**Important related topics:** Schema validation and constraint design patterns, managing database permissions and roles through migrations, implementing audit logging for schema changes, database performance testing strategies for migrations, handling timezone and data type migrations, coordinating frontend and backend deployments with database changes, disaster recovery procedures for failed migrations, implementing database seeding strategies for different environments, managing secrets and environment variables across branches, schema documentation generation and maintenance.
+
+---
+
+# Framework Integration
+
+## Next.js Integration Patterns
+
+**Key Points:**
+
+- Supabase provides official support for Next.js through `@supabase/ssr` package
+- Integration differs between App Router and Pages Router architectures
+- Requires careful handling of client/server component boundaries
+- Cookie-based session management for server-side operations
+
+### App Router Implementation
+
+The App Router uses React Server Components by default, requiring separate client configurations:
+
+```typescript
+// utils/supabase/server.ts
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+
+export function createClient() {
+  const cookieStore = cookies()
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          cookieStore.set({ name, value, ...options })
+        },
+        remove(name: string, options: CookieOptions) {
+          cookieStore.set({ name, value: '', ...options })
+        },
+      },
+    }
+  )
+}
+```
+
+```typescript
+// utils/supabase/client.ts
+import { createBrowserClient } from '@supabase/ssr'
+
+export function createClient() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+}
+```
+
+### Pages Router Implementation
+
+Pages Router uses a middleware-based approach for authentication:
+
+```typescript
+// utils/supabase-server.ts
+import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
+import type { NextApiRequest, NextApiResponse } from 'next'
+
+export const createClient = (req: NextApiRequest, res: NextApiResponse) => {
+  return createServerSupabaseClient({ req, res })
+}
+```
+
+### Middleware Configuration
+
+Authentication state synchronization across requests:
+
+```typescript
+// middleware.ts
+import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+
+export async function middleware(req: NextRequest) {
+  const res = NextResponse.next()
+  const supabase = createMiddlewareClient({ req, res })
+  await supabase.auth.getSession()
+  return res
+}
+
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+}
+```
+
+### Route Handlers and API Routes
+
+```typescript
+// app/api/data/route.ts
+import { createClient } from '@/utils/supabase/server'
+import { NextResponse } from 'next/server'
+
+export async function GET() {
+  const supabase = createClient()
+  const { data, error } = await supabase.from('users').select()
+  
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+  
+  return NextResponse.json({ data })
+}
+```
+
+### Protected Routes Pattern
+
+```typescript
+// app/dashboard/page.tsx
+import { redirect } from 'next/navigation'
+import { createClient } from '@/utils/supabase/server'
+
+export default async function DashboardPage() {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  
+  if (!user) {
+    redirect('/login')
+  }
+  
+  return <div>Protected Dashboard Content</div>
+}
+```
+
+### Real-time Subscriptions in Client Components
+
+```typescript
+'use client'
+
+import { createClient } from '@/utils/supabase/client'
+import { useEffect, useState } from 'react'
+
+export function RealtimeComponent() {
+  const [messages, setMessages] = useState([])
+  const supabase = createClient()
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('messages')
+      .on('postgres_changes', 
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => setMessages(prev => [...prev, payload.new])
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
+
+  return <div>{/* Render messages */}</div>
+}
+```
+
+## React Integration
+
+**Key Points:**
+
+- Direct client-side integration using `@supabase/supabase-js`
+- Context-based authentication state management
+- Custom hooks for common operations
+- Real-time subscription lifecycle management
+
+### Basic Setup
+
+```typescript
+// supabaseClient.ts
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL!
+const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY!
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+```
+
+### Authentication Context
+
+```typescript
+// contexts/AuthContext.tsx
+import { createContext, useContext, useEffect, useState } from 'react'
+import { Session, User } from '@supabase/supabase-js'
+import { supabase } from '../supabaseClient'
+
+interface AuthContextType {
+  user: User | null
+  session: Session | null
+  signIn: (email: string, password: string) => Promise<void>
+  signOut: () => Promise<void>
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null)
+  const [session, setSession] = useState<Session | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+      setUser(session?.user ?? null)
+      setLoading(false)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session)
+        setUser(session?.user ?? null)
+      }
+    )
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  const signIn = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw error
+  }
+
+  const signOut = async () => {
+    const { error } = await supabase.auth.signOut()
+    if (error) throw error
+  }
+
+  return (
+    <AuthContext.Provider value={{ user, session, signIn, signOut }}>
+      {!loading && children}
+    </AuthContext.Provider>
+  )
+}
+
+export const useAuth = () => {
+  const context = useContext(AuthContext)
+  if (context === undefined) {
+    throw new Error('useAuth must be used within AuthProvider')
+  }
+  return context
+}
+```
+
+### Custom Data Fetching Hook
+
+```typescript
+// hooks/useSupabaseQuery.ts
+import { useEffect, useState } from 'react'
+import { supabase } from '../supabaseClient'
+
+export function useSupabaseQuery<T>(
+  query: () => Promise<{ data: T | null; error: any }>
+) {
+  const [data, setData] = useState<T | null>(null)
+  const [error, setError] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    query()
+      .then(({ data, error }) => {
+        setData(data)
+        setError(error)
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  return { data, error, loading }
+}
+```
+
+### Protected Route Component
+
+```typescript
+// components/ProtectedRoute.tsx
+import { Navigate } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+
+export function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth()
+  
+  if (!user) {
+    return <Navigate to="/login" replace />
+  }
+  
+  return <>{children}</>
+}
+```
+
+## Vue.js Integration
+
+**Key Points:**
+
+- Composables for reactive Supabase operations
+- Pinia store integration for state management
+- Vue Router navigation guards for authentication
+- TypeScript support with proper type inference
+
+### Composable Setup
+
+```typescript
+// composables/useSupabase.ts
+import { createClient } from '@supabase/supabase-js'
+import { ref, computed } from 'vue'
+import type { User, Session } from '@supabase/supabase-js'
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+export function useAuth() {
+  const user = ref<User | null>(null)
+  const session = ref<Session | null>(null)
+  const loading = ref(true)
+
+  const isAuthenticated = computed(() => !!user.value)
+
+  const initialize = async () => {
+    const { data: { session: currentSession } } = await supabase.auth.getSession()
+    session.value = currentSession
+    user.value = currentSession?.user ?? null
+    loading.value = false
+
+    supabase.auth.onAuthStateChange((_event, newSession) => {
+      session.value = newSession
+      user.value = newSession?.user ?? null
+    })
+  }
+
+  const signIn = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+    if (error) throw error
+    return data
+  }
+
+  const signOut = async () => {
+    const { error } = await supabase.auth.signOut()
+    if (error) throw error
+  }
+
+  return {
+    user,
+    session,
+    loading,
+    isAuthenticated,
+    initialize,
+    signIn,
+    signOut,
+  }
+}
+```
+
+### Pinia Store Integration
+
+```typescript
+// stores/auth.ts
+import { defineStore } from 'pinia'
+import { supabase } from '@/composables/useSupabase'
+import type { User } from '@supabase/supabase-js'
+
+export const useAuthStore = defineStore('auth', {
+  state: () => ({
+    user: null as User | null,
+    loading: false,
+  }),
+
+  getters: {
+    isAuthenticated: (state) => !!state.user,
+  },
+
+  actions: {
+    async initialize() {
+      const { data: { session } } = await supabase.auth.getSession()
+      this.user = session?.user ?? null
+
+      supabase.auth.onAuthStateChange((_event, session) => {
+        this.user = session?.user ?? null
+      })
+    },
+
+    async signIn(email: string, password: string) {
+      this.loading = true
+      try {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        })
+        if (error) throw error
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async signOut() {
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
+    },
+  },
+})
+```
+
+### Router Guards
+
+```typescript
+// router/index.ts
+import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    {
+      path: '/dashboard',
+      component: () => import('@/views/Dashboard.vue'),
+      meta: { requiresAuth: true },
+    },
+    // other routes
+  ],
+})
+
+router.beforeEach(async (to, from, next) => {
+  const authStore = useAuthStore()
+  
+  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+    next('/login')
+  } else {
+    next()
+  }
+})
+
+export default router
+```
+
+### Component Usage
+
+```vue
+<!-- components/UserProfile.vue -->
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { supabase } from '@/composables/useSupabase'
+
+interface Profile {
+  id: string
+  username: string
+  avatar_url: string
+}
+
+const profile = ref<Profile | null>(null)
+const loading = ref(true)
+
+onMounted(async () => {
+  const { data: { user } } = await supabase.auth.getUser()
+  
+  if (user) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single()
+    
+    profile.value = data
+  }
+  
+  loading.value = false
+})
+</script>
+
+<template>
+  <div v-if="loading">Loading...</div>
+  <div v-else-if="profile">
+    <h2>{{ profile.username }}</h2>
+    <img :src="profile.avatar_url" />
+  </div>
+</template>
+```
+
+## Svelte Integration
+
+**Key Points:**
+
+- Svelte stores for reactive authentication state
+- SvelteKit-specific server/client patterns
+- Form actions for server-side mutations
+- Type-safe database queries with generated types
+
+### Client Setup
+
+```typescript
+// lib/supabaseClient.ts
+import { createClient } from '@supabase/supabase-js'
+import { writable } from 'svelte/store'
+import type { User, Session } from '@supabase/supabase-js'
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+export const user = writable<User | null>(null)
+export const session = writable<Session | null>(null)
+
+supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
+  session.set(currentSession)
+  user.set(currentSession?.user ?? null)
+})
+
+supabase.auth.onAuthStateChange((_event, newSession) => {
+  session.set(newSession)
+  user.set(newSession?.user ?? null)
+})
+```
+
+### SvelteKit Server-Side Integration
+
+```typescript
+// src/hooks.server.ts
+import { createServerClient } from '@supabase/ssr'
+import type { Handle } from '@sveltejs/kit'
+
+export const handle: Handle = async ({ event, resolve }) => {
+  event.locals.supabase = createServerClient(
+    process.env.PUBLIC_SUPABASE_URL!,
+    process.env.PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get: (key) => event.cookies.get(key),
+        set: (key, value, options) => {
+          event.cookies.set(key, value, options)
+        },
+        remove: (key, options) => {
+          event.cookies.delete(key, options)
+        },
+      },
+    }
+  )
+
+  event.locals.getSession = async () => {
+    const {
+      data: { session },
+    } = await event.locals.supabase.auth.getSession()
+    return session
+  }
+
+  return resolve(event, {
+    filterSerializedResponseHeaders(name) {
+      return name === 'content-range'
+    },
+  })
+}
+```
+
+### Page Load Function
+
+```typescript
+// routes/dashboard/+page.server.ts
+import { redirect } from '@sveltejs/kit'
+import type { PageServerLoad } from './$types'
+
+export const load: PageServerLoad = async ({ locals: { supabase, getSession } }) => {
+  const session = await getSession()
+
+  if (!session) {
+    throw redirect(303, '/login')
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', session.user.id)
+    .single()
+
+  return {
+    session,
+    profile,
+  }
+}
+```
+
+### Form Actions
+
+```typescript
+// routes/login/+page.server.ts
+import { fail, redirect } from '@sveltejs/kit'
+import type { Actions } from './$types'
+
+export const actions: Actions = {
+  login: async ({ request, locals: { supabase } }) => {
+    const formData = await request.formData()
+    const email = formData.get('email') as string
+    const password = formData.get('password') as string
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+
+    if (error) {
+      return fail(400, { email, error: error.message })
+    }
+
+    throw redirect(303, '/dashboard')
+  },
+}
+```
+
+### Component with Real-time Subscription
+
+```svelte
+<!-- routes/messages/+page.svelte -->
+<script lang="ts">
+  import { onMount, onDestroy } from 'svelte'
+  import { supabase } from '$lib/supabaseClient'
+  
+  let messages: any[] = []
+  let channel: any
+
+  onMount(() => {
+    loadMessages()
+    
+    channel = supabase
+      .channel('messages')
+      .on('postgres_changes', 
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          messages = [...messages, payload.new]
+        }
+      )
+      .subscribe()
+  })
+
+  onDestroy(() => {
+    if (channel) {
+      supabase.removeChannel(channel)
+    }
+  })
+
+  async function loadMessages() {
+    const { data } = await supabase
+      .from('messages')
+      .select('*')
+      .order('created_at', { ascending: false })
+    
+    if (data) messages = data
+  }
+</script>
+
+<div>
+  {#each messages as message}
+    <div>{message.content}</div>
+  {/each}
+</div>
+```
+
+## React Native Mobile Apps
+
+**Key Points:**
+
+- AsyncStorage for persistent session storage
+- Deep linking for OAuth callbacks
+- Biometric authentication integration
+- Offline-first patterns with local caching
+
+### Project Setup
+
+```typescript
+// lib/supabase.ts
+import 'react-native-url-polyfill/auto'
+import { createClient } from '@supabase/supabase-js'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    storage: AsyncStorage,
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+  },
+})
+```
+
+### Authentication Context
+
+```typescript
+// contexts/AuthContext.tsx
+import { createContext, useContext, useEffect, useState } from 'react'
+import { Session } from '@supabase/supabase-js'
+import { supabase } from '../lib/supabase'
+
+interface AuthContextType {
+  session: Session | null
+  loading: boolean
+}
+
+const AuthContext = createContext<AuthContextType>({
+  session: null,
+  loading: true,
+})
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [session, setSession] = useState<Session | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+      setLoading(false)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session)
+      }
+    )
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  return (
+    <AuthContext.Provider value={{ session, loading }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export const useAuth = () => useContext(AuthContext)
+```
+
+### OAuth with Deep Linking (Expo)
+
+```typescript
+// app.json configuration
+{
+  "expo": {
+    "scheme": "myapp",
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
+  }
+}
+```
+
+```typescript
+// screens/Auth.tsx
+import { supabase } from '../lib/supabase'
+import * as WebBrowser from 'expo-web-browser'
+import { makeRedirectUri } from 'expo-auth-session'
+
+WebBrowser.maybeCompleteAuthSession()
+
+const redirectTo = makeRedirectUri()
+
+async function signInWithGithub() {
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'github',
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true,
+    },
+  })
+
+  if (error) throw error
+
+  const res = await WebBrowser.openAuthSessionAsync(
+    data.url,
+    redirectTo
+  )
+
+  if (res.type === 'success') {
+    const { url } = res
+    const params = new URLSearchParams(url.split('#')[1])
+    const accessToken = params.get('access_token')
+    
+    if (accessToken) {
+      await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: params.get('refresh_token')!,
+      })
+    }
+  }
+}
+```
+
+### Biometric Authentication
+
+```typescript
+// hooks/useBiometrics.ts
+import * as LocalAuthentication from 'expo-local-authentication'
+import { useEffect, useState } from 'react'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+
+export function useBiometrics() {
+  const [isAvailable, setIsAvailable] = useState(false)
+
+  useEffect(() => {
+    checkBiometrics()
+  }, [])
+
+  async function checkBiometrics() {
+    const compatible = await LocalAuthentication.hasHardwareAsync()
+    const enrolled = await LocalAuthentication.isEnrolledAsync()
+    setIsAvailable(compatible && enrolled)
+  }
+
+  async function authenticate() {
+    const result = await LocalAuthentication.authenticateAsync({
+      promptMessage: 'Authenticate to access your account',
+      fallbackLabel: 'Use passcode',
+    })
+    return result.success
+  }
+
+  async function enableBiometrics(credentials: { email: string; password: string }) {
+    await AsyncStorage.setItem('biometrics_enabled', 'true')
+    await AsyncStorage.setItem('credentials', JSON.stringify(credentials))
+  }
+
+  return {
+    isAvailable,
+    authenticate,
+    enableBiometrics,
+  }
+}
+```
+
+### Offline Data Sync
+
+```typescript
+// hooks/useOfflineSync.ts
+import { useEffect, useState } from 'react'
+import { supabase } from '../lib/supabase'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import NetInfo from '@react-native-community/netinfo'
+
+export function useOfflineSync<T>(
+  table: string,
+  cacheKey: string
+) {
+  const [data, setData] = useState<T[]>([])
+  const [isOnline, setIsOnline] = useState(true)
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsOnline(state.isConnected ?? false)
+    })
+
+    loadData()
+    return unsubscribe
+  }, [])
+
+  async function loadData() {
+    // Try loading from cache first
+    const cached = await AsyncStorage.getItem(cacheKey)
+    if (cached) {
+      setData(JSON.parse(cached))
+    }
+
+    // Fetch fresh data if online
+    if (isOnline) {
+      const { data: freshData } = await supabase
+        .from(table)
+        .select('*')
+      
+      if (freshData) {
+        setData(freshData)
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(freshData))
+      }
+    }
+  }
+
+  return { data, isOnline, refresh: loadData }
+}
+```
+
+## Flutter Integration
+
+**Key Points:**
+
+- Official `supabase_flutter` package with platform-specific handling
+- Deep linking configuration for iOS and Android
+- Provider or Riverpod for state management
+- GoRouter integration for authentication routing
+
+### Project Setup
+
+```yaml
+# pubspec.yaml
+dependencies:
+  supabase_flutter: ^2.0.0
+  flutter_secure_storage: ^9.0.0
+```
+
+```dart
+// lib/main.dart
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Supabase.initialize(
+    url: const String.fromEnvironment('SUPABASE_URL'),
+    anonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
+    authOptions: const FlutterAuthClientOptions(
+      authFlowType: AuthFlowType.pkce,
+    ),
+  );
+
+  runApp(const MyApp());
+}
+
+final supabase = Supabase.instance.client;
+```
+
+### Deep Linking Configuration
+
+```xml
+<!-- android/app/src/main/AndroidManifest.xml -->
+<manifest>
+  <application>
+    <activity>
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data
+          android:scheme="myapp"
+          android:host="login-callback" />
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
+```
+
+```xml
+<!-- ios/Runner/Info.plist -->
+<key>CFBundleURLTypes</key>
+<array>
+  <dict>
+    <key>CFBundleTypeRole</key>
+    <string>Editor</string>
+    <key>CFBundleURLSchemes</key>
+    <array>
+      <string>myapp</string>
+    </array>
+  </dict>
+</array>
+```
+
+### Authentication Service
+
+```dart
+// lib/services/auth_service.dart
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+class AuthService {
+  final SupabaseClient _client = Supabase.instance.client;
+
+  Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
+
+  User? get currentUser => _client.auth.currentUser;
+
+  Future<AuthResponse> signIn({
+    required String email,
+    required String password,
+  }) async {
+    return await _client.auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
+  }
+
+  Future<AuthResponse> signUp({
+    required String email,
+    required String password,
+  }) async {
+    return await _client.auth.signUp(
+      email: email,
+      password: password,
+    );
+  }
+
+  Future<void> signOut() async {
+    await _client.auth.signOut();
+  }
+
+  Future<void> signInWithOAuth(OAuthProvider provider) async {
+    await _client.auth.signInWithOAuth(
+      provider,
+      redirectTo: 'myapp://login-callback',
+    );
+  }
+}
+```
+
+### State Management with Provider
+
+```dart
+// lib/providers/auth_provider.dart
+import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+class AuthProvider extends ChangeNotifier {
+  User? _user;
+  bool _isLoading = true;
+
+  User? get user => _user;
+  bool get isLoading => _isLoading;
+  bool get isAuthenticated => _user != null;
+
+  AuthProvider() {
+    _initialize();
+  }
+
+  void _initialize() {
+    _user = Supabase.instance.client.auth.currentUser;
+    _isLoading = false;
+    notifyListeners();
+
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      _user = data.session?.user;
+      notifyListeners();
+    });
+  }
+
+  Future<void> signIn(String email, String password) async {
+    final response = await Supabase.instance.client.auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
+    _user = response.user;
+    notifyListeners();
+  }
+
+  Future<void> signOut() async {
+    await Supabase.instance.client.auth.signOut();
+    _user = null;
+    notifyListeners();
+  }
+}
+```
+
+### GoRouter Authentication
+
+```dart
+// lib/router/app_router.dart
+import 'package:go_router/go_router.dart';
+import 'package:flutter/material.dart';
+
+final router = GoRouter(
+  redirect: (context, state) {
+    final isAuthenticated = Supabase.instance.client.auth.currentUser != null;
+    final isLoginRoute = state.matchedLocation == '/login';
+
+    if (!isAuthenticated && !isLoginRoute) {
+      return '/login';
+    }
+    if (isAuthenticated && isLoginRoute) {
+      return '/dashboard';
+    }
+    return null;
+  },
+  routes: [
+    GoRoute(
+      path: '/login',
+      builder: (context, state) => const LoginScreen(),
+    ),
+    GoRoute(
+      path: '/dashboard',
+      builder: (context, state) => const DashboardScreen(),
+    ),
+  ],
+);
+```
+
+### Real-time Data Widget
+
+```dart
+// lib/widgets/realtime_messages.dart
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+class RealtimeMessages extends StatefulWidget {
+  const RealtimeMessages({Key? key}) : super(key: key);
+
+  @override
+  State<RealtimeMessages> createState() => _RealtimeMessagesState();
+}
+
+class _RealtimeMessagesState extends State<RealtimeMessages> {
+  final _supabase = Supabase.instance.client;
+  List<Map<String, dynamic>> _messages = [];
+  RealtimeChannel? _channel;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMessages();
+    _setupRealtimeSubscription();
+  }
+
+  Future<void> _loadMessages() async {
+    final response = await _supabase
+        .from('messages')
+        .select()
+        .order('created_at', ascending: false);
+    
+    setState(() {
+      _messages = List<Map<String, dynamic>>.from(response);
+    });
+  }
+
+  void _setupRealtimeSubscription() {
+    _channel = _supabase
+        .channel('messages')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'messages',
+          callback: (payload) {
+            setState(() {
+              _messages.insert(0, payload.newRecord);
+            });
+          },
+        )
+        .subscribe();
+  }
+
+  @override
+  void dispose() {
+    _supabase.removeChannel(_channel!);
+    super.dispose();
+}
+
+@override 
+Widget build(BuildContext context) {
+  return ListView.builder(
+    itemCount: _messages.length,
+    itemBuilder: (context, index) {
+      final message = _messages[index];
+      return ListTile(
+        title: Text(message['content'] ?? ''),
+        subtitle: Text(message['created_at'] ?? ''),
+      );
+    },
+  );
+}
+````
+
+### File Upload with Progress
+
+```dart
+// lib/services/storage_service.dart
+import 'dart:io';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+class StorageService {
+  final _supabase = Supabase.instance.client;
+
+  Future<String> uploadFile({
+    required String bucket,
+    required String path,
+    required File file,
+    Function(double)? onProgress,
+  }) async {
+    final bytes = await file.readAsBytes();
+    
+    await _supabase.storage.from(bucket).uploadBinary(
+      path,
+      bytes,
+      fileOptions: FileOptions(
+        contentType: _getContentType(file.path),
+      ),
+    );
+
+    return _supabase.storage.from(bucket).getPublicUrl(path);
+  }
+
+  String _getContentType(String path) {
+    final ext = path.split('.').last.toLowerCase();
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'pdf':
+        return 'application/pdf';
+      default:
+        return 'application/octet-stream';
+    }
+  }
+
+  Future<List<FileObject>> listFiles(String bucket, String path) async {
+    return await _supabase.storage.from(bucket).list(path: path);
+  }
+
+  Future<void> deleteFile(String bucket, String path) async {
+    await _supabase.storage.from(bucket).remove([path]);
+  }
+}
+````
+
+## Server-Side Rendering Considerations
+
+**Key Points:**
+
+- Cookie-based session management for SSR frameworks
+- Request/response context handling for authentication
+- Hydration mismatches between server and client
+- Edge runtime compatibility considerations
+
+### Session Management Pattern
+
+Server-side rendering requires passing cookies between server and client contexts to maintain authentication state. The session token must be accessible on both the server during initial render and the client during hydration.
+
+```typescript
+// Pattern for Next.js App Router
+// Server Component
+const supabase = createClient() // Uses cookies() from next/headers
+const { data } = await supabase.from('posts').select()
+
+// Client Component
+'use client'
+const supabase = createClient() // Uses browser's cookie storage
+```
+
+### Avoiding Hydration Mismatches
+
+When authentication state differs between server render and client hydration, React will throw hydration errors. [Inference: This occurs because the server renders with one user state while the client initializes with a different state]:
+
+```typescript
+// Problematic pattern
+export default function Page() {
+  const { user } = useAuth() // May differ between server/client
+  
+  return <div>{user ? 'Logged in' : 'Logged out'}</div>
+}
+
+// Better pattern
+export default function Page() {
+  const [mounted, setMounted] = useState(false)
+  const { user } = useAuth()
+  
+  useEffect(() => setMounted(true), [])
+  
+  if (!mounted) return null // Skip server render
+  
+  return <div>{user ? 'Logged in' : 'Logged out'}</div>
+}
+```
+
+### Edge Runtime Compatibility
+
+[Inference: Edge runtimes have limitations compared to Node.js environments]:
+
+```typescript
+// edge-compatible configuration
+export const runtime = 'edge'
+
+// Avoid Node.js-specific APIs
+// ❌ import fs from 'fs'
+// ❌ import crypto from 'crypto'
+
+// Use Web APIs instead
+// ✅ fetch API
+// ✅ Web Crypto API
+```
+
+### Data Fetching Strategies
+
+**Server-Side Data Fetching:**
+
+```typescript
+// Next.js - Server Component
+export default async function PostsPage() {
+  const supabase = createClient()
+  const { data: posts } = await supabase.from('posts').select()
+  
+  return <PostsList posts={posts} />
+}
+```
+
+**Client-Side Data Fetching:**
+
+```typescript
+// Client Component with SWR
+'use client'
+import useSWR from 'swr'
+
+export function PostsList() {
+  const { data: posts } = useSWR('posts', async () => {
+    const supabase = createClient()
+    const { data } = await supabase.from('posts').select()
+    return data
+  })
+  
+  return <div>{/* Render posts */}</div>
+}
+```
+
+### Caching Strategies
+
+[Inference: SSR frameworks typically cache server-rendered pages for performance]:
+
+```typescript
+// Next.js 15 - Force dynamic rendering
+export const dynamic = 'force-dynamic'
+
+// Or use revalidation
+export const revalidate = 60 // Revalidate every 60 seconds
+
+export default async function Page() {
+  const supabase = createClient()
+  const { data } = await supabase.from('posts').select()
+  
+  return <PostsList posts={data} />
+}
+```
+
+### Authentication Flow in SSR
+
+```typescript
+// middleware.ts - Next.js
+export async function middleware(request: NextRequest) {
+  const res = NextResponse.next()
+  const supabase = createMiddlewareClient({ req: request, res })
+  
+  // Refresh session if expired
+  const { data: { session } } = await supabase.auth.getSession()
+  
+  // Protect routes
+  if (!session && request.nextUrl.pathname.startsWith('/dashboard')) {
+    return NextResponse.redirect(new URL('/login', request.url))
+  }
+  
+  return res
+}
+```
+
+### Server Actions Integration
+
+```typescript
+// app/actions/posts.ts - Next.js Server Actions
+'use server'
+
+import { createClient } from '@/utils/supabase/server'
+import { revalidatePath } from 'next/cache'
+
+export async function createPost(formData: FormData) {
+  const supabase = createClient()
+  
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+  
+  const title = formData.get('title') as string
+  const content = formData.get('content') as string
+  
+  const { error } = await supabase
+    .from('posts')
+    .insert({ title, content, user_id: user.id })
+  
+  if (error) throw error
+  
+  revalidatePath('/posts')
+}
+```
+
+## Static Site Generation
+
+**Key Points:**
+
+- Authentication requires client-side hydration
+- Public data can be fetched at build time
+- Incremental Static Regeneration for dynamic content
+- Edge functions for authentication-dependent pages
+
+### Build-Time Data Fetching
+
+```typescript
+// Next.js - Static Generation
+export async function generateStaticParams() {
+  const supabase = createClient()
+  const { data: posts } = await supabase.from('posts').select('slug')
+  
+  return posts?.map((post) => ({
+    slug: post.slug,
+  })) ?? []
+}
+
+export default async function Post({ params }: { params: { slug: string } }) {
+  const supabase = createClient()
+  const { data: post } = await supabase
+    .from('posts')
+    .select()
+    .eq('slug', params.slug)
+    .single()
+  
+  return <article>{/* Render post */}</article>
+}
+```
+
+### Incremental Static Regeneration
+
+```typescript
+// Revalidate every 3600 seconds (1 hour)
+export const revalidate = 3600
+
+export default async function BlogPage() {
+  const supabase = createClient()
+  const { data: posts } = await supabase
+    .from('posts')
+    .select()
+    .order('created_at', { ascending: false })
+    .limit(10)
+  
+  return <PostsList posts={posts} />
+}
+```
+
+### Client-Side Authentication
+
+```typescript
+// Static page with client-side auth
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<Loading />}>
+      <ClientDashboard />
+    </Suspense>
+  )
+}
+
+function ClientDashboard() {
+  'use client'
+  const supabase = createClient()
+  const [user, setUser] = useState(null)
+  const [data, setData] = useState(null)
+  
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user)
+      if (user) {
+        supabase.from('user_data').select().then(({ data }) => {
+          setData(data)
+        })
+      }
+    })
+  }, [])
+  
+  if (!user) return <Navigate to="/login" />
+  
+  return <div>{/* Render dashboard */}</div>
+}
+```
+
+### Gatsby Integration
+
+```javascript
+// gatsby-config.js
+require('dotenv').config()
+
+module.exports = {
+  plugins: [
+    {
+      resolve: 'gatsby-source-custom-api',
+      options: {
+        url: process.env.GATSBY_SUPABASE_URL,
+        rootKey: 'data',
+        schemas: {
+          posts: `
+            query {
+              posts {
+                id
+                title
+                content
+                created_at
+              }
+            }
+          `,
+        },
+      },
+    },
+  ],
+}
+```
+
+```javascript
+// src/pages/index.js
+import React from 'react'
+import { graphql } from 'gatsby'
+
+export default function IndexPage({ data }) {
+  return (
+    <div>
+      {data.allPosts.nodes.map(post => (
+        <article key={post.id}>
+          <h2>{post.title}</h2>
+          <p>{post.content}</p>
+        </article>
+      ))}
+    </div>
+  )
+}
+
+export const query = graphql`
+  query {
+    allPosts {
+      nodes {
+        id
+        title
+        content
+        created_at
+      }
+    }
+  }
+`
+```
+
+### Astro Integration
+
+```typescript
+// src/lib/supabase.ts
+import { createClient } from '@supabase/supabase-js'
+
+export const supabase = createClient(
+  import.meta.env.PUBLIC_SUPABASE_URL,
+  import.meta.env.PUBLIC_SUPABASE_ANON_KEY
+)
+```
+
+```astro
+---
+// src/pages/posts/[slug].astro
+import { supabase } from '../../lib/supabase'
+
+export async function getStaticPaths() {
+  const { data: posts } = await supabase.from('posts').select('slug')
+  
+  return posts.map(post => ({
+    params: { slug: post.slug },
+  }))
+}
+
+const { slug } = Astro.params
+const { data: post } = await supabase
+  .from('posts')
+  .select()
+  .eq('slug', slug)
+  .single()
+---
+
+<article>
+  <h1>{post.title}</h1>
+  <div>{post.content}</div>
+</article>
+```
+
+### Hybrid Rendering Approach
+
+[Inference: Combining static generation with dynamic client-side features provides optimal performance while maintaining interactivity]:
+
+```typescript
+// Static shell with dynamic content
+export default async function Page() {
+  // Static layout and navigation
+  return (
+    <Layout>
+      <StaticHeader />
+      <Suspense fallback={<Skeleton />}>
+        <DynamicContent />
+      </Suspense>
+      <StaticFooter />
+    </Layout>
+  )
+}
+
+function DynamicContent() {
+  'use client'
+  // Client-side data fetching for personalized content
+  const { data } = useSupabaseQuery()
+  return <div>{/* Render dynamic data */}</div>
+}
+```
+
+**Example: E-commerce Site**
+
+- Product catalog: Static generation at build time
+- User cart: Client-side state with Supabase real-time
+- Inventory counts: Incremental Static Regeneration
+- User authentication: Client-side only
+
+**Example: Blog Platform**
+
+- Published posts: Static generation
+- Draft previews: Server-side rendering
+- Comments: Client-side real-time subscriptions
+- Author dashboard: Client-side with authentication
+
+**Conclusion:**
+
+Framework integration with Supabase requires understanding each framework's rendering model, authentication flow, and state management patterns. Server-side rendering frameworks need careful cookie handling, while static site generation requires hybrid approaches combining build-time data fetching with client-side authentication. Mobile frameworks prioritize offline capabilities and platform-specific features like biometric authentication and deep linking. Selecting the appropriate integration pattern depends on application requirements for real-time features, authentication complexity, and performance characteristics.
+
+**Related topics:** OAuth provider configuration, database type generation for TypeScript, real-time presence features, file upload optimization, offline-first architecture patterns, cross-platform state synchronization, server components vs client components trade-offs, edge function integration with frameworks.
+
+---
+
+# Monitoring & Debugging in Supabase
+
+Supabase provides comprehensive monitoring and debugging capabilities to help you maintain application health, identify performance bottlenecks, and troubleshoot issues effectively. These tools span database operations, API usage, authentication events, storage metrics, and serverless function execution.
+
+## Dashboard Metrics and Analytics
+
+The Supabase dashboard provides a centralized view of your project's operational metrics across multiple dimensions.
+
+**Key Points:**
+
+- **API Usage Metrics**: Track total requests, requests per second, response times, and error rates for your API endpoints
+- **Database Activity**: Monitor active connections, query execution counts, and database size growth over time
+- **Authentication Metrics**: View sign-ups, sign-ins, failed authentication attempts, and active user sessions
+- **Storage Metrics**: Track uploaded files, total storage consumed, and bandwidth usage
+- **Real-time Metrics**: Monitor active WebSocket connections and message throughput for real-time subscriptions
+- **Time Range Selection**: Analyze metrics across different time periods (hourly, daily, weekly, monthly)
+- **Visual Representations**: Graphs and charts provide quick insights into trends and anomalies
+
+The dashboard automatically aggregates data and presents it in an accessible format without requiring additional configuration.
+
+## Query Performance Monitoring
+
+Understanding how your database queries perform is critical for maintaining responsive applications.
+
+**Key Points:**
+
+- **Query Statistics**: Access detailed information about query execution through `pg_stat_statements` extension
+- **Execution Time Tracking**: Identify slow queries by examining average, minimum, and maximum execution times
+- **Query Frequency**: See how often specific queries run to identify optimization opportunities
+- **Explain Plans**: Use PostgreSQL's `EXPLAIN` and `EXPLAIN ANALYZE` to understand query execution plans
+- **Index Usage**: Monitor index hit ratios and identify missing indexes that could improve performance
+- **Cache Hit Ratio**: Track how often data is served from memory versus disk
+- **Long-Running Queries**: Identify queries that exceed acceptable execution thresholds
+
+**Example:**
+
+```sql
+-- Enable pg_stat_statements extension
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+-- View slowest queries
+SELECT 
+  query,
+  calls,
+  mean_exec_time,
+  total_exec_time,
+  rows
+FROM pg_stat_statements
+ORDER BY mean_exec_time DESC
+LIMIT 10;
+
+-- Check current running queries
+SELECT 
+  pid,
+  now() - query_start AS duration,
+  state,
+  query
+FROM pg_stat_activity
+WHERE state != 'idle'
+ORDER BY duration DESC;
+```
+
+## Log Inspection
+
+Supabase provides access to various log types for comprehensive debugging.
+
+**Key Points:**
+
+- **API Logs**: Track HTTP requests to your Supabase API including method, path, status code, and response time
+- **Database Logs**: Access PostgreSQL logs for connection events, query errors, and performance warnings
+- **Authentication Logs**: Monitor login attempts, password resets, and token operations
+- **Real-time Logs**: Debug WebSocket connections and subscription events
+- **Function Logs**: View console output and errors from Edge Functions
+- **Storage Logs**: Track file upload/download operations and access patterns
+- **Filtering Capabilities**: Search logs by timestamp, log level (info, warning, error), or specific keywords
+- **Log Retention**: [Inference] Log retention periods vary by plan tier
+
+**Example:**
+
+```javascript
+// Function logs can be viewed in dashboard
+// Add structured logging in your Edge Functions
+console.log(JSON.stringify({
+  level: 'info',
+  message: 'User action completed',
+  userId: user.id,
+  timestamp: new Date().toISOString()
+}));
+```
+
+## Error Tracking
+
+Proactive error monitoring helps you identify and resolve issues before they impact users significantly.
+
+**Key Points:**
+
+- **Database Errors**: Track constraint violations, type mismatches, and query syntax errors
+- **API Errors**: Monitor 4xx and 5xx response codes from your API endpoints
+- **Authentication Errors**: Identify failed login attempts, expired tokens, and permission denials
+- **Rate Limit Violations**: Track instances where rate limits are exceeded
+- **Function Errors**: Capture runtime errors, timeouts, and memory issues in Edge Functions
+- **Error Grouping**: Similar errors are grouped together for easier analysis
+- **Error Context**: View request parameters, user context, and stack traces when available
+
+## Database Health Monitoring
+
+Maintaining database health ensures consistent application performance and reliability.
+
+**Key Points:**
+
+- **CPU Utilization**: Monitor database CPU usage to identify compute bottlenecks
+- **Memory Usage**: Track RAM consumption and identify memory-intensive operations
+- **Disk I/O**: Monitor read/write operations and identify I/O bottlenecks
+- **Replication Lag**: [Inference] For projects with read replicas, monitor replication delay
+- **Vacuum Operations**: Track autovacuum activity to ensure table bloat is controlled
+- **Table Sizes**: Monitor individual table growth and identify unexpectedly large tables
+- **Index Bloat**: Identify indexes that may need rebuilding due to excessive size
+
+**Example:**
+
+```sql
+-- Check table sizes
+SELECT 
+  schemaname,
+  tablename,
+  pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size
+FROM pg_tables
+WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC
+LIMIT 20;
+
+-- Check database cache hit ratio (should be > 99%)
+SELECT 
+  sum(heap_blks_read) AS heap_read,
+  sum(heap_blks_hit) AS heap_hit,
+  sum(heap_blks_hit) / (sum(heap_blks_hit) + sum(heap_blks_read)) AS cache_hit_ratio
+FROM pg_stattistic_user_tables;
+```
+
+## Connection Monitoring
+
+Database connections are a finite resource that must be carefully managed.
+
+**Key Points:**
+
+- **Active Connections**: View current number of active database connections
+- **Connection Limits**: Understand your plan's connection limit and current utilization
+- **Connection Sources**: Identify which services or clients are consuming connections
+- **Idle Connections**: Detect connections that remain open but inactive
+- **Connection Pooling**: Supabase uses PgBouncer for connection pooling in transaction mode
+- **Connection Errors**: Track connection failures and timeout issues
+- **Pool Saturation**: Monitor when connection pool approaches maximum capacity
+
+**Example:**
+
+```sql
+-- View current connections
+SELECT 
+  datname,
+  usename,
+  application_name,
+  client_addr,
+  state,
+  query_start
+FROM pg_stat_activity
+WHERE datname IS NOT NULL;
+
+-- Count connections by state
+SELECT 
+  state,
+  count(*) 
+FROM pg_stat_activity 
+GROUP BY state;
+```
+
+## Storage Usage Tracking
+
+Monitoring storage helps manage costs and prevent capacity issues.
+
+**Key Points:**
+
+- **Total Storage Used**: Track cumulative storage across database and file storage
+- **Storage by Bucket**: View storage consumption per bucket in Supabase Storage
+- **File Count**: Monitor number of files stored in each bucket
+- **Bandwidth Usage**: Track upload and download bandwidth consumption
+- **Large Files**: Identify unusually large files that may warrant optimization
+- **Growth Trends**: Analyze storage growth over time to forecast capacity needs
+- **Storage Limits**: Monitor usage against plan limits
+
+**Example:**
+
+```sql
+-- Check database size
+SELECT 
+  pg_size_pretty(pg_database_size(current_database())) AS database_size;
+
+-- Query storage bucket sizes via Supabase API
+// Using JavaScript client
+const { data, error } = await supabase
+  .storage
+  .getBucket('bucket-name');
+```
+
+## Function Execution Logs
+
+Edge Functions require specialized monitoring for serverless execution patterns.
+
+**Key Points:**
+
+- **Invocation Count**: Track how frequently each function is called
+- **Execution Duration**: Monitor function runtime to identify slow operations
+- **Cold Starts**: [Inference] Track initialization time for functions after idle periods
+- **Memory Usage**: Monitor memory consumption during function execution
+- **Error Rates**: Identify functions with high failure rates
+- **Timeout Events**: Detect functions that exceed execution time limits
+- **Console Output**: View `console.log()` statements and debugging information
+- **Request/Response Payloads**: [Inference] Examine input parameters and output data for debugging
+
+**Example:**
+
+```typescript
+// Edge Function with structured logging
+Deno.serve(async (req) => {
+  const startTime = Date.now();
+  
+  try {
+    console.log('Function invoked', { 
+      method: req.method,
+      url: req.url 
+    });
+    
+    // Function logic
+    const result = await processRequest(req);
+    
+    console.log('Function completed', { 
+      duration: Date.now() - startTime,
+      status: 'success'
+    });
+    
+    return new Response(JSON.stringify(result), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Function error', { 
+      error: error.message,
+      stack: error.stack,
+      duration: Date.now() - startTime
+    });
+    
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+});
+```
+
+## Third-Party Monitoring Tools Integration
+
+Supabase can integrate with external monitoring platforms for advanced observability.
+
+**Key Points:**
+
+- **Prometheus Integration**: [Inference] Export metrics in Prometheus format for custom monitoring
+- **Datadog**: Integrate with Datadog for centralized logging and APM
+- **Sentry**: Connect Sentry for error tracking and performance monitoring
+- **LogDNA/LogTail**: Stream logs to external logging platforms
+- **Custom Webhooks**: [Inference] Configure webhooks to send events to external systems
+- **API Monitoring**: Use tools like Pingdom or UptimeRobot to monitor API availability
+- **Database Monitoring**: Connect tools like pganalyze or Metis for deep PostgreSQL insights
+
+**Example:**
+
+```javascript
+// Sentry integration in Edge Function
+import * as Sentry from 'https://deno.land/x/sentry/index.mjs';
+
+Sentry.init({
+  dsn: 'your-sentry-dsn',
+  tracesSampleRate: 1.0,
+});
+
+Deno.serve(async (req) => {
+  try {
+    // Your function logic
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+});
+```
+
+---
+
+**Related topics you may want to explore:**
+
+- Performance optimization strategies for PostgreSQL in Supabase
+- Setting up alerts and notifications for critical metrics
+- Database backup and point-in-time recovery
+- Implementing observability best practices in production environments
+- Rate limiting and quota management
+
+---
+
+
+# Production Deployment
+
+Production deployment in Supabase involves configuring your project for reliability, security, and performance in a live environment. This requires careful planning across environment management, infrastructure configuration, data protection, and operational monitoring.
+
+## Environment Management
+
+Supabase projects can be organized into separate environments to isolate development work from production data and traffic. The typical structure includes development, staging, and production environments.
+
+**Development environments** serve as sandboxes where developers can test features, experiment with schema changes, and debug issues without affecting real users. These environments typically use separate Supabase projects with their own databases and API endpoints.
+
+**Staging environments** mirror production configurations as closely as possible, serving as final testing grounds before releases. Database schemas, security policies, and infrastructure settings should match production to catch environment-specific issues.
+
+**Production environments** host live user data and handle real traffic. These require the highest standards for security, reliability, and performance monitoring.
+
+Each environment maintains its own API keys, connection strings, and configuration variables. Migration workflows typically involve testing changes in development, validating in staging, then carefully deploying to production with rollback plans ready.
+
+## Custom Domains
+
+Supabase projects initially receive default subdomains for API and database access. Custom domains provide branded URLs and can be configured for both the API endpoint and authentication redirects.
+
+Custom domain setup involves updating DNS records to point to Supabase infrastructure. You configure CNAME records at your DNS provider pointing to your Supabase project's default domain. The API endpoint might use `api.yourdomain.com` while authentication could use `auth.yourdomain.com`.
+
+After DNS propagation, you update your application code to reference the custom domains instead of default Supabase URLs. Environment variables should store these endpoints for easy configuration management across deployments.
+
+## SSL/TLS Configuration
+
+Supabase automatically provisions and manages SSL/TLS certificates for all projects, including custom domains. This encryption secures data in transit between clients and Supabase services.
+
+Default Supabase domains come with SSL certificates pre-configured. When adding custom domains, Supabase handles certificate provisioning through automated certificate authorities, typically completing within minutes to hours after DNS verification.
+
+All API requests, database connections, and authentication flows use HTTPS/TLS by default. Connection strings for direct database access should use SSL mode to ensure encrypted connections. The minimum TLS version and cipher suites are managed by Supabase infrastructure.
+
+## Backup Strategies
+
+Supabase provides automated backup systems, but production deployments require understanding backup coverage, retention periods, and restoration procedures.
+
+**Automated backups** run daily on Pro tier and above, capturing full database snapshots. These backups are stored securely and retained according to your plan's retention period—typically 7 days for Pro tier, with longer retention on Team and Enterprise plans.
+
+**Custom backup strategies** supplement automated backups for critical data. This includes exporting specific tables, creating logical dumps using `pg_dump`, or replicating data to external storage systems. Regular exports provide additional recovery options independent of Supabase infrastructure.
+
+**Backup verification** ensures backups are valid and restorable. Periodic restoration tests to staging environments confirm backup integrity and document recovery procedures. Testing helps teams understand recovery time objectives and identify potential issues before emergencies.
+
+Database schema changes, migration history, and configuration settings should also be version-controlled separately from data backups, typically in Git repositories alongside application code.
+
+## Point-in-Time Recovery
+
+Point-in-time recovery (PITR) enables restoring databases to any specific moment within the retention window, not just daily backup snapshots. This feature is available on higher-tier Supabase plans.
+
+PITR works through continuous archiving of write-ahead logs (WAL), capturing every database transaction. When recovery is needed, you specify a target timestamp, and Supabase reconstructs the database state at that exact moment by replaying transactions.
+
+This capability proves critical when data corruption or incorrect updates are discovered hours after occurrence. Rather than losing a full day's work by restoring the previous night's backup, PITR can restore to moments before the problem, minimizing data loss.
+
+Recovery time objectives vary based on database size and how far back you're restoring. Planning should account for potential downtime during recovery operations and include procedures for notifying users during restoration.
+
+## Disaster Recovery Planning
+
+Disaster recovery plans document procedures for responding to catastrophic failures, including data loss, infrastructure outages, security breaches, or regional service disruptions.
+
+**Recovery objectives** define acceptable data loss (Recovery Point Objective - RPO) and downtime (Recovery Time Objective - RTO). A production system might target RPO of 1 hour and RTO of 4 hours, meaning accepting at most 1 hour of lost data and 4 hours to restore service.
+
+**Geographic redundancy** protects against regional failures. [Inference] While Supabase handles infrastructure redundancy within regions, cross-region disaster recovery typically requires replicating data to separate Supabase projects or external systems. This provides fallback options if an entire region becomes unavailable.
+
+**Runbooks** document step-by-step recovery procedures for various failure scenarios. These include contact information, access credentials (stored securely), decision trees for determining appropriate responses, and checklists ensuring no steps are missed during high-pressure situations.
+
+**Regular drills** validate disaster recovery plans by simulating failures and executing recovery procedures. These exercises identify gaps in documentation, test backup restoration, and train team members on emergency procedures.
+
+## Scaling Considerations
+
+Supabase projects must scale to handle growing user bases, increasing data volumes, and expanding feature sets. Scaling involves both vertical scaling (more powerful resources) and horizontal strategies (distributing load).
+
+**Database scaling** begins with upgrading compute resources through Supabase plan tiers. Higher tiers provide more CPU, memory, and dedicated resources. Monitoring query performance helps identify optimization opportunities before requiring hardware upgrades.
+
+**Connection pooling** efficiently manages database connections at scale. Supabase includes built-in connection pooling through PgBouncer, allowing thousands of client connections to share a smaller pool of actual database connections. Applications should use pooled connection strings rather than direct database connections for better scalability.
+
+**Read replicas** [Unverified] may be available on higher Supabase tiers, distributing read queries across multiple database instances while writes go to the primary. This architecture suits read-heavy applications where most operations query existing data rather than creating updates.
+
+**Edge Functions** handle serverless compute workloads, automatically scaling based on demand. Computationally intensive tasks or external API integrations run in Edge Functions rather than database functions, keeping database resources focused on data operations.
+
+**Storage optimization** includes archiving old data, implementing data retention policies, and using appropriate indexes. Large tables benefit from partitioning strategies that improve query performance by organizing data into manageable segments.
+
+## Cost Optimization
+
+Production costs require ongoing attention to balance performance needs with budget constraints. Supabase pricing includes compute resources, storage, bandwidth, and additional services.
+
+**Resource monitoring** identifies usage patterns and optimization opportunities. The Supabase dashboard provides metrics on database size, API requests, bandwidth consumption, and compute utilization. Unusual spikes might indicate inefficient queries, unnecessary data transfers, or potential issues requiring investigation.
+
+**Query optimization** reduces resource consumption by ensuring efficient database operations. Proper indexing, avoiding N+1 queries, and using appropriate data types all contribute to lower resource usage. Slow query logs help identify problematic operations consuming disproportionate resources.
+
+**Storage management** controls costs through data retention policies, compression, and appropriate use of Supabase Storage versus database storage. Large files belong in Supabase Storage (object storage) rather than database columns, both for cost efficiency and performance.
+
+**Bandwidth optimization** minimizes data transfer costs through efficient API design. Pagination limits response sizes, field selection returns only needed columns, and caching strategies reduce redundant requests. Edge caching can serve frequently accessed content without hitting origin servers.
+
+**Plan selection** should match actual usage patterns. Starting with appropriate tiers and adjusting based on real usage prevents both overpaying for unused capacity and experiencing service limitations from undersized plans.
+
+## Monitoring Production Health
+
+Continuous monitoring detects issues before they impact users and provides visibility into system behavior during incidents.
+
+**Metrics collection** tracks key performance indicators including API response times, error rates, database query performance, connection pool utilization, and resource consumption. The Supabase dashboard provides built-in metrics, while external monitoring tools can aggregate data across your entire infrastructure stack.
+
+**Alerting thresholds** notify teams when metrics exceed acceptable ranges. Alerts might trigger when error rates spike, response times degrade, database connections approach pool limits, or disk usage crosses critical thresholds. Alert fatigue from overly sensitive thresholds reduces effectiveness, so tuning alerts to catch genuine issues without excessive noise is important.
+
+**Log aggregation** centralizes application logs, database logs, and infrastructure logs for correlation during investigations. Supabase provides access to logs through the dashboard and API. Shipping logs to external systems enables long-term retention, advanced analysis, and unified views across multiple services.
+
+**Error tracking** captures application exceptions and errors with context including stack traces, user sessions, and environmental conditions. Integration with error tracking services provides automated grouping, impact assessment, and notification workflows.
+
+**Uptime monitoring** regularly tests service availability from external locations. Synthetic monitoring simulates user workflows, detecting failures in API endpoints, authentication flows, or database connectivity before real users encounter problems.
+
+**Performance profiling** during incidents or degraded performance helps identify bottlenecks. Database query analysis tools, API request tracing, and resource profiling pinpoint specific operations causing problems. Having profiling tools configured before emergencies enables faster investigation during critical situations.
+
+**Important related topics**: Database performance tuning in Supabase, implementing Row Level Security policies for production, Supabase Edge Functions deployment patterns, implementing database migrations with zero downtime, PostgreSQL-specific production optimization strategies.
+
+---
+
+#  Advanced Topics
+
+## Database Extensions
+
+Supabase provides access to numerous PostgreSQL extensions that extend database functionality beyond standard SQL capabilities. Extensions are pre-packaged modules that add specialized features, from scheduling tasks to handling vector data for machine learning applications.
+
+### Available Extensions
+
+Supabase enables several dozen PostgreSQL extensions by default and allows activation of others through the dashboard. Core extensions include:
+
+**pg_cron** - Task scheduling directly within PostgreSQL. Executes SQL commands on schedules using cron syntax without external job runners.
+
+**pgvector** - Vector similarity search for embeddings. Stores high-dimensional vectors and performs nearest neighbor searches for AI/ML applications.
+
+**postgis** - Geographic information system capabilities. Handles spatial data types, geographic queries, and coordinate system transformations.
+
+**pg_stat_statements** - Query performance tracking. Records execution statistics for all SQL statements to identify slow queries.
+
+**uuid-ossp** - UUID generation functions. Creates various UUID versions for unique identifiers.
+
+**pg_trgm** - Trigram matching for fuzzy text search. Enables similarity comparisons and index-accelerated pattern matching.
+
+**pgjwt** - JWT token creation and validation within PostgreSQL. Generates and verifies JSON Web Tokens using database functions.
+
+**http** - HTTP client functionality. Makes outbound HTTP requests directly from SQL queries.
+
+**pg_net** - Asynchronous networking. Performs non-blocking HTTP requests and webhook calls from database functions.
+
+### Enabling Extensions
+
+Extensions activate through the Supabase dashboard or SQL:
+
+```sql
+-- Via SQL
+CREATE EXTENSION IF NOT EXISTS pgvector;
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+-- Check enabled extensions
+SELECT * FROM pg_extension;
+```
+
+Through the dashboard: Database → Extensions → Enable desired extension.
+
+[Inference] Most extensions require no additional configuration after enabling, though some like pg_cron may need schema permissions adjusted.
+
+### pg_cron for Scheduled Tasks
+
+pg_cron executes SQL on recurring schedules without external infrastructure.
+
+```sql
+-- Enable extension
+CREATE EXTENSION pg_cron;
+
+-- Schedule daily cleanup at 3 AM
+SELECT cron.schedule(
+  'daily-cleanup',
+  '0 3 * * *',
+  $$DELETE FROM logs WHERE created_at < NOW() - INTERVAL '30 days'$$
+);
+
+-- Schedule hourly aggregation
+SELECT cron.schedule(
+  'hourly-stats',
+  '0 * * * *',
+  $$
+    INSERT INTO hourly_metrics (hour, user_count)
+    SELECT DATE_TRUNC('hour', NOW()), COUNT(DISTINCT user_id)
+    FROM activity_logs
+    WHERE created_at >= NOW() - INTERVAL '1 hour'
+  $$
+);
+
+-- List scheduled jobs
+SELECT * FROM cron.job;
+
+-- Unschedule a job
+SELECT cron.unschedule('daily-cleanup');
+
+-- View job run history
+SELECT * FROM cron.job_run_details 
+ORDER BY start_time DESC 
+LIMIT 10;
+```
+
+Cron syntax follows standard format: minute, hour, day-of-month, month, day-of-week.
+
+**Common patterns:**
+- `'*/15 * * * *'` - Every 15 minutes
+- `'0 */6 * * *'` - Every 6 hours
+- `'0 0 * * 0'` - Weekly on Sunday midnight
+- `'0 2 1 * *'` - First day of month at 2 AM
+
+[Unverified] pg_cron jobs run with the permissions of the role that created them. Job execution failures appear in `cron.job_run_details` with error messages.
+
+### pgvector for Vector Embeddings
+
+pgvector stores and queries high-dimensional vectors for semantic search, recommendations, and AI applications.
+
+```sql
+-- Enable extension
+CREATE EXTENSION vector;
+
+-- Create table with vector column
+CREATE TABLE documents (
+  id BIGSERIAL PRIMARY KEY,
+  content TEXT,
+  embedding VECTOR(1536),  -- Dimension matches your model
+  metadata JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Create index for fast similarity search
+CREATE INDEX ON documents 
+USING ivfflat (embedding vector_cosine_ops)
+WITH (lists = 100);
+
+-- Insert document with embedding
+INSERT INTO documents (content, embedding)
+VALUES (
+  'PostgreSQL is a powerful database',
+  '[0.1, 0.2, 0.3, ...]'::vector
+);
+
+-- Find similar documents (cosine similarity)
+SELECT 
+  id,
+  content,
+  1 - (embedding <=> '[0.15, 0.25, 0.35, ...]'::vector) AS similarity
+FROM documents
+ORDER BY embedding <=> '[0.15, 0.25, 0.35, ...]'::vector
+LIMIT 10;
+
+-- L2 distance (Euclidean)
+SELECT content
+FROM documents
+ORDER BY embedding <-> '[0.1, 0.2, ...]'::vector
+LIMIT 5;
+
+-- Inner product
+SELECT content
+FROM documents
+ORDER BY embedding <#> '[0.1, 0.2, ...]'::vector DESC
+LIMIT 5;
+```
+
+**Distance operators:**
+- `<=>` Cosine distance (1 - cosine similarity)
+- `<->` L2/Euclidean distance
+- `<#>` Negative inner product
+
+**Index types:**
+
+**IVFFlat** - Divides vectors into lists, searches nearest lists. Faster but approximate.
+```sql
+CREATE INDEX ON documents 
+USING ivfflat (embedding vector_cosine_ops)
+WITH (lists = 100);
+```
+
+**HNSW** - Hierarchical graph structure, better recall than IVFFlat.
+```sql
+CREATE INDEX ON documents 
+USING hnsw (embedding vector_cosine_ops);
+```
+
+[Inference] The `lists` parameter for IVFFlat typically uses `rows / 1000` as a starting point. Higher values increase accuracy but slow queries. HNSW generally provides better accuracy-speed tradeoffs for most workloads.
+
+### Integration with Embeddings APIs
+
+Typical workflow combines Supabase with embedding models:
+
+```javascript
+import { createClient } from '@supabase/supabase-js'
+import OpenAI from 'openai'
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
+const openai = new OpenAI({ apiKey: OPENAI_KEY })
+
+// Generate embedding
+async function generateEmbedding(text) {
+  const response = await openai.embeddings.create({
+    model: 'text-embedding-3-small',
+    input: text
+  })
+  return response.data[0].embedding
+}
+
+// Store document with embedding
+async function storeDocument(content) {
+  const embedding = await generateEmbedding(content)
+  
+  const { data, error } = await supabase
+    .from('documents')
+    .insert({
+      content,
+      embedding
+    })
+  
+  return { data, error }
+}
+
+// Semantic search
+async function searchSimilar(query, limit = 5) {
+  const embedding = await generateEmbedding(query)
+  
+  const { data, error } = await supabase.rpc('match_documents', {
+    query_embedding: embedding,
+    match_threshold: 0.7,
+    match_count: limit
+  })
+  
+  return { data, error }
+}
+```
+
+Database function for semantic search:
+
+```sql
+CREATE OR REPLACE FUNCTION match_documents(
+  query_embedding VECTOR(1536),
+  match_threshold FLOAT,
+  match_count INT
+)
+RETURNS TABLE (
+  id BIGINT,
+  content TEXT,
+  similarity FLOAT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    documents.id,
+    documents.content,
+    1 - (documents.embedding <=> query_embedding) AS similarity
+  FROM documents
+  WHERE 1 - (documents.embedding <=> query_embedding) > match_threshold
+  ORDER BY documents.embedding <=> query_embedding
+  LIMIT match_count;
+END;
+$$;
+```
+
+## Full-Text Search with Extensions
+
+PostgreSQL provides built-in full-text search capabilities enhanced by extensions for fuzzy matching, highlighting, and ranking.
+
+### Built-in Full-Text Search
+
+PostgreSQL's native full-text search uses tsvector and tsquery types:
+
+```sql
+-- Add tsvector column
+ALTER TABLE articles 
+ADD COLUMN content_search TSVECTOR
+GENERATED ALWAYS AS (
+  to_tsvector('english', title || ' ' || body)
+) STORED;
+
+-- Create GIN index for fast search
+CREATE INDEX articles_search_idx 
+ON articles 
+USING GIN (content_search);
+
+-- Simple search
+SELECT title, body
+FROM articles
+WHERE content_search @@ to_tsquery('english', 'postgresql & database');
+
+-- Ranked search
+SELECT 
+  title,
+  ts_rank(content_search, query) AS rank
+FROM articles, 
+     to_tsquery('english', 'postgresql | postgres') query
+WHERE content_search @@ query
+ORDER BY rank DESC;
+
+-- Headline extraction (snippets)
+SELECT 
+  title,
+  ts_headline('english', body, query, 'MaxWords=50, MinWords=30') AS snippet
+FROM articles,
+     to_tsquery('english', 'machine & learning') query
+WHERE content_search @@ query;
+```
+
+**Text search configurations** support multiple languages: `'english'`, `'spanish'`, `'french'`, `'german'`, etc. Each handles language-specific stemming and stop words.
+
+### pg_trgm for Fuzzy Search
+
+pg_trgm enables similarity-based matching and typo tolerance:
+
+```sql
+-- Enable extension
+CREATE EXTENSION pg_trgm;
+
+-- Create trigram index
+CREATE INDEX articles_title_trgm_idx 
+ON articles 
+USING GIN (title gin_trgm_ops);
+
+-- Fuzzy search with ILIKE
+SELECT title
+FROM articles
+WHERE title ILIKE '%postgrsql%';  -- Finds "PostgreSQL" despite typo
+
+-- Similarity search
+SELECT 
+  title,
+  similarity(title, 'PostgreSQL Database') AS sim
+FROM articles
+WHERE similarity(title, 'PostgreSQL Database') > 0.3
+ORDER BY sim DESC;
+
+-- Word similarity (better for partial matches)
+SELECT title
+FROM articles
+WHERE title % 'postgres'  -- % operator uses similarity
+ORDER BY similarity(title, 'postgres') DESC;
+
+-- Trigram distance
+SELECT 
+  title,
+  title <-> 'postgresql guide' AS distance
+FROM articles
+ORDER BY distance
+LIMIT 10;
+```
+
+**Similarity operators:**
+- `%` - Similarity operator (>= threshold)
+- `<->` - Distance operator (lower is more similar)
+- `similarity(text, text)` - Returns similarity score (0-1)
+
+### Combined Approach
+
+Hybrid search combines full-text and fuzzy matching:
+
+```sql
+-- Search function with multiple strategies
+CREATE OR REPLACE FUNCTION search_articles(
+  search_term TEXT,
+  similarity_threshold FLOAT DEFAULT 0.3
+)
+RETURNS TABLE (
+  id BIGINT,
+  title TEXT,
+  body TEXT,
+  relevance FLOAT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+  WITH fts_results AS (
+    SELECT 
+      a.id,
+      a.title,
+      a.body,
+      ts_rank(a.content_search, query) * 2 AS score
+    FROM articles a,
+         to_tsquery('english', search_term) query
+    WHERE a.content_search @@ query
+  ),
+  fuzzy_results AS (
+    SELECT 
+      a.id,
+      a.title,
+      a.body,
+      similarity(a.title || ' ' || a.body, search_term) AS score
+    FROM articles a
+    WHERE similarity(a.title || ' ' || a.body, search_term) > similarity_threshold
+  )
+  SELECT 
+    COALESCE(f.id, fz.id) AS id,
+    COALESCE(f.title, fz.title) AS title,
+    COALESCE(f.body, fz.body) AS body,
+    COALESCE(f.score, 0) + COALESCE(fz.score, 0) AS relevance
+  FROM fts_results f
+  FULL OUTER JOIN fuzzy_results fz ON f.id = fz.id
+  ORDER BY relevance DESC;
+END;
+$$;
+```
+
+### Search with RLS
+
+Full-text search respects Row Level Security:
+
+```sql
+-- Enable RLS
+ALTER TABLE articles ENABLE ROW LEVEL SECURITY;
+
+-- Policy for search
+CREATE POLICY "Users see published articles"
+ON articles
+FOR SELECT
+USING (
+  status = 'published' 
+  OR author_id = auth.uid()
+);
+
+-- Search automatically filters by policy
+SELECT title
+FROM articles
+WHERE content_search @@ to_tsquery('english', 'supabase');
+```
+
+## Multi-Tenancy Patterns
+
+Multi-tenancy isolates customer data within shared infrastructure. Supabase supports multiple approaches depending on isolation requirements and scale.
+
+### Row Level Security Pattern
+
+Most common pattern uses RLS to partition data by tenant within shared tables:
+
+```sql
+-- Users table with tenant association
+CREATE TABLE tenants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE profiles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants NOT NULL,
+  user_id UUID REFERENCES auth.users NOT NULL,
+  email TEXT,
+  role TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT,
+  created_by UUID REFERENCES auth.users,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
+
+-- Helper function to get user's tenant
+CREATE OR REPLACE FUNCTION auth.user_tenant_id()
+RETURNS UUID
+LANGUAGE sql STABLE
+AS $$
+  SELECT tenant_id 
+  FROM profiles 
+  WHERE user_id = auth.uid()
+  LIMIT 1;
+$$;
+
+-- RLS policies
+CREATE POLICY "Users access own tenant profiles"
+ON profiles FOR ALL
+USING (tenant_id = auth.user_tenant_id());
+
+CREATE POLICY "Users access own tenant documents"
+ON documents FOR ALL
+USING (tenant_id = auth.user_tenant_id());
+
+-- Indexes for tenant filtering
+CREATE INDEX profiles_tenant_id_idx ON profiles(tenant_id);
+CREATE INDEX documents_tenant_id_idx ON documents(tenant_id);
+```
+
+**Key points:**
+- All tables include `tenant_id` foreign key
+- RLS policies filter by tenant automatically
+- Indexes on `tenant_id` maintain query performance
+- User-tenant association stored in profiles table
+
+[Inference] The helper function `auth.user_tenant_id()` should be marked as `STABLE` rather than `IMMUTABLE` since it depends on `auth.uid()` which can change between transactions. The function caches within a single query execution.
+
+### Schema-Based Multi-Tenancy
+
+Separate PostgreSQL schemas per tenant provide stronger isolation:
+
+```sql
+-- Create tenant schema
+CREATE SCHEMA tenant_acme;
+CREATE SCHEMA tenant_globex;
+
+-- Create tables in tenant schema
+CREATE TABLE tenant_acme.documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  content TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE tenant_globex.documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  content TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Function to set search path
+CREATE OR REPLACE FUNCTION set_tenant_schema()
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  tenant_schema TEXT;
+BEGIN
+  -- Get tenant schema from user metadata
+  SELECT raw_user_meta_data->>'tenant_schema'
+  INTO tenant_schema
+  FROM auth.users
+  WHERE id = auth.uid();
+  
+  -- Set search path
+  EXECUTE format('SET search_path TO %I, public', tenant_schema);
+END;
+$$;
+
+-- Use in application
+-- Call set_tenant_schema() at connection start
+SELECT set_tenant_schema();
+
+-- Now queries automatically use correct schema
+SELECT * FROM documents;  -- Accesses tenant_acme.documents or tenant_globex.documents
+```
+
+**Advantages:**
+- Stronger data isolation
+- Simpler queries (no tenant_id filters)
+- Can apply schema-level permissions
+- Easier to backup/restore individual tenants
+
+**Disadvantages:**
+- More complex schema management
+- [Inference] Connection pooling becomes less efficient since connections can't be reused across tenants without changing search_path
+- Query planning may be less efficient across many schemas
+
+### Database-Per-Tenant
+
+[Unverified] Supabase Enterprise may support provisioning separate database instances per tenant, though this is not documented in standard plans. This provides maximum isolation but significantly increases infrastructure complexity and cost.
+
+For standard Supabase projects, this pattern is not available. Consider RLS or schema-based approaches instead.
+
+### Tenant Context in Edge Functions
+
+Edge Functions need explicit tenant context:
+
+```typescript
+import { createClient } from '@supabase/supabase-js'
+
+Deno.serve(async (req) => {
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_ANON_KEY')!,
+    {
+      global: {
+        headers: { Authorization: req.headers.get('Authorization')! }
+      }
+    }
+  )
+  
+  // Get user's tenant
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('tenant_id')
+    .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+    .single()
+  
+  // Query with tenant context (RLS applies automatically)
+  const { data: documents } = await supabase
+    .from('documents')
+    .select('*')
+  
+  return new Response(JSON.stringify(documents), {
+    headers: { 'Content-Type': 'application/json' }
+  })
+})
+```
+
+### Tenant Isolation Verification
+
+Test tenant isolation with multiple users:
+
+```sql
+-- Create test function
+CREATE OR REPLACE FUNCTION test_tenant_isolation()
+RETURNS TABLE (
+  test_name TEXT,
+  passed BOOLEAN,
+  details TEXT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- Test 1: User can only see own tenant data
+  RETURN QUERY
+  WITH user_count AS (
+    SELECT COUNT(DISTINCT tenant_id) as tenant_count
+    FROM documents
+  )
+  SELECT 
+    'Single tenant visibility'::TEXT,
+    tenant_count = 1,
+    format('User sees %s tenants', tenant_count)
+  FROM user_count;
+  
+  -- Add more isolation tests
+END;
+$$;
+```
+
+## Webhooks and Event-Driven Architecture
+
+Supabase supports database webhooks and event-driven patterns using PostgreSQL triggers and extensions.
+
+### Database Webhooks
+
+Database webhooks send HTTP requests when data changes:
+
+```sql
+-- Enable http extension
+CREATE EXTENSION IF NOT EXISTS http;
+
+-- Enable pg_net for async requests
+CREATE EXTENSION IF NOT EXISTS pg_net;
+
+-- Create webhook function
+CREATE OR REPLACE FUNCTION notify_webhook()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  webhook_url TEXT := 'https://your-app.com/webhooks/database';
+  payload JSONB;
+BEGIN
+  -- Build payload
+  payload := jsonb_build_object(
+    'table', TG_TABLE_NAME,
+    'operation', TG_OP,
+    'record', row_to_json(NEW),
+    'old_record', row_to_json(OLD),
+    'timestamp', NOW()
+  );
+  
+  -- Async HTTP request (non-blocking)
+  PERFORM net.http_post(
+    url := webhook_url,
+    headers := '{"Content-Type": "application/json"}'::jsonb,
+    body := payload
+  );
+  
+  RETURN NEW;
+END;
+$$;
+
+-- Attach trigger
+CREATE TRIGGER orders_webhook
+AFTER INSERT OR UPDATE OR DELETE ON orders
+FOR EACH ROW
+EXECUTE FUNCTION notify_webhook();
+```
+
+**Synchronous webhooks** using http extension (blocks transaction):
+
+```sql
+CREATE OR REPLACE FUNCTION sync_webhook()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  response http_response;
+BEGIN
+  SELECT * INTO response
+  FROM http_post(
+    'https://api.example.com/webhook',
+    jsonb_build_object('data', row_to_json(NEW))::text,
+    'application/json'
+  );
+  
+  -- Check response
+  IF response.status != 200 THEN
+    RAISE EXCEPTION 'Webhook failed: %', response.status;
+  END IF;
+  
+  RETURN NEW;
+END;
+$$;
+```
+
+[Unverified] Synchronous webhooks can timeout and block transactions. Asynchronous webhooks using pg_net are generally preferred for reliability, though they don't provide immediate response feedback.
+
+### Database Change Listeners
+
+Supabase Realtime provides change listeners without custom triggers:
+
+```javascript
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
+
+// Listen to all changes
+const channel = supabase
+  .channel('db-changes')
+  .on(
+    'postgres_changes',
+    {
+      event: '*',
+      schema: 'public',
+      table: 'orders'
+    },
+    (payload) => {
+      console.log('Change:', payload)
+      // Process change event
+    }
+  )
+  .subscribe()
+
+// Listen to specific events
+supabase
+  .channel('inserts-only')
+  .on(
+    'postgres_changes',
+    {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'orders'
+    },
+    (payload) => {
+      console.log('New order:', payload.new)
+    }
+  )
+  .subscribe()
+
+// Filter by column value
+supabase
+  .channel('high-value-orders')
+  .on(
+    'postgres_changes',
+    {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'orders',
+      filter: 'total=gt.1000'
+    },
+    (payload) => {
+      console.log('High value order:', payload.new)
+    }
+  )
+  .subscribe()
+```
+
+### Event Sourcing Pattern
+
+Store events as immutable log, derive state:
+
+```sql
+-- Events table
+CREATE TABLE events (
+  id BIGSERIAL PRIMARY KEY,
+  aggregate_id UUID NOT NULL,
+  aggregate_type TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  event_data JSONB NOT NULL,
+  metadata JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for aggregate queries
+CREATE INDEX events_aggregate_idx 
+ON events(aggregate_id, created_at);
+
+-- Projection: current order state
+CREATE TABLE orders_current (
+  id UUID PRIMARY KEY,
+  status TEXT,
+  total DECIMAL,
+  customer_id UUID,
+  updated_at TIMESTAMPTZ
+);
+
+-- Function to apply events
+CREATE OR REPLACE FUNCTION apply_order_event()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.event_type = 'order_created' THEN
+    INSERT INTO orders_current (id, status, total, customer_id, updated_at)
+    VALUES (
+      NEW.aggregate_id,
+      'pending',
+      (NEW.event_data->>'total')::DECIMAL,
+      (NEW.event_data->>'customer_id')::UUID,
+      NEW.created_at
+    );
+    
+  ELSIF NEW.event_type = 'order_confirmed' THEN
+    UPDATE orders_current
+    SET status = 'confirmed', updated_at = NEW.created_at
+    WHERE id = NEW.aggregate_id;
+    
+  ELSIF NEW.event_type = 'order_shipped' THEN
+    UPDATE orders_current
+    SET status = 'shipped', updated_at = NEW.created_at
+    WHERE id = NEW.aggregate_id;
+    
+  END IF;
+  
+  RETURN NEW;
+END;
+$$;
+
+-- Trigger to maintain projection
+CREATE TRIGGER apply_events
+AFTER INSERT ON events
+FOR EACH ROW
+EXECUTE FUNCTION apply_order_event();
+```
+
+Application code:
+
+```javascript
+// Append event (never update)
+async function createOrder(orderData) {
+  const { data } = await supabase
+    .from('events')
+    .insert({
+      aggregate_id: orderData.id,
+      aggregate_type: 'order',
+      event_type: 'order_created',
+      event_data: orderData
+    })
+  
+  return data
+}
+
+// Read current state from projection
+async function getOrder(orderId) {
+  const { data } = await supabase
+    .from('orders_current')
+    .select('*')
+    .eq('id', orderId)
+    .single()
+  
+  return data
+}
+
+// Rebuild projection from events
+async function rebuildProjection(orderId) {
+  const { data: events } = await supabase
+    .from('events')
+    .select('*')
+    .eq('aggregate_id', orderId)
+    .order('created_at')
+  
+  // Replay events to rebuild state
+  // (handled by trigger in this example)
+}
+```
+
+### Queue Pattern with pg_cron
+
+Implement job queues using tables and scheduled processors:
+
+```sql
+-- Jobs table
+CREATE TABLE job_queue (
+  id BIGSERIAL PRIMARY KEY,
+  job_type TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  status TEXT DEFAULT 'pending',
+  attempts INT DEFAULT 0,
+  max_attempts INT DEFAULT 3,
+  error TEXT,
+  scheduled_at TIMESTAMPTZ DEFAULT NOW(),
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for processing
+CREATE INDEX job_queue_pending_idx 
+ON job_queue(status, scheduled_at)
+WHERE status = 'pending';
+
+-- Process jobs function
+CREATE OR REPLACE FUNCTION process_pending_jobs()
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  job RECORD;
+BEGIN
+  FOR job IN
+    SELECT * FROM job_queue
+    WHERE status = 'pending'
+      AND scheduled_at <= NOW()
+    ORDER BY scheduled_at
+    LIMIT 100
+    FOR UPDATE SKIP LOCKED
+  LOOP
+    BEGIN
+      -- Mark as processing
+      UPDATE job_queue
+      SET status = 'processing', started_at = NOW()
+      WHERE id = job.id;
+      
+      -- Process based on job type
+      IF job.job_type = 'send_email' THEN
+        PERFORM net.http_post(
+          'https://email-service.com/send',
+          job.payload
+        );
+      ELSIF job.job_type = 'generate_report' THEN
+        -- Process report
+        NULL;
+      END IF;
+      
+      -- Mark completed
+      UPDATE job_queue
+      SET status = 'completed', completed_at = NOW()
+      WHERE id = job.id;
+      
+    EXCEPTION WHEN OTHERS THEN
+      -- Handle failure
+      UPDATE job_queue
+      SET 
+        status = CASE 
+          WHEN attempts + 1 >= max_attempts THEN 'failed'
+          ELSE 'pending'
+        END,
+        attempts = attempts + 1,
+        error = SQLERRM,
+        scheduled_at = NOW() + (INTERVAL '1 minute' * POWER(2, attempts))
+      WHERE id = job.id;
+    END;
+  END LOOP;
+END;
+$$;
+
+-- Schedule processor
+SELECT cron.schedule(
+  'process-jobs',
+  '* * * * *',  -- Every minute
+  'SELECT process_pending_jobs()'
+);
+```
+
+Enqueue jobs from application:
+
+```javascript
+async function enqueueJob(jobType, payload, scheduledAt = new Date()) {
+  const { data } = await supabase
+    .from('job_queue')
+    .insert({
+      job_type: jobType,
+      payload: payload,
+      scheduled_at: scheduledAt.toISOString()
+    })
+  
+  return data
+}
+
+// Enqueue email
+await enqueueJob('send_email', {
+  to: 'user@example.com',
+  subject: 'Welcome',
+  body: 'Thanks for signing up'
+})
+
+// Schedule future job
+await enqueueJob('send_reminder', {
+  user_id: '123'
+}, new Date(Date.now() + 24 * 60 * 60 * 1000))
+```
+
+## GraphQL with pg_graphql
+
+pg_graphql exposes PostgreSQL databases as GraphQL APIs automatically based on schema.
+
+### Enabling pg_graphql
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_graphql;
+```
+
+Supabase projects include pg_graphql by default with GraphQL endpoint at `https://<project-ref>.supabase.co/graphql/v1`.
+
+### Automatic Schema Generation
+
+pg_graphql introspects database schema and generates GraphQL types:
+
+```sql
+-- Database schema
+CREATE TABLE authors (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  bio TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE books (
+  id BIGSERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  author_id BIGINT REFERENCES authors,
+  published_date DATE,
+  isbn TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+Generated GraphQL schema automatically includes:
+
+```graphql
+type Author {
+  id: BigInt!
+  name: String!
+  bio: String
+  createdAt: Datetime
+  books: [Book!]!  ## Relationship inferred from foreign key
+}
+
+type Book {
+  id: BigInt!
+  title: String!
+  authorId: BigInt
+  publishedDate: Date
+  isbn: String
+  createdAt: Datetime
+  author: Author  ## Relationship inferred from foreign key
+}
+
+type Query {
+  authorsCollection(
+    filter: AuthorFilter
+    orderBy: [AuthorOrderBy!]
+    first: Int
+    last: Int
+    before: Cursor
+    after: Cursor
+  ): AuthorConnection
+  
+  booksCollection(...): BookConnection
+}
+
+type Mutation {
+  insertIntoAuthorsCollection(objects: [AuthorInsertInput!]!): AuthorInsertResponse
+  updateAuthorsCollection(set: AuthorUpdateInput!, filter: AuthorFilter): AuthorUpdateResponse
+  deleteFromAuthorsCollection(filter: AuthorFilter!): AuthorDeleteResponse
+  ## Similar for books...
+}
+```
+
+### Querying with GraphQL
+
+```javascript
+const query = `
+  query GetAuthors {
+    authorsCollection(
+      filter: { name: { ilike: "%tolkien%" } }
+      orderBy: { name: AscNullsLast }
+      first: 10
+    ) {
+      edges {
+        node {
+          id
+          name
+          bio
+          books: booksCollection {
+            edges {
+              node {
+                id
+                title
+                publishedDate
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`
+
+const response = await fetch(
+  'https://<project-ref>.supabase.co/graphql/v1',
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY
+    },
+    body: JSON.stringify({ query })
+  }
+)
+
+const { data } = await response.json()
+```
+
+### Mutations
+
+```graphql
+mutation CreateAuthor {
+  insertIntoAuthorsCollection(
+    objects: [
+      { name: "J.R.R. Tolkien", bio: "Author of The Lord of the Rings" }
+    ]
+  ) {
+    records {
+      id
+      name
+    }
+  }
+}
+
+mutation UpdateAuthor {
+  updateAuthorsCollection(
+    set: { bio: "Updated bio" }
+    filter: { id: { eq: 1 } }
+  ) {
+    records {
+      id
+      name
+      bio
+    }
+  }
+}
+
+mutation DeleteAuthor {
+  deleteFromAuthorsCollection(
+    filter: { id: { eq: 1 } }
+  ) {
+    records {
+      id
+    }
+  }
+}
+```
+
+### Row Level Security
+
+pg_graphql respects RLS policies automatically:
+
+```sql
+ALTER TABLE books ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Public books are viewable by everyone" ON books FOR SELECT USING (status = 'published');
+
+CREATE POLICY "Authors can update own books" ON books FOR UPDATE USING (author_id IN ( SELECT id FROM authors WHERE user_id = auth.uid() ));
+
+````
+
+GraphQL queries execute with the authenticated user's permissions. Pass JWT in Authorization header:
+
+```javascript
+const response = await fetch(
+  'https://<project-ref>.supabase.co/graphql/v1',
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${userJWT}`
+    },
+    body: JSON.stringify({ query })
+  }
+)
+````
+
+### Customizing GraphQL Behavior
+
+Control GraphQL exposure with SQL comments:
+
+```sql
+-- Hide table from GraphQL
+COMMENT ON TABLE internal_logs IS '@graphql({"exclude": true})';
+
+-- Rename type
+COMMENT ON TABLE books IS '@graphql({"name": "Publication"})';
+
+-- Hide column
+COMMENT ON COLUMN users.password_hash IS '@graphql({"exclude": true})';
+
+-- Custom description
+COMMENT ON TABLE authors IS '@graphql({"description": "Book authors and their works"})';
+```
+
+### Filtering and Ordering
+
+pg_graphql supports comprehensive filtering:
+
+```graphql
+query FilteredBooks {
+  booksCollection(
+    filter: {
+      and: [
+        { publishedDate: { gte: "2000-01-01" } }
+        { publishedDate: { lte: "2020-12-31" } }
+        { or: [
+          { title: { ilike: "%lord%" } }
+          { title: { ilike: "%ring%" } }
+        ]}
+      ]
+    }
+    orderBy: [
+      { publishedDate: DescNullsLast }
+      { title: AscNullsFirst }
+    ]
+  ) {
+    edges {
+      node {
+        title
+        publishedDate
+      }
+    }
+  }
+}
+```
+
+**Filter operators:**
+
+- `eq`, `neq` - Equality
+- `gt`, `gte`, `lt`, `lte` - Comparisons
+- `in`, `nin` - Array membership
+- `like`, `ilike` - Pattern matching
+- `is` - Null checks
+- `and`, `or`, `not` - Logical operators
+
+### Pagination
+
+Cursor-based pagination using Relay specification:
+
+```graphql
+query PaginatedAuthors($cursor: Cursor) {
+  authorsCollection(
+    first: 10
+    after: $cursor
+  ) {
+    edges {
+      cursor
+      node {
+        id
+        name
+      }
+    }
+    pageInfo {
+      hasNextPage
+      hasPreviousPage
+      startCursor
+      endCursor
+    }
+  }
+}
+```
+
+```javascript
+async function fetchAllAuthors() {
+  let allAuthors = []
+  let cursor = null
+  let hasNext = true
+  
+  while (hasNext) {
+    const { data } = await fetch(GRAPHQL_ENDPOINT, {
+      method: 'POST',
+      headers: { /* ... */ },
+      body: JSON.stringify({
+        query: PaginatedAuthors,
+        variables: { cursor }
+      })
+    }).then(r => r.json())
+    
+    const collection = data.authorsCollection
+    allAuthors.push(...collection.edges.map(e => e.node))
+    
+    hasNext = collection.pageInfo.hasNextPage
+    cursor = collection.pageInfo.endCursor
+  }
+  
+  return allAuthors
+}
+```
+
+### Aggregations
+
+[Inference] pg_graphql may support aggregate functions through custom queries, though automatic aggregation generation is not extensively documented. Use database functions for complex aggregations:
+
+```sql
+CREATE OR REPLACE FUNCTION books_by_author_count()
+RETURNS TABLE (
+  author_id BIGINT,
+  author_name TEXT,
+  book_count BIGINT
+)
+LANGUAGE sql STABLE
+AS $$
+  SELECT 
+    a.id,
+    a.name,
+    COUNT(b.id)
+  FROM authors a
+  LEFT JOIN books b ON b.author_id = a.id
+  GROUP BY a.id, a.name
+  ORDER BY COUNT(b.id) DESC;
+$$;
+```
+
+Query via GraphQL:
+
+```graphql
+query AuthorStats {
+  booksByAuthorCountCollection {
+    edges {
+      node {
+        authorId
+        authorName
+        bookCount
+      }
+    }
+  }
+}
+```
+
+## Custom PostgreSQL Configurations
+
+Supabase allows customization of PostgreSQL settings for performance tuning and specific workload optimization.
+
+### Available Configuration Options
+
+Access configuration through the Supabase dashboard under Database → Configuration or via SQL:
+
+```sql
+-- View current settings
+SELECT name, setting, unit, context
+FROM pg_settings
+WHERE name IN (
+  'max_connections',
+  'shared_buffers',
+  'effective_cache_size',
+  'work_mem',
+  'maintenance_work_mem',
+  'statement_timeout',
+  'idle_in_transaction_session_timeout'
+)
+ORDER BY name;
+
+-- Show all settings
+SELECT * FROM pg_settings ORDER BY name;
+```
+
+### Common Performance Settings
+
+[Unverified] Exact configuration options available for modification may vary by Supabase plan tier. Enterprise plans typically allow more extensive customization.
+
+**Connection settings:**
+
+```sql
+-- Maximum concurrent connections (requires restart)
+ALTER SYSTEM SET max_connections = 100;
+
+-- Connection timeout (milliseconds)
+ALTER SYSTEM SET statement_timeout = '30s';
+
+-- Idle transaction timeout
+ALTER SYSTEM SET idle_in_transaction_session_timeout = '10min';
+```
+
+**Memory settings:**
+
+```sql
+-- Shared buffers (25% of RAM typical)
+ALTER SYSTEM SET shared_buffers = '2GB';
+
+-- Effective cache size (50-75% of RAM)
+ALTER SYSTEM SET effective_cache_size = '6GB';
+
+-- Work memory per operation
+ALTER SYSTEM SET work_mem = '64MB';
+
+-- Maintenance operations memory
+ALTER SYSTEM SET maintenance_work_mem = '512MB';
+```
+
+**Query planning:**
+
+```sql
+-- Random page cost (lower for SSD)
+ALTER SYSTEM SET random_page_cost = 1.1;
+
+-- Parallel query workers
+ALTER SYSTEM SET max_parallel_workers_per_gather = 4;
+ALTER SYSTEM SET max_parallel_workers = 8;
+
+-- Enable JIT compilation for complex queries
+ALTER SYSTEM SET jit = on;
+```
+
+### Session-Level Configuration
+
+Set parameters for specific sessions without system-wide changes:
+
+```sql
+-- Set for current session
+SET work_mem = '256MB';
+SET statement_timeout = '60s';
+
+-- Set for transaction
+BEGIN;
+SET LOCAL work_mem = '512MB';
+-- Complex query here
+COMMIT;
+```
+
+From application code:
+
+```javascript
+const { data } = await supabase.rpc('complex_query', {}, {
+  // Session config via custom headers (if supported)
+})
+
+// Or use connection pooler with custom settings
+const client = new Client({
+  connectionString: SUPABASE_CONNECTION_STRING,
+  options: '-c statement_timeout=30000'
+})
+```
+
+### Monitoring Configuration Impact
+
+Track configuration effectiveness:
+
+```sql
+-- Query performance stats
+SELECT 
+  query,
+  calls,
+  total_exec_time,
+  mean_exec_time,
+  max_exec_time
+FROM pg_stat_statements
+ORDER BY total_exec_time DESC
+LIMIT 20;
+
+-- Cache hit ratio (should be >99%)
+SELECT 
+  sum(heap_blks_read) as heap_read,
+  sum(heap_blks_hit) as heap_hit,
+  sum(heap_blks_hit) / (sum(heap_blks_hit) + sum(heap_blks_read)) as ratio
+FROM pg_statio_user_tables;
+
+-- Connection usage
+SELECT 
+  count(*) as connections,
+  state,
+  wait_event_type
+FROM pg_stat_activity
+GROUP BY state, wait_event_type;
+
+-- Unused indexes (candidates for removal)
+SELECT 
+  schemaname,
+  tablename,
+  indexname,
+  idx_scan,
+  pg_size_pretty(pg_relation_size(indexrelid)) as size
+FROM pg_stat_user_indexes
+WHERE idx_scan = 0
+  AND indexrelname NOT LIKE '%pkey'
+ORDER BY pg_relation_size(indexrelid) DESC;
+```
+
+### Database Size Management
+
+Configure autovacuum for optimal space management:
+
+```sql
+-- Global autovacuum settings
+ALTER SYSTEM SET autovacuum_vacuum_scale_factor = 0.1;
+ALTER SYSTEM SET autovacuum_analyze_scale_factor = 0.05;
+
+-- Per-table autovacuum
+ALTER TABLE large_table SET (
+  autovacuum_vacuum_scale_factor = 0.05,
+  autovacuum_analyze_scale_factor = 0.02
+);
+
+-- Manual vacuum
+VACUUM ANALYZE large_table;
+
+-- Full vacuum (reclaims space, requires lock)
+VACUUM FULL large_table;
+
+-- Check table bloat
+SELECT 
+  schemaname,
+  tablename,
+  pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size,
+  n_dead_tup,
+  n_live_tup,
+  round(n_dead_tup * 100.0 / NULLIF(n_live_tup + n_dead_tup, 0), 2) as dead_ratio
+FROM pg_stat_user_tables
+WHERE n_dead_tup > 1000
+ORDER BY n_dead_tup DESC;
+```
+
+### Write-Ahead Log (WAL) Configuration
+
+```sql
+-- WAL settings for durability vs performance
+ALTER SYSTEM SET wal_compression = on;
+ALTER SYSTEM SET wal_buffers = '16MB';
+
+-- Checkpoint frequency
+ALTER SYSTEM SET checkpoint_completion_target = 0.9;
+ALTER SYSTEM SET max_wal_size = '2GB';
+ALTER SYSTEM SET min_wal_size = '1GB';
+
+-- Monitor WAL generation
+SELECT 
+  pg_current_wal_lsn(),
+  pg_walfile_name(pg_current_wal_lsn());
+```
+
+### Custom Configuration Functions
+
+Create functions to apply configuration sets:
+
+```sql
+-- Development mode: more verbose logging
+CREATE OR REPLACE FUNCTION set_dev_config()
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  SET log_statement = 'all';
+  SET log_duration = on;
+  SET log_min_duration_statement = 0;
+  SET client_min_messages = 'debug';
+END;
+$$;
+
+-- Production mode: optimized performance
+CREATE OR REPLACE FUNCTION set_prod_config()
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  SET log_statement = 'none';
+  SET log_duration = off;
+  SET log_min_duration_statement = 1000;
+  SET client_min_messages = 'warning';
+END;
+$$;
+```
+
+## Database Replication
+
+PostgreSQL replication provides high availability, disaster recovery, and read scaling.
+
+### Replication in Supabase
+
+[Unverified] Supabase manages physical replication automatically for high availability. The replication configuration and topology are managed by Supabase infrastructure and not directly configurable by users in standard plans.
+
+For custom replication setups, consider:
+
+### Logical Replication for Data Distribution
+
+Logical replication replicates specific tables/schemas to other databases:
+
+```sql
+-- On source database (publisher)
+CREATE PUBLICATION data_sync FOR TABLE orders, customers;
+
+-- Or publish all tables
+CREATE PUBLICATION all_tables FOR ALL TABLES;
+
+-- Add/remove tables
+ALTER PUBLICATION data_sync ADD TABLE products;
+ALTER PUBLICATION data_sync DROP TABLE customers;
+
+-- View publications
+SELECT * FROM pg_publication;
+SELECT * FROM pg_publication_tables;
+```
+
+```sql
+-- On destination database (subscriber)
+CREATE SUBSCRIPTION data_sync
+CONNECTION 'host=source-db.supabase.co port=5432 dbname=postgres user=replication_user password=xxx'
+PUBLICATION data_sync;
+
+-- View subscriptions
+SELECT * FROM pg_subscription;
+
+-- Monitor replication lag
+SELECT 
+  application_name,
+  state,
+  sent_lsn,
+  write_lsn,
+  flush_lsn,
+  replay_lsn,
+  sync_state
+FROM pg_stat_replication;
+```
+
+[Inference] Logical replication requires network connectivity between databases and appropriate authentication. In Supabase, this typically requires using connection pooler or direct database connections with proper firewall rules configured.
+
+### Read Replicas
+
+[Unverified] Supabase Enterprise plans may offer managed read replicas for scaling read workloads across geographic regions. This is not available in standard plans through user configuration.
+
+For read scaling without managed replicas, consider:
+
+**Connection pooling** with PgBouncer (included in Supabase):
+
+```javascript
+// Use pooler for read-heavy workloads
+const supabase = createClient(
+  'https://PROJECT.supabase.co',
+  'ANON_KEY',
+  {
+    db: {
+      schema: 'public'
+    },
+    global: {
+      headers: { 'x-connection-pooled': 'true' }
+    }
+  }
+)
+```
+
+### Replication Monitoring
+
+Track replication status:
+
+```sql
+-- Replication slots
+SELECT 
+  slot_name,
+  slot_type,
+  database,
+  active,
+  restart_lsn,
+  confirmed_flush_lsn
+FROM pg_replication_slots;
+
+-- WAL sender processes
+SELECT 
+  pid,
+  usename,
+  application_name,
+  client_addr,
+  state,
+  sent_lsn,
+  write_lsn,
+  flush_lsn,
+  replay_lsn,
+  sync_priority,
+  sync_state,
+  pg_wal_lsn_diff(sent_lsn, replay_lsn) as lag_bytes
+FROM pg_stat_replication;
+
+-- Subscription status
+SELECT 
+  subname,
+  pid,
+  received_lsn,
+  latest_end_lsn,
+  last_msg_send_time,
+  last_msg_receipt_time,
+  latest_end_time
+FROM pg_stat_subscription;
+```
+
+### Point-in-Time Recovery (PITR)
+
+Supabase provides automated backups with PITR:
+
+```sql
+-- View backup status through Supabase dashboard
+-- Database → Backups
+
+-- Manual backup before major changes
+-- (Performed through Supabase dashboard)
+```
+
+[Unverified] PITR recovery windows and backup retention policies depend on Supabase plan tier. Enterprise plans typically offer extended retention and more granular recovery options.
+
+### Replication Conflict Handling
+
+For multi-master scenarios (not default in Supabase):
+
+```sql
+-- Last-write-wins with timestamps
+CREATE TABLE distributed_data (
+  id UUID PRIMARY KEY,
+  data JSONB,
+  version INT DEFAULT 1,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_by TEXT
+);
+
+-- Conflict resolution function
+CREATE OR REPLACE FUNCTION resolve_conflict()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- Keep newer version based on timestamp
+  IF NEW.updated_at > OLD.updated_at THEN
+    RETURN NEW;
+  ELSE
+    RETURN OLD;
+  END IF;
+END;
+$$;
+
+CREATE TRIGGER conflict_resolution
+BEFORE UPDATE ON distributed_data
+FOR EACH ROW
+EXECUTE FUNCTION resolve_conflict();
+```
+
+## International Considerations
+
+Deploy and scale Supabase applications globally with region selection, compliance, and localization.
+
+### Geographic Regions
+
+Supabase offers multiple deployment regions:
+
+**Available regions (as of knowledge cutoff):**
+
+- North America: us-east-1, us-west-1
+- Europe: eu-west-1, eu-central-1
+- Asia Pacific: ap-southeast-1, ap-northeast-1
+
+[Unverified] Additional regions may be available. Check Supabase dashboard during project creation for current region options.
+
+**Region selection considerations:**
+
+**Latency** - Choose region closest to primary user base. Each 1000km adds ~10ms round-trip latency.
+
+**Data residency** - Select regions matching data governance requirements (GDPR, CCPA, etc.).
+
+**Availability** - Multiple availability zones within regions provide redundancy.
+
+### Multi-Region Architecture
+
+For global applications:
+
+**Primary region + Edge Functions:**
+
+```typescript
+// Edge Function automatically deployed globally
+Deno.serve(async (req) => {
+  // Edge runs close to user
+  const userLocation = req.headers.get('x-vercel-ip-country')
+  
+  // Database request goes to primary region
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_ANON_KEY')!
+  )
+  
+  const { data } = await supabase
+    .from('content')
+    .select('*')
+    .eq('region', userLocation)
+  
+  return new Response(JSON.stringify(data))
+})
+```
+
+**Multi-region with replication:**
+
+[Unverified] Multi-region replication requires Enterprise plan and manual setup. Standard approach uses single primary region with Edge Functions for global compute.
+
+### Data Compliance
+
+Configure projects for regulatory compliance:
+
+**GDPR (European Union):**
+
+```sql
+-- Data retention policies
+CREATE TABLE user_data (
+  id UUID PRIMARY KEY,
+  user_id UUID REFERENCES auth.users,
+  data JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '2 years'
+);
+
+-- Automated deletion function
+CREATE OR REPLACE FUNCTION delete_expired_data()
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  DELETE FROM user_data
+  WHERE expires_at < NOW();
+END;
+$$;
+
+-- Schedule with pg_cron
+SELECT cron.schedule(
+  'gdpr-cleanup',
+  '0 2 * * *',
+  'SELECT delete_expired_data()'
+);
+
+-- Right to erasure function
+CREATE OR REPLACE FUNCTION erase_user_data(target_user_id UUID)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  DELETE FROM user_data WHERE user_id = target_user_id;
+  DELETE FROM activity_logs WHERE user_id = target_user_id;
+  UPDATE auth.users 
+  SET email = 'deleted@example.com', 
+      raw_user_meta_data = '{}'
+  WHERE id = target_user_id;
+END;
+$$;
+```
+
+**CCPA (California):**
+
+```sql
+-- Data export function
+CREATE OR REPLACE FUNCTION export_user_data(target_user_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  user_export JSONB;
+BEGIN
+  SELECT jsonb_build_object(
+    'profile', (SELECT row_to_json(p) FROM profiles p WHERE user_id = target_user_id),
+    'orders', (SELECT json_agg(o) FROM orders o WHERE user_id = target_user_id),
+    'activity', (SELECT json_agg(a) FROM activity_logs a WHERE user_id = target_user_id)
+  ) INTO user_export;
+  
+  RETURN user_export;
+END;
+$$;
+```
+
+**Data residency verification:**
+
+```sql
+-- Track data location
+CREATE TABLE data_audit (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  table_name TEXT,
+  record_id UUID,
+  region TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Audit trigger
+CREATE OR REPLACE FUNCTION audit_data_location()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  INSERT INTO data_audit (table_name, record_id, region)
+  VALUES (
+    TG_TABLE_NAME,
+    NEW.id,
+    current_setting('app.deployment_region', true)
+  );
+  RETURN NEW;
+END;
+$$;
+```
+
+### Internationalization (i18n)
+
+Store and query multi-language content:
+
+```sql
+-- Translation table pattern
+CREATE TABLE products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sku TEXT UNIQUE NOT NULL,
+  price DECIMAL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE product_translations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id UUID REFERENCES products NOT NULL,
+  language_code TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  UNIQUE(product_id, language_code)
+);
+
+CREATE INDEX product_translations_lang_idx 
+ON product_translations(language_code);
+
+-- Query with language preference
+CREATE OR REPLACE FUNCTION get_products_i18n(preferred_lang TEXT, fallback_lang TEXT DEFAULT 'en')
+RETURNS TABLE (
+  id UUID,
+  sku TEXT,
+  price DECIMAL,
+  name TEXT,
+  description TEXT
+)
+LANGUAGE sql STABLE
+AS $$
+  SELECT 
+    p.id,
+    p.sku,
+    p.price,
+    COALESCE(pt_pref.name, pt_fall.name) as name,
+    COALESCE(pt_pref.description, pt_fall.description) as description
+  FROM products p
+  LEFT JOIN product_translations pt_pref 
+    ON pt_pref.product_id = p.id 
+    AND pt_pref.language_code = preferred_lang
+  LEFT JOIN product_translations pt_fall 
+    ON pt_fall.product_id = p.id 
+    AND pt_fall.language_code = fallback_lang;
+$$;
+```
+
+Application code:
+
+```javascript
+async function getProducts(language) {
+  const { data } = await supabase
+    .rpc('get_products_i18n', {
+      preferred_lang: language,
+      fallback_lang: 'en'
+    })
+  
+  return data
+}
+
+// Usage
+const products = await getProducts('es')  // Spanish with English fallback
+```
+
+**JSONB translation pattern:**
+
+```sql
+-- Alternative: translations in JSONB
+CREATE TABLE products (
+  id UUID PRIMARY KEY,
+  sku TEXT,
+  price DECIMAL,
+  translations JSONB  -- {"en": {"name": "...", "desc": "..."}, "es": {...}}
+);
+
+-- Query function
+CREATE OR REPLACE FUNCTION get_translation(translations JSONB, lang TEXT, field TEXT, fallback TEXT DEFAULT 'en')
+RETURNS TEXT
+LANGUAGE sql IMMUTABLE
+AS $$
+  SELECT COALESCE(
+    translations->lang->>field,
+    translations->fallback->>field
+  );
+$$;
+
+-- Usage
+SELECT 
+  id,
+  sku,
+  get_translation(translations, 'es', 'name') as name,
+  get_translation(translations, 'es', 'description') as description
+FROM products;
+```
+
+### Locale-Specific Formatting
+
+Handle currency, dates, numbers:
+
+```sql
+-- Store prices in base currency
+CREATE TABLE products (
+  id UUID PRIMARY KEY,
+  name TEXT,
+  price_usd DECIMAL NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Currency conversion table
+CREATE TABLE exchange_rates (
+  currency_code TEXT PRIMARY KEY,
+  rate_to_usd DECIMAL NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Convert prices
+CREATE OR REPLACE FUNCTION convert_price(amount_usd DECIMAL, target_currency TEXT)
+RETURNS DECIMAL
+LANGUAGE sql STABLE
+AS $$
+  SELECT amount_usd * rate_to_usd
+  FROM exchange_rates
+  WHERE currency_code = target_currency;
+$$;
+
+-- Format for display (client-side)
+```
+
+```javascript
+// Client-side formatting
+function formatPrice(amount, currency, locale) {
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: currency
+  }).format(amount)
+}
+
+// Usage
+const { data: products } = await supabase
+  .from('products')
+  .select('*, price_eur:convert_price(price_usd, "EUR")')
+
+products.forEach(p => {
+  console.log(formatPrice(p.price_eur, 'EUR', 'de-DE'))
+})
+```
+
+### Time Zone Handling
+
+PostgreSQL stores TIMESTAMPTZ in UTC, displays in session timezone:
+
+```sql
+-- Always use TIMESTAMPTZ for time-aware columns
+CREATE TABLE events (
+  id UUID PRIMARY KEY,
+  name TEXT,
+  scheduled_at TIMESTAMPTZ NOT NULL,  -- Stores in UTC
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Query in specific timezone
+SET timezone = 'America/New_York';
+SELECT scheduled_at FROM events;  -- Displays in EST/EDT
+
+-- Convert timezone in query
+SELECT 
+  scheduled_at,
+  scheduled_at AT TIME ZONE 'Asia/Tokyo' as tokyo_time,
+  scheduled_at AT TIME ZONE 'Europe/London' as london_time
+FROM events;
+
+-- Filter by local date
+SELECT * FROM events
+WHERE (scheduled_at AT TIME ZONE 'America/Los_Angeles')::DATE = '2025-10-15';
+```
+
+Application code:
+
+```javascript
+// Store dates in ISO format (UTC)
+const { data } = await supabase
+  .from('events')
+  .insert({
+    name: 'Conference',
+    scheduled_at: new Date('2025-12-15T14:00:00Z').toISOString()
+  })
+
+// Display in user's timezone (automatic in browser)
+const event = data[0]
+const localTime = new Date(event.scheduled_at)
+console.log(localTime.toLocaleString('en-US', { 
+  timeZone: 'America/New_York' 
+}))
+```
+
+## Enterprise Features
+
+[Unverified] Enterprise features require Supabase Enterprise plan. Availability and specific features may vary. Contact Supabase sales for accurate information.
+
+### Enterprise Authentication
+
+**SAML SSO:** Configure enterprise SSO through Supabase dashboard under Authentication → Providers → SAML 2.0.
+
+```javascript
+// Initiate SAML login
+const { data, error } = await supabase.auth.signInWithSSO({
+  domain: 'company.com'
+})
+
+// Or with provider
+const { data, error } = await supabase.auth.signInWithSSO({
+  providerId: 'uuid-of-saml-provider'
+})
+```
+
+**SCIM provisioning:** [Unverified] SCIM (System for Cross-domain Identity Management) may be available for automated user provisioning from identity providers like Okta, Azure AD.
+
+**Advanced MFA:**
+
+```javascript
+// Enforce MFA
+const { data } = await supabase.auth.mfa.enroll({
+  factorType: 'totp'
+})
+
+// Challenge MFA
+const { data: verified } = await supabase.auth.mfa.challenge({
+  factorId: data.id
+})
+```
+
+### Role-Based Access Control (RBAC)
+
+Advanced permission systems:
+
+```sql
+-- Custom roles beyond RLS
+CREATE ROLE app_admin;
+CREATE ROLE app_manager;
+CREATE ROLE app_user;
+
+-- Grant schema permissions
+GRANT USAGE ON SCHEMA public TO app_user;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_user;
+GRANT INSERT, UPDATE ON specific_table TO app_manager;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO app_admin;
+
+-- Row-level policies with roles
+CREATE POLICY "Managers see all departments"
+ON employees FOR SELECT
+TO app_manager
+USING (true);
+
+CREATE POLICY "Users see own department"
+ON employees FOR SELECT
+TO app_user
+USING (department_id = auth.user_department_id());
+```
+
+### Audit Logging
+
+Comprehensive activity tracking:
+
+```sql
+-- Audit table
+CREATE TABLE audit_log (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID,
+  action TEXT NOT NULL,
+  table_name TEXT,
+  record_id UUID,
+  old_data JSONB,
+  new_data JSONB,
+  ip_address INET,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Generic audit trigger
+CREATE OR REPLACE FUNCTION audit_trigger()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  INSERT INTO audit_log (
+    user_id,
+    action,
+    table_name,
+    record_id,
+    old_data,
+    new_data,
+    ip_address
+  ) VALUES (
+    auth.uid(),
+    TG_OP,
+    TG_TABLE_NAME,
+    COALESCE(NEW.id, OLD.id),
+    CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN row_to_json(OLD) END,
+    CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN row_to_json(NEW) END,
+    inet_client_addr()
+  );
+  
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+-- Apply to sensitive tables
+CREATE TRIGGER audit_users
+AFTER INSERT OR UPDATE OR DELETE ON users
+FOR EACH ROW EXECUTE FUNCTION audit_trigger();
+```
+
+### Service Level Agreements
+
+[Unverified] Enterprise plans typically include:
+
+- 99.9%+ uptime SLA
+- Dedicated support channels
+- Custom backup retention
+- Priority incident response
+- Custom rate limits
+
+### Dedicated Infrastructure
+
+[Unverified] Enterprise customers may access:
+
+- Dedicated compute resources
+- Custom database instance sizing
+- Reserved connection pools
+- Isolated network configurations
+
+### Advanced Security
+
+**IP allowlisting:** Configure through dashboard or support to restrict database access to specific IP ranges.
+
+**SOC 2 compliance:** [Unverified] Supabase infrastructure maintains SOC 2 Type II certification. Enterprise customers receive compliance documentation.
+
+**Custom encryption:**
+
+```sql
+-- pgcrypto for field-level encryption
+CREATE EXTENSION pgcrypto;
+
+-- Encrypt sensitive data
+CREATE TABLE user_secrets (
+  id UUID PRIMARY KEY,
+  user_id UUID REFERENCES auth.users,
+  encrypted_data BYTEA,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Encrypt
+INSERT INTO user_secrets (user_id, encrypted_data)
+VALUES (
+  auth.uid(),
+  pgp_sym_encrypt('sensitive data', current_setting('app.encryption_key'))
+);
+
+-- Decrypt
+SELECT pgp_sym_decrypt(encrypted_data, current_setting('app.encryption_key'))
+FROM user_secrets
+WHERE user_id = auth.uid();
+```
+
+**Related topics for further exploration:**
+
+- Database migration strategies from other platforms to Supabase
+- Performance optimization for large-scale applications
+- Custom authentication flows and JWT handling
+- Real-time subscriptions architecture and scaling
+- Storage bucket policies and CDN configuration
+
+---
+
