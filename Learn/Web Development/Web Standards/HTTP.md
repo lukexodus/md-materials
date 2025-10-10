@@ -1,31 +1,3 @@
-# Additional Guide
-
-### **Key Real-World Use Cases**
-
-- **Web Scraping**:
-    - Sending HTTP requests to fetch data from websites
-- **Uploading Files**:
-    - Using `POST` with `multipart/form-data`
-- **Real-Time Communication**:
-    - How WebSockets differ from HTTP for real-time data
-- **SEO Optimization**:
-    - Role of HTTP status codes (e.g., `301` for redirects)
-
----
-
-### **Project Ideas**
-
-- **Building a Mini RESTful API**:
-    - Implement endpoints using `GET`, `POST`, etc.
-    - Practice response formatting with JSON
-- **HTTP Debugging Tool**:
-    - Create a simple tool to visualize requests and responses
-- **API Integration**:
-    - Connect to a third-party API and display the data
-
-
----
-
 # HTTP Fundamentals
 
 ### Client-Server Model
