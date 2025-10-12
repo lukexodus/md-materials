@@ -27900,8 +27900,526 @@ def time_based_auth_demo():
 import hmac
 import hashlib
 
-def secure_mac_verification(expected_mac, compute
+def secure_mac_verification(expected_mac, computed_mac): """ Constant-time MAC verification using hmac.compare_digest. [Inference] Prevents timing attacks by taking fixed time regardless of match position. """ import time
+
+start = time.perf_counter()
+result = hmac.compare_digest(expected_mac, computed_mac)
+elapsed = time.perf_counter() - start
+
+print(f"Verification result: {result}")
+print(f"Time taken: {elapsed:.9f}s (constant regardless of match)")
+
+return result
+
+# Always use hmac.compare_digest for cryptographic comparisons
+````
+
+**Non-Constant-Time Comparison (Vulnerable):**
+
+```python
+def vulnerable_mac_verification(expected_mac, computed_mac):
+    """
+    [Unverified] Vulnerable byte-by-byte comparison.
+    Exits early on mismatch, revealing timing information.
+    """
+    # DO NOT USE IN PRODUCTION
+    if len(expected_mac) != len(computed_mac):
+        return False
+    
+    for i in range(len(expected_mac)):
+        if expected_mac[i] != computed_mac[i]:
+            return False  # Early exit reveals mismatch position
+    
+    return True
+
+def timing_attack_demo():
+    """Simulate timing attack on vulnerable verification."""
+    import time
+    
+    key = b"secret_key"
+    message = b"test message"
+    
+    correct_mac = hmac.new(key, message, hashlib.sha256).digest()
+    
+    print("[*] Timing Attack Demonstration:")
+    
+    # Test MACs with early mismatch
+    wrong_mac_1st_byte = b'\x00' + correct_mac[1:]
+    wrong_mac_16th_byte = correct_mac[:15] + b'\x00'
+    
+    # Time vulnerable verification (simplified, may not show difference on fast hardware)
+    iterations = 100000
+    
+    start = time.perf_counter()
+    for _ in range(iterations):
+        vulnerable_mac_verification(correct_mac, wrong_mac_1st_byte)
+    time_1st = time.perf_counter() - start
+    
+    start = time.perf_counter()
+    for _ in range(iterations):
+        vulnerable_mac_verification(correct_mac, wrong_mac_16th_byte)
+    time_16th = time.perf_counter() - start
+    
+    print(f"Mismatch at 1st byte: {time_1st:.6f}s")
+    print(f"Mismatch at 16th byte: {time_16th:.6f}s")
+    
+    if time_1st < time_16th:
+        print("[!] TIMING LEAK: Earlier mismatch faster (vulnerable to timing attack)")
+    else:
+        print("[✓] Timing constant (timing attack resistant)")
+
+# timing_attack_demo()
+````
+
+---
+
+### Practical CTF MAC Challenges
+
+**Challenge 1: Dictionary Attack on HMAC Key**
+
+```python
+def hmac_ctf_challenge_1():
+    """
+    CTF Challenge: Recover HMAC key via dictionary attack.
+    
+    Given:
+    - Message: b"flag_is_here"
+    - HMAC-SHA256: "a1b2c3d4e5f6..."
+    - Wordlist: /usr/share/wordlists/rockyou.txt
+    
+    Find: Key
+    """
+    import hmac
+    import hashlib
+    
+    message = b"flag_is_here"
+    correct_hmac_hex = "a1b2c3d4e5f6..."  # Example
+    correct_hmac = bytes.fromhex(correct_hmac_hex)
+    
+    print("[*] CTF Challenge: HMAC Key Recovery")
+    print(f"[*] Message: {message}")
+    print(f"[*] HMAC: {correct_hmac_hex}")
+    
+    # Simulate wordlist attack
+    wordlist = ["password", "admin", "123456", "key123", "secret"]
+    
+    for word in wordlist:
+        test_key = word.encode()
+        test_hmac = hmac.new(test_key, message, hashlib.sha256).digest()
+        
+        if hmac.compare_digest(test_hmac, correct_hmac):
+            print(f"[+] KEY FOUND: {word}")
+            return test_key
+        
+        print(f"[-] Tried: {word}")
+    
+    print("[!] Key not found in wordlist")
+    return None
+
+# recovered = hmac_ctf_challenge_1()
 ```
+
+**Challenge 2: MAC Truncation Collision**
+
+```python
+def hmac_ctf_challenge_2():
+    """
+    CTF Challenge: Find collision in truncated HMAC.
+    
+    Given:
+    - Original message: b"authenticate_me"
+    - Original HMAC-SHA256 (truncated to 2 bytes): "ab12"
+    - Key unknown but fixed
+    
+    Find: Different message with same truncated HMAC
+    """
+    import hmac
+    import hashlib
+    
+    key = b"secret_key"  # Attacker doesn't know this
+    original_msg = b"authenticate_me"
+    original_hmac_full = hmac.new(key, original_msg, hashlib.sha256).digest()
+    original_hmac_truncated = original_hmac_full[:2]
+    
+    print("[*] CTF Challenge: Truncated HMAC Collision")
+    print(f"[*] Original message: {original_msg}")
+    print(f"[*] Truncated HMAC (2 bytes): {original_hmac_truncated.hex()}")
+    print(f"[*] Find: different message with same truncated HMAC\n")
+    
+    # Brute force collision
+    for i in range(2**16):  # 2^16 = 65536 attempts max
+        test_msg = original_msg + i.to_bytes(4, 'big')
+        test_hmac = hmac.new(key, test_msg, hashlib.sha256).digest()[:2]
+        
+        if test_hmac == original_hmac_truncated and test_msg != original_msg:
+            print(f"[+] COLLISION FOUND!")
+            print(f"[+] Message: {test_msg}")
+            print(f"[+] Attempts: {i}")
+            return test_msg
+        
+        if i % 10000 == 0:
+            print(f"[-] Tried {i} variations...")
+    
+    return None
+
+# collision = hmac_ctf_challenge_2()
+```
+
+**Challenge 3: CBC-MAC Forgery**
+
+```python
+def cbc_mac_ctf_challenge_3():
+    """
+    CTF Challenge: Forge CBC-MAC for new message.
+    
+    Given:
+    - Known plaintext message: b"transfer $100"
+    - Known CBC-MAC of plaintext: "abc123def456..."
+    - Key unknown but consistent
+    
+    Find: CBC-MAC for: b"transfer $1000" (different amount)
+    
+    Vulnerability: Attacker can compute MAC for similar messages
+    """
+    from Crypto.Cipher import AES
+    from Crypto.Util.Padding import pad
+    
+    key = b'0123456789ABCDEF'
+    
+    original_msg = b"transfer $100"
+    modified_msg = b"transfer $1000"
+    
+    # Original CBC-MAC
+    padded_orig = pad(original_msg, AES.block_size)
+    cipher_orig = AES.new(key, AES.MODE_CBC, b'\x00' * AES.block_size)
+    ct_orig = cipher_orig.encrypt(padded_orig)
+    mac_orig = ct_orig[-AES.block_size:]
+    
+    print("[*] CTF Challenge: CBC-MAC Forgery")
+    print(f"[*] Original: {original_msg} → MAC: {mac_orig.hex()[:16]}...")
+    print(f"[*] Modified: {modified_msg}")
+    print(f"[*] Compute new MAC without key\n")
+    
+    # In vulnerable system, if message structure known:
+    # Original: "transfer $100" (14 bytes, pads to 16)
+    # Modified: "transfer $1000" (15 bytes, pads to 32)
+    
+    # Attack approach:
+    # 1. If plaintext partially known and controllable
+    # 2. Attacker can XOR blocks to forge new MAC
+    
+    # [Unverified] Actual forge requires more sophisticated technique
+    # Demonstrates vulnerability class
+    
+    # Proper computation (simulating oracle):
+    padded_mod = pad(modified_msg, AES.block_size)
+    cipher_mod = AES.new(key, AES.MODE_CBC, b'\x00' * AES.block_size)
+    ct_mod = cipher_mod.encrypt(padded_mod)
+    mac_mod = ct_mod[-AES.block_size:]
+    
+    print(f"[*] Correct new MAC: {mac_mod.hex()[:16]}...")
+    print("[!] Forgery possible if partial plaintext/ciphertext known")
+
+# cbc_mac_ctf_challenge_3()
+```
+
+---
+
+### MAC Attack Decision Tree
+
+```
+MAC Challenge (given MAC type and value):
+
+1. Identify MAC type
+   ├─ HMAC (SHA-256, SHA-512, MD5)
+   │  ├─ Weak key derivation?
+   │  │  └─ Dictionary attack (high priority)
+   │  ├─ Key reuse across contexts?
+   │  │  └─ Cross-function attacks possible
+   │  ├─ Truncated output?
+   │  │  └─ Collision via brute force (2^(8*truncation_bytes))
+   │  └─ Authentication protocol?
+   │     └─ Replay attack if no nonce/timestamp
+   │
+   ├─ CMAC (AES-based)
+   │  ├─ Truncated output?
+   │  │  └─ Collision attack
+   │  ├─ Weak key?
+   │  │  └─ Dictionary attack
+   │  └─ Reused key across encryption?
+   │     └─ Mode combination attacks
+   │
+   ├─ Poly1305 (ChaCha20-Poly1305)
+   │  ├─ Same key reused?
+   │  │  └─ Polynomial coefficient recovery (linear algebra)
+   │  ├─ Nonce reused?
+   │  │  └─ Security breaks completely
+   │  └─ Weak key derivation?
+   │     └─ Dictionary attack
+   │
+   └─ CBC-MAC
+      ├─ Truncated output?
+      │  └─ Collision attack
+      ├─ Message extension possible?
+      │  └─ Forgery if termination weak
+      └─ Null prefix vulnerability?
+         └─ Length extension attack
+
+2. Timing characteristics
+   ├─ Constant-time verification?
+   │  └─ Timing attack resistant
+   └─ Variable-time verification?
+      └─ Timing attack possible (microsecond-level precision needed)
+
+3. Known plaintext available?
+   ├─ YES
+   │  ├─ Single message-MAC pair
+   │  │  └─ Dictionary attack (weak keys)
+   │  ├─ Multiple message-MAC pairs with same key
+   │  │  └─ Differential analysis
+   │  └─ Chosen plaintext (attacker controls messages)
+   │     └─ Forge new MACs via XOR tricks
+   │
+   └─ NO
+      ├─ Brute force tag (2^(output_bits))
+      └─ Only feasible if truncated < 32 bits
+
+4. Authentication protocol context
+   ├─ Challenge-response
+   │  └─ Replay attack if challenge not unique
+   ├─ Time-based
+   │  └─ Clock skew exploitation
+   └─ Sequence-based
+      └─ Out-of-order message acceptance
+```
+
+---
+
+### Kali Linux: MAC Tools Reference
+
+```bash
+# OpenSSL HMAC operations
+echo -n "message" | openssl dgst -sha256 -hmac "key"
+openssl dgst -sha256 -hmac "key" filename.txt
+
+# Batch HMAC verification
+for file in *.txt; do
+    expected_hmac=$(openssl dgst -sha256 -hmac "key" "$file" | awk '{print $2}')
+    echo "$file: $expected_hmac"
+done
+
+# Extract HMAC from challenge
+grep -o '[a-f0-9]\{64\}' challenge_file.txt > expected_hmacs.txt
+
+# Compare HMACs
+comm -12 <(sort computed_hmacs.txt) <(sort expected_hmacs.txt)
+
+# Python-based MAC testing
+python3 << 'EOF'
+import hmac, hashlib
+key = b"key123"
+msg = b"test"
+print(hmac.new(key, msg, hashlib.sha256).hexdigest())
+EOF
+
+# John the Ripper MAC cracking (if supported)
+john --wordlist=/usr/share/wordlists/rockyou.txt --format=hmac mac_hash.txt
+
+# Hashcat HMAC cracking
+hashcat -m 160 -a 0 hmac_hash.txt /usr/share/wordlists/rockyou.txt
+# Mode 160: HMAC-SHA1
+
+# CyberChef online: https://gchq.github.io/CyberChef/
+# Recipe: HMAC with custom key, verify against known values
+```
+
+---
+
+### CTF Checklist: MAC Challenges
+
+```
+IDENTIFICATION:
+[ ] Determine MAC type (HMAC, CMAC, Poly1305, CBC-MAC)
+[ ] Identify hash function (SHA-256, SHA-512, MD5, AES, ChaCha20)
+[ ] Check output size (truncated or full)
+[ ] Extract any MAC values from challenge
+
+VULNERABILITY ASSESSMENT:
+[ ] Weak key derivation (password-based without KDF)
+[ ] Dictionary attack feasible (common passwords)
+[ ] Key reuse across multiple messages/contexts
+[ ] Truncated output (smaller collision space)
+[ ] Timing side-channel (non-constant-time comparison)
+[ ] Replay attack potential (no nonce/timestamp)
+[ ] Known plaintext available (enables targeted attacks)
+
+EXPLOITATION:
+[ ] If weak key: dictionary attack with wordlist
+[ ] If truncated: brute force collision (max 2^(8*bytes))
+[ ] If reuse (Poly1305/CBC-MAC): algebraic recovery
+[ ] If timing vulnerability: microsecond-precision timing
+[ ] If protocol: challenge-response/replay attack
+[ ] If known plaintext: differential analysis
+
+POST-EXPLOITATION:
+[ ] Recovered MAC key: verify with test message
+[ ] Forge new MAC: verify against oracle if available
+[ ] Decrypted message: check for flag format
+[ ] Validate solution against challenge requirements
+```
+
+---
+
+### Complete MAC Exploitation Suite
+
+```python
+#!/usr/bin/env python3
+"""
+MAC CTF Exploitation Suite: Comprehensive tools for MAC vulnerability testing.
+"""
+
+import hmac
+import hashlib
+from Crypto.Cipher import AES
+from Crypto.Hash import CMAC
+from Crypto.Util.Padding import pad
+
+class MACSuite:
+    def __init__(self):
+        pass
+    
+    def hmac_dictionary_attack(self, message, correct_mac, wordlist_path, hash_func=hashlib.sha256):
+        """Attack HMAC via dictionary of weak keys."""
+        print("[*] HMAC Dictionary Attack")
+        print(f"[*] Message: {message[:50]}...")
+        print(f"[*] Target MAC: {correct_mac.hex()[:16]}...\n")
+        
+        with open(wordlist_path, 'r') as f:
+            for i, word in enumerate(f):
+                word = word.strip().encode()
+                test_mac = hmac.new(word, message, hash_func).digest()
+                
+                if hmac.compare_digest(test_mac, correct_mac):
+                    print(f"[+] KEY FOUND: {word.decode()}")
+                    print(f"[+] Attempts: {i+1}")
+                    return word
+                
+                if (i + 1) % 10000 == 0:
+                    print(f"[-] Tried {i+1} keys...")
+        
+        print("[!] Key not found in wordlist")
+        return None
+    
+    def hmac_truncation_collision(self, key, message, truncation_bytes=2):
+        """Find collision in truncated HMAC."""
+        full_mac = hmac.new(key, message, hashlib.sha256).digest()
+        truncated_mac = full_mac[:truncation_bytes]
+        
+        print(f"[*] HMAC Truncation Collision Attack")
+        print(f"[*] Original MAC (truncated): {truncated_mac.hex()}")
+        print(f"[*] Collision space: 2^{8*truncation_bytes}\n")
+        
+        for i in range(2**(8*truncation_bytes)):
+            test_msg = message + i.to_bytes(4, 'big')
+            test_mac = hmac.new(key, test_msg, hashlib.sha256).digest()[:truncation_bytes]
+            
+            if test_mac == truncated_mac and test_msg != message:
+                print(f"[+] COLLISION FOUND at attempt {i}")
+                print(f"[+] Message: {test_msg.hex()}")
+                return test_msg
+        
+        return None
+    
+    def cmac_attack(self, message, correct_tag, wordlist_path):
+        """Attack CMAC via key dictionary."""
+        print("[*] CMAC Dictionary Attack\n")
+        
+        with open(wordlist_path, 'r') as f:
+            for i, word in enumerate(f):
+                word = word.strip()
+                key = (word * 2)[:16].encode()
+                
+                try:
+                    cipher = AES.new(key, AES.MODE_ECB)
+                    cmac_obj = CMAC.new(cipher)
+                    cmac_obj.update(message)
+                    
+                    if cmac_obj.digest() == correct_tag:
+                        print(f"[+] KEY FOUND: {word}")
+                        print(f"[+] Attempts: {i+1}")
+                        return key
+                except:
+                    pass
+                
+                if (i + 1) % 5000 == 0:
+                    print(f"[-] Tried {i+1} keys...")
+        
+        print("[!] Key not found")
+        return None
+    
+    def cbc_mac_compute(self, key, message):
+        """Compute CBC-MAC."""
+        padded_msg = pad(message, AES.block_size)
+        cipher = AES.new(key, AES.MODE_CBC, b'\x00' * AES.block_size)
+        ciphertext = cipher.encrypt(padded_msg)
+        return ciphertext[-AES.block_size:]
+    
+    def timing_attack_simulation(self, key, message, attacker_mac_bytes=4):
+        """Simulate timing side-channel on MAC verification."""
+        import time
+        
+        correct_mac = hmac.new(key, message, hashlib.sha256).digest()
+        attacker_mac = bytearray(attacker_mac_bytes)
+        
+        print(f"[*] Timing Attack Simulation ({attacker_mac_bytes} bytes)\n")
+        
+        # Find correct bytes via timing
+        for position in range(attacker_mac_bytes):
+            best_byte = 0
+            best_time = 0
+            
+            for byte_val in range(256):
+                test_mac = bytes(attacker_mac)
+                test_mac = test_mac[:position] + bytes([byte_val]) + test_mac[position+1:]
+                
+                # Time verification
+                start = time.perf_counter()
+                for _ in range(1000):
+                    vulnerable_verify = (test_mac == correct_mac[:attacker_mac_bytes])
+                elapsed = time.perf_counter() - start
+                
+                if elapsed > best_time:
+                    best_time = elapsed
+                    best_byte = byte_val
+            
+            attacker_mac[position] = best_byte
+            print(f"[+] Position {position}: 0x{best_byte:02x}")
+        
+        return bytes(attacker_mac)
+
+# Usage
+if __name__ == "__main__":
+    suite = MACSuite()
+    
+    # Example 1: HMAC dictionary attack
+    key = b"password123"
+    message = b"important_data"
+    mac = hmac.new(key, message, hashlib.sha256).digest()
+    
+    # Create test wordlist
+    with open("/tmp/test_wordlist.txt", "w") as f:
+        f.write("password\n")
+        f.write("password123\n")
+        f.write("admin\n")
+    
+    recovered_key = suite.hmac_dictionary_attack(message, mac, "/tmp/test_wordlist.txt")
+    
+    # Example 2: Truncation collision
+    if recovered_key:
+        collision = suite.hmac_truncation_collision(recovered_key, message, truncation_bytes=2)
+```
+
+This completes the comprehensive MAC section covering HMAC, CMAC, Poly1305, and CBC-MAC with practical CTF exploitation strategies and tools.
 
 ---
 
