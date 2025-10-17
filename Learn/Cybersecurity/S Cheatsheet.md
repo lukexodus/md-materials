@@ -4389,10 +4389,1368 @@ def enhance_barcode_for_reading(image_path):
     ## 1. Contrast stretching
     enhanced1 = cv2.equalizeHist(img)
     
-    ## 2
+    ## 2. Morphological operations 
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 10)) 
+    enhanced2 = cv2.morphologyEx(img, cv2.MORPH_CLOSE, kernel)
+    
+    # 3. Bilateral filtering (preserves edges)
+    
+    enhanced3 = cv2.bilateralFilter(img, 9, 75, 75)
+    
+    # 4. Threshold with Otsu's method
+    
+    _, enhanced4 = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # 5. Adaptive threshold
+    
+    enhanced5 = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+    
+    enhancements = { 'original': img, 'equalized': enhanced1, 'morphological': enhanced2, 'bilateral': enhanced3, 'otsu': enhanced4, 'adaptive': enhanced5 }
+    
+    # Try to decode each enhancement
+    
+    from pyzbar import pyzbar
+    
+    print("Testing barcode decoding with different enhancements:") for name, enhanced_img in enhancements.items(): # Save enhancement cv2.imwrite(f'barcode_enhanced_{name}.png', enhanced_img)
+    
+     # Try to decode
+     barcodes = pyzbar.decode(Image.fromarray(enhanced_img))
+     if barcodes:
+         print(f"  ✓ {name}: {barcodes[0].data.decode('utf-8', errors='replace')}")
+     else:
+         print(f"  ✗ {name}: Unable to decode")
+
+def rotate_and_detect_barcode(image_path): """ Try rotating image at various angles to find readable barcode """ from pyzbar import pyzbar
+
+img_original = cv2.imread(image_path)
+height, width = img_original.shape[:2]
+center = (width // 2, height // 2)
+
+print("Testing various rotation angles:")
+for angle in range(0, 360, 15):
+    rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+    rotated = cv2.warpAffine(img_original, rotation_matrix, (width, height))
+    
+    barcodes = pyzbar.decode(rotated)
+    if barcodes:
+        print(f"  ✓ {angle}°: {barcodes[0].data.decode('utf-8', errors='replace')}")
+        cv2.imwrite(f'barcode_rotated_{angle}.png', rotated)
+        return barcodes[0]
+
+print("  No barcode found at any rotation")
+return None
+
+# Usage
+
+enhance_barcode_for_reading('damaged_barcode.png') result = rotate_and_detect_barcode('rotated_barcode.png')
+````
+
+### Augmented Reality Markers
+
+#### AR Marker Detection (ArUco)
+
+ArUco (Augmented Reality Utility Codes) markers are synthetic square fiducial markers designed for camera pose estimation. Each marker consists of an outer black border, a white border, and a 4x4 grid of black/white modules encoding a unique ID. Standard marker dictionaries exist (4x4, 5x5, 6x6, 7x7 module grids).
+
+```python
+import cv2
+from cv2 import aruco
+import numpy as np
+
+def detect_aruco_markers(image_path):
+    """
+    Detect and decode ArUco markers in image
+    """
+    img = cv2.imread(image_path)
+    if img is None:
+        print("Cannot read image")
+        return []
+    
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    ## Initialize ArUco detector
+    ## Try different dictionaries
+    dictionaries = [
+        aruco.getPredefinedDictionary(aruco.DICT_4X4_50),
+        aruco.getPredefinedDictionary(aruco.DICT_5X5_100),
+        aruco.getPredefinedDictionary(aruco.DICT_6X6_250),
+        aruco.getPredefinedDictionary(aruco.DICT_7X7_1000)
+    ]
+    
+    all_markers = []
+    
+    for dict_idx, dictionary in enumerate(dictionaries):
+        detector = aruco.ArucoDetector(dictionary)
+        corners, ids, rejected = detector.detectMarkers(gray)
+        
+        if ids is not None and len(ids) > 0:
+            print(f"Found {len(ids)} marker(s) in dictionary {dict_idx}")
+            
+            for i, marker_id in enumerate(ids.flatten()):
+                corner = corners[i][0]
+                print(f"  Marker ID: {marker_id}")
+                print(f"  Corners: {corner}")
+                
+                all_markers.append({
+                    'id': marker_id,
+                    'corners': corner,
+                    'dictionary': dict_idx
+                })
+            
+            ## Draw markers
+            img_marked = img.copy()
+            img_marked = aruco.drawDetectedMarkers(img_marked, corners, ids)
+            cv2.imwrite('aruco_detected.png', img_marked)
+            print("Marked image saved to aruco_detected.png")
+    
+    return all_markers
+
+def analyze_aruco_marker_content(image_path):
+    """
+    Extract and analyze ArUco marker binary content
+    """
+    markers = detect_aruco_markers(image_path)
+    
+    if not markers:
+        print("No ArUco markers found")
+        return
+    
+    for marker in markers:
+        marker_id = marker['id']
+        corners = marker['corners']
+        
+        print(f"\nMarker ID {marker_id}:")
+        print(f"  Binary representation: {bin(marker_id)}")
+        print(f"  Hex representation: {hex(marker_id)}")
+        
+        ## Extract marker region from image
+        img = cv2.imread(image_path)
+        x_min = int(np.min(corners[:, 0]))
+        x_max = int(np.max(corners[:, 0]))
+        y_min = int(np.min(corners[:, 1]))
+        y_max = int(np.max(corners[:, 1]))
+        
+        marker_region = img[y_min:y_max, x_min:x_max]
+        cv2.imwrite(f'marker_{marker_id}.png', marker_region)
+        
+        ## Analyze marker pattern
+        gray_marker = cv2.cvtColor(marker_region, cv2.COLOR_BGR2GRAY)
+        _, binary = cv2.threshold(gray_marker, 127, 255, cv2.THRESH_BINARY)
+        
+        ## Extract bit pattern
+        height, width = binary.shape
+        bit_size = height // 8  ## Approximate size of each bit cell
+        
+        pattern = []
+        for row in range(8):
+            for col in range(8):
+                cell = binary[row*bit_size:(row+1)*bit_size, 
+                             col*bit_size:(col+1)*bit_size]
+                avg = np.mean(cell)
+                pattern.append('1' if avg > 127 else '0')
+        
+        print(f"  Bit pattern: {''.join(pattern[:32])}")
+
+## Usage
+markers = detect_aruco_markers('marker_image.png')
+analyze_aruco_marker_content('marker_image.png')
+````
+
+#### Custom Marker Detection
+
+Detect and decode custom AR markers:
+
+```python
+def detect_custom_markers(image_path, marker_size=50):
+    """
+    Detect custom square markers in image
+    """
+    img = cv2.imread(image_path)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    ## Find contours
+    _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    
+    markers = []
+    
+    for contour in contours:
+        ## Get bounding rectangle
+        x, y, w, h = cv2.boundingRect(contour)
+        
+        ## Check if roughly square
+        if 0.7 < w / h < 1.3 and w > marker_size:
+            ## Check if it's a closed contour
+            if cv2.contourArea(contour) > (w * h * 0.5):
+                markers.append((x, y, w, h))
+    
+    print(f"Found {len(markers)} potential markers")
+    
+    ## Draw markers
+    img_marked = img.copy()
+    for x, y, w, h in markers:
+        cv2.rectangle(img_marked, (x, y), (x+w, y+h), (0, 255, 0), 2)
+    
+    cv2.imwrite('custom_markers_detected.png', img_marked)
+    
+    return markers
+
+def decode_marker_content(image_path, marker_region):
+    """
+    Decode binary content from marker region
+    """
+    x, y, w, h = marker_region
+    
+    img = cv2.imread(image_path)
+    marker_img = img[y:y+h, x:x+w]
+    
+    gray = cv2.cvtColor(marker_img, cv2.COLOR_BGR2GRAY)
+    _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+    
+    ## Extract grid pattern (assuming 4x4 or similar)
+    grid_size = 8
+    cell_h = h // grid_size
+    cell_w = w // grid_size
+    
+    pattern = np.zeros((grid_size, grid_size), dtype=int)
+    
+    for row in range(grid_size):
+        for col in range(grid_size):
+            cell = binary[row*cell_h:(row+1)*cell_h, col*cell_w:(col+1)*cell_w]
+            avg = np.mean(cell)
+            pattern[row, col] = 1 if avg > 127 else 0
+    
+    print(f"Marker pattern ({grid_size}x{grid_size}):")
+    for row in pattern:
+        print(' '.join('█' if bit else '░' for bit in row))
+    
+    ## Try to extract ID
+    ## Skip border (typically 1 cell wide)
+    interior = pattern[1:-1, 1:-1]
+    marker_id = 0
+    for i, bit in enumerate(interior.flatten()):
+        marker_id = (marker_id << 1) | bit
+    
+    print(f"Decoded ID: {marker_id}")
+    
+    return pattern, marker_id
+
+## Usage
+markers = detect_custom_markers('marker_image.png')
+if markers:
+    pattern, marker_id = decode_marker_content('marker_image.png', markers[0])
 ```
 
+#### Multiple Marker Detection and Tracking
 
+Track multiple AR markers across frames:
+
+```python
+def analyze_marker_relationships(image_path):
+    """
+    Analyze spatial relationships between multiple markers
+    """
+    img = cv2.imread(image_path)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    ## Detect ArUco markers
+    dictionary = aruco.getPredefinedDictionary(aruco.DICT_5X5_100)
+    detector = aruco.ArucoDetector(dictionary)
+    corners, ids, _ = detector.detectMarkers(gray)
+    
+    if ids is None or len(ids) < 2:
+        print("Need at least 2 markers for relationship analysis")
+        return
+    
+    print(f"Found {len(ids)} markers")
+    
+    ## Calculate distances and angles between markers
+    marker_centers = []
+    for i, marker_id in enumerate(ids.flatten()):
+        center = np.mean(corners[i][0], axis=0)
+        marker_centers.append((marker_id, center))
+        print(f"Marker {marker_id}: {center}")
+    
+    ## Calculate pairwise distances
+    print("\nMarker distances:")
+    for i in range(len(marker_centers)):
+        for j in range(i+1, len(marker_centers)):
+            id1, center1 = marker_centers[i]
+            id2, center2 = marker_centers[j]
+            distance = np.linalg.norm(center1 - center2)
+            
+            ## Calculate angle
+            dx = center2[0] - center1[0]
+            dy = center2[1] - center1[1]
+            angle = np.degrees(np.arctan2(dy, dx))
+            
+            print(f"  {id1} to {id2}: distance={distance:.1f}, angle={angle:.1f}°")
+
+def track_markers_in_video(video_path):
+    """
+    Track ArUco markers across video frames
+    """
+    cap = cv2.VideoCapture(video_path)
+    
+    dictionary = aruco.getPredefinedDictionary(aruco.DICT_5X5_100)
+    detector = aruco.ArucoDetector(dictionary)
+    
+    frame_count = 0
+    marker_history = {}
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        corners, ids, _ = detector.detectMarkers(gray)
+        
+        if ids is not None:
+            for i, marker_id in enumerate(ids.flatten()):
+                center = np.mean(corners[i][0], axis=0)
+                
+                if marker_id not in marker_history:
+                    marker_history[marker_id] = []
+                
+                marker_history[marker_id].append({
+                    'frame': frame_count,
+                    'center': center,
+                    'corners': corners[i][0]
+                })
+        
+        frame_count += 1
+    
+    cap.release()
+    
+    print(f"Processed {frame_count} frames")
+    print("Marker tracking history:")
+    for marker_id, history in marker_history.items():
+        print(f"  Marker {marker_id}: {len(history)} detections")
+        
+        ## Calculate movement
+        if len(history) > 1:
+            first_center = history[0]['center']
+            last_center = history[-1]['center']
+            movement = np.linalg.norm(last_center - first_center)
+            print(f"    Total movement: {movement:.1f} pixels")
+
+## Usage
+analyze_marker_relationships('marker_image.png')
+track_markers_in_video('marker_video.mp4')
+```
+
+### Steganographic Algorithms Detection
+
+#### LSB Steganalysis
+
+Detect LSB steganography by analyzing bit plane distributions:
+
+```python
+def analyze_lsb_distribution(image_path):
+    """
+    Analyze LSB distribution to detect steganography
+    """
+    img = Image.open(image_path)
+    pixels = np.array(img)
+    
+    print(f"Image mode: {img.mode}")
+    print(f"Dimensions: {img.size}")
+    
+    if len(pixels.shape) == 3:
+        ## Color image - analyze each channel
+        for channel_idx in range(pixels.shape[2]):
+            channel = pixels[:,:,channel_idx]
+            analyze_channel_lsb(channel, f"Channel {channel_idx}")
+    else:
+        ## Grayscale image
+        analyze_channel_lsb(pixels, "Grayscale")
+
+def analyze_channel_lsb(channel, name):
+    """
+    Analyze single channel for LSB patterns
+    """
+    flat = channel.flatten()
+    
+    print(f"\n{name} LSB Analysis:")
+    
+    ## Analyze each bit plane
+    for bit_pos in range(8):
+        bit_plane = (flat >> bit_pos) & 1
+        ones = np.sum(bit_plane)
+        zeros = len(bit_plane) - ones
+        
+        ## Chi-squared test for randomness
+        ## Steganographically embedded data tends to have ~50% 1s and 0s
+        expected = len(bit_plane) / 2
+        chi_sq = ((ones - expected) ** 2 + (zeros - expected) ** 2) / expected
+        
+        ratio = ones / len(bit_plane)
+        
+        print(f"  Bit {bit_pos}: 1s={ratio:.3f}, χ²={chi_sq:.3f}", end="")
+        
+        if chi_sq < 5:  ## Low chi-squared indicates suspicious randomness
+            print(" ⚠ Suspicious pattern")
+        else:
+            print()
+
+def chi_squared_steganalysis(image_path):
+    """
+    Perform chi-squared steganalysis to estimate hidden capacity
+    """
+    img = Image.open(image_path)
+    pixels = np.array(img.convert('L'))
+    
+    flat = pixels.flatten()
+    
+    ## Analyze LSB pairs
+    lsb_values = flat & 1
+    second_lsb = (flat >> 1) & 1
+    
+    ## Count occurrences of each pattern
+    pattern_00 = np.sum((lsb_values == 0) & (second_lsb == 0))
+    pattern_01 = np.sum((lsb_values == 1) & (second_lsb == 0))
+    pattern_10 = np.sum((lsb_values == 0) & (second_lsb == 1))
+    pattern_11 = np.sum((lsb_values == 1) & (second_lsb == 1))
+    
+    total = len(flat)
+    
+    print(f"LSB pair distribution:")
+    print(f"  00: {pattern_00/total:.3f}")
+    print(f"  01: {pattern_01/total:.3f}")
+    print(f"  10: {pattern_10/total:.3f}")
+    print(f"  11: {pattern_11/total:.3f}")
+    
+    ## Chi-squared test
+    expected = total / 4
+    chi_sq = ((pattern_00 - expected)**2 + (pattern_01 - expected)**2 +
+              (pattern_10 - expected)**2 + (pattern_11 - expected)**2) / expected
+    
+    print(f"Chi-squared statistic: {chi_sq:.3f}")
+    
+    if chi_sq > 50:
+        print("Likely steganography present (high chi-squared)")
+    elif chi_sq < 10:
+        print("No steganography detected (low chi-squared)")
+    else:
+        print("Uncertain - steganography possible")
+
+## Usage
+analyze_lsb_distribution('image.png')
+chi_squared_steganalysis('image.png')
+```
+
+#### Steganalysis Statistical Tests
+
+Perform statistical analysis to detect steganographic modification:
+
+```python
+def analyze_pixel_value_distribution(image_path):
+    """
+    Analyze pixel value distribution for signs of steganography
+    """
+    img = Image.open(image_path)
+    pixels = np.array(img.convert('L'))
+    
+    flat = pixels.flatten()
+    
+    ## Histogram analysis
+    hist, bins = np.histogram(flat, bins=256, range=(0, 256))
+    
+    print("Pixel value distribution:")
+    print(f"  Mean: {np.mean(flat):.1f}")
+    print(f"  Std Dev: {np.std(flat):.1f}")
+    print(f"  Min: {np.min(flat)}")
+    print(f"  Max: {np.max(flat)}")
+    
+    ## Check for even/odd pattern
+    even_count = np.sum(flat % 2 == 0)
+    odd_count = len(flat) - even_count
+    
+    print(f"Even pixel values: {even_count/len(flat):.3f}")
+    print(f"Odd pixel values: {odd_count/len(flat):.3f}")
+    
+    ## Calculate chi-squared for even/odd distribution
+    expected = len(flat) / 2
+    chi_sq = ((even_count - expected)**2 + (odd_count - expected)**2) / expected
+    
+    print(f"Chi-squared (even/odd): {chi_sq:.3f}")
+    
+    if chi_sq > 100:
+        print("⚠ Suspicious even/odd distribution - potential LSB steganography")
+    
+    ## Visualize histogram
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(12, 4))
+    
+    plt.subplot(1, 2, 1)
+    plt.hist(flat, bins=256, range=(0, 256))
+    plt.title("Pixel Value Distribution")
+    plt.xlabel("Pixel Value")
+    plt.ylabel("Frequency")
+    
+    ## Analyze bit planes
+    plt.subplot(1, 2, 2)
+    bit_counts = []
+    for bit in range(8):
+        bit_plane = (flat >> bit) & 1
+        bit_counts.append(np.sum(bit_plane) / len(flat))
+    
+    plt.bar(range(8), bit_counts)
+    plt.title("Bit Plane Distribution")
+    plt.xlabel("Bit Position")
+    plt.ylabel("Proportion of 1s")
+    plt.ylim([0, 1])
+    plt.axhline(y=0.5, color='r', linestyle='--', label='Expected (50%)')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig('steganalysis_distribution.png', dpi=100)
+    print("\nDistribution plot saved to steganalysis_distribution.png")
+
+def perform_rs_steganalysis(image_path):
+    """
+    Regular and Singular (RS) steganalysis - estimates hidden message length
+    [Inference] RS analysis detects LSB steganography by analyzing
+    pixel groups for specific patterns, though results are estimates.
+    """
+    img = Image.open(image_path)
+    pixels = np.array(img.convert('L'))
+    
+    height, width = pixels.shape
+    groups = []
+    
+    ## Group pixels into 2x2 blocks
+    for y in range(0, height-1, 2):
+        for x in range(0, width-1, 2):
+            group = [pixels[y, x], pixels[y, x+1],
+                    pixels[y+1, x], pixels[y+1, x+1]]
+            groups.append(group)
+    
+    groups = np.array(groups)
+    
+    ## Count Regular (R) and Singular (S) groups
+    ## R: groups where transitions follow specific pattern
+    ## S: groups with irregular pattern
+    
+    r_count = 0
+    s_count = 0
+    
+    for group in groups:
+        ## Simple flipping discrimination function
+        flips_normal = 0
+        flips_flipped = 0
+        
+        ## Check standard order
+        for i in range(3):
+            if group[i] != group[i+1]:
+                flips_normal += 1
+        
+        ## Check LSB-flipped order
+        flipped_group = group ^ 1
+        for i in range(3):
+            if flipped_group[i] != flipped_group[i+1]:
+                flips_flipped += 1
+        
+        if flips_normal < flips_flipped:
+            r_count += 1
+        elif flips_flipped < flips_normal:
+            s_count += 1
+    
+    print(f"RS Steganalysis Results:")
+    print(f"  Regular groups: {r_count}")
+    print(f"  Singular groups: {s_count}")
+    
+    ## Estimate hidden message length
+    if r_count > 0:
+        ratio = s_count / r_count
+        estimated_capacity = 0.5 * np.log2(1 + 2 * ratio)
+        print(f"  Estimated hidden capacity: {estimated_capacity:.2f} bits per group")
+
+## Usage
+analyze_pixel_value_distribution('image.png')
+perform_rs_steganalysis('image.png')
+```
+
+#### Stego Tool Signature Detection
+
+Detect signatures of common steganography tools:
+
+```python
+def detect_steganography_tools(image_path):
+    """
+    Detect signatures of common steganography tools
+    """
+    img = Image.open(image_path)
+    pixels = np.array(img)
+    
+    print("Checking for steganography tool signatures...\n")
+    
+    ## 1. Check for steghide signature
+    check_steghide_signature(img)
+    
+    ## 2. Check for OpenStego patterns
+    check_openstego_patterns(pixels)
+    
+    ## 3. Check for OutGuess patterns
+    check_outguess_patterns(pixels)
+    
+    ## 4. Check for SilentEye patterns
+    check_silenteye_patterns(pixels)
+
+def check_steghide_signature(img):
+    """
+    Steghide uses specific byte patterns in metadata
+    """
+    ## Read raw file data
+    with open(img.filename, 'rb') as f:
+        data = f.read()
+    
+    ## Steghide leaves markers in certain file types
+    if b'steghide' in data.lower():
+        print("✓ Steghide marker found in file")
+    
+    ## Check for steghide's specific encryption/compression headers
+    ## Steghide often uses zlib compression
+    if b'\x78\x9c' in data or b'\x78\x01' in data:
+        print("✓ Potential zlib compression (used by steghide)")
+
+def check_openstego_patterns(pixels):
+    """
+    OpenStego uses specific LSB patterns
+    """
+    flat = pixels.flatten()
+    
+    ## OpenStego patterns in LSB
+    lsb = flat & 1
+    
+    ## Count transitions in LSB sequence
+    transitions = np.sum(np.diff(lsb) != 0)
+    transition_ratio = transitions / len(lsb)
+    
+    if transition_ratio > 0.4:
+        print(f"⚠ OpenStego-like LSB pattern detected (transition ratio: {transition_ratio:.3f})")
+
+def check_outguess_patterns(pixels):
+    """
+    OutGuess leaves specific statistical signatures
+    """
+    flat = pixels.flatten()
+    
+    ## OutGuess modifies LSBs in specific patterns
+    ## Check for bias in LSB vs second LSB correlation
+    
+    lsb = flat & 1
+    second_lsb = (flat >> 1) & 1
+    
+    correlation = np.correlate(lsb, second_lsb, mode='full')
+    if np.max(correlation) / len(flat) > 0.6:
+        print("⚠ OutGuess-like LSB/2LSB correlation detected")
+
+def check_silenteye_patterns(pixels):
+    """
+    SilentEye uses specific encoding
+    """
+    flat = pixels.flatten()
+    
+    ## Check for SilentEye's characteristic bit patterns
+    ## SilentEye often targets specific color channels
+    
+    if len(pixels.shape) == 3:
+        red = pixels[:,:,0].flatten()
+        green = pixels[:,:,1].flatten()
+        blue = pixels[:,:,2].flatten()
+        
+        ## Check if only one channel is modified
+        red_changes = np.sum(np.abs(np.diff(red))) / len(red)
+        green_changes = np.sum(np.abs(np.diff(green))) / len(green)
+        blue_changes = np.sum(np.abs(np.diff(blue))) / len(blue)
+        
+        changes = [red_changes, green_changes, blue_changes]
+        if max(changes) > 2 * min(changes):
+            print(f"⚠ Channel bias detected - SilentEye pattern possible")
+
+## Usage
+detect_steganography_tools('suspicious_image.png')
+```
+
+### Image Diffing
+
+#### Comparing Images for Differences
+
+Detect modifications between images through pixel-level comparison:
+
+```python
+def compare_images_basic(image1_path, image2_path):
+    """
+    Basic image comparison - detect pixel-level differences
+    """
+    img1 = Image.open(image1_path)
+    img2 = Image.open(image2_path)
+    
+    ## Ensure same size
+    if img1.size != img2.size:
+        print(f"Size mismatch: {img1.size} vs {img2.size}")
+        img2 = img2.resize(img1.size)
+    
+    arr1 = np.array(img1)
+    arr2 = np.array(img2)
+    
+    ## Calculate difference
+    diff = np.abs(arr1.astype(int) - arr2.astype(int))
+    
+    ## Statistics
+    diff_pixels = np.sum(diff > 0)
+    total_pixels = diff.size
+    difference_percentage = 100 * diff_pixels / total_pixels
+    
+    print(f"Image 1: {image1_path} ({img1.size})")
+    print(f"Image 2: {image2_path} ({img2.size})")
+    print(f"\nDifference Statistics:")
+    print(f"  Changed pixels: {diff_pixels}/{total_pixels} ({difference_percentage:.3f}%)")
+    print(f"  Max difference: {np.max(diff)}")
+    print(f"  Mean difference: {np.mean(diff):.2f}")
+    print(f"  Median difference: {np.median(diff):.2f}")
+    
+    ## Create difference visualization
+    diff_img = Image.fromarray(np.uint8(np.minimum(diff * 4, 255)))
+    diff_img.save('image_diff.png')
+    print("\nDifference map saved to image_diff.png")
+    
+    return diff
+
+def highlight_differences(image1_path, image2_path, threshold=1):
+    """
+    Create highlighted difference visualization
+    """
+    img1 = Image.open(image1_path).convert('RGB')
+    img2 = Image.open(image2_path).convert('RGB')
+    
+    if img1.size != img2.size:
+        img2 = img2.resize(img1.size)
+    
+    arr1 = np.array(img1)
+    arr2 = np.array(img2)
+    
+    ## Calculate per-channel differences
+    diff = np.abs(arr1.astype(int) - arr2.astype(int))
+    
+    ## Create highlighted version
+    highlighted = arr1.copy()
+    diff_mask = np.sum(diff, axis=2) > threshold
+    
+    ## Color differences in red
+    highlighted[diff_mask] = [255, 0, 0]
+    
+    result_img = Image.fromarray(np.uint8(highlighted))
+    result_img.save('differences_highlighted.png')
+    print("Highlighted differences saved to differences_highlighted.png")
+    
+    ## Also create overlay
+    overlay = Image.blend(img1, img2, 0.5)
+    overlay.save('image_overlay.png')
+    print("Overlay saved to image_overlay.png")
+    
+    return highlighted
+
+def analyze_color_channel_differences(image1_path, image2_path):
+    """
+    Analyze differences in each color channel separately
+    """
+    img1 = Image.open(image1_path).convert('RGB')
+    img2 = Image.open(image2_path).convert('RGB')
+    
+    if img1.size != img2.size:
+        img2 = img2.resize(img1.size)
+    
+    arr1 = np.array(img1)
+    arr2 = np.array(img2)
+    
+    channels = ['Red', 'Green', 'Blue']
+    
+    print("Per-channel analysis:")
+    for ch in range(3):
+        channel1 = arr1[:,:,ch]
+        channel2 = arr2[:,:,ch]
+        
+        diff = np.abs(channel1.astype(int) - channel2.astype(int))
+
+    changed = np.sum(diff > 0)
+    total = channel1.size
+    
+    print(f"\n{channels[ch]} channel:")
+    print(f"  Changed pixels: {changed}/{total} ({100*changed/total:.3f}%)")
+    print(f"  Max difference: {np.max(diff)}")
+    print(f"  Mean difference: {np.mean(diff):.2f}")
+    print(f"  Std dev: {np.std(diff):.2f}")
+    
+    # Create channel diff visualization
+    diff_img = Image.fromarray(np.uint8(np.minimum(diff * 4, 255)))
+    diff_img.save(f'diff_{channels[ch].lower()}.png')
+
+# Usage
+
+diff = compare_images_basic('original.png', 'modified.png') highlight_differences('original.png', 'modified.png') analyze_color_channel_differences('original.png', 'modified.png')
+````
+
+### Structural Similarity Index (SSIM)
+
+Measure structural similarity between images:
+
+```python
+def calculate_ssim(image1_path, image2_path):
+    """
+    Calculate Structural Similarity Index (SSIM)
+    SSIM ranges from -1 to 1, where 1 indicates identical images
+    """
+    from skimage.metrics import structural_similarity as ssim
+    
+    img1 = Image.open(image1_path).convert('L')
+    img2 = Image.open(image2_path).convert('L')
+    
+    if img1.size != img2.size:
+        img2 = img2.resize(img1.size)
+    
+    arr1 = np.array(img1)
+    arr2 = np.array(img2)
+    
+    # Calculate SSIM
+    ssim_value = ssim(arr1, arr2)
+    
+    print(f"SSIM: {ssim_value:.4f}")
+    
+    if ssim_value > 0.95:
+        print("Images are nearly identical")
+    elif ssim_value > 0.8:
+        print("Images are very similar")
+    elif ssim_value > 0.5:
+        print("Images have moderate similarity")
+    else:
+        print("Images are significantly different")
+    
+    # Calculate SSIM with color images
+    img1_color = Image.open(image1_path).convert('RGB')
+    img2_color = Image.open(image2_path).convert('RGB')
+    
+    if img1_color.size != img2_color.size:
+        img2_color = img2_color.resize(img1_color.size)
+    
+    arr1_color = np.array(img1_color)
+    arr2_color = np.array(img2_color)
+    
+    # SSIM for color image (average of channels)
+    ssim_values = []
+    for ch in range(3):
+        ssim_ch = ssim(arr1_color[:,:,ch], arr2_color[:,:,ch])
+        ssim_values.append(ssim_ch)
+    
+    print(f"\nColor SSIM:")
+    for i, ch_name in enumerate(['Red', 'Green', 'Blue']):
+        print(f"  {ch_name}: {ssim_values[i]:.4f}")
+    
+    avg_ssim = np.mean(ssim_values)
+    print(f"  Average: {avg_ssim:.4f}")
+    
+    return ssim_value, avg_ssim
+
+def calculate_mse_psnr(image1_path, image2_path):
+    """
+    Calculate Mean Squared Error (MSE) and Peak Signal-to-Noise Ratio (PSNR)
+    """
+    img1 = Image.open(image1_path).convert('L')
+    img2 = Image.open(image2_path).convert('L')
+    
+    if img1.size != img2.size:
+        img2 = img2.resize(img1.size)
+    
+    arr1 = np.array(img1, dtype=np.float32)
+    arr2 = np.array(img2, dtype=np.float32)
+    
+    # Calculate MSE
+    mse = np.mean((arr1 - arr2) ** 2)
+    
+    print(f"Mean Squared Error (MSE): {mse:.4f}")
+    
+    if mse == 0:
+        print("Images are identical")
+        psnr = float('inf')
+    else:
+        # Calculate PSNR (Peak Signal-to-Noise Ratio)
+        # Assumes 8-bit images with max value 255
+        max_pixel = 255.0
+        psnr = 20 * np.log10(max_pixel / np.sqrt(mse))
+        print(f"Peak Signal-to-Noise Ratio (PSNR): {psnr:.2f} dB")
+    
+    # PSNR interpretation
+    if psnr > 40:
+        print("Very high quality (nearly imperceptible difference)")
+    elif psnr > 30:
+        print("High quality")
+    elif psnr > 20:
+        print("Moderate quality")
+    else:
+        print("Low quality / Significant differences")
+    
+    return mse, psnr
+
+# Usage
+ssim_val, avg_ssim = calculate_ssim('original.png', 'modified.png')
+mse, psnr = calculate_mse_psnr('original.png', 'modified.png')
+````
+
+### Histogram and Statistical Comparison
+
+Compare statistical properties:
+
+```python
+def compare_histograms(image1_path, image2_path):
+    """
+    Compare color histograms of two images
+    """
+    img1 = Image.open(image1_path).convert('RGB')
+    img2 = Image.open(image2_path).convert('RGB')
+    
+    if img1.size != img2.size:
+        img2 = img2.resize(img1.size)
+    
+    arr1 = np.array(img1)
+    arr2 = np.array(img2)
+    
+    print("Histogram Comparison:")
+    
+    for ch_idx, ch_name in enumerate(['Red', 'Green', 'Blue']):
+        hist1, _ = np.histogram(arr1[:,:,ch_idx], bins=256, range=(0, 256))
+        hist2, _ = np.histogram(arr2[:,:,ch_idx], bins=256, range=(0, 256))
+        
+        # Normalize histograms
+        hist1 = hist1 / np.sum(hist1)
+        hist2 = hist2 / np.sum(hist2)
+        
+        # Calculate histogram distance (chi-squared)
+        chi_squared = np.sum((hist1 - hist2) ** 2 / (hist1 + hist2 + 1e-10))
+        
+        # Bhattacharyya distance
+        bhatt = -np.log(np.sum(np.sqrt(hist1 * hist2)))
+        
+        print(f"\n{ch_name} channel:")
+        print(f"  Chi-squared distance: {chi_squared:.4f}")
+        print(f"  Bhattacharyya distance: {bhatt:.4f}")
+        
+        # Visualize
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(10, 4))
+        
+        plt.subplot(1, 2, 1)
+        plt.plot(hist1, label='Image 1', alpha=0.7)
+        plt.plot(hist2, label='Image 2', alpha=0.7)
+        plt.title(f'{ch_name} Channel Histogram')
+        plt.xlabel('Pixel Value')
+        plt.ylabel('Frequency')
+        plt.legend()
+        
+        plt.subplot(1, 2, 2)
+        plt.bar(range(256), np.abs(hist1 - hist2))
+        plt.title(f'{ch_name} Channel Difference')
+        plt.xlabel('Pixel Value')
+        plt.ylabel('Histogram Difference')
+        
+        plt.tight_layout()
+        plt.savefig(f'histogram_comparison_{ch_name.lower()}.png')
+        plt.close()
+
+def analyze_statistical_properties(image_path):
+    """
+    Analyze statistical properties of image
+    """
+    img = Image.open(image_path).convert('RGB')
+    arr = np.array(img)
+    
+    print(f"Image: {image_path}")
+    print(f"Dimensions: {img.size}")
+    print(f"Mode: {img.mode}\n")
+    
+    print("Statistical Properties:")
+    for ch_idx, ch_name in enumerate(['Red', 'Green', 'Blue']):
+        channel = arr[:,:,ch_idx].flatten()
+        
+        print(f"\n{ch_name} channel:")
+        print(f"  Mean: {np.mean(channel):.2f}")
+        print(f"  Median: {np.median(channel):.2f}")
+        print(f"  Std Dev: {np.std(channel):.2f}")
+        print(f"  Min: {np.min(channel)}")
+        print(f"  Max: {np.max(channel)}")
+        print(f"  Skewness: {((np.mean(channel) - np.median(channel)) / np.std(channel)):.3f}")
+        
+        # Entropy
+        hist, _ = np.histogram(channel, bins=256, range=(0, 256))
+        hist = hist / np.sum(hist)
+        entropy = -np.sum(hist * np.log2(hist + 1e-10))
+        print(f"  Entropy: {entropy:.3f}")
+
+# Usage
+compare_histograms('original.png', 'modified.png')
+analyze_statistical_properties('image.png')
+```
+
+### Perceptual Hashing
+
+Use perceptual hashing to detect manipulated or similar images:
+
+```python
+def calculate_perceptual_hash(image_path, method='average'):
+    """
+    Calculate perceptual hash of image
+    Methods: 'average', 'difference', 'phash'
+    """
+    img = Image.open(image_path).convert('L')
+    
+    if method == 'average':
+        return calculate_average_hash(img)
+    elif method == 'difference':
+        return calculate_difference_hash(img)
+    elif method == 'phash':
+        return calculate_phash(img)
+
+def calculate_average_hash(img, size=8):
+    """
+    Average hash - simple perceptual hash
+    """
+    # Resize to 8x8
+    img_small = img.resize((size, size), Image.Resampling.LANCZOS)
+    arr = np.array(img_small)
+    
+    # Calculate average pixel value
+    avg = np.mean(arr)
+    
+    # Create hash
+    hash_bits = arr > avg
+    hash_value = 0
+    for bit in hash_bits.flatten():
+        hash_value = (hash_value << 1) | int(bit)
+    
+    return hash_value, hash_bits
+
+def calculate_difference_hash(img, size=8):
+    """
+    Difference hash - compares adjacent pixels
+    """
+    img_small = img.resize((size+1, size), Image.Resampling.LANCZOS)
+    arr = np.array(img_small)
+    
+    # Compare each pixel with the one to the right
+    hash_bits = np.zeros((size, size), dtype=bool)
+    for i in range(size):
+        for j in range(size):
+            hash_bits[i, j] = arr[i, j] > arr[i, j+1]
+    
+    hash_value = 0
+    for bit in hash_bits.flatten():
+        hash_value = (hash_value << 1) | int(bit)
+    
+    return hash_value, hash_bits
+
+def calculate_phash(img, size=32):
+    """
+    Perceptual hash using DCT (Discrete Cosine Transform)
+    """
+    from scipy.fftpack import dct
+    
+    # Resize to 32x32
+    img_small = img.resize((size, size), Image.Resampling.LANCZOS)
+    arr = np.array(img_small, dtype=np.float32)
+    
+    # Apply DCT
+    dct_result = dct(dct(arr, axis=0), axis=1)
+    
+    # Use top-left 8x8 coefficients
+    dct_reduced = dct_result[:8, :8]
+    
+    # Calculate average of all coefficients
+    avg = np.mean(dct_reduced)
+    
+    # Create hash
+    hash_bits = dct_reduced > avg
+    hash_value = 0
+    for bit in hash_bits.flatten():
+        hash_value = (hash_value << 1) | int(bit)
+    
+    return hash_value, hash_bits
+
+def hamming_distance(hash1, hash2):
+    """
+    Calculate Hamming distance between two hashes
+    """
+    xor = hash1 ^ hash2
+    distance = 0
+    while xor:
+        distance += xor & 1
+        xor >>= 1
+    return distance
+
+def compare_images_by_hash(image1_path, image2_path):
+    """
+    Compare images using perceptual hashing
+    """
+    print("Perceptual Hash Comparison:")
+    print(f"Image 1: {image1_path}")
+    print(f"Image 2: {image2_path}\n")
+    
+    methods = ['average', 'difference', 'phash']
+    
+    for method in methods:
+        hash1, bits1 = calculate_perceptual_hash(image1_path, method)
+        hash2, bits2 = calculate_perceptual_hash(image2_path, method)
+        
+        distance = hamming_distance(hash1, hash2)
+        max_distance = 64  # For 8x8 hash
+        
+        similarity = 100 * (1 - distance / max_distance)
+        
+        print(f"{method.upper()} Hash:")
+        print(f"  Hash 1: {hash1:064b}")
+        print(f"  Hash 2: {hash2:064b}")
+        print(f"  Hamming distance: {distance}")
+        print(f"  Similarity: {similarity:.1f}%")
+        
+        if similarity > 90:
+            print("  ✓ Images appear to be identical or very similar")
+        elif similarity > 75:
+            print("  ≈ Images are similar (likely same content)")
+        elif similarity > 50:
+            print("  ~ Images have some similarity")
+        else:
+            print("  ✗ Images are different")
+        print()
+
+# Usage
+compare_images_by_hash('original.png', 'modified.png')
+```
+
+### Advanced Diffing with Feature Detection
+
+Use feature matching to find modifications:
+
+```python
+def detect_modified_regions(image1_path, image2_path):
+    """
+    Detect and visualize modified regions between images
+    """
+    img1 = cv2.imread(image1_path)
+    img2 = cv2.imread(image2_path)
+    
+    if img1.shape != img2.shape:
+        img2 = cv2.resize(img2, (img1.shape[1], img1.shape[0]))
+    
+    # Convert to grayscale
+    gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+    gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+    
+    # Calculate difference
+    diff = cv2.absdiff(gray1, gray2)
+    
+    # Threshold to get binary mask
+    _, thresh = cv2.threshold(diff, 30, 255, cv2.THRESH_BINARY)
+    
+    # Dilate to connect nearby changes
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    thresh = cv2.dilate(thresh, kernel, iterations=2)
+    
+    # Find contours of modified regions
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    print(f"Found {len(contours)} modified region(s)\n")
+    
+    # Draw bounding boxes
+    img_marked = img1.copy()
+    for i, contour in enumerate(contours):
+        x, y, w, h = cv2.boundingRect(contour)
+        area = cv2.contourArea(contour)
+        
+        print(f"Region {i+1}: ({x}, {y}), {w}x{h}, area={area:.0f}")
+        
+        cv2.rectangle(img_marked, (x, y), (x+w, y+h), (0, 255, 0), 2)
+        cv2.putText(img_marked, f"Mod {i+1}", (x, y-10),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    
+    cv2.imwrite('modified_regions.png', img_marked)
+    print("\nModified regions visualization saved to modified_regions.png")
+    
+    # Save difference map
+    cv2.imwrite('difference_map.png', diff)
+    print("Difference map saved to difference_map.png")
+
+def feature_matching_diff(image1_path, image2_path):
+    """
+    Use feature matching to identify moved/rotated content
+    """
+    img1 = cv2.imread(image1_path, cv2.IMREAD_GRAYSCALE)
+    img2 = cv2.imread(image2_path, cv2.IMREAD_GRAYSCALE)
+    
+    # Initialize SIFT detector
+    sift = cv2.SIFT_create()
+    
+    # Find keypoints and descriptors
+    kp1, des1 = sift.detectAndCompute(img1, None)
+    kp2, des2 = sift.detectAndCompute(img2, None)
+    
+    print(f"Image 1: {len(kp1)} keypoints")
+    print(f"Image 2: {len(kp2)} keypoints\n")
+    
+    if des1 is None or des2 is None:
+        print("Unable to extract features")
+        return
+    
+    # Match features
+    bf = cv2.BFMatcher()
+    matches = bf.knnMatch(des1, des2, k=2)
+    
+    # Apply Lowe's ratio test
+    good_matches = []
+    for match_pair in matches:
+        if len(match_pair) == 2:
+            m, n = match_pair
+            if m.distance < 0.75 * n.distance:
+                good_matches.append(m)
+    
+    print(f"Good matches: {len(good_matches)}")
+    
+    # Draw matches
+    img_matches = cv2.drawMatches(img1, kp1, img2, kp2, good_matches[:20],
+                                 None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    
+    cv2.imwrite('feature_matches.png', img_matches)
+    print("Feature matches visualization saved to feature_matches.png")
+
+# Usage
+detect_modified_regions('original.png', 'modified.png')
+feature_matching_diff('original.png', 'modified.png')
+```
+
+### Comprehensive Image Analysis Report
+
+Create an automated comprehensive diffing report:
+
+```python
+def generate_image_diff_report(image1_path, image2_path, output_file='diff_report.txt'):
+    """
+    Generate comprehensive comparison report
+    """
+    report = []
+    
+    report.append("=" * 60)
+    report.append("IMAGE DIFFERENCE ANALYSIS REPORT")
+    report.append("=" * 60)
+    report.append(f"\nImage 1: {image1_path}")
+    report.append(f"Image 2: {image2_path}\n")
+    
+    # Basic properties
+    img1 = Image.open(image1_path)
+    img2 = Image.open(image2_path)
+    
+    report.append("FILE PROPERTIES")
+    report.append("-" * 60)
+    report.append(f"Image 1: {img1.size}, Mode: {img1.mode}")
+    report.append(f"Image 2: {img2.size}, Mode: {img2.mode}\n")
+    
+    # Pixel comparison
+    if img1.size != img2.size:
+        img2 = img2.resize(img1.size)
+    
+    arr1 = np.array(img1)
+    arr2 = np.array(img2)
+    
+    diff = np.abs(arr1.astype(int) - arr2.astype(int))
+    diff_pixels = np.sum(diff > 0)
+    total_pixels = diff.size
+    diff_percent = 100 * diff_pixels / total_pixels
+    
+    report.append("PIXEL COMPARISON")
+    report.append("-" * 60)
+    report.append(f"Changed pixels: {diff_pixels}/{total_pixels} ({diff_percent:.3f}%)")
+    report.append(f"Max pixel difference: {np.max(diff)}")
+    report.append(f"Mean pixel difference: {np.mean(diff):.2f}")
+    report.append(f"Median pixel difference: {np.median(diff):.2f}\n")
+    
+    # Statistical analysis
+    report.append("STATISTICAL ANALYSIS")
+    report.append("-" * 60)
+    
+    # MSE and PSNR
+    mse = np.mean((arr1.astype(float) - arr2.astype(float)) ** 2)
+    if mse > 0:
+        psnr = 20 * np.log10(255.0 / np.sqrt(mse))
+        report.append(f"MSE: {mse:.4f}")
+        report.append(f"PSNR: {psnr:.2f} dB\n")
+    
+    # SSIM
+    from skimage.metrics import structural_similarity as ssim
+    if len(arr1.shape) == 3:
+        arr1_gray = np.mean(arr1, axis=2)
+        arr2_gray = np.mean(arr2, axis=2)
+    else:
+        arr1_gray = arr1
+        arr2_gray = arr2
+    
+    ssim_val = ssim(arr1_gray, arr2_gray)
+    report.append(f"SSIM: {ssim_val:.4f}\n")
+    
+    # Histogram analysis
+    report.append("HISTOGRAM ANALYSIS")
+    report.append("-" * 60)
+    
+    hist1, _ = np.histogram(arr1.flatten(), bins=256, range=(0, 256))
+    hist2, _ = np.histogram(arr2.flatten(), bins=256, range=(0, 256))
+    
+    hist1_norm = hist1 / np.sum(hist1)
+    hist2_norm = hist2 / np.sum(hist2)
+    
+    chi_squared = np.sum((hist1_norm - hist2_norm) ** 2 / (hist1_norm + hist2_norm + 1e-10))
+    report.append(f"Histogram chi-squared: {chi_squared:.4f}\n")
+    
+    # LSB analysis
+    report.append("LSB STEGANOGRAPHY ANALYSIS")
+    report.append("-" * 60)
+    
+    flat1 = arr1.flatten()
+    flat2 = arr2.flatten()
+    
+    lsb1 = flat1 & 1
+    lsb2 = flat2 & 1
+    
+    lsb_diff = np.sum(lsb1 != lsb2)
+    lsb_diff_percent = 100 * lsb_diff / len(lsb1)
+    
+    report.append(f"LSB differences: {lsb_diff}/{len(lsb1)} ({lsb_diff_percent:.3f}%)\n")
+    
+    # Conclusions
+    report.append("ANALYSIS CONCLUSIONS")
+    report.append("-" * 60)
+    
+    if diff_percent < 0.1:
+        report.append("✓ Images are virtually identical")
+    elif diff_percent < 1:
+        report.append("✓ Images are very similar with minor differences")
+    elif diff_percent < 5:
+        report.append("~ Images have moderate differences")
+    else:
+        report.append("✗ Images are significantly different")
+    
+    if lsb_diff_percent > 30:
+        report.append("⚠ Significant LSB modifications detected - possible steganography")
+    
+    report_text = '\n'.join(report)
+    
+    # Save report
+    with open(output_file, 'w') as f:
+        f.write(report_text)
+    
+    print(report_text)
+    print(f"\nReport saved to {output_file}")
+
+# Usage
+generate_image_diff_report('original.png', 'modified.png')
+```
+
+Related topics for comprehensive image analysis coverage: **Frequency Domain Analysis (FFT/DCT)**, **Deep Learning-based Image Authentication**, **Blockchain-based Image Verification**, **Automated Malware Detection in Images**.
 
 ---
 
@@ -4625,7 +5983,7 @@ def extract_wav_samples(filename):
     return None, None, None
 
 ## Extract LSBs from audio samples
-samples, sample_rate, channels = extract_wav_samples('filename.wav')
+samples, sample_rate, channels = extract_wav_samples('Wavyou2.wav')
 if samples is not None:
     lsb_data = samples & 1
     print(f"Total samples: {len(samples)}")
@@ -4668,7 +6026,7 @@ def analyze_wav_bitplanes(filename):
         if chi_sq > 100:
             print(f"  Anomaly detected at bit {bit}")
 
-analyze_wav_bitplanes('filename.wav')
+analyze_wav_bitplanes('Wavyou2.wav')
 ```
 
 Detect steganography tools:
@@ -17882,7 +19240,6 @@ audacity -blocksize 512 audio.wav
     - Select "Spectrogram" or "Multi-view"
     - Adjust settings via "Spectrogram Settings"
 2. **Spectrogram Settings Configuration:**
-    
     - **Algorithm:** FFT-based analysis
         - FFT Size: 2048-8192 (higher = better frequency resolution, lower time resolution)
         - Window: Hann (default), Hamming, Blackman
