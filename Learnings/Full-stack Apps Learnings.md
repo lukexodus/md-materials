@@ -1,0 +1,1 @@
+When the same behavior is a must through multiple devices (same user), a process must be done on the server-side (or guided by the server) rather than client side.
