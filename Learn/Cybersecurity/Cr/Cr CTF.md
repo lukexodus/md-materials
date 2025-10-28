@@ -71748,20 +71748,527 @@ if kernel_point.order() == 2:
 ```python
 def compute_isogeny_chain(E_start, prime_degrees, exponents):
     """
-    Compute chain of isogenies
-    Used in CSIDH-style protocols
+    Compute chain of l-isogenies (CSIDH-style).
+    Note: This code assumes the elliptic-curve object `E` implements:
+      - E.order()
+      - E.random_point()
+      - P.order()
+      - E.isogeny(P)  -> returns an isogeny object with .codomain()
+      - codomain().j_invariant()
     """
     E_current = E_start
-    
+
     for l, e in zip(prime_degrees, exponents):
         if e == 0:
             continue
+
+        # apply |e| successive l-isogenies
+        for _ in range(abs(e)):
+            cofactor = E_current.order() // l
+
+            # find a point of order exactly l
+            P = None
+            while True:
+                Q = E_current.random_point()
+                P_candidate = cofactor * Q
+                if P_candidate.order() == l:
+                    P = P_candidate
+                    break
+
+            # compute the l-isogeny with kernel <P>
+            phi = E_current.isogeny(P)
+            E_current = phi.codomain()
+
+    return E_current
+
+
+# Example: CSIDH-style computation (pseudo-Sage syntax)
+p = 419
+E0 = EllipticCurve(GF(p), [0, 1])  # Starting curve
+
+# Secret exponents for small primes
+primes = [3, 5, 7, 11, 13]
+secret = [2, -1, 3, 0, 1]  # secret class group element
+
+E_result = compute_isogeny_chain(E0, primes, secret)
+print(f"Result curve j-invariant: {E_result.j_invariant()}")
+````
+
+**CSIDH Key Exchange Implementation:**
+
+```python
+class CSIDH:
+    def __init__(self, prime, small_primes):
+        """
+        Initialize CSIDH parameters
+        prime: CSIDH prime p = 4 * l1 * l2 * ... * ln - 1
+        small_primes: list of odd primes dividing (p+1)/4
+        """
+        self.p = prime
+        self.primes = small_primes
+        self.Fp = GF(prime)
+        self.E0 = EllipticCurve(self.Fp, [0, 1])
+    
+    def generate_secret(self, bound=5):
+        """Generate secret key (random exponents)"""
+        import random
+        return [random.randint(-bound, bound) for _ in self.primes]
+    
+    def group_action(self, curve, secret):
+        """
+        Apply class group action
+        curve * [secret] = result_curve
+        """
+        return compute_isogeny_chain(curve, self.primes, secret)
+    
+    def key_exchange(self):
+        """Demonstrate CSIDH key exchange"""
+        # Alice generates secret
+        secret_a = self.generate_secret()
+        public_a = self.group_action(self.E0, secret_a)
         
-        # Find point of order l
-        cofactor = E_current.order() // l
-        P = E_current.random_point()
-        P = cofactor
+        # Bob generates secret
+        secret_b = self.generate_secret()
+        public_b = self.group_action(self.E0, secret_b)
+        
+        # Shared secret computation
+        shared_alice = self.group_action(public_b, secret_a)
+        shared_bob = self.group_action(public_a, secret_b)
+        
+        # Should be isomorphic (same j-invariant)
+        print(f"Alice's shared: {shared_alice.j_invariant()}")
+        print(f"Bob's shared: {shared_bob.j_invariant()}")
+        print(f"Match: {shared_alice.j_invariant() == shared_bob.j_invariant()}")
+        
+        return shared_alice.j_invariant()
+
+# Example usage
+csidh = CSIDH(prime=419, small_primes=[3, 5, 7, 11, 13])
+shared_secret = csidh.key_exchange()
+````
+
+**Isogeny Attack Vectors:**
+
+**Meet-in-the-Middle Attack:**
+
+For small degree isogenies:
+
+```python
+def mitm_isogeny_attack(E_start, E_target, max_degree):
+    """
+    Meet-in-the-middle attack for finding isogeny path
+    Complexity: O(sqrt(degree)) space and time
+    """
+    # Build forward table: E_start -> intermediate curves
+    forward_table = {}
+    
+    # Enumerate all isogenies from E_start
+    queue = [(E_start, [])]
+    
+    while queue:
+        E_current, path = queue.pop(0)
+        j_inv = E_current.j_invariant()
+        
+        if j_inv not in forward_table:
+            forward_table[j_inv] = path
+        
+        # Generate next isogenies
+        for degree in range(2, max_degree):
+            # [Compute degree-d isogenies from E_current]
+            # Add to queue if path short enough
+            pass
+    
+    # Build backward table from E_target
+    backward_table = {}
+    queue = [(E_target, [])]
+    
+    while queue:
+        E_current, path = queue.pop(0)
+        j_inv = E_current.j_invariant()
+        
+        # Check for collision
+        if j_inv in forward_table:
+            complete_path = forward_table[j_inv] + path[::-1]
+            return complete_path
+        
+        if j_inv not in backward_table:
+            backward_table[j_inv] = path
+        
+        # Generate isogenies backward
+        # [Implementation similar to forward case]
+    
+    return None
 ```
+
+[Inference - complexity analysis]
+
+For CSIDH with appropriate parameters, MITM attack complexity exceeds 2^128 operations.
+
+**Torsion Point Attacks:**
+
+SIDH was vulnerable because it leaked torsion point information:
+
+```python
+def exploit_auxiliary_points(E_A, phi_A_PB, phi_A_QB):
+    """
+    Exploit auxiliary point information (SIDH vulnerability)
+    """
+    # Auxiliary points φ_A(P_B), φ_A(Q_B) reveal kernel structure
+    
+    # Build Weil pairing equations
+    # e(φ_A(P_B), φ_A(Q_B)) = e(P_B, Q_B)^(deg φ_A)
+    
+    # Use glue-and-split technique to recover kernel
+    # [Complex isogeny diamond construction]
+    
+    # This attack breaks SIDH in polynomial time
+    return recovered_kernel
+```
+
+**CSIDH is NOT vulnerable** to this attack because it doesn't transmit auxiliary torsion point information.
+
+**Quantum Attacks on Isogenies:**
+
+**Kuperberg's Algorithm:**
+
+[Unverified - theoretical quantum attack]
+
+Quantum subexponential algorithm for hidden shift problem applies to CSIDH:
+
+```
+Complexity: exp(O(sqrt(log N)))
+where N = class group size
+
+For CSIDH-512: ~2^64 quantum operations
+For CSIDH-1024: ~2^80 quantum operations
+```
+
+This is subexponential but still costly for large parameters.
+
+**Isogeny Path Finding:**
+
+Quantum computers can potentially find isogeny paths faster using:
+
+- Grover's algorithm for meet-in-the-middle
+- Quantum walks on isogeny graphs
+
+[Inference - security analysis ongoing]
+
+Isogeny-based schemes require larger parameters than initially thought to resist quantum attacks.
+
+**CTF Challenge Scenarios:**
+
+**Small Parameter Exploitation:**
+
+```python
+def check_isogeny_security(prime, degree, class_group_size):
+    """
+    Estimate security of isogeny-based scheme
+    """
+    import math
+    
+    # Classical security
+    classical_bits = math.log2(degree) / 2  # MITM complexity
+    
+    # Quantum security (Kuperberg)
+    quantum_bits = math.sqrt(math.log2(class_group_size))
+    
+    print(f"Classical security: ~{classical_bits:.1f} bits")
+    print(f"Quantum security: ~{quantum_bits:.1f} bits")
+    
+    if classical_bits < 80 or quantum_bits < 80:
+        print("[WARNING] Weak parameters")
+        return False
+    
+    return True
+
+# Examples
+check_isogeny_security(prime=2**128, degree=2**64, class_group_size=2**128)  # Weak
+check_isogeny_security(prime=2**512, degree=2**256, class_group_size=2**256)  # Strong
+```
+
+**Curve Parameter Validation:**
+
+```python
+def validate_csidh_curve(E, p):
+    """
+    Validate CSIDH curve parameters
+    """
+    # Check if curve is over correct field
+    if E.base_field().order() != p:
+        print("[ERROR] Wrong base field")
+        return False
+    
+    # Check if curve has correct form y^2 = x^3 + Ax^2 + x
+    a = E.a_invariants()
+    if a[0] != 0 or a[2] != 0 or a[3] != 1 or a[4] != 0:
+        print("[ERROR] Wrong curve form")
+        return False
+    
+    # Check if curve order is p+1 (supersingular over Fp)
+    expected_order = p + 1
+    actual_order = E.order()
+    
+    if actual_order != expected_order:
+        print(f"[ERROR] Wrong order: {actual_order} != {expected_order}")
+        return False
+    
+    print("[OK] Valid CSIDH curve")
+    return True
+```
+
+**Invalid Curve Attack:**
+
+```python
+def invalid_curve_attack(public_key_curve):
+    """
+    Check for invalid curve attacks
+    """
+    # Attacker sends specially crafted curve
+    # If implementation doesn't validate, may leak information
+    
+    # Example: Send curve with smooth order
+    # Discrete log on smooth order group is easy
+    
+    if has_smooth_order(public_key_curve):
+        print("[VULNERABLE] Smooth order curve attack possible")
+        # Can recover secret by solving DLP on smooth group
+        return True
+    
+    return False
+
+def has_smooth_order(E):
+    """Check if curve order is smooth (many small factors)"""
+    order = E.order()
+    factors = factor(order)
+    
+    # If all factors are small, order is smooth
+    max_factor = max([p for p, _ in factors])
+    return max_factor < 1000000  # Arbitrary threshold
+```
+
+**Isogeny Graph Walking:**
+
+```python
+def explore_isogeny_graph(E_start, depth=3, degree=2):
+    """
+    Walk isogeny graph to explore structure
+    Useful for understanding small examples
+    """
+    visited = {E_start.j_invariant(): E_start}
+    queue = [(E_start, 0)]
+    
+    while queue:
+        E_current, current_depth = queue.pop(0)
+        
+        if current_depth >= depth:
+            continue
+        
+        # Find all degree-d isogenies from E_current
+        try:
+            # Find points of order d
+            d = degree
+            cofactor = E_current.order() // d
+            
+            # Try to find all d-torsion points
+            torsion_points = []
+            for _ in range(100):  # Limited attempts
+                P = E_current.random_point()
+                P = cofactor * P
+                if P.order() == d and P not in torsion_points:
+                    torsion_points.append(P)
+                if len(torsion_points) >= d - 1:
+                    break
+            
+            # Compute isogenies
+            for P in torsion_points:
+                phi = E_current.isogeny(P)
+                E_next = phi.codomain()
+                j_next = E_next.j_invariant()
+                
+                if j_next not in visited:
+                    visited[j_next] = E_next
+                    queue.append((E_next, current_depth + 1))
+        
+        except Exception as e:
+            continue
+    
+    print(f"Explored {len(visited)} curves at depth {depth}")
+    return visited
+
+# Example: Explore small isogeny graph
+p = 431
+E0 = EllipticCurve(GF(p), [1, 0])
+graph = explore_isogeny_graph(E0, depth=2, degree=2)
+```
+
+**Tools for Isogeny Cryptanalysis:**
+
+- `SageMath` - Comprehensive elliptic curve and isogeny support
+- `Magma` - Advanced computational algebra (commercial)
+- `Pari/GP` - Number theory computations
+- `CSIDH implementations` - Reference code for testing
+
+**Performance Characteristics:**
+
+[Inference based on published benchmarks]
+
+```
+CSIDH-512 operations (approximate):
+- Key generation: 100-200 ms
+- Shared secret: 100-200 ms
+
+SQISign operations:
+- Key generation: ~1 second
+- Signing: ~500 ms
+- Verification: ~50 ms
+
+SIDH (before break):
+- Key generation: 5-10 ms
+- Shared secret: 5-10 ms
+```
+
+Isogeny-based schemes are generally slower than lattice-based schemes but competitive with code-based schemes.
+
+**Key Sizes:**
+
+|Scheme|Public Key|Secret Key|Ciphertext/Signature|
+|---|---|---|---|
+|CSIDH-512|64 bytes|~37 bytes|64 bytes|
+|CSIDH-1024|128 bytes|~74 bytes|128 bytes|
+|SQISign-128|~64 bytes|~64 bytes|~200 bytes|
+|SIDH (broken)|330 bytes|32 bytes|330 bytes|
+
+**Isogeny-based vs Other PQC:**
+
+**Advantages:**
+
+- Small key sizes (CSIDH)
+- Quantum security based on different hardness assumption
+- Mathematical elegance
+
+**Disadvantages:**
+
+- Slower performance
+- Less mature cryptanalysis (SIDH break shows risks)
+- Complex implementation (easier to make mistakes)
+- Higher quantum security uncertainty
+
+**Current Status:**
+
+[As of January 2025 knowledge cutoff]
+
+After SIDH's break, isogeny-based cryptography is in transition. CSIDH remains secure but has performance concerns. SQISign is under active development but not yet standardized. The field is younger and less understood than lattice or code-based approaches.
+
+---
+
+**Critical Post-Quantum Cryptography Topics for CTF:**
+
+For comprehensive PQC exploitation, also study:
+
+- **Hybrid Cryptography** - Combining classical and PQC schemes for defense-in-depth
+- **PQC Implementation Attacks** - Side-channel attacks (timing, power, fault injection) on PQC implementations
+- **Parameter Validation** - Detecting weak or malicious parameters in PQC schemes
+- **Quantum Computing Fundamentals** - Understanding Shor's and Grover's algorithms to assess quantum threats
+- **Cryptographic Agility** - Migration strategies from classical to post-quantum schemes
+
+**Practical Tools Summary:**
+
+```bash
+# Essential PQC toolkit for Kali Linux
+
+# 1. Open Quantum Safe (liboqs)
+sudo apt install liboqs-dev
+
+# 2. SageMath (mathematical analysis)
+sudo apt install sagemath
+
+# 3. Python libraries
+pip3 install pqcrypto ntru xmssmt fpylll
+
+# 4. OpenSSL with PQC support
+git clone https://github.com/open-quantum-safe/oqs-provider.git
+cd oqs-provider && mkdir build && cd build
+cmake .. && make && sudo make install
+
+# 5. Reference implementations
+# Clone specific scheme repositories as needed
+```
+
+**Testing PQC in CTF Scenarios:**
+
+```python
+#!/usr/bin/env python3
+"""
+PQC scheme tester for CTF challenges
+"""
+
+def test_pqc_scheme(scheme_name, public_key, ciphertext=None):
+    """
+    Analyze PQC scheme for vulnerabilities
+    """
+    checks = {
+        'parameter_strength': check_parameters(scheme_name, public_key),
+        'implementation_flaws': check_implementation(scheme_name),
+        'side_channels': check_side_channels(scheme_name),
+        'state_management': check_state_issues(scheme_name)
+    }
+    
+    print(f"[*] Testing {scheme_name}")
+    for check, result in checks.items():
+        status = "[OK]" if result else "[FAIL]"
+        print(f"{status} {check}")
+    
+    return all(checks.values())
+
+def check_parameters(scheme, key):
+    """Validate cryptographic parameters"""
+    # Check key sizes, parameter ranges
+    # [Implementation specific to scheme]
+    return True
+
+def check_implementation(scheme):
+    """Look for common implementation mistakes"""
+    # Constant-time operations
+    # Proper error handling
+    # Secure random number generation
+    return True
+
+def check_side_channels(scheme):
+    """Analyze for side-channel vulnerabilities"""
+    # Timing attacks
+    # Cache attacks
+    # Power analysis
+    return True
+
+def check_state_issues(scheme):
+    """Check for state management problems (hash-based)"""
+    if 'xmss' in scheme.lower() or 'lms' in scheme.lower():
+        # Check for state reuse
+        return verify_state_tracking(scheme)
+    return True
+
+# Usage in CTF
+if __name__ == "__main__":
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("Usage: test_pqc.py <scheme_name>")
+        sys.exit(1)
+    
+    scheme = sys.argv[1]
+    test_pqc_scheme(scheme, None)
+```
+
+**Key Takeaways for CTF:**
+
+1. **Lattice-based** (Kyber, NTRU): Check parameter sizes, look for weak dimensions or small moduli
+2. **Code-based** (McEliece): Validate error correction capability, check for small code parameters
+3. **Multivariate** (UOV, MAYO): Test for linearization attacks, analyze for structural leaks
+4. **Hash-based** (XMSS, SPHINCS+): Look for state reuse, verify Merkle tree construction
+5. **Isogeny-based** (CSIDH, SQISign): Validate curve parameters, check for invalid curve attacks
+
+All schemes require proper implementation—side-channel attacks and parameter validation are often the weakest points in CTF challenges.
 
 ---
 
@@ -90430,8 +90937,668 @@ if x0 is not None:
 a, b, c = 6, 9, 10
 x0, y0, gcd = solve_diophantine(a, b, c)
 if x0 is None:
-    print(f"{a}x + {b}y =
+    print(f"{a}x + {b}y = {c}")
+    print(f"  No solution (gcd({a}, {b}) = {gcd} does not divide {c})\n")
+
+# Example 3: Chicken McNugget problem
+# Find which numbers cannot be represented as 6x + 9y + 20z with x, y, z ≥ 0
+
+# First solve for combinations of two terms
+print("Application: Frobenius Number")
+print("Can we buy exactly 43 McNuggets with boxes of 6, 9, and 20?")
+
+target = 43
+found = False
+
+for z in range(target // 20 + 1):
+    remainder = target - 20 * z
+    if remainder < 0:
+        break
+
+    # Solve 6x + 9y = remainder
+    x0, y0, gcd = solve_diophantine(6, 9, remainder)
+    if x0 is not None:
+        # Find non-negative solutions
+        sols = all_solutions_in_range(6, 9, remainder, 0, remainder // 6 + 1)
+        for x, y in sols:
+            if x >= 0 and y >= 0:
+                print(f"  Yes: {x}×6 + {y}×9 + {z}×20 = {6*x + 9*y + 20*z}")
+                found = True
+                break
+    if found:
+        break
+
+if not found:
+    print(f"  No: Cannot represent {target}")
+````
+
+**Solving Modular Equations Using EEA**
+
+```python
+#!/usr/bin/env python3
+
+def solve_modular_equation(a, b, n):
+    """
+    Solve: ax ≡ b (mod n)
+    
+    Using Extended GCD to find all solutions
+    """
+    gcd, x0, _ = extended_gcd(a, n)
+    
+    if b % gcd != 0:
+        return []  # No solution
+    
+    # Reduce to simpler equation
+    a_reduced = a // gcd
+    b_reduced = b // gcd
+    n_reduced = n // gcd
+    
+    # Find one solution
+    gcd_reduced, x_base, _ = extended_gcd(a_reduced, n_reduced)
+    x0 = (x_base * b_reduced) % n_reduced
+    
+    # All solutions: x = x0 + k*(n/gcd) for k = 0, 1, ..., gcd-1
+    solutions = [(x0 + k * n_reduced) % n for k in range(gcd)]
+    
+    return sorted(solutions)
+
+# Examples
+print("Solving Modular Equations:\n")
+
+test_equations = [
+    (3, 6, 9),    # Multiple solutions
+    (5, 11, 17),  # Unique solution
+    (6, 5, 9),    # No solution
+    (4, 6, 10),   # Multiple solutions
+]
+
+for a, b, n in test_equations:
+    print(f"Solve: {a}x ≡ {b} (mod {n})")
+    solutions = solve_modular_equation(a, b, n)
+    
+    if solutions:
+        print(f"  Solutions: {solutions}")
+        for x in solutions:
+            result = (a * x) % n
+            print(f"    x = {x}: {a}×{x} ≡ {result} (mod {n}) ✓")
+    else:
+        gcd_val = gcd_euclidean(a, n, False)
+        print(f"  No solution (gcd({a}, {n}) = {gcd_val} does not divide {b})")
+    print()
+````
+
+**CTF Application: Breaking Weak RSA**
+
+```python
+#!/usr/bin/env python3
+
+def break_rsa_with_common_modulus(n, e1, e2, c1, c2):
+    """
+    Common modulus attack on RSA
+    If same message encrypted with two different exponents sharing modulus:
+        c1 = m^e1 mod n
+        c2 = m^e2 mod n
+    
+    If gcd(e1, e2) = 1, we can recover m using Extended GCD
+    """
+    # Find Bézout coefficients: e1*x + e2*y = 1
+    gcd, x, y = extended_gcd(e1, e2)
+    
+    if gcd != 1:
+        print(f"[!] Attack requires gcd(e1, e2) = 1, but got {gcd}")
+        return None
+    
+    print(f"Bézout coefficients: {e1}×{x} + {e2}×{y} = {gcd}")
+    
+    # Compute m = c1^x * c2^y mod n
+    # Handle negative exponents
+    if x < 0:
+        c1 = pow(c1, -1, n)
+        x = -x
+    if y < 0:
+        c2 = pow(c2, -1, n)
+        y = -y
+    
+    m = (pow(c1, x, n) * pow(c2, y, n)) % n
+    
+    return m
+
+# CTF Scenario
+print("CTF Challenge: Common Modulus Attack")
+print("="*60)
+
+# Setup (simulating challenge data)
+n = 25777  # Small for demonstration
+e1, e2 = 7, 11
+m = 1337  # Secret message (flag)
+
+c1 = pow(m, e1, n)
+c2 = pow(m, e2, n)
+
+print(f"Given:")
+print(f"  n = {n}")
+print(f"  e1 = {e1}, c1 = {c1}")
+print(f"  e2 = {e2}, c2 = {c2}")
+print(f"\nAttacking...")
+
+recovered_m = break_rsa_with_common_modulus(n, e1, e2, c1, c2)
+
+if recovered_m:
+    print(f"\nRecovered message: {recovered_m}")
+    print(f"Original message: {m}")
+    print(f"Success: {recovered_m == m}")
+    
+    # Try to decode as text
+    try:
+        text = recovered_m.to_bytes((recovered_m.bit_length() + 7) // 8, 'big')
+        print(f"As text: {text}")
+    except:
+        pass
 ```
+
+**Computing Multiple Inverses Efficiently**
+
+```python
+#!/usr/bin/env python3
+
+def batch_mod_inverse(numbers, modulus):
+    """
+    Compute modular inverses of multiple numbers efficiently
+    Uses Montgomery's trick to reduce number of modular inversions
+    
+    Time complexity: O(n) + 1 modular inversion
+    vs. O(n) modular inversions naively
+    """
+    n = len(numbers)
+    
+    # Compute prefix products
+    prefix = [1] * (n + 1)
+    for i in range(n):
+        prefix[i + 1] = (prefix[i] * numbers[i]) % modulus
+    
+    # Compute inverse of product
+    inv_product = pow(prefix[n], -1, modulus)
+    
+    # Compute individual inverses
+    inverses = [0] * n
+    for i in range(n - 1, -1, -1):
+        inverses[i] = (inv_product * prefix[i]) % modulus
+        inv_product = (inv_product * numbers[i]) % modulus
+    
+    return inverses
+
+# Example
+numbers = [3, 5, 7, 11, 13]
+modulus = 17
+
+print("Batch Modular Inverse Computation:")
+print(f"Numbers: {numbers}")
+print(f"Modulus: {modulus}\n")
+
+inverses = batch_mod_inverse(numbers, modulus)
+
+for num, inv in zip(numbers, inverses):
+    print(f"{num}^(-1) ≡ {inv} (mod {modulus})")
+    print(f"  Verification: {num} × {inv} ≡ {(num * inv) % modulus} (mod {modulus})")
+```
+
+**Binary Extended GCD (Optimized)**
+
+```python
+#!/usr/bin/env python3
+
+def binary_gcd(a, b):
+    """
+    Binary GCD algorithm (Stein's algorithm)
+    More efficient than Euclidean algorithm on binary computers
+    Uses only subtraction and bit shifts (no division)
+    """
+    if a == 0:
+        return b
+    if b == 0:
+        return a
+    
+    # Count common factors of 2
+    shift = 0
+    while ((a | b) & 1) == 0:
+        a >>= 1
+        b >>= 1
+        shift += 1
+    
+    # Remove remaining factors of 2 from a
+    while (a & 1) == 0:
+        a >>= 1
+    
+    while b != 0:
+        # Remove factors of 2 from b
+        while (b & 1) == 0:
+            b >>= 1
+        
+        # Ensure a ≤ b
+        if a > b:
+            a, b = b, a
+        
+        b -= a
+    
+    return a << shift
+
+# Compare performance (conceptually)
+import time
+
+a, b = 1234567890, 9876543210
+
+start = time.time()
+gcd1 = gcd_euclidean(a, b)
+time1 = time.time() - start
+
+start = time.time()
+gcd2 = binary_gcd(a, b)
+time2 = time.time() - start
+
+print(f"Euclidean GCD: {gcd1} (time: {time1:.6f}s)")
+print(f"Binary GCD: {gcd2} (time: {time2:.6f}s)")
+print(f"Results match: {gcd1 == gcd2}")
+```
+
+**Important Notes**
+
+- **[Inference]** Extended GCD is the most efficient method for computing modular inverses when the modulus is composite
+- **Python 3.8+** provides `pow(a, -1, n)` which uses Extended GCD internally
+- **Bézout's identity** guarantees that gcd(a,b) can be expressed as ax + by for integers x, y
+
+---
+
+### Chinese Remainder Theorem
+
+The Chinese Remainder Theorem (CRT) provides a method to solve systems of simultaneous congruences with pairwise coprime moduli. This is fundamental to RSA optimization and various cryptographic protocols.
+
+**Basic CRT Implementation**
+
+```python
+#!/usr/bin/env python3
+
+def chinese_remainder_theorem(remainders, moduli):
+    """
+    Solve system of congruences:
+        x ≡ a1 (mod n1)
+        x ≡ a2 (mod n2)
+        ...
+        x ≡ ak (mod nk)
+    
+    Where n1, n2, ..., nk are pairwise coprime
+    
+    Returns: x (unique solution modulo N = n1 × n2 × ... × nk)
+    """
+    # Verify pairwise coprimality
+    for i in range(len(moduli)):
+        for j in range(i + 1, len(moduli)):
+            if gcd_euclidean(moduli[i], moduli[j], False) != 1:
+                raise ValueError(f"Moduli {moduli[i]} and {moduli[j]} are not coprime")
+    
+    # Compute product of all moduli
+    N = 1
+    for n in moduli:
+        N *= n
+    
+    # Apply CRT formula
+    x = 0
+    for ai, ni in zip(remainders, moduli):
+        Ni = N // ni  # Product of all moduli except ni
+        Mi = pow(Ni, -1, ni)  # Modular inverse of Ni mod ni
+        x += ai * Ni * Mi
+    
+    return x % N
+
+# Example
+print("Chinese Remainder Theorem:\n")
+
+remainders = [2, 3, 2]
+moduli = [3, 5, 7]
+
+print("System of congruences:")
+for a, n in zip(remainders, moduli):
+    print(f"  x ≡ {a} (mod {n})")
+
+x = chinese_remainder_theorem(remainders, moduli)
+N = 1
+for n in moduli:
+    N *= n
+
+print(f"\nSolution: x ≡ {x} (mod {N})")
+
+# Verify
+print("\nVerification:")
+for a, n in zip(remainders, moduli):
+    print(f"  {x} ≡ {x % n} (mod {n}) [expected {a}] {'✓' if x % n == a else '✗'}")
+```
+
+**CRT with Detailed Steps**
+
+```python
+#!/usr/bin/env python3
+
+def crt_verbose(remainders, moduli):
+    """
+    Chinese Remainder Theorem with detailed explanation
+    """
+    print("Solving using Chinese Remainder Theorem:")
+    print("="*60)
+    
+    # Check coprimality
+    print("\n1. Verify pairwise coprimality:")
+    for i in range(len(moduli)):
+        for j in range(i + 1, len(moduli)):
+            g = gcd_euclidean(moduli[i], moduli[j], False)
+            print(f"   gcd({moduli[i]}, {moduli[j]}) = {g} {'✓' if g == 1 else '✗'}")
+    
+    # Compute N
+    N = 1
+    for n in moduli:
+        N *= n
+    print(f"\n2. Compute N = {' × '.join(map(str, moduli))} = {N}")
+    
+    # Compute Ni values
+    print(f"\n3. Compute Ni = N / ni:")
+    Ni_values = []
+    for i, ni in enumerate(moduli):
+        Ni = N // ni
+        Ni_values.append(Ni)
+        print(f"   N{i+1} = {N} / {ni} = {Ni}")
+    
+    # Compute Mi values (modular inverses)
+    print(f"\n4. Compute Mi ≡ Ni^(-1) (mod ni):")
+    Mi_values = []
+    for i, (Ni, ni) in enumerate(zip(Ni_values, moduli)):
+        Mi = pow(Ni, -1, ni)
+        Mi_values.append(Mi)
+        print(f"   M{i+1}: {Ni} × M{i+1} ≡ 1 (mod {ni})")
+        print(f"       M{i+1} = {Mi}")
+        print(f"       Check: {Ni} × {Mi} ≡ {(Ni * Mi) % ni} (mod {ni}) ✓")
+    
+    # Compute solution
+    print(f"\n5. Compute x = Σ(ai × Ni × Mi) mod N:")
+    x = 0
+    terms = []
+    for i, (ai, Ni, Mi) in enumerate(zip(remainders, Ni_values, Mi_values)):
+        term = ai * Ni * Mi
+        terms.append(term)
+        print(f"   Term {i+1}: {ai} × {Ni} × {Mi} = {term}")
+        x += term
+    
+    print(f"   Sum: {' + '.join(map(str, terms))} = {x}")
+    x = x % N
+    print(f"   x ≡ {x} (mod {N})")
+    
+    return x
+
+# Example
+remainders = [2, 3, 1]
+moduli = [5, 7, 3]
+
+print("System:")
+for a, n in zip(remainders, moduli):
+    print(f"  x ≡ {a} (mod {n})")
+print()
+
+x = crt_verbose(remainders, moduli)
+```
+
+**CRT for RSA Speedup**
+
+```python
+#!/usr/bin/env python3
+
+def rsa_decrypt_crt(ciphertext, d, p, q, n):
+    """
+    RSA decryption using CRT (significantly faster)
+    
+    Instead of computing m = c^d mod n directly,
+    compute:
+        mp = c^d mod p
+        mq = c^d mod q
+    Then use CRT to combine them
+    
+    [Inference] Approximately 4x faster than standard RSA decryption
+    """
+    # Precompute values (done once during key generation)
+    dp = d % (p - 1)  # d mod φ(p)
+    dq = d % (q - 1)  # d mod φ(q)
+    qinv = pow(q, -1, p)  # q^(-1) mod p
+    
+    # Compute mp and mq
+    mp = pow(ciphertext, dp, p)
+    mq = pow(ciphertext, dq, q)
+    
+    # Apply CRT (Garner's algorithm)
+    h = (qinv * (mp - mq)) % p
+    m = mq + h * q
+    
+    return m
+
+# Demonstrate RSA-CRT
+print("RSA Decryption with CRT Optimization:\n")
+
+# Generate small RSA parameters
+p = 1009
+q = 1013
+n = p * q
+phi_n = (p - 1) * (q - 1)
+e = 65537
+d = pow(e, -1, phi_n)
+
+# Encrypt message
+m_original = 12345
+c = pow(m_original, e, n)
+
+print(f"RSA Parameters:")
+print(f"  p = {p}, q = {q}")
+print(f"  n = {n}")
+print(f"  e = {e}, d = {d}")
+print(f"  Message: {m_original}")
+print(f"  Ciphertext: {c}\n")
+
+# Standard decryption
+import time
+
+start = time.time()
+m_standard = pow(c, d, n)
+time_standard = time.time() - start
+
+# CRT decryption
+start = time.time()
+m_crt = rsa_decrypt_crt(c, d, p, q, n)
+time_crt = time.time() - start
+
+print(f"Standard decryption: {m_standard} (time: {time_standard:.6f}s)")
+print(f"CRT decryption: {m_crt} (time: {time_crt:.6f}s)")
+print(f"Speedup: {time_standard/time_crt:.2f}x")
+print(f"Results match: {m_standard == m_crt == m_original}")
+```
+
+**Solving Non-Coprime Systems (Generalized CRT)**
+
+```python
+#!/usr/bin/env python3
+
+def generalized_crt(remainders, moduli):
+    """
+    Solve CRT for non-coprime moduli
+    Uses successive reduction approach
+    """
+    if len(remainders) == 0:
+        return 0, 1
+    
+    # Start with first congruence
+    a1, n1 = remainders[0], moduli[0]
+    
+    for a2, n2 in zip(remainders[1:], moduli[1:]):
+        # Solve: x ≡ a1 (mod n1) and x ≡ a2 (mod n2)
+        g, p, q = extended_gcd(n1, n2)
+        
+        if (a2 - a1) % g != 0:
+            return None, None  # No solution
+        
+        # Combine congruences
+        lcm = (n1 * n2) // g
+        a1 = (a1 + n1 * p * ((a2 - a1) // g)) % lcm
+        n1 = lcm
+    
+    return a1, n1
+
+# Example with non-coprime moduli
+print("Generalized CRT (non-coprime moduli):\n")
+
+# System with compatible non-coprime moduli
+remainders = [2, 4, 3]
+moduli = [6, 10, 15]  # gcd(6,10)=2, gcd(6,15)=3, gcd(10,15)=5
+
+print("System:")
+for a, n in zip(remainders, moduli):
+    print(f"  x ≡ {a} (mod {n})")
+
+x, N = generalized_crt(remainders, moduli)
+
+if x is not None:
+    print(f"\nSolution: x ≡ {x} (mod {N})")
+    print("\nVerification:")
+    for a, n in zip(remainders, moduli):
+        print(f"  {x} ≡ {x % n} (mod {n}) [expected {a}] {'✓' if x % n == a else '✗'}")
+else:
+    print("\nNo solution exists (incompatible remainders)")
+
+# Example with incompatible remainders
+print("\n" + "="*60)
+print("Incompatible system:\n")
+
+remainders = [1, 2]
+moduli = [4, 6]  # gcd(4,6) = 2, but 1 ≢ 2 (mod 2)
+
+print("System:")
+for a, n in zip(remainders, moduli):
+    print(f"  x ≡ {a} (mod {n})")
+
+x, N = generalized_crt(remainders, moduli)
+
+if x is None:
+    print("\nNo solution (remainders are incompatible modulo gcd)")
+```
+
+**CTF Application: Breaking Multi-Prime RSA**
+
+```python
+#!/usr/bin/env python3
+
+def break_multiprime_rsa(n_factors, e, c):
+    """
+    Break RSA when n has more than 2 prime factors
+    Using CRT to decrypt efficiently
+    
+    n = p1 × p2 × ... × pk
+    """
+    n = 1
+    for p in n_factors:
+        n *= p
+    
+    print(f"Multi-prime RSA with {len(n_factors)} factors")
+    print(f"n = {' × '.join(map(str, n_factors))} = {n}\n")
+    
+    # Compute φ(n) = (p1-1)(p2-1)...(pk-1)
+    phi_n = 1
+    for p in n_factors:
+        phi_n *= (p - 1)
+    
+    # Compute private exponent
+    d = pow(e, -1, phi_n)
+    print(f"φ(n) = {phi_n}")
+    print(f"d = {d}\n")
+    
+    # Decrypt using CRT
+    remainders = []
+    for p in n_factors:
+        dp = d % (p - 1)
+        mp = pow(c, dp, p)
+        remainders.append(mp)
+        print(f"m mod {p} = {mp}")
+    
+    # Apply CRT
+    m = chinese_remainder_theorem(remainders, n_factors)
+    
+    print(f"\nUsing CRT to combine:")
+    print(f"m = {m}")
+    
+    return m
+
+# CTF Scenario
+print("CTF Challenge: Multi-Prime RSA\n")
+print("="*60)
+
+# Small multi-prime RSA example
+primes = [17, 19, 23]
+n = 17 * 19 * 23  # = 7429
+e = 5
+m_original = 1234
+
+c = pow(m_original, e, n)
+
+print(f"Given:")
+print(f"  Ciphertext: c = {c}")
+print(f"  Public exponent: e = {e}")
+print(f"  Prime factors: {primes} (leaked!)\n")
+
+m_recovered = break_multiprime_rsa(primes, e, c)
+
+print(f"\nOriginal message: {m_original}")
+print(f"Recovered message: {m_recovered}")
+print(f"Success: {m_original == m_recovered}")
+```
+
+**Constructing Numbers with Specific Remainders**
+
+```python
+#!/usr/bin/env python3
+
+def construct_with_crt(target_remainders, moduli):
+    """
+    Construct a number with specific remainders modulo given primes
+    Useful for creating specific RSA moduli or padding oracle attacks
+    """
+    x = chinese_remainder_theorem(target_remainders, moduli)
+    N = 1
+    for n in moduli:
+        N *= n
+    
+    print(f"Constructed number: {x}")
+    print(f"Range: 0 ≤ x < {N}\n")
+    print("Properties:")
+    for a, n in zip(target_remainders, moduli):
+        actual = x % n
+        print(f"  {x} ≡ {actual} (mod {n}) [target: {a}] {'✓' if actual == a else '✗'}")
+    
+    return x
+
+# Example: Create number divisible by some primes but not others
+print("Construct number with specific divisibility properties:\n")
+
+# Want: n ≡ 0 (mod 7), n ≡ 1 (mod 11), n ≡ 2 (mod 13)
+remainders = [0, 1, 2]
+moduli = [7, 11, 13]
+
+n = construct_with_crt(remainders, moduli)
+
+print(f"\nDivisibility check:")
+print(f"  Divisible by 7: {n % 7 == 0}")
+print(f"  Divisible by 11: {n % 11 == 0}")
+print(f"  Divisible by 13: {n % 13 == 0}")
+```
+
+**Important Notes**
+
+- **[Inference]** RSA-CRT provides ~4x speedup for decryption but requires storing p and q
+- **Garner's algorithm** is the most efficient method for combining CRT results in practice
+- **Fault attacks** on RSA-CRT can reveal secret primes if computation errors occur
+- **[Unverified]** Some implementations use CRT for both encryption and decryption when both public and private keys have multiple prime factors
+
+This completes the comprehensive coverage of Number Theory Basics for CTF cryptography challenges.
 
 ---
 

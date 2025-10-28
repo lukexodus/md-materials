@@ -1737,6 +1737,395 @@ This foundational understanding of file system structures enables efficient data
 
 ---
 
+## Deleted File Recovery
+
+### Understanding File Deletion Mechanisms
+
+When files are deleted through normal OS operations, the actual data typically remains on disk while metadata entries are marked as available. The file system removes directory entries and marks allocated clusters/blocks as free, but doesn't immediately overwrite content.
+
+**Linux ext4 behavior**: The inode remains but directory entry is removed. Data blocks marked unallocated but persist until overwritten.
+
+**NTFS behavior**: Master File Table (MFT) entry marked as unallocated. $INDEX_ROOT and $INDEX_ALLOCATION updated to remove filename entries.
+
+**FAT32 behavior**: First byte of directory entry changed to 0xE5. FAT chain entries zeroed.
+
+### Recovery Tools and Techniques
+
+**Foremost** - File carving tool using header/footer signatures:
+
+```bash
+foremost -t all -i /dev/sda1 -o /recovery/output
+foremost -t jpg,png,pdf -i disk.dd -o /carved_files
+foremost -v -q -i image.raw -o output_dir  # verbose, quiet mode
+```
+
+**TestDisk** - Interactive partition and file recovery:
+
+```bash
+testdisk /log /dev/sdb  # Launch with logging
+# Navigate: Analyze → Advanced → Undelete → Select files → Copy
+testdisk /list  # List attached drives
+```
+
+**PhotoRec** - Signature-based file carving (despite name, recovers many formats):
+
+```bash
+photorec /d /recovery/output /dev/sda1  # Direct recovery mode
+photorec /log image.dd  # Interactive mode with logging
+```
+
+**Extundelete** (ext3/ext4 specific):
+
+```bash
+extundelete /dev/sda1 --restore-all  # Recover all deleted files
+extundelete /dev/sda1 --restore-file /path/to/file
+extundelete /dev/sda1 --restore-directory /path/to/dir
+extundelete --after 1609459200 --before 1612137600 /dev/sda1  # Time range (epoch)
+```
+
+**Scalpel** - Enhanced foremost alternative with better configuration:
+
+```bash
+scalpel -b -o /output disk.dd  # Use default config
+scalpel -c custom.conf -o /output disk.dd  # Custom config
+```
+
+Configuration file (`/etc/scalpel/scalpel.conf`):
+
+```
+jpg     y       5000000         \xff\xd8\xff\xe0\x00\x10        \xff\xd9
+png     y       5000000         \x89PNG                         \xff\xfcFDAT
+pdf     y       10000000        %PDF                            %%EOF
+```
+
+**Sleuth Kit tools** for manual forensic analysis:
+
+```bash
+fls -r -d /dev/sda1  # List deleted files recursively
+fls -p -r /dev/sda1  # Full path listing
+icat /dev/sda1 12345 > recovered_file  # Extract by inode
+istat /dev/sda1 12345  # Display inode metadata
+ils /dev/sda1  # List unallocated inodes
+```
+
+### Manual Recovery Approaches
+
+**Direct dd recovery** when you know byte offsets:
+
+```bash
+dd if=/dev/sda1 of=recovered.file bs=512 skip=12345 count=100
+# skip: starting sector, count: number of sectors
+```
+
+**Strings analysis** for text recovery:
+
+```bash
+strings -a -n 10 /dev/sda1 > extracted_strings.txt  # Minimum 10 char length
+strings -e l disk.dd | grep -i "password"  # 16-bit littleendian strings
+strings -tx disk.dd  # Show hex offsets
+```
+
+**Hexdump examination**:
+
+```bash
+xxd /dev/sda1 | less  # Interactive hex viewer
+hexdump -C disk.dd | grep "50 4B 03 04"  # Search for ZIP header
+hd -s 0x1000 -n 512 disk.dd  # View 512 bytes from offset 0x1000
+```
+
+## File Carving Techniques
+
+File carving reconstructs files from raw data without relying on file system metadata. Essential when metadata is corrupted, encrypted, or intentionally destroyed.
+
+### Header/Footer Signature Analysis
+
+Common file signatures for CTF scenarios:
+
+|Format|Header|Footer|Max Size Notes|
+|---|---|---|---|
+|JPEG|`FF D8 FF E0` or `FF D8 FF E1`|`FF D9`|Check EXIF markers|
+|PNG|`89 50 4E 47 0D 0A 1A 0A`|`49 45 4E 44 AE 42 60 82`|IEND chunk required|
+|PDF|`25 50 44 46` (%PDF)|`25 25 45 4F 46` (%%EOF)|May have whitespace after EOF|
+|ZIP|`50 4B 03 04`|`50 4B 05 06` (directory end)|Central directory required|
+|GIF|`47 49 46 38 37 61` or `47 49 46 38 39 61`|`00 3B`|Trailer byte|
+|DOCX/XLSX|`50 4B 03 04`|Varies|ZIP container, check [Content_Types].xml|
+|ELF|`7F 45 4C 46`|No standard footer|Linux executables|
+|PE|`4D 5A` (MZ)|Varies|Windows executables, check PE header|
+
+**Binwalk** - Automated signature scanning and extraction:
+
+```bash
+binwalk firmware.bin  # Identify embedded files
+binwalk -e firmware.bin  # Extract identified files
+binwalk -D 'png image:png' disk.dd  # Extract specific types
+binwalk --dd='.*' image.bin  # Extract everything
+binwalk -R "\x89PNG"  # Raw signature search
+binwalk -E firmware.bin  # Entropy analysis (detect encryption)
+```
+
+**Bulk_extractor** - Sophisticated carving with feature extraction:
+
+```bash
+bulk_extractor -o /output disk.dd  # Full extraction
+bulk_extractor -x all -e email -o /out disk.dd  # Only email addresses
+bulk_extractor -S ssn_mode=1 -o /out disk.dd  # Extract SSNs
+bulk_extractor -e wordlist -o /out disk.dd  # Generate wordlist
+```
+
+Output includes specialized files:
+
+- `email.txt` - Extracted email addresses
+- `url.txt` - URLs found
+- `ccn.txt` - Credit card numbers [Inference: may produce false positives]
+- `json.txt` - JSON structures
+- `exif.txt` - Image metadata
+
+### Advanced Carving Scenarios
+
+**Fragmented file recovery**:
+
+```bash
+# [Inference] No guaranteed automated solution for heavily fragmented files
+# Manual approach using Sleuth Kit:
+blkls /dev/sda1 > unallocated.raw  # Extract unallocated space
+foremost -t all -i unallocated.raw -o /carved
+# Then manually analyze partial recoveries
+```
+
+**Carved file validation**:
+
+```bash
+file recovered_files/*  # Quick type verification
+identify -verbose image.jpg  # ImageMagick validation for images
+pdfinfo document.pdf  # PDF validation
+unzip -t archive.zip  # ZIP integrity check
+```
+
+**Custom carving with Python** (example for CTF-specific format):
+
+```python
+#!/usr/bin/env python3
+import re
+
+# [Unverified example - requires adaptation to specific format]
+with open('disk.dd', 'rb') as f:
+    data = f.read()
+    
+header = b'\xDE\xAD\xBE\xEF'
+footer = b'\xCA\xFE\xBA\xBE'
+
+pattern = re.escape(header) + b'(.*?)' + re.escape(footer)
+files = re.findall(pattern, data, re.DOTALL)
+
+for i, file_data in enumerate(files):
+    with open(f'carved_{i}.bin', 'wb') as out:
+        out.write(header + file_data + footer)
+```
+
+## Slack Space Analysis
+
+Slack space refers to unused space within allocated file system units. Two primary types exist:
+
+**RAM slack**: Space between end-of-file and end of final sector (typically 512 bytes). Filled with RAM contents during write operation.
+
+**Drive slack**: Space between end of final sector and end of final cluster (cluster size minus used sectors).
+
+### Slack Space Examination Tools
+
+**Sleuth Kit blkls and icat**:
+
+```bash
+icat -s /dev/sda1 12345  # Display slack space for inode 12345
+blkcat /dev/sda1 56789  # Display specific block content
+blkls /dev/sda1 | strings -a  # Extract strings from unallocated blocks
+```
+
+**bmap** (block map):
+
+```bash
+bmap --mode slack filename  # Extract slack space from specific file
+```
+
+**dd with precise extraction**:
+
+```bash
+# Calculate actual file size and cluster allocation
+stat -c %s filename  # Get file size in bytes
+# [Inference] Extract cluster containing file end, then manually parse slack
+```
+
+**Manual hex analysis approach**:
+
+```bash
+xxd filename | tail -n 20  # View end of file in hex
+# Compare actual file size with allocated space to identify slack
+```
+
+### Slack Space Data Hiding Detection
+
+Slack space is commonly used for anti-forensics data hiding. Detection methodology:
+
+1. **Identify files with significant slack**: Compare actual file size with allocated clusters
+2. **Extract and analyze slack content**: Check for non-random data patterns
+3. **Search for known signatures**: File headers, text strings, encrypted data markers
+
+```bash
+# [Inference] Example workflow combining tools:
+fls -r /dev/sda1 | while read line; do
+    inode=$(echo $line | awk '{print $2}' | cut -d: -f1)
+    icat -s /dev/sda1 $inode 2>/dev/null | strings -a
+done | grep -E '[[:print:]]{10,}'  # Look for printable strings
+```
+
+## Alternate Data Streams (ADS)
+
+Alternate Data Streams are NTFS file system features allowing multiple data streams attached to a single file. Commonly exploited for data hiding in CTF challenges and real-world anti-forensics.
+
+### ADS Fundamentals
+
+**Structure**: `filename.ext:streamname:$DATA`
+
+Default stream: `filename.ext::$DATA` (unnamed stream, normal file content)
+
+Alternate stream example: `filename.ext:hidden:$DATA`
+
+**Key characteristics**:
+
+- Not visible in standard directory listings
+- Not included in file size calculations
+- Persist through file copies within NTFS
+- Lost when copied to non-NTFS file systems
+
+### Linux-Based ADS Analysis
+
+**Mounting NTFS in Linux**:
+
+```bash
+mount -t ntfs-3g /dev/sda1 /mnt/ntfs  # Read-write NTFS mount
+mount -t ntfs-3g -o streams_interface=windows /dev/sda1 /mnt/ntfs  # Explicit stream support
+```
+
+**Sleuth Kit ADS examination**:
+
+```bash
+fls -F -r /dev/sda1  # -F shows full file names including streams
+istat /dev/sda1 12345  # Show all attributes including ADS
+icat /dev/sda1 12345-128-4  # Extract specific stream (attribute type 128, id 4)
+```
+
+**NTFS-3g stream access**:
+
+```bash
+# List streams using getfattr (extended attributes)
+getfattr -n system.ntfs_attrib_list /mnt/ntfs/file.txt
+
+# Access stream directly through special syntax
+cat "/mnt/ntfs/file.txt:streamname"  # [Unverified on all NTFS-3g versions]
+
+# Or using ntfs-3g specific tools
+ntfscat /dev/sda1 -a streamname file.txt  # Extract specific stream
+```
+
+**Manual MFT parsing**:
+
+```bash
+# Extract MFT
+icat /dev/sda1 0 > mft.raw  # Inode 0 is $MFT
+
+# Parse with analyzeMFT (Python tool)
+analyzeMFT.py -f mft.raw -o mft_analysis.csv
+# Examine $ATTRIBUTE_LIST entries for ADS indicators
+```
+
+### Windows Native ADS Operations
+
+For reference when analyzing Windows systems or creating CTF challenges:
+
+**Create ADS** (Windows):
+
+```cmd
+echo "hidden data" > file.txt:hidden.txt
+type secret.exe > normal.txt:malware.exe
+```
+
+**List ADS** (Windows):
+
+```cmd
+dir /r  # Shows streams in directory listing
+streams.exe file.txt  # Sysinternals tool
+```
+
+**Access ADS** (Windows):
+
+```cmd
+notepad file.txt:hidden.txt
+more < file.txt:hidden.txt
+```
+
+### CTF-Specific ADS Scenarios
+
+**Common challenge patterns**:
+
+1. Flag hidden in ADS of benign-looking file
+2. Executable payload in ADS of document file
+3. Encrypted data split across multiple streams
+4. Steganography combined with ADS (data in stream of image file)
+
+**Detection methodology**:
+
+```bash
+# 1. Identify files with ADS
+fls -F -r image.dd | grep -E ":\$DATA" | grep -v "::$DATA"
+
+# 2. Extract all ADS for analysis
+# [Inference] Manual extraction required per-stream using icat
+
+# 3. Analyze stream contents
+file extracted_stream  # Type detection
+strings -a extracted_stream  # String extraction
+binwalk extracted_stream  # Signature analysis
+xxd extracted_stream | head  # Hex examination
+```
+
+**Automated ADS extraction script** [Unverified - example approach]:
+
+```bash
+#!/bin/bash
+# Extract all ADS from mounted NTFS volume
+find /mnt/ntfs -type f | while read file; do
+    streams=$(getfattr -d "$file" 2>/dev/null | grep "ntfs_ads_name" | cut -d= -f2)
+    for stream in $streams; do
+        echo "Extracting: ${file}:${stream}"
+        ntfscat /dev/sda1 -a "$stream" "$file" > "ads_$(basename $file)_${stream}" 2>/dev/null
+    done
+done
+```
+
+### Important ADS Considerations
+
+**Preservation requirements**:
+
+- Always image NTFS volumes using forensically sound methods (dd, FTK Imager, etc.)
+- Verify ADS preservation when transferring evidence
+- Document all ADS found during investigation
+
+**Tool limitations** [Unverified across all versions]:
+
+- Some Linux tools may not handle ADS correctly without proper NTFS-3g configuration
+- File carving tools may miss ADS content unless specifically configured
+- Standard backup tools may strip ADS when copying to non-NTFS destinations
+
+---
+
+**Related critical topics for comprehensive file system analysis**:
+
+- Journal/log analysis (ext4 journal, NTFS $LogFile, USN Journal)
+- Timestamp manipulation detection and timeline reconstruction
+- Volume shadow copy analysis (Windows VSS)
+- File system metadata structures (inodes, MFT records, FAT tables)
+
+---
+
 # Disk and Image Analysis
 
 ## Raw Disk Imaging
@@ -8235,6 +8624,2575 @@ Even when data cannot be recovered, document anti-forensic technique presence as
 
 ---
 
+# Steganography Detection
+
+Steganography conceals data within carrier files (images, audio, text, video) to hide communication. Detection requires analyzing file structure anomalies, statistical patterns, and extracting embedded payloads.
+
+## LSB Steganography
+
+Least Significant Bit (LSB) steganography embeds data by modifying the least significant bits of pixel/sample values. These changes are imperceptible to humans but detectable through analysis.
+
+**Detection Methodology:**
+
+LSB modification creates statistical anomalies in bit distribution. Normal images show random LSB patterns; steganographic images show non-random patterns due to embedded data structure.
+
+**Primary Tools:**
+
+`stegsolve` - Java-based visual analysis tool:
+
+```bash
+stegsolve image.png
+```
+
+Navigate through bit planes using arrow keys. Look for visible patterns in LSB planes (plane 0). Compare Red/Green/Blue channels separately. Use "Data Extract" to dump bit planes with custom parameters.
+
+`zsteg` - Ruby tool for PNG/BMP LSB detection:
+
+```bash
+zsteg image.png
+zsteg -a image.png  # All detection methods
+zsteg -E b1,rgb,lsb image.png  # Extract specific LSB data
+zsteg --lsb image.png  # LSB-specific analysis
+```
+
+Automatically detects common LSB patterns and extracts embedded text/files.
+
+`stegdetect` - Statistical analysis for JPEG:
+
+```bash
+stegdetect image.jpg
+stegdetect -s 10.0 image.jpg  # Sensitivity threshold
+```
+
+Detects JSteg, JPHide, OutGuess, and Invisible Secrets methods through chi-square analysis. [Unverified: Effectiveness varies significantly based on embedding strength and image characteristics]
+
+**Manual LSB Analysis:**
+
+Python script for LSB extraction:
+
+```python
+from PIL import Image
+
+img = Image.open('image.png')
+pixels = img.load()
+width, height = img.size
+
+# Extract LSB from red channel
+lsb_data = ''
+for y in range(height):
+    for x in range(width):
+        r, g, b = pixels[x, y][:3]
+        lsb_data += str(r & 1)
+
+# Convert binary to bytes
+bytes_data = int(lsb_data, 2).to_bytes(len(lsb_data) // 8, byteorder='big')
+```
+
+**Chi-Square Attack:**
+
+Statistical test detecting LSB embedding by analyzing pairs of values (PoVs):
+
+```bash
+# Using stegexpose
+stegexpose image.jpg output_dir/
+```
+
+Compares expected vs. observed frequency distributions of byte pairs.
+
+## Image Steganography Tools
+
+**steghide** - Passphrase-protected embedding for JPEG/BMP/WAV/AU:
+
+```bash
+steghide info image.jpg  # Check for embedded data
+steghide extract -sf image.jpg  # Extract with passphrase prompt
+steghide extract -sf image.jpg -p password123
+steghide extract -sf image.jpg -xf output.txt
+```
+
+Uses graph-theoretic approach combining encryption and LSB. Cannot detect without attempting extraction.
+
+**outguess** - JPEG statistical redundancy method:
+
+```bash
+outguess -r image.jpg output.txt  # Extract without key
+outguess -k "passphrase" -r image.jpg output.txt  # With passphrase
+```
+
+Preserves statistical properties better than naive LSB, making detection harder.
+
+**exiftool** - Metadata analysis:
+
+```bash
+exiftool image.jpg  # All metadata
+exiftool -Comment image.jpg  # Specific field
+exiftool -b -Comment image.jpg > extracted.txt  # Binary extraction
+strings image.jpg | grep -i "flag\|password"  # Pattern search
+```
+
+Data often hidden in EXIF comment fields, artist names, or custom tags.
+
+**binwalk** - Embedded file carving:
+
+```bash
+binwalk image.png
+binwalk -e image.png  # Extract all discovered files
+binwalk -D 'zip archive:zip' image.png  # Extract specific types
+binwalk --dd='.*' image.png
+```
+
+Identifies file signatures embedded anywhere in carrier file. Look for appended archives, ELF binaries, or secondary images.
+
+**foremost** - File recovery tool:
+
+```bash
+foremost -i image.jpg -o output_dir/
+foremost -t jpg,png,zip,pdf -i image.jpg -o output_dir/
+```
+
+Carves files based on headers/footers regardless of filesystem structure.
+
+**pngcheck** - PNG integrity verification:
+
+```bash
+pngcheck -v image.png  # Verbose chunk analysis
+pngcheck -c image.png  # CRC verification
+```
+
+Detects corrupted chunks or non-standard chunks containing hidden data. Malformed headers often indicate manual editing.
+
+**Image Format-Specific Techniques:**
+
+PNG - Check ancillary chunks (tEXt, iTXt, zTXt):
+
+```bash
+pnginfo image.png
+identify -verbose image.png
+```
+
+JPEG - Analyze APP markers and comment segments:
+
+```bash
+jpeginfo -c image.jpg
+exiftool -a -G1 -s image.jpg
+```
+
+GIF - Examine comment extensions and unused color palette entries:
+
+```bash
+gifsicle --info image.gif
+identify -verbose image.gif
+```
+
+## Audio Steganography
+
+Audio files hide data in inaudible frequency ranges, phase relationships, or amplitude variations.
+
+**DeepSound** - Windows tool (analysis via Wine/VM): Embeds data using AES encryption in WAV/FLAC. Detection requires password attempt or statistical analysis.
+
+**Sonic Visualiser** - Spectrogram analysis:
+
+```bash
+sonic-visualiser audio.wav
+```
+
+Import file, add "Spectrogram" layer. Look for visual patterns in frequency domain (text, images, QR codes). Data often hidden above 18kHz or below 100Hz.
+
+**Audacity** - Manual spectrogram review:
+
+```bash
+audacity audio.wav
+```
+
+Analyze > Plot Spectrum. Switch view to Spectrogram (track dropdown). Adjust frequency range and gain. Hidden messages appear as distinct patterns in waterfall view.
+
+**WavSteg** - LSB for WAV files:
+
+```bash
+python wavsteg.py -r -i audio.wav -o output.txt -n 1 -b 1000
+```
+
+Extracts LSB data from audio samples. Parameter `-n` specifies LSB count, `-b` sets bytes to recover.
+
+**steghide** (audio mode):
+
+```bash
+steghide info audio.wav
+steghide extract -sf audio.wav
+```
+
+Works with WAV and AU formats using same syntax as image mode.
+
+**Detection Techniques:**
+
+Spectral analysis - Look for anomalies in frequency distribution:
+
+```bash
+sox audio.wav -n spectrogram -o spectrogram.png
+```
+
+LSB detection in samples:
+
+```python
+import wave
+import numpy as np
+
+wav = wave.open('audio.wav', 'r')
+frames = wav.readframes(-1)
+samples = np.frombuffer(frames, dtype=np.int16)
+
+# Extract LSB
+lsb = samples & 1
+```
+
+Phase coding detection:
+
+```bash
+ffmpeg -i audio.wav -af aphaseshift=p=0.5 phase_shifted.wav
+# Compare original vs. shifted for differences
+```
+
+## Text-Based Hiding Techniques
+
+Text steganography exploits whitespace, formatting, character encoding, or linguistic patterns.
+
+**Whitespace Steganography:**
+
+Snow - Whitespace steganography tool:
+
+```bash
+snow -C -p password123 hidden_message.txt
+stegsnow -C hidden_message.txt  # Alternative version
+```
+
+Embeds data in trailing spaces/tabs. Extraction:
+
+```bash
+snow -C -p password123 hidden_message.txt
+```
+
+Manual detection:
+
+```bash
+cat -A file.txt  # Shows tabs ($) and spaces (·)
+od -c file.txt  # Octal dump showing all characters
+hexdump -C file.txt | grep -E "20|09"  # Space/tab patterns
+```
+
+**Unicode Steganography:**
+
+Zero-width characters (U+200B, U+200C, U+200D, U+FEFF):
+
+```bash
+# Detection
+python3 -c "print(repr(open('file.txt').read()))"
+hexdump -C file.txt | grep -E "e2 80 8[bcd]"  # UTF-8 zero-width
+
+# Extraction using online tools or custom scripts
+```
+
+Homoglyph substitution - Visually identical Unicode characters:
+
+```python
+import unicodedata
+text = open('file.txt').read()
+for char in text:
+    print(f"{char}: {unicodedata.name(char, 'UNNAMED')}")
+```
+
+**Format-Based Techniques:**
+
+HTML/XML comment hiding:
+
+```bash
+grep -o "<!--.*-->" file.html
+strings file.html | grep -E "<!--"
+```
+
+Document metadata (Office docs, PDFs):
+
+```bash
+exiftool document.docx
+pdfinfo document.pdf
+pdf-parser -s /JavaScript document.pdf  # PDF JavaScript hiding
+```
+
+**Linguistic Steganography:**
+
+Acrostic messages - First letters of lines/sentences spell message:
+
+```bash
+awk '{print substr($0,1,1)}' file.txt | tr -d '\n'
+```
+
+Substitution ciphers as steganography (Caesar, Atbash):
+
+```bash
+# ROT13 detection
+cat file.txt | tr 'A-Za-z' 'N-ZA-Mn-za-m'
+
+# General frequency analysis
+cat file.txt | tr -cd '[:alpha:]' | fold -w1 | sort | uniq -c | sort -rn
+```
+
+**Null cipher** - Real message hidden among decoy text:
+
+```bash
+# Extract every nth character
+python3 -c "text='...'; print(''.join([text[i] for i in range(0, len(text), 5)]))"
+```
+
+**Combined Detection Workflow:**
+
+1. File identification:
+
+```bash
+file suspicious_file
+xxd suspicious_file | head -n 20
+```
+
+2. Metadata extraction:
+
+```bash
+exiftool suspicious_file
+strings suspicious_file
+```
+
+3. Format-specific analysis (image/audio/text tools)
+    
+4. Statistical analysis for anomalies
+    
+5. Brute-force common passwords with steghide/steghide-based tools:
+    
+
+```bash
+stegseek image.jpg wordlist.txt
+```
+
+6. Manual bit-plane/spectrogram review for visual patterns
+
+**Important Subtopics for Further Study:**
+
+- Video steganography (frame manipulation, subtitle hiding)
+- Network protocol steganography (covert channels)
+- Blockchain/cryptocurrency steganography
+- Polyglot files (valid as multiple formats simultaneously)
+- Steganalysis automation and machine learning detection
+
+---
+
+## Steganalysis Methods
+
+Steganalysis is the practice of detecting the presence of hidden information within carrier files. Detection approaches fall into several categories:
+
+### Visual/Statistical Analysis
+
+**File Size Anomalies**: Compare file sizes against expected values for their apparent content. Images with embedded data often exhibit larger-than-expected file sizes.
+
+```bash
+# Compare file size to theoretical minimum
+identify -verbose image.png | grep -i filesize
+exiftool -FileSize image.jpg
+
+# Detect trailing data after logical file end
+tail -c 1000 image.png | xxd
+```
+
+**Histogram Analysis**: Examine color distribution patterns that indicate LSB (Least Significant Bit) manipulation.
+
+```bash
+# Generate histogram analysis
+convert image.png -define histogram:unique-colors=true histogram.png
+
+# Statistical analysis with stegdetect (legacy but useful)
+stegdetect -s 1.0 image.jpg
+```
+
+**Chi-Square Analysis**: Statistical test for LSB steganography detection. Tools like `stegexpose` automate this:
+
+```bash
+stegexpose image.jpg output_dir/
+# Reviews LSB patterns across multiple algorithms
+```
+
+### Signature-Based Detection
+
+**Stegdetect**: Detects steganographic content in JPEG files, identifying specific algorithms (jsteg, jphide, outguess, invisible secrets, F5).
+
+```bash
+stegdetect -tjopi -s 1.0 *.jpg
+# -t: tests specified algorithms
+# -j: jsteg, -o: outguess, -p: jphide, -i: invisible secrets
+
+stegbreak -t p -f wordlist.txt image.jpg
+# Attempts dictionary attack on detected steganography
+```
+
+[Inference] **Stegdetect** primarily targets older JPEG steganography methods and may not detect modern techniques like adaptive steganography or spread-spectrum methods.
+
+### Structural Analysis
+
+**Zsteg**: Automated detection tool for PNG and BMP files, extremely useful in CTF scenarios.
+
+```bash
+zsteg image.png
+# Automatic detection of LSB steganography, trailing data, and metadata
+
+zsteg -a image.png
+# All detection methods including:
+# - LSB analysis on all channels and bit orders
+# - Byte-level analysis
+# - Prime bit patterns
+
+zsteg --lsb image.png
+# Focus on LSB methods specifically
+
+zsteg -E extradata:0 image.png
+# Extract appended data after image end
+```
+
+**Steghide Detection**: While steghide is primarily an embedding tool, detection involves entropy analysis.
+
+```bash
+steghide info image.jpg
+# Prompts for passphrase; blank passphrase attempts reveal unprotected data
+
+steghide extract -sf image.jpg -xf output.txt
+# Extraction attempt (requires passphrase if protected)
+
+# Brute force with stegcracker
+stegcracker image.jpg wordlist.txt
+```
+
+### Format-Specific Analysis
+
+**JPEG**: Examine DCT coefficients and quantization tables.
+
+```bash
+jsteg reveal image.jpg output.txt
+# Extracts data hidden with jsteg
+
+outguess -r image.jpg output.txt
+# Extracts data hidden with outguess
+
+# Manual DCT analysis
+exiftool -a -G1 -s image.jpg | grep -i quant
+```
+
+**PNG**: Analyze IDAT chunks, color palettes, and alpha channels.
+
+```bash
+pngcheck -v image.png
+# Validates PNG structure and identifies anomalies
+
+# Extract individual chunks
+pngchunks image.png
+# or
+pngmeta image.png
+
+# Analyze specific chunk types
+xxd image.png | grep -A5 "IDAT\|tEXt\|iTXt\|zTXt"
+```
+
+**BMP**: Uncompressed format ideal for LSB analysis.
+
+```bash
+zsteg image.bmp --lsb --bits 1-8
+# Tests LSB across all bit depths
+
+# Manual bit-plane extraction
+convert image.bmp -depth 1 -colorspace gray bitplane.png
+```
+
+## Metadata Hiding
+
+Metadata fields in file formats provide numerous hiding locations. EXIF, IPTC, XMP, and format-specific metadata can all contain embedded information.
+
+### EXIF Data Analysis
+
+```bash
+exiftool -a -G1 -s file.jpg
+# -a: duplicates, -G1: group names, -s: short tag names
+
+exiftool -b -Comment image.jpg > extracted.txt
+# -b: binary output for extracting embedded files
+
+# Search for specific suspicious tags
+exiftool -UserComment -ImageDescription -Make -Model image.jpg
+
+# Examine all non-standard tags
+exiftool -unknown -a image.jpg
+```
+
+**Common Metadata Hiding Locations:**
+
+- `UserComment`: EXIF field often used for arbitrary data
+- `ImageDescription`: Text field in EXIF
+- `Make/Model`: Device information fields
+- `DocumentName`: PDF and image metadata
+- `Software`: Processing software field
+- Custom XMP namespaces
+
+### Strings Analysis
+
+```bash
+strings -a -t x file.jpg
+# -a: scan entire file, -t x: hexadecimal offsets
+
+strings -e l file.jpg  # 16-bit little-endian
+strings -e b file.jpg  # 16-bit big-endian
+strings -e L file.jpg  # 32-bit little-endian
+strings -e B file.jpg  # 32-bit big-endian
+
+# Filter for specific patterns
+strings file.jpg | grep -E "flag\{|CTF\{|password|key"
+```
+
+### Binwalk for Embedded Content
+
+```bash
+binwalk file.jpg
+# Identifies embedded files and known signatures
+
+binwalk -e file.jpg
+# Extracts identified embedded files
+
+binwalk -D 'png image:png' file.jpg
+# Extract specific file types
+
+binwalk --dd='.*' file.jpg
+# Extract all identified segments
+
+# Entropy analysis to identify compressed/encrypted regions
+binwalk -E file.jpg
+```
+
+### Foremost for Metadata Carving
+
+```bash
+foremost -v -i file.jpg -o output_dir/
+# Carves files based on headers/footers
+
+foremost -t jpg,png,zip,pdf -i file.jpg -o output_dir/
+# Specify file types to extract
+```
+
+## File Appending/Prepending
+
+Files can have data concatenated before (prepending) or after (appending) their logical structure while maintaining functionality of the primary file.
+
+### Trailing Data Detection
+
+**Manual Hex Analysis:**
+
+```bash
+xxd file.jpg | tail -n 50
+# Examine last 50 lines of hex dump
+
+# Identify file ending markers
+# JPEG: FF D9
+# PNG: IEND + CRC (49 45 4E 44 AE 42 60 82)
+# GIF: 3B (semicolon)
+# ZIP: end of central directory signature
+
+# Find JPEG end marker and extract trailing data
+grep -obUaP "\xFF\xD9" file.jpg
+# Note offset, then extract after it
+
+dd if=file.jpg bs=1 skip=OFFSET of=trailing.dat
+# Replace OFFSET with value after FF D9
+```
+
+**Automated Extraction with Zsteg:**
+
+```bash
+zsteg -E "b1,rgb,lsb,xy" image.png
+# May reveal appended content
+
+# Check for extradata explicitly
+zsteg -E extradata:0 image.png > appended.dat
+```
+
+**Archive Analysis:**
+
+Many CTF challenges append ZIP archives to images.
+
+```bash
+# Check if file contains ZIP data
+file file.jpg
+unzip -l file.jpg  # List contents if ZIP present
+unzip file.jpg     # Extract (ignores leading junk data)
+
+# Or use binwalk
+binwalk -e file.jpg
+
+# For RAR archives
+unrar l file.jpg
+unrar x file.jpg
+
+# For 7z archives
+7z l file.jpg
+7z x file.jpg
+```
+
+**Polyglot Files:**
+
+Files that are valid in multiple formats simultaneously.
+
+```bash
+# Test file as multiple formats
+file file.jpg
+unzip -l file.jpg
+pdfinfo file.jpg
+tar -tzf file.jpg
+
+# PNG-ZIP polyglot detection
+head -c 8 file.png | xxd  # Should show PNG signature
+unzip -l file.png          # May also be valid ZIP
+```
+
+### Prepended Data Detection
+
+Data prepended before file signatures requires manual analysis:
+
+```bash
+# Locate actual file signature
+xxd file.png | head -n 100
+
+# PNG signature: 89 50 4E 47 0D 0A 1A 0A
+# JPEG signature: FF D8 FF
+# GIF signature: 47 49 46 38
+
+# Extract prepended data if signature not at offset 0
+dd if=file.png bs=1 count=OFFSET of=prepended.dat
+
+# Reconstruct original file
+dd if=file.png bs=1 skip=OFFSET of=original.png
+```
+
+**GIFAR Detection (GIF-JAR polyglot):**
+
+```bash
+file file.gif
+jar -tf file.gif  # Test as Java archive
+unzip -l file.gif
+```
+
+## Whitespace Steganography
+
+Whitespace steganography hides data in spaces, tabs, and other invisible characters within text files, source code, or formatted documents.
+
+### Space/Tab Encoding
+
+**SNOW (Steganographic Nature Of Whitespace):**
+
+```bash
+# Detect SNOW steganography
+snow -C file.txt
+# Attempts extraction without password
+
+snow -C -p "password" file.txt
+# Extract with password
+
+# Examine file for trailing whitespace patterns
+cat -A file.txt
+# Shows $ for newlines, ^I for tabs
+
+# Statistics on whitespace patterns
+sed 's/[^ \t]//g' file.txt | wc -c
+```
+
+**Stegsnow:**
+
+```bash
+stegsnow -C file.txt
+# Extract hidden data
+
+stegsnow -C -p "passphrase" file.txt
+# With passphrase
+
+# Manual analysis
+hexdump -C file.txt | grep "20 20\|09"
+# Look for space (20) and tab (09) patterns
+```
+
+### Zero-Width Characters
+
+Unicode includes invisible characters usable for steganography:
+
+- Zero Width Space (U+200B)
+- Zero Width Non-Joiner (U+200C)
+- Zero Width Joiner (U+200D)
+- Zero Width No-Break Space (U+FEFF)
+
+**Detection:**
+
+```bash
+# Hexdump to identify Unicode zero-width characters
+xxd file.txt | grep -i "e2 80"
+# E2 80 8B: Zero Width Space
+# E2 80 8C: Zero Width Non-Joiner
+# E2 80 8D: Zero Width Joiner
+
+# Python detection script
+python3 << 'EOF'
+with open('file.txt', 'r', encoding='utf-8') as f:
+    content = f.read()
+    zwc = ['\u200b', '\u200c', '\u200d', '\ufeff']
+    for char in zwc:
+        count = content.count(char)
+        if count > 0:
+            print(f"Found {count} instances of {repr(char)}")
+            # Extract binary representation
+            positions = [i for i, c in enumerate(content) if c == char]
+            print(f"Positions: {positions}")
+EOF
+
+# Online tools can also decode zero-width steganography
+# (search for "zero-width steganography decoder")
+```
+
+### Whitespace in Source Code
+
+**Line-Ending Manipulation:**
+
+```bash
+# Detect mixed line endings (CR, LF, CRLF)
+file file.txt
+dos2unix -id file.txt  # Identify DOS/Unix format
+
+# Examine line endings
+od -c file.txt | grep -E "\\r|\\n"
+
+# Extract pattern of CRLF vs LF as binary encoding
+python3 << 'EOF'
+with open('file.txt', 'rb') as f:
+    data = f.read()
+    # Windows: \r\n (0D 0A), Unix: \n (0A)
+    binary = ''
+    i = 0
+    while i < len(data):
+        if data[i:i+2] == b'\r\n':
+            binary += '1'
+            i += 2
+        elif data[i:i+1] == b'\n':
+            binary += '0'
+            i += 1
+        else:
+            i += 1
+    print(f"Binary: {binary}")
+    # Convert to ASCII or decode as needed
+EOF
+```
+
+**Trailing Whitespace Encoding:**
+
+```bash
+# Visualize trailing spaces per line
+cat -A file.txt | grep " $"
+
+# Extract binary encoding from trailing spaces
+python3 << 'EOF'
+with open('file.txt', 'r') as f:
+    binary = ''
+    for line in f:
+        # Count trailing spaces
+        stripped = line.rstrip('\n\r')
+        if stripped and stripped[-1] == ' ':
+            trailing = len(stripped) - len(stripped.rstrip(' '))
+            binary += str(trailing % 2)  # Even/odd encoding
+    print(f"Binary: {binary}")
+    # Convert to text
+    text = ''.join(chr(int(binary[i:i+8], 2)) for i in range(0, len(binary), 8))
+    print(f"Decoded: {text}")
+EOF
+```
+
+### HTML/Web Context Whitespace
+
+```bash
+# Examine HTML source for whitespace anomalies
+curl -s URL | cat -A
+
+# Extract comments that may use whitespace encoding
+curl -s URL | grep -o "<!--.*-->" | cat -A
+
+# Check for unusual spacing in attributes
+curl -s URL | grep -E "[ \t]{5,}"
+```
+
+---
+
+**Key CTF Strategy**: In CTF scenarios, always begin with automated tools (zsteg, binwalk, exiftool, steghide info) before manual analysis. Check for: (1) trailing data after file markers, (2) unusual file sizes, (3) metadata fields, (4) polyglot formats, and (5) whitespace patterns. Many challenges layer multiple steganography techniques.
+
+**Related Tools Worth Exploring**: StegSolve (GUI-based visual analysis), StegCracker (automated password cracking), OpenStego, SilentEye, and format-specific tools like MP3Stego for audio files.
+
+---
+
+# Cryptography and Encoding
+
+## Base64/32/16 Encoding
+
+Base encoding schemes represent binary data using ASCII characters, commonly used to obfuscate data in CTFs or transport binary content through text-only channels.
+
+### Base64
+
+**Structure**: Uses 64 characters (A-Z, a-z, 0-9, +, /) with = for padding. Each character represents 6 bits.
+
+**Encoding/Decoding in Kali**:
+
+```bash
+# Encode
+echo "flag{secret}" | base64
+echo -n "flag{secret}" | base64  # Without newline
+
+# Decode
+echo "ZmxhZ3tzZWNyZXR9" | base64 -d
+
+# Encode file
+base64 file.bin > encoded.txt
+
+# Decode file
+base64 -d encoded.txt > original.bin
+```
+
+**Python**:
+
+```python
+import base64
+
+# Encode
+encoded = base64.b64encode(b"flag{secret}")
+# Decode
+decoded = base64.b64decode(b"ZmxhZ3tzZWNyZXR9")
+
+# URL-safe variant (uses - and _ instead of + and /)
+base64.urlsafe_b64encode(data)
+base64.urlsafe_b64decode(data)
+```
+
+**Identification**: Look for strings ending in = or == (padding), character set limited to A-Za-z0-9+/
+
+### Base32
+
+**Structure**: Uses 32 characters (A-Z, 2-7) with = padding. Each character represents 5 bits. More space-inefficient than Base64 but case-insensitive.
+
+**Command syntax**:
+
+```bash
+# Encode
+echo -n "flag{secret}" | base32
+
+# Decode
+echo "MZWGCZ33NFZC453FOJZXI===" | base32 -d
+
+# File operations
+base32 file.bin > encoded32.txt
+base32 -d encoded32.txt > original.bin
+```
+
+**Python**:
+
+```python
+import base64
+
+encoded = base64.b32encode(b"flag{secret}")
+decoded = base64.b32decode(b"MZWGCZ33NFZC453FOJZXI===")
+```
+
+**Identification**: All uppercase letters A-Z and digits 2-7, padding with =
+
+### Base16 (Hexadecimal)
+
+**Structure**: Uses 16 characters (0-9, A-F). Each character represents 4 bits (nibble). Two hex characters = 1 byte.
+
+**Command syntax**:
+
+```bash
+# Encode (multiple methods)
+echo -n "flag" | xxd -p
+echo -n "flag" | od -An -tx1 | tr -d ' \n'
+echo -n "flag" | hexdump -ve '1/1 "%.2x"'
+
+# Decode
+echo "666c6167" | xxd -r -p
+echo "666c6167" | perl -pe 's/([0-9a-f]{2})/chr hex $1/gie'
+```
+
+**Python**:
+
+```python
+import binascii
+
+# Encode
+hex_encoded = binascii.hexlify(b"flag")  # Returns b'666c6167'
+# Or
+hex_str = "flag".encode().hex()
+
+# Decode
+decoded = binascii.unhexlify(b"666c6167")
+# Or
+decoded = bytes.fromhex("666c6167")
+```
+
+**CyberChef**: Use "To Hex" and "From Hex" operations
+
+## Hex and ASCII Conversion
+
+### ASCII Basics
+
+ASCII uses 7 bits to represent 128 characters (0-127). Extended ASCII uses 8 bits (0-255).
+
+**Key ranges**:
+
+- 48-57: Digits 0-9
+- 65-90: Uppercase A-Z
+- 97-122: Lowercase a-z
+- 32: Space
+- 10: Newline (LF)
+- 13: Carriage return (CR)
+
+### Conversion Techniques
+
+**Hex to ASCII**:
+
+```bash
+# Using xxd
+echo "48656c6c6f" | xxd -r -p
+
+# Using Python inline
+python3 -c "print(bytes.fromhex('48656c6c6f').decode())"
+
+# Using perl
+echo "48656c6c6f" | perl -pe 's/([0-9a-f]{2})/chr hex $1/gie'
+```
+
+**ASCII to Hex**:
+
+```bash
+# Using xxd
+echo -n "Hello" | xxd -p
+
+# Using Python
+python3 -c "print('Hello'.encode().hex())"
+
+# Using od
+echo -n "Hello" | od -An -tx1 | tr -d ' \n'
+```
+
+**Decimal to ASCII**:
+
+```bash
+# Single character
+printf "\x$(printf %x 72)"  # Outputs 'H' (72 decimal)
+
+# Multiple values (space or comma separated)
+python3 -c "print(''.join(chr(int(x)) for x in '72 101 108 108 111'.split()))"
+```
+
+**ASCII to Decimal**:
+
+```bash
+python3 -c "print(' '.join(str(ord(c)) for c in 'Hello'))"
+```
+
+### Practical CTF Tool: CyberChef
+
+CyberChef (https://gchq.github.io/CyberChef/) is invaluable for chaining conversions:
+
+- Recipe example: From Hex → From Base64 → ROT13
+- "Magic" operation attempts automatic detection
+
+## ROT13 and Caesar Ciphers
+
+### Caesar Cipher
+
+A substitution cipher shifting each letter by a fixed number of positions in the alphabet.
+
+**Characteristics**:
+
+- Preserves case and non-alphabetic characters
+- 25 possible keys (shift 1-25)
+- ROT13 is Caesar with shift=13
+
+### ROT13
+
+**Special property**: Self-inverse (applying ROT13 twice returns original text)
+
+**Command syntax**:
+
+```bash
+# Using tr
+echo "flag{uryyb_jbeyq}" | tr 'A-Za-z' 'N-ZA-Mn-za-m'
+
+# Using Python
+echo "flag{uryyb_jbeyq}" | python3 -c "import sys; print(sys.stdin.read().encode('rot13'))"
+
+# For Python 3 (codecs required):
+python3 -c "import codecs; print(codecs.decode('flag{uryyb_jbeyq}', 'rot_13'))"
+```
+
+**Python script**:
+
+```python
+import codecs
+
+def rot13(text):
+    return codecs.decode(text, 'rot_13')
+
+# Or manual implementation
+def rot13_manual(text):
+    result = []
+    for char in text:
+        if 'a' <= char <= 'z':
+            result.append(chr((ord(char) - ord('a') + 13) % 26 + ord('a')))
+        elif 'A' <= char <= 'Z':
+            result.append(chr((ord(char) - ord('A') + 13) % 26 + ord('A')))
+        else:
+            result.append(char)
+    return ''.join(result)
+```
+
+### General Caesar Cipher
+
+**Brute force all shifts**:
+
+```bash
+# Bash loop
+for i in {1..25}; do 
+    echo "Shift $i: $(echo 'ATTACKATDAWN' | tr "A-Z" "$(echo {A..Z} | tr -d ' ' | sed "s/^.\{$i\}\(.*\)\(.\{$i\}\)$/\1\2/")")"; 
+done
+```
+
+**Python brute force**:
+
+```python
+def caesar_bruteforce(ciphertext):
+    for shift in range(26):
+        plaintext = ""
+        for char in ciphertext:
+            if char.isalpha():
+                base = ord('A') if char.isupper() else ord('a')
+                plaintext += chr((ord(char) - base - shift) % 26 + base)
+            else:
+                plaintext += char
+        print(f"Shift {shift}: {plaintext}")
+
+# Usage
+caesar_bruteforce("DWWDFNDWGDZQ")
+```
+
+**CyberChef**: Use "ROT13" operation with custom amount (0-25)
+
+### Frequency Analysis
+
+For longer Caesar ciphertexts, frequency analysis helps identify the shift:
+
+- English: E (12.7%), T (9.1%), A (8.2%) are most common
+- Compare ciphertext letter frequencies to expected English frequencies
+
+**Python frequency analysis**:
+
+```python
+from collections import Counter
+
+def analyze_frequency(text):
+    letters = [c.upper() for c in text if c.isalpha()]
+    freq = Counter(letters)
+    return freq.most_common()
+
+# Most common letter likely corresponds to 'E'
+```
+
+## XOR Operations
+
+XOR (exclusive OR) is fundamental in cryptography. Properties:
+
+- A ⊕ A = 0
+- A ⊕ 0 = A
+- A ⊕ B = B ⊕ A (commutative)
+- A ⊕ B ⊕ B = A (self-inverse)
+
+**Key property for CTFs**: If you have ciphertext and plaintext, you can recover the key: `key = plaintext ⊕ ciphertext`
+
+### Single-byte XOR
+
+**Python encryption/decryption**:
+
+```python
+def xor_single_byte(data, key):
+    """XOR data with single byte key"""
+    if isinstance(data, str):
+        data = data.encode()
+    return bytes([b ^ key for b in data])
+
+# Brute force single-byte XOR
+def xor_bruteforce(ciphertext):
+    for key in range(256):
+        try:
+            plaintext = bytes([b ^ key for b in ciphertext]).decode('ascii')
+            if all(32 <= ord(c) < 127 or c in '\n\r\t' for c in plaintext):
+                print(f"Key {key} ({chr(key) if 32 <= key < 127 else 'non-printable'}): {plaintext[:50]}")
+        except:
+            pass
+```
+
+**Bash with xxd**:
+
+```bash
+# XOR file with single byte (0x42)
+xxd -p file.bin | sed 's/../\\x&/g' | xargs printf | \
+python3 -c "import sys; sys.stdout.buffer.write(bytes([b ^ 0x42 for b in sys.stdin.buffer.read()]))"
+```
+
+### Multi-byte XOR (Repeating Key)
+
+**Python implementation**:
+
+```python
+def xor_repeating_key(data, key):
+    """XOR data with repeating key"""
+    if isinstance(data, str):
+        data = data.encode()
+    if isinstance(key, str):
+        key = key.encode()
+    
+    return bytes([data[i] ^ key[i % len(key)] for i in range(len(data))])
+
+# Example
+plaintext = b"ATTACKATDAWN"
+key = b"KEY"
+ciphertext = xor_repeating_key(plaintext, key)
+```
+
+### Finding XOR Key Length (Hamming Distance Method)
+
+Used when you have ciphertext but not the key:
+
+```python
+def hamming_distance(bytes1, bytes2):
+    """Count differing bits between two byte strings"""
+    return sum(bin(b1 ^ b2).count('1') for b1, b2 in zip(bytes1, bytes2))
+
+def find_key_size(ciphertext, max_keysize=40):
+    """Estimate XOR key size using Hamming distance"""
+    distances = {}
+    
+    for keysize in range(2, max_keysize + 1):
+        # Take first 4 blocks
+        blocks = [ciphertext[i*keysize:(i+1)*keysize] for i in range(4)]
+        
+        # Calculate average normalized Hamming distance
+        dists = []
+        for i in range(len(blocks)):
+            for j in range(i+1, len(blocks)):
+                if len(blocks[i]) == keysize and len(blocks[j]) == keysize:
+                    dists.append(hamming_distance(blocks[i], blocks[j]) / keysize)
+        
+        if dists:
+            distances[keysize] = sum(dists) / len(dists)
+    
+    # Return keysizes with smallest distances
+    return sorted(distances.items(), key=lambda x: x[1])[:5]
+```
+
+### Breaking Multi-byte XOR
+
+Once key length is known:
+
+```python
+def break_repeating_xor(ciphertext, keysize):
+    """Break repeating-key XOR"""
+    # Transpose: group every keysize-th byte together
+    blocks = [ciphertext[i::keysize] for i in range(keysize)]
+    
+    key = []
+    for block in blocks:
+        # Each block is single-byte XOR
+        best_score = 0
+        best_key = 0
+        
+        for candidate in range(256):
+            plaintext = bytes([b ^ candidate for b in block])
+            # Score based on English letter frequency
+            score = sum(plaintext.count(c) for c in b'etaoinshrdlcu ETAOINSHRDLCU')
+            
+            if score > best_score:
+                best_score = score
+                best_key = candidate
+        
+        key.append(best_key)
+    
+    return bytes(key)
+```
+
+### XOR with Known Plaintext
+
+If you know part of the plaintext:
+
+```python
+def recover_xor_key(plaintext, ciphertext):
+    """Recover XOR key from known plaintext"""
+    return bytes([p ^ c for p, c in zip(plaintext, ciphertext)])
+
+# Example
+known_plaintext = b"flag{"
+ciphertext_start = ciphertext[:5]
+key_fragment = recover_xor_key(known_plaintext, ciphertext_start)
+# Key might repeat: test multiples of this length
+```
+
+### Command-line XOR Tools
+
+**xortool** (available in Kali):
+
+```bash
+# Install if needed
+sudo apt install xortool
+
+# Analyze XOR'd file
+xortool -l 4 encrypted.bin  # Assume key length 4
+xortool -c 20 encrypted.bin  # Assume most common char is space (0x20)
+xortool -b encrypted.bin     # Brute force (small files only)
+
+# Output shows possible keys in xortool_out/ directory
+```
+
+**CyberChef**:
+
+- "XOR" operation with various key input methods
+- "XOR Brute Force" for single-byte keys
+- Can specify key format: UTF8, Hex, Base64
+
+### Practical CTF Tips
+
+1. **Base encoding identification**: Check character set and padding
+2. **Multiple encodings**: CTFs often chain encodings (Base64 of hex of Base32)
+3. **Caesar cipher**: Always brute force all 25 shifts—it's fast
+4. **XOR detection**: Look for high entropy that's not random (repeating patterns)
+5. **Known plaintext**: Flag formats like `flag{`, `CTF{`, `picoCTF{` are useful
+6. **File signatures**: XOR'd files may reveal magic bytes (PNG: `89 50 4E 47`, ZIP: `50 4B 03 04`)
+
+### Essential Tools Summary
+
+- **CyberChef**: Browser-based, chaining operations
+- **Python**: Scripting custom solutions
+- **xxd**: Hex dumps and reverse operations
+- **base64/base32**: Native encoding tools
+- **xortool**: Automated XOR analysis
+- **tr**: Quick ROT13 and character transformations
+
+---
+
+## Hash Identification
+
+Hash identification is the foundational skill of recognizing hash types from their structural characteristics before attempting to crack them.
+
+### Hash Recognition by Length and Character Set
+
+**MD5 (128-bit, 32 hex characters)**
+
+```bash
+# Example: 5f4dcc3b5aa765d61d8327deb882cf99
+echo -n "password" | md5sum
+```
+
+**SHA-1 (160-bit, 40 hex characters)**
+
+```bash
+# Example: 5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8
+echo -n "password" | sha1sum
+```
+
+**SHA-256 (256-bit, 64 hex characters)**
+
+```bash
+# Example: 5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8
+echo -n "password" | sha256sum
+```
+
+**SHA-512 (512-bit, 128 hex characters)**
+
+```bash
+echo -n "password" | sha512sum
+```
+
+**NTLM (128-bit, 32 hex characters, Windows-specific)**
+
+```bash
+# Example: 8846f7eaee8fb117ad06bdd830b7586c
+# Structurally identical to MD5 but context matters
+```
+
+**bcrypt ($2a$, $2b$, $2y$ prefix)**
+
+```bash
+# Example: $2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
+# Format: $2a$[cost]$[22-char salt][31-char hash]
+```
+
+**Unix DES Crypt (13 characters, starts with alphanumeric)**
+
+```bash
+# Example: aaKNIEDOaueR6
+```
+
+**Unix MD5 Crypt ($1$ prefix)**
+
+```bash
+# Example: $1$28772684$iEwNOgGugqO9.bIz5sk8k/
+```
+
+**Unix SHA-512 Crypt ($6$ prefix)**
+
+```bash
+# Example: $6$52450745$k5ka2p8bFuSmoVT1tzOyyuaREkkKBcCNqoDKzYiJL9RaE8yU3r6AX.lS.CR9cXGv4TKo9v9qfvEL6xeLNVfMW.
+```
+
+### Automated Hash Identification Tools
+
+**hash-identifier (Interactive)**
+
+```bash
+hash-identifier
+# Then paste hash when prompted
+```
+
+**hashid (Command-line)**
+
+```bash
+hashid 'hash_value'
+hashid -m 'hash_value'  # Show hashcat mode numbers
+hashid -j 'hash_value'  # Show john format names
+
+# Analyze multiple hashes from file
+hashid -m hashes.txt
+```
+
+**haiti (Modern alternative)**
+
+```bash
+haiti 'hash_value'
+haiti -e 'hash_value'  # Extended output
+```
+
+### Context-Based Identification
+
+**Linux Shadow File Format**
+
+```bash
+# /etc/shadow structure: username:$algorithm$salt$hash:...
+# $1$ = MD5
+# $2a$, $2b$, $2y$ = bcrypt
+# $5$ = SHA-256
+# $6$ = SHA-512
+# $y$ = yescrypt
+
+cat /etc/shadow | grep username
+```
+
+**Windows Hash Extraction**
+
+```bash
+# NTLM format from SAM database or secretsdump output
+# username:RID:LM_hash:NTLM_hash:::
+# Example: Administrator:500:NO PASSWORD*********************:8846f7eaee8fb117ad06bdd830b7586c:::
+```
+
+**Hash Length Reference Table**
+
+|Hash Type|Length (hex)|Length (chars)|Pattern|
+|---|---|---|---|
+|MD4|32|32|Hex only|
+|MD5|32|32|Hex only|
+|SHA-1|40|40|Hex only|
+|SHA-224|56|56|Hex only|
+|SHA-256|64|64|Hex only|
+|SHA-384|96|96|Hex only|
+|SHA-512|128|128|Hex only|
+|NTLM|32|32|Hex only|
+|MySQL5|40|41|Starts with *|
+|bcrypt|Variable|~60|Starts with $2|
+
+### Salted vs Unsalted Detection
+
+**Unsalted hashes** - Fixed output for same input:
+
+```bash
+echo -n "password" | md5sum
+# Always produces: 5f4dcc3b5aa765d61d8327deb882cf99
+```
+
+**Salted hashes** - Include random salt in format:
+
+```bash
+# Format reveals salt: $algorithm$salt$hash
+# Example: $6$randomsalt$hashvalue...
+```
+
+## Common Cipher Identification
+
+### Classical Cipher Recognition
+
+**Caesar Cipher / ROT13**
+
+```bash
+# Characteristics: Letter substitution, preserves case/spacing
+# Example: "Uryyb Jbeyq" (ROT13 of "Hello World")
+
+# Decode all ROT possibilities
+for i in {1..25}; do echo "Uryyb Jbeyq" | tr 'A-Za-z' "$(echo {A..Z} {a..z} | tr -d ' ' | sed "s/\(.\{$i\}\)\(.\{$((26-i))\}\)/\2\1/;s/\(.\{26\}\)\(.\{$i\}\)\(.\{$((26-i))\}\)/\1\3\2/")"; done
+
+# ROT13 specific
+echo "Uryyb Jbeyq" | tr 'A-Za-z' 'N-ZA-Mn-za-m'
+
+# Using CyberChef patterns
+cat ciphertext.txt | tr 'A-Za-z' 'N-ZA-Mn-za-m'
+```
+
+**Substitution Cipher**
+
+```bash
+# Characteristics: Fixed letter-to-letter mapping
+# Frequency analysis reveals English letter patterns
+
+# Basic frequency analysis
+cat ciphertext.txt | grep -o . | sort | uniq -c | sort -rn
+
+# Using python for detailed analysis
+python3 << 'EOF'
+from collections import Counter
+text = open('ciphertext.txt').read().upper()
+freq = Counter(c for c in text if c.isalpha())
+for char, count in freq.most_common():
+    print(f"{char}: {count} ({count/len(text)*100:.2f}%)")
+EOF
+```
+
+**Vigenère Cipher**
+
+```bash
+# Characteristics: Repeating key pattern, polyalphabetic substitution
+# Index of Coincidence differs from random but not monoalphabetic
+
+# Key length detection (Kasiski examination)
+# Install vigenere tools
+git clone https://github.com/rctay/vigenere
+cd vigenere
+python vigenere.py -k <probable_key_length> -d ciphertext.txt
+```
+
+**Transposition Cipher**
+
+```bash
+# Characteristics: Same letters as plaintext, different order
+# Anagram detection: letter frequency matches English
+
+# Rail Fence Cipher decoder
+python3 << 'EOF'
+def rail_decrypt(cipher, key):
+    rail = [['\n' for i in range(len(cipher))] for j in range(key)]
+    dir_down, row, col = None, 0, 0
+    
+    for i in range(len(cipher)):
+        if row == 0:
+            dir_down = True
+        if row == key - 1:
+            dir_down = False
+        rail[row][col] = '*'
+        col += 1
+        row = row + 1 if dir_down else row - 1
+    
+    index = 0
+    for i in range(key):
+        for j in range(len(cipher)):
+            if rail[i][j] == '*' and index < len(cipher):
+                rail[i][j] = cipher[index]
+                index += 1
+    
+    result, row, col = [], 0, 0
+    for i in range(len(cipher)):
+        if row == 0:
+            dir_down = True
+        if row == key-1:
+            dir_down = False
+        if rail[row][col] != '*':
+            result.append(rail[row][col])
+            col += 1
+        row = row + 1 if dir_down else row - 1
+    return "".join(result)
+
+cipher = input("Enter ciphertext: ")
+for key in range(2, 10):
+    print(f"Key {key}: {rail_decrypt(cipher, key)}")
+EOF
+```
+
+### Modern Cipher Recognition
+
+**Base64 Encoding**
+
+```bash
+# Characteristics: A-Z, a-z, 0-9, +, / and = padding
+# Length divisible by 4 (with padding)
+
+# Detection
+echo "SGVsbG8gV29ybGQ=" | grep -E '^[A-Za-z0-9+/]*={0,2}$'
+
+# Decoding
+echo "SGVsbG8gV29ybGQ=" | base64 -d
+
+# Multiple layer decoding
+echo "encoded_string" | base64 -d | base64 -d | base64 -d
+```
+
+**Base32 Encoding**
+
+```bash
+# Characteristics: A-Z, 2-7, and = padding
+# Example: JBSWY3DPEBLW64TMMQ======
+
+# Decoding
+echo "JBSWY3DPEBLW64TMMQ======" | base32 -d
+```
+
+**Hexadecimal Encoding**
+
+```bash
+# Characteristics: 0-9, A-F only, even length
+
+# Detection and decoding
+echo "48656c6c6f20576f726c64" | xxd -r -p
+
+# With 0x prefix
+echo "0x48656c6c6f" | cut -c3- | xxd -r -p
+```
+
+**URL Encoding (Percent Encoding)**
+
+```bash
+# Characteristics: %XX format where XX is hex
+
+# Decoding
+echo "Hello%20World%21" | python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.stdin.read()))"
+
+# Using printf
+printf '%b' "$(echo 'Hello%20World' | sed 's/%/\\x/g')"
+```
+
+**XOR Cipher**
+
+```bash
+# Single-byte XOR brute force
+python3 << 'EOF'
+import sys
+ciphertext = bytes.fromhex(input("Enter hex ciphertext: "))
+for key in range(256):
+    plaintext = bytes([b ^ key for b in ciphertext])
+    try:
+        decoded = plaintext.decode('ascii')
+        if decoded.isprintable():
+            print(f"Key {key:02x} ({chr(key)}): {decoded}")
+    except:
+        pass
+EOF
+
+# Multi-byte XOR with known key
+python3 << 'EOF'
+ciphertext = bytes.fromhex("input_hex")
+key = b"KEY"
+plaintext = bytes([c ^ key[i % len(key)] for i, c in enumerate(ciphertext)])
+print(plaintext.decode())
+EOF
+```
+
+**RSA Identification**
+
+```bash
+# Characteristics: Public key (n, e), private key (n, d)
+# Look for: BEGIN RSA PUBLIC KEY, modulus (n), exponent (e)
+
+# Extract RSA parameters
+openssl rsa -pubin -in publickey.pem -text -noout
+
+# Common CTF weak RSA scenarios:
+# - Small exponent (e=3) with small message
+# - Common modulus attack (same n, different e)
+# - Wiener's attack (d < n^0.25)
+# - Fermat factorization (p and q close together)
+```
+
+### Cipher Identification Tools
+
+**CyberChef (Web-based)**
+
+```bash
+# Install locally
+git clone https://github.com/gchq/CyberChef
+cd CyberChef
+npm install
+npm run build
+# Access via browser at build/prod/CyberChef.html
+
+# Common recipes for CTF:
+# - Magic operation (auto-detects encoding)
+# - From Base64 → From Hex → XOR Brute Force chain
+```
+
+**dcode.fr Automated Cipher Identifier** [Inference] This is a web-based tool commonly referenced in CTF contexts for automatic cipher detection, though specific tool behavior and accuracy cannot be verified without testing.
+
+**Boxentriq Cipher Identifier** [Inference] Another web-based cipher identification tool frequently mentioned in CTF resources.
+
+## Password Cracking Basics
+
+### Hashcat - GPU-Accelerated Cracking
+
+**Hash Mode Identification**
+
+```bash
+# List all hash modes
+hashcat --help | grep -i "ntlm\|md5\|sha"
+
+# Common hash modes:
+# 0     = MD5
+# 100   = SHA1
+# 1000  = NTLM
+# 1400  = SHA256
+# 1800  = sha512crypt $6$
+# 3200  = bcrypt $2*$
+# 5600  = NetNTLMv2
+# 13100 = Kerberos 5 TGS-REP etype 23
+```
+
+**Dictionary Attack**
+
+```bash
+# Basic dictionary attack
+hashcat -m 0 -a 0 hash.txt /usr/share/wordlists/rockyou.txt
+
+# With rules
+hashcat -m 0 -a 0 hash.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/best64.rule
+
+# Show cracked results
+hashcat -m 0 hash.txt --show
+
+# Multiple wordlists
+hashcat -m 0 -a 0 hash.txt wordlist1.txt wordlist2.txt wordlist3.txt
+```
+
+**Mask Attack (Brute Force with Pattern)**
+
+```bash
+# Charset definitions:
+# ?l = lowercase (abcdefghijklmnopqrstuvwxyz)
+# ?u = uppercase (ABCDEFGHIJKLMNOPQRSTUVWXYZ)
+# ?d = digits (0123456789)
+# ?s = special characters
+# ?a = all characters
+# ?b = binary (0x00-0xff)
+
+# 8-character lowercase
+hashcat -m 0 -a 3 hash.txt ?l?l?l?l?l?l?l?l
+
+# Password with known pattern: "Pass" + 4 digits
+hashcat -m 0 -a 3 hash.txt Pass?d?d?d?d
+
+# Increment mode (try all lengths up to max)
+hashcat -m 0 -a 3 hash.txt --increment --increment-min 4 --increment-max 8 ?a?a?a?a?a?a?a?a
+
+# Custom charset
+hashcat -m 0 -a 3 hash.txt -1 ?l?d ?1?1?1?1?1?1
+```
+
+**Combinator Attack**
+
+```bash
+# Combine words from two dictionaries
+hashcat -m 0 -a 1 hash.txt wordlist1.txt wordlist2.txt
+
+# With rules on each side
+hashcat -m 0 -a 1 hash.txt wordlist1.txt wordlist2.txt -j 'c' -k 'c'
+```
+
+**Rule-Based Attack**
+
+```bash
+# Built-in rule sets
+# /usr/share/hashcat/rules/best64.rule - Most effective
+# /usr/share/hashcat/rules/rockyou-30000.rule - Complex
+# /usr/share/hashcat/rules/d3ad0ne.rule - Aggressive
+
+# Apply specific rule
+hashcat -m 0 -a 0 hash.txt wordlist.txt -r /usr/share/hashcat/rules/best64.rule
+
+# Custom rule examples:
+# : = do nothing
+# c = capitalize first letter
+# u = uppercase all
+# l = lowercase all
+# $1 = append "1"
+# ^1 = prepend "1"
+# sa@ = replace 'a' with '@'
+
+# Create custom rule file
+cat > custom.rule << 'EOF'
+:
+c
+u
+$1
+$!
+$123
+c $1
+EOF
+
+hashcat -m 0 -a 0 hash.txt wordlist.txt -r custom.rule
+```
+
+**Hybrid Attack**
+
+```bash
+# Wordlist + mask
+hashcat -m 0 -a 6 hash.txt wordlist.txt ?d?d?d?d
+
+# Mask + wordlist
+hashcat -m 0 -a 7 hash.txt ?d?d?d?d wordlist.txt
+```
+
+**Performance Optimization**
+
+```bash
+# Benchmark hash types
+hashcat -b -m 0
+
+# Workload profiles
+# -w 1 = Low (desktop usable)
+# -w 2 = Default
+# -w 3 = High (not recommended for desktop)
+# -w 4 = Nightmare (maximum performance)
+hashcat -m 0 -a 0 hash.txt wordlist.txt -w 3
+
+# Optimize kernel
+hashcat -m 0 -a 0 hash.txt wordlist.txt -O
+
+# Status and resume
+hashcat -m 0 -a 0 hash.txt wordlist.txt --session mysession
+# Resume: hashcat --session mysession --restore
+```
+
+### John the Ripper - CPU-Based Cracking
+
+**Basic Usage**
+
+```bash
+# Single crack mode (uses username as base)
+john --single hash.txt
+
+# Wordlist mode
+john --wordlist=/usr/share/wordlists/rockyou.txt hash.txt
+
+# Incremental mode (brute force)
+john --incremental hash.txt
+
+# Show cracked passwords
+john --show hash.txt
+
+# Specify format
+john --format=raw-md5 --wordlist=wordlist.txt hash.txt
+```
+
+**Format Detection**
+
+```bash
+# List all formats
+john --list=formats
+
+# Common formats:
+# raw-md5, raw-sha1, raw-sha256
+# nt (NTLM)
+# bcrypt
+# sha512crypt ($6$)
+# md5crypt ($1$)
+
+# Identify format in hash file
+john --format=raw-md5 hash.txt  # Will error if wrong format
+```
+
+**Unshadow for Linux Passwords**
+
+```bash
+# Combine /etc/passwd and /etc/shadow
+unshadow passwd.txt shadow.txt > combined.txt
+john combined.txt
+
+# With wordlist
+john --wordlist=/usr/share/wordlists/rockyou.txt combined.txt
+```
+
+**Rules in John**
+
+```bash
+# Built-in rules: /etc/john/john.conf
+
+# Use specific ruleset
+john --wordlist=wordlist.txt --rules=Jumbo hash.txt
+
+# Single mode with rules
+john --single --rules hash.txt
+
+# Custom rules (add to john.conf)
+# [List.Rules:Custom]
+# Az"[0-9]"
+# Az"[0-9][0-9]"
+
+john --wordlist=wordlist.txt --rules=Custom hash.txt
+```
+
+**Cracking Specific Hash Types**
+
+```bash
+# NTLM
+john --format=nt ntlm_hashes.txt
+
+# bcrypt
+john --format=bcrypt bcrypt_hashes.txt
+
+# SSH private keys
+ssh2john id_rsa > ssh_hash.txt
+john ssh_hash.txt
+
+# ZIP files
+zip2john protected.zip > zip_hash.txt
+john zip_hash.txt
+
+# RAR files
+rar2john protected.rar > rar_hash.txt
+john rar_hash.txt
+
+# PDF files
+pdf2john protected.pdf > pdf_hash.txt
+john pdf_hash.txt
+
+# KeePass databases
+keepass2john database.kdbx > keepass_hash.txt
+john keepass_hash.txt
+```
+
+**Session Management**
+
+```bash
+# Save session
+john --session=mysession hash.txt
+
+# Restore session
+john --restore=mysession
+
+# Check status
+john --status=mysession
+```
+
+### Hydra - Online Password Attacks
+
+```bash
+# SSH brute force
+hydra -l username -P /usr/share/wordlists/rockyou.txt ssh://target_ip
+
+# Multiple usernames
+hydra -L users.txt -P passwords.txt ssh://target_ip
+
+# FTP
+hydra -l admin -P wordlist.txt ftp://target_ip
+
+# HTTP Basic Auth
+hydra -l admin -P wordlist.txt target_ip http-get /admin
+
+# HTTP POST form
+hydra -l admin -P wordlist.txt target_ip http-post-form "/login.php:username=^USER^&password=^PASS^:F=incorrect"
+
+# With custom port
+hydra -l admin -P wordlist.txt -s 2222 ssh://target_ip
+
+# Limit threads (avoid detection)
+hydra -l admin -P wordlist.txt -t 4 ssh://target_ip
+
+# Verbose output
+hydra -l admin -P wordlist.txt -V ssh://target_ip
+```
+
+### Wordlist Management
+
+**Rockyou.txt**
+
+```bash
+# Extract if compressed
+sudo gunzip /usr/share/wordlists/rockyou.txt.gz
+
+# Location
+ls -lh /usr/share/wordlists/rockyou.txt
+# Size: ~134MB, ~14 million passwords
+```
+
+**SecLists**
+
+```bash
+# Install SecLists
+sudo apt install seclists
+# Or: git clone https://github.com/danielmiessler/SecLists
+
+# Common password lists
+/usr/share/seclists/Passwords/Common-Credentials/
+/usr/share/seclists/Passwords/Default-Credentials/
+/usr/share/seclists/Passwords/Leaked-Databases/
+```
+
+**CeWL - Custom Wordlist Generation**
+
+```bash
+# Generate wordlist from website
+cewl -d 2 -m 5 -w custom_wordlist.txt https://target.com
+
+# Parameters:
+# -d = depth to spider
+# -m = minimum word length
+# -w = output file
+# --with-numbers = include numbers
+# -e = include email addresses
+# --email_file = separate email output
+
+# With authentication
+cewl -d 2 -m 5 --auth_type basic --auth_user admin --auth_pass password -w wordlist.txt https://target.com
+```
+
+**Crunch - Pattern-Based Wordlist Generation**
+
+```bash
+# Generate 4-6 character lowercase wordlist
+crunch 4 6 abcdefghijklmnopqrstuvwxyz -o wordlist.txt
+
+# With pattern (@ = lowercase, , = uppercase, % = numbers, ^ = symbols)
+crunch 8 8 -t Pass%%%% -o wordlist.txt
+# Generates: Pass0000 to Pass9999
+
+# Limit file size (split into multiple files)
+crunch 4 6 -o START -b 10mb
+
+# Using charset file
+crunch 4 4 -f /usr/share/crunch/charset.lst mixalpha -o wordlist.txt
+```
+
+**CUPP - User-based Wordlist**
+
+```bash
+# Clone and run
+git clone https://github.com/Mebus/cupp
+cd cupp
+python3 cupp.py -i
+# Answer questions about target to generate personalized wordlist
+```
+
+**Combine and Deduplicate Wordlists**
+
+```bash
+# Combine multiple wordlists
+cat wordlist1.txt wordlist2.txt wordlist3.txt > combined.txt
+
+# Remove duplicates
+sort -u combined.txt -o unique_wordlist.txt
+
+# Remove duplicates and save memory
+sort combined.txt | uniq > unique_wordlist.txt
+
+# Filter by length
+awk 'length($0) >= 8 && length($0) <= 12' wordlist.txt > filtered.txt
+```
+
+## Archive Password Recovery
+
+### ZIP Archives
+
+**fcrackzip - Fast ZIP Cracking**
+
+```bash
+# Brute force attack
+fcrackzip -b -c 'aA1!' -l 4-8 -u protected.zip
+# -b = brute force mode
+# -c = character set (a=lowercase, A=uppercase, 1=digits, !=special)
+# -l = password length range
+# -u = unzip to verify password
+
+# Dictionary attack
+fcrackzip -D -p /usr/share/wordlists/rockyou.txt -u protected.zip
+
+# Verbose output
+fcrackzip -v -D -p wordlist.txt -u protected.zip
+```
+
+**John the Ripper for ZIP**
+
+```bash
+# Extract hash
+zip2john protected.zip > zip_hash.txt
+
+# Crack with wordlist
+john --wordlist=/usr/share/wordlists/rockyou.txt zip_hash.txt
+
+# Show result
+john --show zip_hash.txt
+
+# The password format in output: protected.zip:PASSWORD:protected.zip
+```
+
+**bkcrack - Known Plaintext Attack**
+
+```bash
+# If you have one unencrypted file that exists in encrypted archive
+# Install
+git clone https://github.com/kimci86/bkcrack
+cd bkcrack
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+
+# Attack (requires ≥12 bytes of known plaintext)
+./bkcrack -C encrypted.zip -c encrypted_file.txt -P plaintext.zip -p plaintext_file.txt
+
+# Recover password from keys
+./bkcrack -k KEY0 KEY1 KEY2 --bruteforce ?a?a?a?a?a?a
+```
+
+### RAR Archives
+
+**rarcrack**
+
+```bash
+# Install
+sudo apt install rarcrack
+
+# Crack with default settings (all character types)
+rarcrack protected.rar --threads 4
+
+# Specify character set in XML config
+cat > rarcrack.xml << 'EOF'
+<?xml version="1.0"?>
+<rarcrack>
+  <abc>0123456789</abc>
+  <current></current>
+  <min_pw_length>4</min_pw_length>
+  <max_pw_length>6</max_pw_length>
+</rarcrack>
+EOF
+
+rarcrack protected.rar --threads 4
+```
+
+**John the Ripper for RAR**
+
+```bash
+# Extract hash (RAR5 format is different from RAR3)
+rar2john protected.rar > rar_hash.txt
+
+# Check RAR version in hash
+cat rar_hash.txt
+# $RAR3$ = older format
+# $rar5$ = newer format
+
+# Crack
+john --wordlist=/usr/share/wordlists/rockyou.txt rar_hash.txt
+
+# For RAR5 specifically
+john --format=rar5 --wordlist=wordlist.txt rar_hash.txt
+```
+
+**Hashcat for RAR**
+
+```bash
+# RAR3 mode: 12500
+# RAR5 mode: 13000
+
+# Extract hash using rar2john, then format for hashcat
+rar2john protected.rar | cut -d: -f2 > rar_hash.txt
+
+# Crack RAR5
+hashcat -m 13000 -a 0 rar_hash.txt /usr/share/wordlists/rockyou.txt
+
+# Crack RAR3
+hashcat -m 12500 -a 0 rar_hash.txt wordlist.txt
+```
+
+### 7-Zip Archives
+
+**John the Ripper for 7z**
+
+```bash
+# Extract hash
+7z2john protected.7z > 7z_hash.txt
+
+# Crack
+john --wordlist=/usr/share/wordlists/rockyou.txt 7z_hash.txt
+
+# Show result
+john --show 7z_hash.txt
+```
+
+**Hashcat for 7z**
+
+```bash
+# 7-Zip mode: 11600
+
+# Extract hash
+7z2john protected.7z | cut -d: -f2 > 7z_hash.txt
+
+# Crack
+hashcat -m 11600 -a 0 7z_hash.txt /usr/share/wordlists/rockyou.txt
+
+# With mask attack
+hashcat -m 11600 -a 3 7z_hash.txt ?d?d?d?d?d?d
+```
+
+### PDF Password Recovery
+
+**pdfcrack**
+
+```bash
+# Dictionary attack
+pdfcrack -f protected.pdf -w /usr/share/wordlists/rockyou.txt
+
+# User password vs owner password
+pdfcrack -f protected.pdf -w wordlist.txt -u
+# -u = try user password (opening password)
+# -o = try owner password (permissions)
+
+# Specify password length range
+pdfcrack -f protected.pdf -w wordlist.txt -n 6 -m 12
+```
+
+**John the Ripper for PDF**
+
+```bash
+# Extract hash
+pdf2john protected.pdf > pdf_hash.txt
+
+# Crack
+john --wordlist=/usr/share/wordlists/rockyou.txt pdf_hash.txt
+
+# Show result
+john --show pdf_hash.txt
+```
+
+**Hashcat for PDF**
+
+```bash
+# PDF 1.4 - 1.6 (mode 10500)
+# PDF 1.7 Level 3 (mode 10600)
+# PDF 1.7 Level 8 (mode 10700)
+
+pdf2john protected.pdf | cut -d: -f2 > pdf_hash.txt
+
+hashcat -m 10500 -a 0 pdf_hash.txt wordlist.txt
+```
+
+### Office Document Password Recovery
+
+**office2john - Extract Hashes**
+
+```bash
+# Microsoft Office documents
+office2john document.docx > office_hash.txt
+office2john spreadsheet.xlsx > office_hash.txt
+office2john presentation.pptx > office_hash.txt
+
+# Old Office formats (.doc, .xls)
+office2john old_document.doc > office_hash.txt
+
+# Crack extracted hash
+john --wordlist=/usr/share/wordlists/rockyou.txt office_hash.txt
+```
+
+**Hashcat for Office**
+
+```bash
+# Office 2007-2010 (mode 9400)
+# Office 2013 (mode 9600)
+
+office2john document.docx | cut -d: -f2 > office_hash.txt
+
+hashcat -m 9600 -a 0 office_hash.txt wordlist.txt
+```
+
+### SSH Private Key Cracking
+
+**ssh2john**
+
+```bash
+# Extract hash from encrypted private key
+ssh2john id_rsa > ssh_hash.txt
+
+# Crack
+john --wordlist=/usr/share/wordlists/rockyou.txt ssh_hash.txt
+
+# Show result
+john --show ssh_hash.txt
+
+# Use cracked key
+chmod 600 id_rsa
+ssh -i id_rsa user@target
+```
+
+### KeePass Database Cracking
+
+**keepass2john**
+
+```bash
+# Extract hash
+keepass2john database.kdbx > keepass_hash.txt
+
+# Crack
+john --wordlist=/usr/share/wordlists/rockyou.txt keepass_hash.txt
+
+# Show result
+john --show keepass_hash.txt
+
+# Alternative with hashcat (mode 13400 for KeePass 1.x, 29700 for 2.x)
+keepass2john database.kdbx | cut -d: -f2 > keepass_hash.txt
+hashcat -m 13400 keepass_hash.txt wordlist.txt
+```
+
+### VeraCrypt/TrueCrypt Volume Cracking
+
+**Hashcat for VeraCrypt**
+
+```bash
+# Extract first 512 bytes (header)
+dd if=encrypted_volume.tc of=header.tc bs=512 count=1
+
+# TrueCrypt modes: 6211-6243
+# VeraCrypt modes: 13711-13763 (different hash algorithms and modes)
+
+# SHA-512 + XTS mode (most common)
+hashcat -m 13751 -a 0 header.tc wordlist.txt
+
+# With mask attack
+hashcat -m 13751 -a 3 header.tc ?d?d?d?d?d?d
+```
+
+### Advanced Archive Attack Strategies
+
+**Password Pattern Analysis**
+
+```bash
+# Common patterns in CTF archives:
+# - Filename hints (if file is "backup_2024.zip", try "2024", "backup2024")
+
+# - Challenge name or theme
+
+# - ROT13/Caesar of visible text
+
+# - Base64 encoded hints in metadata
+
+# Extract ZIP metadata
+
+zipinfo -v protected.zip
+
+# Check ZIP comment
+
+unzip -z protected.zip
+
+# Extract creation date/time as password hint
+
+zipdetails protected.zip | grep -i "date|time"
+````
+
+**Nested Archive Extraction**
+```bash
+# Script for recursive archive cracking
+cat > crack_nested.sh << 'EOF'
+#!/bin/bash
+WORDLIST="/usr/share/wordlists/rockyou.txt"
+
+crack_zip() {
+    echo "[+] Cracking $1"
+    fcrackzip -D -p "$WORDLIST" -u "$1" 2>/dev/null | grep -i "PASSWORD FOUND" | cut -d: -f2
+}
+
+crack_rar() {
+    echo "[+] Cracking $1"
+    john --wordlist="$WORDLIST" <(rar2john "$1") --format=rar 2>/dev/null
+    john --show <(rar2john "$1") 2>/dev/null | grep -v "password hash" | cut -d: -f2
+}
+
+for archive in *.zip; do
+    [ -f "$archive" ] || continue
+    PASSWORD=$(crack_zip "$archive")
+    if [ ! -z "$PASSWORD" ]; then
+        echo "[+] Found password: $PASSWORD"
+        unzip -P "$PASSWORD" "$archive"
+    fi
+done
+EOF
+
+chmod +x crack_nested.sh
+./crack_nested.sh
+````
+
+**Memory-Efficient Large Wordlist Processing**
+
+```bash
+# Process rockyou.txt in chunks to avoid memory issues
+split -l 1000000 /usr/share/wordlists/rockyou.txt chunk_
+
+# Crack with each chunk
+for chunk in chunk_*; do
+    echo "[+] Testing with $chunk"
+    john --wordlist=$chunk hash.txt --format=raw-md5
+    # Check if cracked
+    if john --show hash.txt | grep -v "0 password hashes cracked" > /dev/null; then
+        echo "[+] Password found!"
+        john --show hash.txt
+        break
+    fi
+done
+
+# Cleanup
+rm chunk_*
+```
+
+### Dictionary Attack Optimization
+
+**Rule-Based Transformations for Common Password Patterns**
+
+```bash
+# Create CTF-optimized rules
+cat > ctf_rules.rule << 'EOF'
+# Base transformations
+:
+c
+u
+l
+
+# Common number additions
+$1
+$2
+$3
+$!
+$@
+$123
+$1!
+$2024
+$2025
+
+# Prepend numbers
+^1
+^2
+^3
+
+# Leetspeak replacements
+sa@
+se3
+si1
+so0
+ss$
+
+# Combinations
+c $1
+c $123
+c $!
+u $1
+
+# Double words
+d
+
+# Reverse
+r
+
+# Toggle case
+t
+
+# CTF-specific patterns
+$c $t $f
+$C $T $F
+${ $}
+EOF
+
+# Use with john
+john --wordlist=wordlist.txt --rules=ctf_rules hash.txt
+
+# Use with hashcat (convert rules)
+hashcat -m 0 -a 0 hash.txt wordlist.txt -r ctf_rules.rule
+```
+
+**Targeted Dictionary Generation**
+
+```bash
+# Generate CTF-themed wordlist
+cat > generate_ctf_wordlist.py << 'EOF'
+#!/usr/bin/env python3
+import itertools
+
+# Common CTF terms
+base_words = ['flag', 'ctf', 'hack', 'pwn', 'root', 'admin', 'user', 
+              'password', 'key', 'crypto', 'forensics', 'reverse', 
+              'binary', 'web', 'shell', 'exploit']
+
+# Common modifications
+years = ['2023', '2024', '2025']
+numbers = ['1', '12', '123', '1234']
+specials = ['!', '@', '#']
+
+output = []
+
+# Base words
+output.extend(base_words)
+
+# Capitalized
+output.extend([w.capitalize() for w in base_words])
+
+# Upper case
+output.extend([w.upper() for w in base_words])
+
+# With numbers
+for word in base_words:
+    for num in numbers:
+        output.append(word + num)
+        output.append(word.capitalize() + num)
+
+# With years
+for word in base_words:
+    for year in years:
+        output.append(word + year)
+        output.append(word.capitalize() + year)
+
+# With special characters
+for word in base_words:
+    for special in specials:
+        output.append(word + special)
+        output.append(word.capitalize() + special)
+
+# Combinations
+for word in base_words[:5]:  # Limit combinations
+    for num in numbers[:2]:
+        for special in specials[:2]:
+            output.append(word + num + special)
+            output.append(word.capitalize() + num + special)
+
+# Remove duplicates and sort
+output = sorted(set(output))
+
+# Write to file
+with open('ctf_wordlist.txt', 'w') as f:
+    f.write('\n'.join(output))
+
+print(f"[+] Generated {len(output)} passwords")
+EOF
+
+python3 generate_ctf_wordlist.py
+```
+
+### Multi-Format Cracking Workflow
+
+**Unified Cracking Script**
+
+```bash
+cat > unified_crack.sh << 'EOF'
+#!/bin/bash
+
+WORDLIST="/usr/share/wordlists/rockyou.txt"
+TARGET="$1"
+
+if [ -z "$TARGET" ]; then
+    echo "Usage: $0 <target_file>"
+    exit 1
+fi
+
+# Detect file type
+FILE_TYPE=$(file -b "$TARGET")
+
+echo "[+] Detected type: $FILE_TYPE"
+echo "[+] Starting crack attempt..."
+
+# ZIP
+if echo "$FILE_TYPE" | grep -iq "zip"; then
+    echo "[+] Attempting ZIP crack"
+    zip2john "$TARGET" > /tmp/hash.txt 2>/dev/null
+    john --wordlist="$WORDLIST" /tmp/hash.txt
+    john --show /tmp/hash.txt
+fi
+
+# RAR
+if echo "$FILE_TYPE" | grep -iq "rar"; then
+    echo "[+] Attempting RAR crack"
+    rar2john "$TARGET" > /tmp/hash.txt 2>/dev/null
+    john --wordlist="$WORDLIST" /tmp/hash.txt
+    john --show /tmp/hash.txt
+fi
+
+# 7-Zip
+if echo "$FILE_TYPE" | grep -iq "7-zip"; then
+    echo "[+] Attempting 7-Zip crack"
+    7z2john "$TARGET" > /tmp/hash.txt 2>/dev/null
+    john --wordlist="$WORDLIST" /tmp/hash.txt
+    john --show /tmp/hash.txt
+fi
+
+# PDF
+if echo "$FILE_TYPE" | grep -iq "pdf"; then
+    echo "[+] Attempting PDF crack"
+    pdf2john "$TARGET" > /tmp/hash.txt 2>/dev/null
+    john --wordlist="$WORDLIST" /tmp/hash.txt
+    john --show /tmp/hash.txt
+fi
+
+# Office
+if echo "$FILE_TYPE" | grep -iq "microsoft office\|openxml"; then
+    echo "[+] Attempting Office document crack"
+    office2john "$TARGET" > /tmp/hash.txt 2>/dev/null
+    john --wordlist="$WORDLIST" /tmp/hash.txt
+    john --show /tmp/hash.txt
+fi
+
+# SSH Key
+if echo "$FILE_TYPE" | grep -iq "private key\|openssh"; then
+    echo "[+] Attempting SSH key crack"
+    ssh2john "$TARGET" > /tmp/hash.txt 2>/dev/null
+    john --wordlist="$WORDLIST" /tmp/hash.txt
+    john --show /tmp/hash.txt
+fi
+
+# KeePass
+if echo "$FILE_TYPE" | grep -iq "keepass"; then
+    echo "[+] Attempting KeePass crack"
+    keepass2john "$TARGET" > /tmp/hash.txt 2>/dev/null
+    john --wordlist="$WORDLIST" /tmp/hash.txt
+    john --show /tmp/hash.txt
+fi
+
+rm -f /tmp/hash.txt
+EOF
+
+chmod +x unified_crack.sh
+./unified_crack.sh protected.zip
+```
+
+### Performance Benchmarking
+
+**Hash Rate Comparison**
+
+```bash
+# Hashcat benchmark all supported algorithms
+hashcat -b
+
+# Benchmark specific hash type
+hashcat -b -m 0  # MD5
+hashcat -b -m 1000  # NTLM
+hashcat -b -m 1800  # sha512crypt
+
+# John benchmark
+john --test
+
+# Calculate time estimates
+# Example: SHA-256 at 1000 MH/s, 8-char lowercase = 26^8 combinations
+# 26^8 = 208,827,064,576 combinations
+```
+
+---
+
 # Windows Forensics
 
 ## Registry Hive Analysis
@@ -13970,6 +16928,1676 @@ chmod 600 /tmp/*_extracted_data
 
 ---
 
+# Mobile Device Forensics
+
+## Android File System Structures
+
+### Core Partition Layout
+
+Android devices use a Linux-based file system with specific partitions:
+
+**Boot Partitions:**
+
+- `/boot` - Contains the kernel and ramdisk
+- `/recovery` - Recovery mode environment
+- `/system` - Core OS files, pre-installed applications
+- `/vendor` - OEM-specific binaries and libraries
+- `/data` - User data and installed applications (primary forensic target)
+- `/cache` - Temporary system files and OTA updates
+- `/sdcard` - Internal storage mounted as external (often symlinked to `/data/media/0`)
+
+### Critical Data Locations in /data
+
+**Application Data:**
+
+```
+/data/data/<package.name>/
+├── databases/        # SQLite databases
+├── shared_prefs/     # XML preference files
+├── files/            # App-specific files
+├── cache/            # Temporary cached data
+└── lib/              # Native libraries
+```
+
+**User-Installed Apps:**
+
+```
+/data/app/<package.name>-<hash>/
+├── base.apk          # Application package
+├── lib/              # Native code
+└── oat/              # Optimized bytecode
+```
+
+**System Databases:**
+
+```
+/data/system/
+├── users/0/
+│   ├── accounts.db           # Account information
+│   ├── settings_secure.db    # Secure settings
+│   └── settings_system.db    # System settings
+├── packages.xml              # Installed package registry
+└── appops.xml                # App permission history
+```
+
+**Media and Downloads:**
+
+```
+/data/media/0/
+├── DCIM/                     # Camera photos/videos
+├── Download/                 # Downloaded files
+├── WhatsApp/                 # App-specific folders
+└── Android/data/             # App external storage
+```
+
+### File System Types
+
+**ext4** - Most common for `/data` and `/system` partitions
+
+```bash
+# Mount read-only for preservation
+mount -t ext4 -o ro,noload /dev/block/mmcblk0p10 /mnt/data
+
+# Extract partition image
+dd if=/dev/block/mmcblk0p10 of=/path/to/userdata.img bs=4M status=progress
+```
+
+**F2FS (Flash-Friendly File System)** - Used on newer devices
+
+```bash
+# Identify F2FS partitions
+blkid | grep f2fs
+
+# Mount F2FS
+mount -t f2fs -o ro /dev/block/by-name/userdata /mnt/data
+```
+
+**YAFFS2** - Older devices (Android 2.x-4.x)
+
+```bash
+# Extract using unyaffs
+unyaffs /path/to/system.img -o /output/directory
+```
+
+### Extraction Commands (Kali Linux)
+
+**ADB Access (Requires USB Debugging):**
+
+```bash
+# Verify device connection
+adb devices
+
+# Pull entire /data partition (requires root)
+adb root
+adb pull /data /forensics/android/data
+
+# Pull specific databases
+adb pull /data/data/com.android.providers.contacts/databases/contacts2.db
+
+# Create logical backup (non-root)
+adb backup -all -apk -shared -system -f backup.ab
+
+# Convert Android backup to tar
+dd if=backup.ab bs=24 skip=1 | openssl zlib -d > backup.tar
+```
+
+**Physical Acquisition:**
+
+```bash
+# List block devices
+adb shell ls -l /dev/block/platform/*/by-name
+
+# Pull userdata partition
+adb pull /dev/block/by-name/userdata userdata.img
+
+# Alternative using dd over adb
+adb shell "su -c 'dd if=/dev/block/mmcblk0p10'" > userdata.img
+```
+
+**Autopsy/Sleuth Kit Analysis:**
+
+```bash
+# Add Android image to Autopsy case
+# File -> Add Data Source -> Disk Image
+# Select userdata.img and choose appropriate timezone
+
+# Command-line examination
+fls -r -o 0 userdata.img > file_listing.txt
+icat userdata.img <inode> > extracted_file
+```
+
+### Important Artifacts by File System Location
+
+**Call Logs:**
+
+```
+/data/data/com.android.providers.contacts/databases/calllog.db
+```
+
+**SMS/MMS:**
+
+```
+/data/data/com.android.providers.telephony/databases/mmssms.db
+/data/data/com.android.providers.telephony/databases/bugle_db (Google Messages)
+```
+
+**Contacts:**
+
+```
+/data/data/com.android.providers.contacts/databases/contacts2.db
+```
+
+**Browser History (Chrome):**
+
+```
+/data/data/com.android.chrome/app_chrome/Default/History
+/data/data/com.android.chrome/app_chrome/Default/Cookies
+```
+
+**Wi-Fi Networks:**
+
+```
+/data/misc/wifi/wpa_supplicant.conf (Older Android)
+/data/misc/apexdata/com.android.wifi/WifiConfigStore.xml (Android 10+)
+```
+
+**Location Data:**
+
+```
+/data/data/com.google.android.gms/databases/gmm_myplaces.db
+/data/data/com.google.android.gms/files/cache.dat
+```
+
+## iOS Artifact Locations
+
+### iOS File System Structure
+
+**Major Partitions:**
+
+- **System Partition** - iOS operating system (read-only, signed)
+- **Data Partition** - User data at `/private/var/mobile/`
+
+### Critical Data Paths
+
+**User Directory Root:**
+
+```
+/private/var/mobile/
+├── Library/                  # Primary artifact location
+├── Media/                    # Photos, videos, recordings
+├── Applications/             # User-installed apps (pre-iOS 8)
+└── Containers/               # App sandboxes (iOS 8+)
+```
+
+**Application Containers (iOS 8+):**
+
+```
+/private/var/mobile/Containers/
+├── Bundle/                   # App binaries
+│   └── Application/<UUID>/
+├── Data/                     # App user data
+│   └── Application/<UUID>/
+│       ├── Documents/
+│       ├── Library/
+│       └── tmp/
+└── Shared/                   # Shared app data
+    └── AppGroup/<UUID>/
+```
+
+**System Databases:**
+
+```
+/private/var/mobile/Library/
+├── SMS/sms.db                        # Text messages
+├── CallHistoryDB/CallHistory.storedata  # Call logs (iOS 8+)
+├── CallHistory/call_history.db       # Call logs (pre-iOS 8)
+├── AddressBook/AddressBook.sqlitedb  # Contacts (pre-iOS 7)
+├── Voicemail/voicemail.db            # Voicemail metadata
+├── Safari/
+│   ├── History.db                    # Browser history
+│   ├── Cookies.binarycookies         # Safari cookies
+│   └── Bookmarks.db                  # Bookmarks
+├── Calendar/Calendar.sqlitedb        # Calendar events
+├── Notes/notes.sqlite                # Notes (pre-iOS 9)
+├── Preferences/
+│   └── com.apple.*.plist             # System preferences
+└── Caches/
+    ├── com.apple.routined/           # Location data
+    └── locationd/                    # Location services
+```
+
+**Media Files:**
+
+```
+/private/var/mobile/Media/
+├── DCIM/                             # Photos/videos
+├── PhotoData/Photos.sqlite           # Photo metadata
+├── Recordings/                       # Voice memos
+└── Downloads/                        # Safari downloads
+```
+
+**Third-Party App Common Locations:**
+
+```
+WhatsApp: /Containers/Data/Application/<UUID>/Library/Messages/ChatStorage.sqlite
+Snapchat: /Containers/Data/Application/<UUID>/Documents/
+Instagram: /Containers/Data/Application/<UUID>/Library/Application Support/
+```
+
+**System Configuration:**
+
+```
+/private/var/wireless/Library/Databases/CellularUsage.db  # Cellular usage
+/private/var/wireless/Library/Preferences/com.apple.commcenter.plist
+/private/var/preferences/SystemConfiguration/com.apple.wifi.plist  # Wi-Fi
+/private/var/root/Library/Lockdown/data_ark.plist  # Device pairing info
+```
+
+### Extraction Methods (Kali Linux)
+
+**libimobiledevice Tools:**
+
+```bash
+# Install tools
+apt-get install libimobiledevice-utils ifuse
+
+# List connected devices
+idevice_id -l
+
+# Get device info
+ideviceinfo -u <UDID>
+
+# Backup device (unencrypted)
+idevicebackup2 -u <UDID> backup --full /path/to/backup
+
+# Backup device (encrypted - requires password)
+idevicebackup2 -u <UDID> backup --full /path/to/backup
+
+# Mount iOS file system (jailbroken)
+ifuse /mnt/ios -o allow_other
+
+# Screenshot
+idevicescreenshot screenshot.png
+```
+
+**Backup Analysis:**
+
+```bash
+# iOS backup structure
+/path/to/backup/
+├── Info.plist                        # Backup metadata
+├── Manifest.plist                    # File listing (unencrypted)
+├── Manifest.db                       # File listing (encrypted backups)
+├── Status.plist                      # Backup status
+└── <hash>/                           # Hashed filenames
+
+# Extract specific file from backup
+# 1. Find file hash in Manifest.db
+sqlite3 Manifest.db "SELECT fileID, relativePath FROM Files WHERE relativePath LIKE '%sms.db%';"
+
+# 2. Copy file
+cp <hash>/<fileid> ./sms.db
+```
+
+**Physical Acquisition (Jailbroken Device):**
+
+```bash
+# SSH into device (requires OpenSSH on device)
+ssh root@<device-ip>  # Default password: alpine
+
+# Create raw dump
+dd if=/dev/rdisk0s1s1 | ssh user@forensic-machine "dd of=/forensics/ios_system.img"
+dd if=/dev/rdisk0s1s2 | ssh user@forensic-machine "dd of=/forensics/ios_data.img"
+
+# Or use dd_rescue for error handling
+dd_rescue /dev/rdisk0s1s2 /mnt/usb/userdata.img
+```
+
+**iTunes Backup Locations:**
+
+- **Windows:** `%APPDATA%\Apple Computer\MobileSync\Backup\`
+- **macOS:** `~/Library/Application Support/MobileSync/Backup/`
+- **Linux (when using libimobiledevice):** `~/.local/share/idevicebackup/`
+
+### Key Artifact Specifics
+
+**Messages (sms.db):**
+
+- Table: `message` - Contains text content, timestamps, handles
+- Table: `chat` - Conversation metadata
+- Table: `attachment` - File attachments with local paths
+- Timestamps: Cocoa Core Data timestamp (seconds since 01/01/2001)
+
+**Call History (CallHistory.storedata):**
+
+- Core Data binary format (not SQLite)
+- Requires parsing with specialized tools or converting to SQLite
+- Contains call duration, type (incoming/outgoing/missed), contact info
+
+**Photos.sqlite:**
+
+- Table: `ZGENERICASSET` - Photo metadata including GPS coordinates
+- Deleted photos may remain in database after file deletion
+
+**Location Data:**
+
+```
+/Library/Caches/locationd/consolidated.db (iOS 4)
+/Library/Caches/locationd/cache_encryptedA.db (iOS 5+)
+/Library/Caches/com.apple.routined/Cache.sqlite (iOS 8+)
+```
+
+## SQLite Database Analysis
+
+### SQLite Structure Fundamentals
+
+SQLite databases are single-file, self-contained relational databases used extensively in mobile forensics.
+
+**File Header Information:**
+
+```bash
+# Verify SQLite database
+file database.db
+# Output: SQLite 3.x database
+
+# View header
+hexdump -C database.db | head -n 5
+# First 16 bytes: "SQLite format 3\000"
+```
+
+### Command-Line Analysis
+
+**Basic SQLite3 Commands:**
+
+```bash
+# Open database
+sqlite3 contacts2.db
+
+# List tables
+.tables
+
+# Show table schema
+.schema contacts
+.schema --indent contacts  # Formatted output
+
+# Describe table structure
+PRAGMA table_info(contacts);
+
+# Export entire database schema
+.schema > database_schema.sql
+
+# List all indexes
+.indexes
+
+# Show database file info
+PRAGMA database_list;
+
+# Check integrity
+PRAGMA integrity_check;
+PRAGMA quick_check;
+```
+
+**Query Techniques:**
+
+```sql
+-- View all data from table
+SELECT * FROM messages LIMIT 10;
+
+-- Export to CSV
+.mode csv
+.output messages.csv
+SELECT * FROM messages;
+.output stdout
+
+-- Count records
+SELECT COUNT(*) FROM call_log;
+
+-- Search for specific content
+SELECT * FROM messages WHERE text LIKE '%suspicious keyword%';
+
+-- Join multiple tables (contacts + messages example)
+SELECT c.display_name, m.text, m.date 
+FROM messages m 
+JOIN contacts c ON m.contact_id = c._id 
+ORDER BY m.date DESC;
+
+-- Find deleted records (if freelist not overwritten)
+-- This queries unallocated space [Inference - depends on SQLite implementation]
+```
+
+**Time Conversion:**
+
+```sql
+-- Android (Unix timestamp in milliseconds)
+SELECT datetime(date/1000, 'unixepoch', 'localtime') AS readable_date, *
+FROM messages;
+
+-- iOS (Cocoa Core Data - seconds since 2001-01-01)
+SELECT datetime(date + 978307200, 'unixepoch', 'localtime') AS readable_date, *
+FROM message;
+
+-- Unix epoch (seconds since 1970-01-01)
+SELECT datetime(timestamp, 'unixepoch', 'localtime') AS readable_date, *
+FROM call_history;
+```
+
+### Advanced Analysis Techniques
+
+**Carving Deleted Records:**
+
+```bash
+# Extract unallocated space
+sqlparse contacts2.db --freelist > freelist.txt
+
+# Use strings for basic recovery
+strings -n 8 contacts2.db | grep -i "phone\|email" > potential_deleted.txt
+
+# Dedicated carving with undark
+undark --freespace --table messages contacts2.db > recovered_messages.txt
+```
+
+**Write-Ahead Log (WAL) Analysis:**
+
+```bash
+# Check for WAL files (contain recent uncommitted transactions)
+ls -la database.db-wal database.db-shm
+
+# Recover data from WAL
+sqlite3 database.db "PRAGMA wal_checkpoint(FULL);"
+
+# Manually parse WAL
+sqlparse database.db-wal --output wal_transactions.txt
+```
+
+**Transaction Journal Analysis:**
+
+```bash
+# Journals contain rollback data
+ls -la database.db-journal
+
+# Extract deleted content from journal [Unverified - depends on journal mode]
+strings database.db-journal > journal_strings.txt
+```
+
+### Automated Analysis Tools
+
+**DB Browser for SQLite (GUI):**
+
+```bash
+# Install
+apt-get install sqlitebrowser
+
+# Launch
+sqlitebrowser contacts2.db
+```
+
+Features: Browse tables, execute SQL, view hex data, modify records (create working copy first), export data
+
+**SQLite Forensic Explorer (Commercial):**
+
+- Recovers deleted records
+- Parses WAL files
+- Timeline generation
+- Hex viewer with structure overlay
+
+**Python Analysis:**
+
+```python
+#!/usr/bin/env python3
+import sqlite3
+import sys
+from datetime import datetime
+
+def analyze_db(db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # List all tables
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    tables = cursor.fetchall()
+    
+    print(f"Tables in {db_path}:")
+    for table in tables:
+        table_name = table[0]
+        cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+        count = cursor.fetchone()[0]
+        print(f"  {table_name}: {count} records")
+    
+    conn.close()
+
+if __name__ == "__main__":
+    analyze_db(sys.argv[1])
+```
+
+**Bulk Export Script:**
+
+```bash
+#!/bin/bash
+# Export all tables from SQLite database
+
+DB=$1
+OUTPUT_DIR=$2
+
+mkdir -p "$OUTPUT_DIR"
+
+for table in $(sqlite3 "$DB" "SELECT name FROM sqlite_master WHERE type='table';"); do
+    echo "Exporting $table..."
+    sqlite3 "$DB" <<EOF
+.mode csv
+.output $OUTPUT_DIR/${table}.csv
+SELECT * FROM $table;
+EOF
+done
+
+echo "Export complete: $OUTPUT_DIR"
+```
+
+### Common Mobile DB Schema Patterns
+
+**Android Contacts (contacts2.db):**
+
+- `contacts` - Contact records
+- `raw_contacts` - Account-linked contact data
+- `data` - Contact details (phone, email, address)
+- `phone_lookup` - Phone number index
+
+**Android Messages (mmssms.db):**
+
+- `sms` - Text messages
+- `mms` - Multimedia messages
+- `part` - MMS parts (images, video)
+- `threads` - Conversation groupings
+
+**WhatsApp (msgstore.db):**
+
+- `messages` - Message content and metadata
+- `chat_list` - Chat sessions
+- `media_refs` - References to media files
+
+### Forensic Best Practices
+
+1. **Always work on copies:**
+
+```bash
+cp original.db working_copy.db
+sqlite3 working_copy.db
+```
+
+2. **Document schema before analysis:**
+
+```bash
+sqlite3 database.db ".schema" > schema_$(date +%Y%m%d).sql
+```
+
+3. **Hash verification:**
+
+```bash
+sha256sum database.db > database.db.sha256
+```
+
+4. **Check for encryption:**
+
+```bash
+file database.db
+strings database.db | head -n 20
+# If encrypted, will show binary garbage or SQLCipher header
+```
+
+**SQLCipher Encrypted Databases:**
+
+```bash
+# Install sqlcipher
+apt-get install sqlcipher
+
+# Attempt to open (requires key)
+sqlcipher encrypted.db
+# SQLCipher version ...
+sqlite> PRAGMA key = 'your_passphrase';
+sqlite> .tables
+```
+
+## Plist File Parsing
+
+### Plist Format Overview
+
+Property List (plist) files are Apple's structured data format used for configuration and data storage. They exist in three formats:
+
+**XML Format (.plist):**
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "...">
+<plist version="1.0">
+<dict>
+    <key>LastUpdate</key>
+    <date>2024-10-25T12:30:00Z</date>
+    <key>AutoConnect</key>
+    <true/>
+</dict>
+</plist>
+```
+
+**Binary Format (.bplist):**
+
+- Begins with magic bytes: `bplist00` or `bplist15`
+- More compact, faster parsing
+- Most common in iOS/macOS systems
+
+**OpenStep/NeXTSTEP Format (deprecated):**
+
+```
+{
+    key = value;
+    array = (item1, item2);
+}
+```
+
+### Identification and Conversion
+
+**Identify Plist Type:**
+
+```bash
+# Check file header
+file com.apple.wifi.plist
+# Output: Apple binary property list
+
+head -c 8 suspicious_file
+# Output: bplist00 (binary) or <?xml ve (XML)
+
+# Hex view first bytes
+xxd -l 16 file.plist
+```
+
+**Convert Binary to XML:**
+
+```bash
+# Using plutil (if available from libplist)
+plutil -convert xml1 binary.plist -o output.xml
+
+# Alternative with plistutil
+plistutil -i binary.plist -o output.xml
+
+# Python one-liner
+python3 -c "import plistlib; print(plistlib.loads(open('binary.plist','rb').read()))"
+```
+
+**Convert XML to Binary:**
+
+```bash
+plutil -convert binary1 input.xml -o output.bplist
+```
+
+### Command-Line Parsing
+
+**plutil (from libplist):**
+
+```bash
+# Install
+apt-get install libplist-utils
+
+# Pretty-print plist
+plutil -p com.apple.preferences.plist
+
+# Convert and view
+plutil -convert xml1 binary.plist -o - | xmllint --format -
+
+# Extract specific key
+plutil -extract keyname xml1 file.plist -o -
+```
+
+**plistutil:**
+
+```bash
+# Convert to readable format
+plistutil -i binary.plist -f xml
+
+# Debug mode (shows structure)
+plistutil -i file.plist -d
+```
+
+**Using Python:**
+
+```python
+#!/usr/bin/env python3
+import plistlib
+import sys
+from datetime import datetime
+
+def parse_plist(filepath):
+    with open(filepath, 'rb') as f:
+        plist_data = plistlib.load(f)
+    
+    # Pretty print
+    import pprint
+    pprint.pprint(plist_data)
+    
+    # Access specific keys
+    if 'LastUpdate' in plist_data:
+        print(f"Last Update: {plist_data['LastUpdate']}")
+    
+    return plist_data
+
+if __name__ == "__main__":
+    parse_plist(sys.argv[1])
+```
+
+**Bulk Conversion Script:**
+
+```bash
+#!/bin/bash
+# Convert all binary plists to XML in directory
+
+for plist in *.plist; do
+    if file "$plist" | grep -q "binary"; then
+        echo "Converting $plist..."
+        plutil -convert xml1 "$plist" -o "${plist%.plist}_xml.plist"
+    fi
+done
+```
+
+### Forensically Important Plists
+
+**Device Information:**
+
+```
+/private/var/root/Library/Lockdown/data_ark.plist
+- DeviceName, UniqueDeviceID (UDID)
+- LastActivationDate, ActivationState
+
+/System/Library/CoreServices/SystemVersion.plist  
+- ProductName, ProductVersion (iOS version)
+```
+
+**Wi-Fi Networks:**
+
+```
+/private/var/preferences/SystemConfiguration/com.apple.wifi.plist
+- Contains SSID, BSSID, timestamps for known networks
+- LastConnected dates useful for timeline
+```
+
+**Cellular Usage:**
+
+```
+/private/var/wireless/Library/Databases/CellularUsage.db
+(SQLite, but metadata in plists)
+```
+
+**Application Preferences:**
+
+```
+/private/var/mobile/Containers/Data/Application/<UUID>/Library/Preferences/*.plist
+- App-specific settings
+- Usernames, API tokens, configuration [Inference - varies by app]
+```
+
+**Safari Preferences:**
+
+```
+/private/var/mobile/Library/Preferences/com.apple.mobilesafari.plist
+- Homepage, search engine
+- AutoFill data references
+```
+
+**Location Services:**
+
+```
+/private/var/root/Library/Caches/locationd/clients.plist
+- Apps that requested location
+- Timestamps of location access
+```
+
+**Notifications:**
+
+```
+/private/var/mobile/Library/BulletinBoard/*.plist
+- Notification history
+- App alerts with timestamps
+```
+
+### Key Extraction Examples
+
+**Extract Wi-Fi SSIDs:**
+
+```bash
+plutil -p com.apple.wifi.plist | grep -A 1 "SSID_STR"
+```
+
+**Parse Pairing Record:**
+
+```python
+import plistlib
+import sys
+
+with open('data_ark.plist', 'rb') as f:
+    data = plistlib.load(f)
+    
+print(f"Device Name: {data.get('DeviceName', 'Unknown')}")
+print(f"UDID: {data.get('UniqueDeviceID', 'Unknown')}")
+print(f"Product Type: {data.get('ProductType', 'Unknown')}")
+print(f"Serial Number: {data.get('SerialNumber', 'Unknown')}")
+```
+
+**Extract App Bundle IDs:**
+
+```bash
+# From backup Manifest.plist
+plutil -extract Applications xml1 -o - Info.plist | grep -o "com\.[^<]*"
+```
+
+### Plist Data Types
+
+**Common Value Types:**
+
+- `<string>` - Text data
+- `<integer>` - Whole numbers
+- `<real>` - Floating point
+- `<true/>` / `<false/>` - Booleans
+- `<date>` - ISO 8601 timestamps
+- `<data>` - Base64-encoded binary
+- `<array>` - Ordered lists
+- `<dict>` - Key-value dictionaries
+
+**Date Handling:**
+
+```python
+# Plist dates are datetime objects
+import plistlib
+from datetime import datetime
+
+with open('file.plist', 'rb') as f:
+    plist = plistlib.load(f)
+    timestamp = plist['LastModified']
+    print(f"Readable: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+```
+
+**Binary Data Extraction:**
+
+```python
+import plistlib
+import base64
+
+with open('file.plist', 'rb') as f:
+    plist = plistlib.load(f)
+    binary_data = plist['SomeDataField']  # Already decoded by plistlib
+    
+    # Write to file
+    with open('extracted_data.bin', 'wb') as out:
+        out.write(binary_data)
+```
+
+### Advanced Forensic Techniques
+
+**Timeline Creation:**
+
+```python
+#!/usr/bin/env python3
+import plistlib
+import os
+import sys
+from datetime import datetime
+
+def extract_timestamps(plist_path):
+    results = []
+    
+    with open(plist_path, 'rb') as f:
+        try:
+            plist = plistlib.load(f)
+        except Exception as e:
+            return results
+    
+    def recurse_plist(obj, path=""):
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                recurse_plist(value, f"{path}.{key}")
+        elif isinstance(obj, list):
+            for i, item in enumerate(obj):
+                recurse_plist(item, f"{path}[{i}]")
+        elif isinstance(obj, datetime):
+            results.append({
+                'file': plist_path,
+                'path': path,
+                'timestamp': obj
+            })
+    
+    recurse_plist(plist)
+    return results
+
+if __name__ == "__main__":
+    for result in extract_timestamps(sys.argv[1]):
+        print(f"{result['timestamp']} | {result['file']} | {result['path']}")
+```
+
+**Batch Processing:**
+
+```bash
+#!/bin/bash
+# Extract all plists from iOS backup
+
+BACKUP_DIR=$1
+OUTPUT_DIR=$2
+
+mkdir -p "$OUTPUT_DIR"
+
+find "$BACKUP_DIR" -type f | while read file; do
+    if file "$file" | grep -q "plist"; then
+        filename=$(basename "$file")
+        plutil -convert xml1 "$file" -o "$OUTPUT_DIR/${filename}.xml" 2>/dev/null
+    fi
+done
+```
+
+**Comparing Plists (forensic integrity):**
+
+```bash
+# Convert both to XML for diff
+plutil -convert xml1 original.plist -o original.xml
+plutil -convert xml1 suspect.plist -o suspect.xml
+
+# Compare
+diff -u original.xml suspect.xml > plist_changes.diff
+```
+
+### Tool Reference Summary
+
+|Tool|Format Support|Use Case|
+|---|---|---|
+|`plutil`|Binary, XML|Quick conversion, key extraction|
+|`plistutil`|Binary, XML, OpenStep|Detailed debugging|
+|`PlistBuddy`|Binary, XML|Interactive editing (macOS/iOS)|
+|Python `plistlib`|Binary, XML|Scripted analysis|
+|`iBackupBot` (GUI)|All|Comprehensive backup viewing|
+|Autopsy plist parser|All|Timeline integration|
+
+---
+
+## Related Critical Techniques
+
+For comprehensive mobile forensics, also investigate:
+
+- **Memory Forensics** - RAM dumps for encryption keys, active app state
+- **Network Forensics** - Packet captures for unencrypted traffic analysis
+- **Chip-Off Forensics** - Direct NAND flash extraction when logical acquisition fails
+- **Jailbreaking/Rooting Techniques** - Enabling privileged access on locked devices
+
+---
+
+## App Data Extraction
+
+### Android App Data Structure
+
+Android applications store data in `/data/data/<package_name>/` with these key directories:
+
+- **databases/** - SQLite databases containing app-specific data
+- **shared_prefs/** - XML files with user preferences and settings
+- **files/** - Application-generated files
+- **cache/** - Temporary cached data
+
+### Extraction Methods
+
+**From Physical Images:**
+
+```bash
+# Mount Android system image
+sudo mount -o loop,ro system.img /mnt/android_system
+
+# Navigate to app data
+cd /mnt/android_system/data/data/
+
+# List installed applications
+ls -la
+```
+
+**From ADB-enabled Devices:**
+
+```bash
+# Enable ADB debugging first on device
+adb devices
+
+# Pull entire app data directory
+adb pull /data/data/com.example.app /local/path/
+
+# Pull specific database
+adb pull /data/data/com.example.app/databases/app.db ./
+
+# Backup app data (no root required for user apps)
+adb backup -f backup.ab com.example.app
+```
+
+**Converting ADB Backups:**
+
+```bash
+# Extract .ab backup file
+dd if=backup.ab bs=24 skip=1 | openssl zlib -d > backup.tar
+tar -xvf backup.tar
+```
+
+### SQLite Database Analysis
+
+Most Android apps use SQLite for structured data storage.
+
+```bash
+# Open database with sqlite3
+sqlite3 app.db
+
+# List all tables
+.tables
+
+# Show table schema
+.schema table_name
+
+# Dump all table contents
+.dump
+
+# Export to CSV
+.mode csv
+.output data.csv
+SELECT * FROM messages;
+.quit
+
+# Query specific data
+sqlite3 app.db "SELECT * FROM users WHERE username LIKE '%admin%';"
+```
+
+**Automated Analysis:**
+
+```bash
+# DB Browser for SQLite (GUI tool)
+sqlitebrowser app.db
+
+# Bulk search across multiple databases
+grep -r "search_term" *.db
+
+# Find deleted SQLite entries using strings
+strings app.db | grep "pattern"
+```
+
+### iOS App Data Structure
+
+iOS apps store data in `/private/var/mobile/Containers/Data/Application/<UUID>/`:
+
+- **Documents/** - User-generated content
+- **Library/** - App-specific support files, preferences, caches
+- **tmp/** - Temporary files
+
+**Extracting from iTunes Backup:**
+
+```bash
+# iTunes backup location
+# macOS: ~/Library/Application Support/MobileSync/Backup/
+# Windows: %APPDATA%\Apple Computer\MobileSync\Backup\
+
+# Parse Manifest.db to map files
+sqlite3 Manifest.db "SELECT * FROM Files WHERE relativePath LIKE '%/Documents/%';"
+
+# Extract specific file using fileID
+cp <fileID> extracted_file.dat
+```
+
+**Tools for iOS Analysis:**
+
+```bash
+# iLEAPP - iOS Logs, Events, And Plists Parser
+python ileapp.py -t fs -i /path/to/ios/extraction -o /output/dir
+
+# libimobiledevice tools
+idevicebackup2 backup --full /backup/location
+```
+
+### Common App-Specific Artifacts
+
+**WhatsApp (Android):**
+
+```bash
+# Database location
+/data/data/com.whatsapp/databases/msgstore.db
+
+# Decrypt encrypted backup (.crypt14/.crypt15)
+# Extract key from /data/data/com.whatsapp/files/key
+
+# Open database
+sqlite3 msgstore.db
+
+# Key tables
+.schema messages
+SELECT timestamp, key_remote_jid, data FROM messages;
+```
+
+**Signal (Android):**
+
+```bash
+# Encrypted database
+/data/data/org.thoughtcrime.securesms/databases/signal.db
+
+# Requires passphrase from Signal's KeyStore
+# Use SQLCipher for encrypted databases
+sqlcipher signal.db
+PRAGMA key = "x'<hex_key>'";
+.tables
+```
+
+**Telegram:**
+
+```bash
+# Cache files location
+/data/data/org.telegram.messenger/files/
+/data/data/org.telegram.messenger/cache/
+
+# Database
+/data/data/org.telegram.messenger/databases/cache4.db
+```
+
+## SMS/MMS Recovery
+
+### Android SMS/MMS
+
+**Primary Database:**
+
+```bash
+# Location
+/data/data/com.android.providers.telephony/databases/mmssms.db
+
+# Pull database
+adb pull /data/data/com.android.providers.telephony/databases/mmssms.db
+
+# Analyze with SQLite
+sqlite3 mmssms.db
+
+# Key tables
+.schema sms
+.schema mms
+.schema part
+
+# Extract SMS messages
+SELECT _id, thread_id, address, person, date, body, type 
+FROM sms 
+ORDER BY date DESC;
+
+# Type values: 1=Received, 2=Sent, 3=Draft, 4=Outbox, 5=Failed, 6=Queued
+```
+
+**MMS Parts Extraction:**
+
+```bash
+# MMS messages stored in parts table
+SELECT _id, mid, seq, ct, name, text 
+FROM part 
+WHERE mid IN (SELECT _id FROM pdu);
+
+# Extract MMS attachments
+# Attachments stored in /data/data/com.android.providers.telephony/app_parts/
+adb pull /data/data/com.android.providers.telephony/app_parts/
+```
+
+### iOS SMS/MMS
+
+**Database Location:**
+
+```bash
+# In iOS backup or full filesystem extraction
+/private/var/mobile/Library/SMS/sms.db
+
+# Query messages
+sqlite3 sms.db
+
+.schema message
+.schema handle
+
+# Extract SMS with contact info
+SELECT 
+    m.ROWID,
+    h.id as contact,
+    m.date,
+    m.text,
+    m.is_from_me
+FROM message m
+LEFT JOIN handle h ON m.handle_id = h.ROWID
+ORDER BY m.date DESC;
+
+# Date format: seconds since 2001-01-01
+# Convert: date -r $(( (date_value / 1000000000) + 978307200 ))
+```
+
+**MMS Attachments:**
+
+```bash
+# Attachments table
+.schema attachment
+
+SELECT 
+    a.filename,
+    a.mime_type,
+    a.total_bytes,
+    m.text
+FROM attachment a
+JOIN message_attachment_join maj ON a.ROWID = maj.attachment_id
+JOIN message m ON maj.message_id = m.ROWID;
+
+# Files located in
+/private/var/mobile/Library/SMS/Attachments/
+```
+
+### Deleted SMS Recovery
+
+```bash
+# Use strings on database
+strings mmssms.db | grep -E "^\+?[0-9]{10,}" -A 5 -B 5
+
+# SQLite recovery tools
+# Undark - SQLite deleted data recovery
+python undark.py -i mmssms.db -o recovered.txt --freelist --cell
+
+# Analyze database freelist
+sqlite3 mmssms.db
+PRAGMA freelist_count;
+```
+
+### CTF-Specific Techniques
+
+```bash
+# Search for specific phone numbers
+sqlite3 mmssms.db "SELECT * FROM sms WHERE address LIKE '%555-0123%';"
+
+# Find messages in date range
+sqlite3 mmssms.db "SELECT * FROM sms WHERE date BETWEEN 1577836800000 AND 1609459199000;"
+
+# Extract message threads
+sqlite3 mmssms.db "SELECT * FROM sms WHERE thread_id = 5 ORDER BY date;"
+
+# Dump all messages to text
+sqlite3 -header -csv mmssms.db "SELECT datetime(date/1000,'unixepoch','localtime') as time, address, body FROM sms;" > all_sms.csv
+```
+
+## Call Log Analysis
+
+### Android Call Logs
+
+**Primary Database:**
+
+```bash
+# Location
+/data/data/com.android.providers.contacts/databases/calllog.db
+
+# Or contacts2.db in some versions
+/data/data/com.android.providers.contacts/databases/contacts2.db
+
+# Extract database
+adb pull /data/data/com.android.providers.contacts/databases/calllog.db
+
+# Analyze calls table
+sqlite3 calllog.db
+
+.schema calls
+
+SELECT 
+    _id,
+    number,
+    date,
+    duration,
+    type,
+    name,
+    geocoded_location
+FROM calls
+ORDER BY date DESC;
+
+# Call types: 1=Incoming, 2=Outgoing, 3=Missed, 4=Voicemail, 5=Rejected, 6=Blocked
+```
+
+**Advanced Queries:**
+
+```bash
+# Calls to specific number
+SELECT * FROM calls WHERE number = '+1234567890';
+
+# Missed calls only
+SELECT * FROM calls WHERE type = 3;
+
+# Long duration calls (over 10 minutes)
+SELECT number, duration, datetime(date/1000,'unixepoch','localtime') 
+FROM calls 
+WHERE duration > 600 
+ORDER BY duration DESC;
+
+# Call frequency analysis
+SELECT number, COUNT(*) as call_count, SUM(duration) as total_duration
+FROM calls
+GROUP BY number
+ORDER BY call_count DESC;
+
+# Calls during specific timeframe
+SELECT * FROM calls 
+WHERE date BETWEEN 1577836800000 AND 1609459199000
+ORDER BY date;
+```
+
+### iOS Call Logs
+
+**Database Location:**
+
+```bash
+# In iOS extraction
+/private/var/mobile/Library/CallHistoryDB/CallHistory.storedata
+
+# This is a CoreData SQLite database
+sqlite3 CallHistory.storedata
+
+# Key tables vary by iOS version
+.tables
+
+# Common table: ZCALLRECORD
+.schema ZCALLRECORD
+
+SELECT 
+    ZDATE,
+    ZADDRESS,
+    ZDURATION,
+    ZCALLTYPE,
+    ZORIGINATED
+FROM ZCALLRECORD
+ORDER BY ZDATE DESC;
+
+# Date conversion (Core Data timestamp)
+# Seconds since 2001-01-01 00:00:00
+```
+
+### Call Log Artifacts in Other Locations
+
+**System Logs:**
+
+```bash
+# Android logcat may contain call events
+adb logcat -d | grep -i "call"
+
+# Check telephony logs
+/data/log/telephony/
+```
+
+**Third-Party Apps:**
+
+```bash
+# Many apps maintain call records
+# WhatsApp calls
+/data/data/com.whatsapp/databases/msgstore.db
+SELECT * FROM messages WHERE media_wa_type = 8; # Voice calls
+
+# Skype
+/data/data/com.skype.raider/files/
+```
+
+### Parsing Binary Call Logs
+
+[Inference] Some proprietary formats may store call logs in binary form requiring custom parsers. Use hex editors to identify structure patterns.
+
+```bash
+# Hex dump analysis
+xxd calllog.bin | less
+
+# Search for phone number patterns
+xxd calllog.bin | grep -E "[0-9]{10}"
+
+# Extract strings
+strings calllog.bin | grep -E "^\+?[0-9]{10,}"
+```
+
+## Location Data Artifacts
+
+### Android Location Services
+
+**Google Location History:**
+
+```bash
+# Cached locations
+/data/data/com.google.android.gms/databases/gms_icing_mdd_manager.db
+/data/data/com.google.android.gms/databases/herrevad.db
+
+# Network-based locations
+/data/data/com.google.android.location/files/cache.cell
+/data/data/com.google.android.location/files/cache.wifi
+
+# Google Maps
+/data/data/com.google.android.apps.maps/databases/
+```
+
+**Cell Tower Data:**
+
+```bash
+# Cell tower cache
+adb pull /data/data/com.google.android.location/files/cache.cell
+
+# Parse binary cache (structure varies by Android version)
+# Typically contains: MCC, MNC, LAC, CID, signal strength, timestamp
+strings cache.cell
+
+# WiFi AP cache
+adb pull /data/data/com.google.android.location/files/cache.wifi
+```
+
+**GPS Metadata in Photos:**
+
+```bash
+# Extract EXIF from images
+exiftool image.jpg | grep -i gps
+
+# Batch extract GPS coordinates
+exiftool -csv -GPSLatitude -GPSLongitude -DateTimeOriginal *.jpg > gps_data.csv
+
+# Display on map format
+exiftool -p '$GPSLatitude, $GPSLongitude' image.jpg
+```
+
+### iOS Location Services
+
+**Location Cache:**
+
+```bash
+# Consolidated.db (older iOS versions <4)
+/private/var/root/Library/Caches/locationd/consolidated.db
+
+# Modern iOS location services
+/private/var/mobile/Library/Caches/com.apple.routined/
+
+# Cache_zrtcllocationmo table
+sqlite3 Cloud_zrtcllocationmo.sqlite
+
+.schema ZRTCLLOCATIONMO
+
+SELECT 
+    ZLATITUDE,
+    ZLONGITUDE,
+    ZHORIZONTALACCURACY,
+    ZTIMESTAMP,
+    ZALTITUDE
+FROM ZRTCLLOCATIONMO;
+```
+
+**WiFi Access Points:**
+
+```bash
+# WiFi AP location correlation
+/private/var/root/Library/Caches/locationd/cache_encryptedA.db
+
+# Contains BSSID, location, timestamp
+```
+
+**Apple Maps:**
+
+```bash
+# Map tiles and search history
+/private/var/mobile/Library/Maps/
+
+# GeoHistory.mapsdata
+# Requires parsing Apple's proprietary format
+```
+
+### Application-Specific Location Data
+
+**Google Maps:**
+
+```bash
+# Android
+/data/data/com.google.android.apps.maps/databases/gmm_myplaces.db
+/data/data/com.google.android.apps.maps/databases/gmm_storage.db
+
+sqlite3 gmm_storage.db
+
+# Search history, saved places
+SELECT * FROM suggestions;
+SELECT * FROM search_history;
+```
+
+**Ride-Sharing Apps (Uber, Lyft):**
+
+```bash
+# Trip history with GPS coordinates
+/data/data/com.ubercab/databases/
+
+sqlite3 rider.db
+.tables
+
+# Extract trips with coordinates
+SELECT * FROM trips;
+```
+
+**Fitness Apps (Strava, RunKeeper):**
+
+```bash
+# GPX/TCX files with detailed GPS tracks
+/data/data/com.strava/files/
+
+# Parse GPX
+xmllint --format activity.gpx
+grep -E "<trkpt lat=|<time>" activity.gpx
+```
+
+### Location Data in Metadata
+
+**Browser History:**
+
+```bash
+# Geolocation permission grants
+# Chrome
+/data/data/com.android.chrome/app_chrome/Default/Preferences
+
+# Look for "geolocation" permissions
+jq '.profile.content_settings.exceptions.geolocation' Preferences
+```
+
+**Photo Geotags:**
+
+```bash
+# Batch EXIF extraction
+exiftool -r -csv -GPSLatitude -GPSLongitude -DateTimeOriginal /path/to/photos/ > locations.csv
+
+# Convert to KML for mapping
+exiftool -p kml.fmt *.jpg > locations.kml
+
+# KML format template (kml.fmt):
+# #[GPS]<?xml version="1.0"?>
+# <kml><Placemark>
+# <Point><coordinates>$GPSLongitude,$GPSLatitude</coordinates></Point>
+# </Placemark></kml>
+```
+
+### Timeline Construction
+
+```bash
+# Combine multiple location sources
+# Create unified timeline
+sqlite3 timeline.db <<EOF
+CREATE TABLE locations (
+    timestamp INTEGER,
+    latitude REAL,
+    longitude REAL,
+    source TEXT,
+    accuracy REAL
+);
+
+-- Import from various sources
+.mode csv
+.import gps_data.csv locations
+
+-- Sort chronologically
+SELECT 
+    datetime(timestamp, 'unixepoch') as time,
+    latitude,
+    longitude,
+    source
+FROM locations
+ORDER BY timestamp;
+EOF
+```
+
+### Visualization Tools
+
+```bash
+# Convert SQLite locations to GeoJSON
+# Python script example for CTF scenarios
+python3 << 'PYEOF'
+import sqlite3
+import json
+
+conn = sqlite3.connect('locations.db')
+cursor = conn.execute("SELECT latitude, longitude, timestamp FROM locations")
+
+features = []
+for row in cursor:
+    features.append({
+        "type": "Feature",
+        "geometry": {
+            "type": "Point",
+            "coordinates": [row[1], row[0]]
+        },
+        "properties": {"timestamp": row[2]}
+    })
+
+geojson = {
+    "type": "FeatureCollection",
+    "features": features
+}
+
+print(json.dumps(geojson, indent=2))
+PYEOF
+```
+
+**Mapping Tools:**
+
+- Upload GeoJSON/KML to https://geojson.io for visualization
+- Use QGIS for advanced geospatial analysis
+- Google Earth for KML files
+
+### Timestamp Correlation
+
+Different sources use different epoch times:
+
+```bash
+# Unix timestamp (seconds since 1970-01-01)
+date -d @1609459200
+
+# Milliseconds since Unix epoch (Android)
+date -d @$((1609459200000/1000))
+
+# Core Data timestamp (seconds since 2001-01-01)
+date -d @$((978307200 + timestamp))
+
+# Convert between formats
+# Unix -> Human readable
+date -d @1609459200 "+%Y-%m-%d %H:%M:%S"
+
+# Human readable -> Unix
+date -d "2021-01-01 00:00:00" +%s
+```
+
+## Important Related Topics
+
+For comprehensive mobile forensics analysis in CTF scenarios, consider studying:
+
+- **File System Analysis** - Understanding Android ext4, iOS HFS+/APFS structures
+- **Memory Forensics** - Extracting artifacts from mobile RAM dumps
+- **Network Traffic Analysis** - Capturing and analyzing mobile app network communications
+- **Encryption and Security Mechanisms** - Android FDE/FBE, iOS Data Protection classes
+
+---
+
 # Log Analysis
 
 ## Syslog Format Parsing
@@ -16198,6 +20826,1971 @@ timesketch_importer --timeline_name "Investigation" evidence.plaso
 - **SIEM Integration**: Splunk, ELK Stack log aggregation and analysis
 - **Log Tampering Detection**: Integrity verification using checksums and forward-secure logging
 - **Real-time Log Monitoring**: Using tools like fail2ban, OSSEC, Wazuh for active response
+
+---
+
+# Malware Forensics
+
+## Static Malware Analysis
+
+Static malware analysis examines malicious binaries without executing them, minimizing risk while extracting structural, behavioral, and artifactual intelligence. This approach forms the foundation of malware triage in CTF scenarios.
+
+### Core Methodology
+
+Static analysis follows a layered approach:
+
+1. **Initial triage** - File type identification, hash generation, entropy calculation
+2. **Metadata extraction** - Compilation timestamps, embedded resources, digital signatures
+3. **String analysis** - Hardcoded IPs, URLs, file paths, function names, encryption keys
+4. **Structural analysis** - PE/ELF headers, section analysis, import/export tables
+5. **Disassembly** - Assembly code review without execution
+
+### Essential Tools
+
+**file** - Identify file type and architecture
+
+```bash
+file suspicious_binary
+file -b suspicious_binary  # Brief output
+file -i suspicious_binary  # MIME type
+```
+
+**md5sum/sha256sum** - Generate cryptographic hashes for malware identification
+
+```bash
+md5sum malware.exe
+sha256sum malware.exe
+sha1sum malware.exe
+```
+
+**ssdeep** - Fuzzy hashing for malware variant detection
+
+```bash
+ssdeep malware.exe
+ssdeep -r /malware_samples/  # Recursive directory hashing
+ssdeep -b -r /samples/ > hashes.txt  # Bare output for comparison
+```
+
+**exiftool** - Extract comprehensive metadata
+
+```bash
+exiftool malware.exe
+exiftool -a -G1 malware.exe  # Show all metadata with group names
+exiftool -CompileDate -CodeSize malware.exe  # Specific fields
+```
+
+**binwalk** - Firmware and embedded file extraction
+
+```bash
+binwalk malware.bin
+binwalk -e malware.bin  # Extract identified files
+binwalk -E malware.bin  # Entropy analysis
+binwalk --dd='.*' malware.bin  # Extract all signatures
+```
+
+**radare2** - Comprehensive binary analysis framework
+
+```bash
+r2 malware.exe
+# Inside r2:
+aaa  # Analyze all
+afl  # List functions
+pdf @ main  # Disassemble main function
+iz  # List strings in data sections
+ii  # List imports
+iE  # List exports
+```
+
+**Ghidra** - NSA's reverse engineering suite (GUI-based)
+
+```bash
+ghidraRun  # Launch Ghidra
+# Analyze binary through GUI with auto-analysis
+```
+
+**IDA Free** - Industry-standard disassembler (limited free version)
+
+```bash
+# GUI-based, create new project and load binary
+```
+
+**objdump** - Display binary object information
+
+```bash
+objdump -d malware.elf  # Disassemble
+objdump -x malware.elf  # All headers
+objdump -T malware.elf  # Dynamic symbol table
+objdump -p malware.exe  # PE headers (with mingw)
+```
+
+**readelf** - ELF file analyzer
+
+```bash
+readelf -h binary.elf  # ELF header
+readelf -l binary.elf  # Program headers
+readelf -S binary.elf  # Section headers
+readelf -s binary.elf  # Symbol table
+```
+
+---
+
+## String Extraction from Binaries
+
+String extraction reveals hardcoded artifacts including configuration data, network indicators, debugging messages, and cryptographic material. Effective string analysis requires understanding encoding, obfuscation, and context.
+
+### Basic String Extraction
+
+**strings** - Extract printable ASCII/Unicode strings
+
+```bash
+strings malware.exe
+strings -a malware.exe  # Scan entire file
+strings -e l malware.exe  # 16-bit little-endian (Unicode)
+strings -e b malware.exe  # 16-bit big-endian
+strings -n 8 malware.exe  # Minimum string length 8 characters
+strings -t x malware.exe  # Show hex offset of strings
+strings -o malware.exe  # Show decimal offset
+```
+
+**strings + grep** - Filtered extraction
+
+```bash
+strings malware.exe | grep -i "http"
+strings malware.exe | grep -E '\b[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\b'  # IP addresses
+strings malware.exe | grep -i "password\|pass\|pwd"
+strings malware.exe | grep -E '^[A-Za-z0-9+/]{20,}={0,2}$'  # Potential Base64
+```
+
+### Advanced String Analysis
+
+**FLOSS (FireEye Labs Obfuscated String Solver)** - Extract obfuscated and stack strings
+
+```bash
+floss malware.exe
+floss -n 6 malware.exe  # Minimum string length
+floss --no-static-strings malware.exe  # Only obfuscated strings
+floss -j malware.exe > output.json  # JSON output
+```
+
+[Inference] FLOSS uses emulation to decode strings constructed at runtime, though effectiveness varies by obfuscation technique.
+
+**rabin2** (part of radare2) - Structured string extraction
+
+```bash
+rabin2 -z malware.exe  # Strings in data sections
+rabin2 -zz malware.exe  # All strings in entire binary
+rabin2 -zzz malware.exe  # Search for strings in raw binary
+rabin2 -I malware.exe  # Binary info
+```
+
+**bulk_extractor** - Mass data extraction including strings
+
+```bash
+bulk_extractor -o output_dir malware.exe
+# Extracts IPs, emails, URLs, credit cards automatically
+```
+
+### String Analysis Patterns
+
+**Network Indicators**
+
+```bash
+strings -a malware.exe | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}'  # IPv4
+strings -a malware.exe | grep -oE '(https?|ftp)://[^\s]+'  # URLs
+strings -a malware.exe | grep -oE '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'  # Emails
+```
+
+**Windows API Calls**
+
+```bash
+strings malware.exe | grep -E "(CreateFile|WriteFile|RegSetValue|CreateProcess|VirtualAlloc)"
+```
+
+**Suspicious Keywords**
+
+```bash
+strings malware.exe | grep -iE "(shell|cmd|exec|eval|system|payload|exploit|inject)"
+```
+
+---
+
+## PE File Structure Analysis
+
+Portable Executable (PE) format is used by Windows executables (.exe, .dll, .sys). Understanding PE structure reveals compilation details, dependencies, resources, and behavioral indicators.
+
+### PE Structure Overview
+
+**PE Headers Hierarchy:**
+
+- DOS Header (MZ signature)
+- DOS Stub
+- PE Signature (PE\0\0)
+- COFF File Header (machine type, timestamp, characteristics)
+- Optional Header (entry point, image base, subsystem)
+- Section Headers (.text, .data, .rsrc, etc.)
+- Sections (actual code and data)
+
+### PE Analysis Tools
+
+**pefile (Python library)** - Programmatic PE parsing
+
+```bash
+pip3 install pefile
+python3 -c "import pefile; pe=pefile.PE('malware.exe'); print(pe.dump_info())"
+```
+
+**peframe** - PE static analysis framework
+
+```bash
+peframe malware.exe
+peframe --json malware.exe  # JSON output
+peframe --strings malware.exe  # Extract strings with context
+```
+
+**pestudio** - Windows PE analysis tool (can run with Wine)
+
+```bash
+wine pestudio.exe malware.exe
+```
+
+**pev (PE analysis toolkit)**
+
+```bash
+readpe malware.exe  # Display PE headers
+pescan malware.exe  # Security checks and anomaly detection
+pestr malware.exe  # String extraction with PE context
+pehash malware.exe  # Calculate multiple hashes
+pedis malware.exe  # Disassemble entry point
+```
+
+**objdump** - PE disassembly on Linux
+
+```bash
+objdump -x malware.exe  # All headers
+objdump -p malware.exe  # Private headers (PE-specific)
+objdump -h malware.exe  # Section headers
+objdump -d malware.exe  # Disassemble
+```
+
+**radare2** - PE structure analysis
+
+```bash
+r2 malware.exe
+# Inside r2:
+i  # Binary info
+iH  # Headers
+iS  # Sections
+ii  # Imports
+iE  # Exports
+iz  # Strings
+```
+
+### Critical PE Components
+
+**DOS Header Analysis**
+
+```bash
+xxd -l 64 malware.exe  # View first 64 bytes (DOS header)
+# Look for MZ signature at offset 0x00
+```
+
+**PE Header Extraction**
+
+```bash
+readpe malware.exe | grep -A 20 "DOS Header"
+readpe malware.exe | grep -A 30 "COFF/File header"
+```
+
+**Entry Point Analysis** - First executed code location
+
+```bash
+readpe malware.exe | grep "Entrypoint"
+objdump -f malware.exe | grep "start address"
+# In radare2: ie
+```
+
+**Section Analysis** - Code, data, and resource sections
+
+```bash
+objdump -h malware.exe
+readpe malware.exe | grep -A 100 "Sections"
+```
+
+Common suspicious indicators:
+
+- High entropy in `.text` section (packed/encrypted)
+- Executable permissions on `.data` or `.rsrc` sections
+- Unusual section names (`.aspack`, `.upx0`, random names)
+- Mismatched virtual/raw sizes
+
+**Import Address Table (IAT)** - External function dependencies
+
+```bash
+objdump -x malware.exe | grep -A 100 "Import Table"
+rabin2 -i malware.exe  # radare2 imports
+```
+
+Suspicious imports indicating malicious behavior:
+
+- `VirtualAlloc`, `VirtualProtect` - Memory manipulation
+- `CreateRemoteThread`, `WriteProcessMemory` - Process injection
+- `RegSetValueEx`, `RegCreateKey` - Registry persistence
+- `InternetOpenUrl`, `HttpSendRequest` - Network communication
+- `CreateToolhelp32Snapshot`, `Process32First` - Process enumeration
+
+**Export Address Table (EAT)** - Functions exposed by DLLs
+
+```bash
+objdump -x malware.dll | grep -A 50 "Export Table"
+rabin2 -E malware.dll
+```
+
+**Resource Section** - Embedded data (icons, dialogs, embedded files)
+
+```bash
+wrestool -l malware.exe  # List resources
+wrestool -x malware.exe  # Extract all resources
+wrestool -x --type=icon malware.exe  # Extract specific type
+```
+
+**PE Timestamp** - Compilation date (may be forged)
+
+```bash
+readpe malware.exe | grep "Date"
+exiftool malware.exe | grep "Time Stamp"
+```
+
+[Unverified] Timestamps can be manipulated by malware authors to evade timeline analysis.
+
+**Digital Signatures** - Code signing verification
+
+```bash
+osslsigncode verify malware.exe
+pesign -i malware.exe  # Display signature info
+```
+
+### PE Anomaly Detection
+
+**Entropy Analysis** - Detect packing/encryption
+
+```bash
+binwalk -E malware.exe
+python3 -c "import pefile, math; pe=pefile.PE('malware.exe'); 
+for section in pe.sections: 
+    data=section.get_data(); 
+    entropy=sum([-(data.count(bytes([i]))/len(data))*math.log2(data.count(bytes([i]))/len(data)) 
+    if data.count(bytes([i])) > 0 else 0 for i in range(256)]); 
+    print(f'{section.Name.decode().strip(chr(0))}: {entropy:.2f}')"
+```
+
+High entropy (>7.0) indicates compression or encryption.
+
+**Packer Detection**
+
+```bash
+peframe malware.exe | grep -i "packer"
+exiftool malware.exe | grep -i "packer"
+strings malware.exe | grep -i "upx\|aspack\|petite\|nspack"
+```
+
+**TLS Callbacks** - Code executed before entry point
+
+```bash
+readpe malware.exe | grep -A 10 "TLS"
+# In radare2: iT
+```
+
+---
+
+## ELF Binary Examination
+
+Executable and Linkable Format (ELF) is the standard binary format for Linux and Unix systems. ELF analysis reveals executable structure, dependencies, symbols, and security mitigations.
+
+### ELF Structure Overview
+
+**ELF Components:**
+
+- ELF Header (magic number, architecture, entry point)
+- Program Headers (segments for loading)
+- Section Headers (sections for linking)
+- Sections (.text, .data, .bss, .plt, .got, etc.)
+
+### ELF Analysis Tools
+
+**readelf** - Primary ELF inspection tool
+
+```bash
+readelf -h binary.elf  # ELF header
+readelf -l binary.elf  # Program headers (segments)
+readelf -S binary.elf  # Section headers
+readelf -s binary.elf  # Symbol table
+readelf -r binary.elf  # Relocation entries
+readelf -d binary.elf  # Dynamic section
+readelf -n binary.elf  # Notes section
+readelf -x .text binary.elf  # Hex dump of section
+```
+
+**objdump** - Disassembly and analysis
+
+```bash
+objdump -f binary.elf  # File header
+objdump -h binary.elf  # Section headers
+objdump -d binary.elf  # Disassemble code sections
+objdump -D binary.elf  # Disassemble all
+objdump -T binary.elf  # Dynamic symbol table
+objdump -R binary.elf  # Dynamic relocations
+objdump -x binary.elf  # All headers
+```
+
+**file** - Quick ELF identification
+
+```bash
+file binary.elf
+# Output example: ELF 64-bit LSB executable, x86-64, dynamically linked, not stripped
+```
+
+**ldd** - Shared library dependencies
+
+```bash
+ldd binary.elf
+ldd -v binary.elf  # Verbose with version info
+ldd -r binary.elf  # Report missing functions
+```
+
+**Warning:** Never run `ldd` on untrusted binaries as it executes the binary. Use alternative methods below.
+
+**Safe dependency checking without execution:**
+
+```bash
+objdump -p binary.elf | grep NEEDED
+readelf -d binary.elf | grep NEEDED
+```
+
+**nm** - Symbol table examination
+
+```bash
+nm binary.elf  # List symbols
+nm -D binary.elf  # Dynamic symbols only
+nm -g binary.elf  # External symbols only
+nm -a binary.elf  # All symbols including debugger
+nm -C binary.elf  # Demangle C++ symbols
+```
+
+**strings + context** - ELF-aware string extraction
+
+```bash
+strings binary.elf
+strings -d binary.elf  # Only initialized data sections
+rabin2 -z binary.elf  # Strings in .rodata
+```
+
+**checksec** - Security mitigation identification
+
+```bash
+checksec --file=binary.elf
+# Or using pwntools:
+pwn checksec binary.elf
+```
+
+Identifies:
+
+- RELRO (Relocation Read-Only): Partial/Full/None
+- Stack Canary: Enabled/Disabled
+- NX (No-eXecute): Enabled/Disabled
+- PIE (Position Independent Executable): Enabled/Disabled
+- RPATH/RUNPATH: Present/Absent
+
+**radare2** - Comprehensive ELF analysis
+
+```bash
+r2 binary.elf
+# Inside r2:
+i  # Binary info
+iI  # Binary detailed info
+iH  # Headers
+iS  # Sections
+is  # Symbols
+ii  # Imports
+iE  # Exports
+il  # Libraries
+ie  # Entry points
+```
+
+### Critical ELF Components
+
+**ELF Header Analysis**
+
+```bash
+readelf -h binary.elf
+```
+
+Key fields:
+
+- **Magic**: `7f 45 4c 46` (ELF signature)
+- **Class**: 32-bit or 64-bit
+- **Data**: Little-endian or big-endian
+- **Type**: EXEC (executable), DYN (shared object), REL (relocatable)
+- **Machine**: x86, x86-64, ARM, etc.
+- **Entry point**: Address where execution begins
+
+**Entry Point Identification**
+
+```bash
+readelf -h binary.elf | grep "Entry"
+objdump -f binary.elf | grep "start address"
+# Disassemble entry point:
+objdump -d --start-address=0x<entry_point> binary.elf | head -50
+```
+
+**Section Analysis**
+
+```bash
+readelf -S binary.elf
+objdump -h binary.elf
+```
+
+Important sections:
+
+- `.text` - Executable code
+- `.rodata` - Read-only data (strings, constants)
+- `.data` - Initialized writable data
+- `.bss` - Uninitialized data
+- `.plt` - Procedure Linkage Table (dynamic linking)
+- `.got` - Global Offset Table (dynamic linking)
+- `.init/.fini` - Initialization/termination code
+- `.ctors/.dtors` - Constructor/destructor lists
+
+**Symbol Table Analysis**
+
+```bash
+readelf -s binary.elf
+nm binary.elf
+```
+
+Symbol types:
+
+- `T` - Code symbol in .text
+- `D` - Initialized data symbol
+- `B` - Uninitialized data symbol (BSS)
+- `U` - Undefined (external) symbol
+- `W` - Weak symbol
+
+**Dynamic Section Analysis** - Runtime dependencies and relocations
+
+```bash
+readelf -d binary.elf
+objdump -p binary.elf | grep -A 20 "Dynamic Section"
+```
+
+Contains:
+
+- NEEDED entries (required libraries)
+- SONAME (shared object name)
+- RPATH/RUNPATH (library search paths)
+- INIT/FINI functions
+- Symbol table locations
+
+**PLT/GOT Analysis** - Dynamic function resolution
+
+```bash
+objdump -d -j .plt binary.elf  # Procedure Linkage Table
+readelf -r binary.elf  # Relocations (GOT entries)
+```
+
+**Interesting Function Identification**
+
+```bash
+nm binary.elf | grep -E "(system|exec|popen|strcpy|gets|scanf)"
+objdump -T binary.elf | grep -E "(system|exec|socket|connect)"
+```
+
+### ELF Security Analysis
+
+**PIE Detection** - Position Independent Executable
+
+```bash
+readelf -h binary.elf | grep Type
+# Type: DYN = PIE enabled
+# Type: EXEC = PIE disabled
+```
+
+**Stack Canary Detection**
+
+```bash
+readelf -s binary.elf | grep "__stack_chk"
+objdump -d binary.elf | grep "__stack_chk_fail"
+```
+
+**NX/DEP Detection** - Non-executable stack
+
+```bash
+readelf -l binary.elf | grep -A 1 "GNU_STACK"
+# Flags with 'E' = executable stack (vulnerable)
+# Flags without 'E' = NX enabled
+```
+
+**RELRO Detection** - Relocation hardening
+
+```bash
+readelf -d binary.elf | grep BIND_NOW
+readelf -l binary.elf | grep GNU_RELRO
+# BIND_NOW present = Full RELRO
+# GNU_RELRO only = Partial RELRO
+```
+
+**RPATH/RUNPATH Analysis** - Library hijacking vectors
+
+```bash
+readelf -d binary.elf | grep -E "RPATH|RUNPATH"
+objdump -p binary.elf | grep -E "RPATH|RUNPATH"
+```
+
+RPATH/RUNPATH can be exploited if pointing to writable directories.
+
+**Stripped vs Unstripped** - Debug symbol presence
+
+```bash
+file binary.elf | grep stripped
+readelf -S binary.elf | grep -E ".debug|.symtab"
+```
+
+Stripped binaries lack symbol information, complicating analysis.
+
+### ELF Anomaly Detection
+
+**Unusual Sections**
+
+```bash
+readelf -S binary.elf | grep -vE "\.text|\.data|\.bss|\.rodata|\.plt|\.got"
+```
+
+Non-standard section names may indicate packing or obfuscation.
+
+**Entropy Analysis**
+
+```bash
+binwalk -E binary.elf
+```
+
+**Constructor/Destructor Analysis** - Code executed before/after main
+
+```bash
+readelf -s binary.elf | grep -E "init_array|fini_array"
+objdump -d -j .init binary.elf
+objdump -d -j .fini binary.elf
+```
+
+**Hidden Entry Points**
+
+```bash
+readelf -h binary.elf | grep Entry  # Official entry
+readelf -s binary.elf | grep _start  # Actual start function
+# Compare both to detect discrepancies
+```
+
+### Cross-Architecture Considerations
+
+**ARM ELF Binaries**
+
+```bash
+file binary.elf  # Check architecture
+readelf -h binary.elf | grep Machine
+objdump -d -m arm binary.elf  # Disassemble ARM
+```
+
+**MIPS ELF Binaries**
+
+```bash
+readelf -h binary.elf | grep Machine
+objdump -d -m mips binary.elf
+```
+
+---
+
+## CTF-Specific Techniques
+
+**Automated Triage Script**
+
+```bash
+#!/bin/bash
+BINARY=$1
+echo "=== File Info ==="
+file $BINARY
+echo -e "\n=== Hashes ==="
+md5sum $BINARY
+sha256sum $BINARY
+echo -e "\n=== Strings Preview ==="
+strings $BINARY | head -20
+echo -e "\n=== Security ==="
+checksec --file=$BINARY
+echo -e "\n=== Dependencies ==="
+readelf -d $BINARY 2>/dev/null | grep NEEDED || objdump -p $BINARY | grep NEEDED
+```
+
+**Quick Win String Searches**
+
+```bash
+strings binary | grep -i "flag{\|ctf{\|htb{"
+strings binary | grep -E "^[A-Za-z0-9+/]{20,}={0,2}$" | base64 -d
+strings binary | xxd -r -p  # Hex-encoded strings
+```
+
+**Hidden Data Extraction**
+
+```bash
+binwalk -e --dd='.*' binary  # Extract all embedded content
+foremost binary  # Carve files from binary
+bulk_extractor -o output binary  # Extract all artifacts
+```
+
+---
+
+## Important Subtopics
+
+For comprehensive malware forensics preparation, consider exploring:
+
+- **Dynamic Malware Analysis** - Sandboxing, behavioral monitoring, API hooking
+- **Packed/Obfuscated Binary Analysis** - UPX, themida, custom packers, anti-debugging
+- **Memory Forensics** - Process memory dumps, volatility framework
+- **Network Artifact Analysis** - PCAP correlation with binary analysis
+- **Anti-Analysis Techniques** - VM detection, debugger detection, anti-disassembly
+
+---
+
+## Packer Identification
+
+Packers compress or encrypt executable code to evade signature-based detection and complicate reverse engineering. Identifying packers is the critical first step in malware analysis.
+
+### Packer Detection Tools
+
+**DIE (Detect It Easy)** - Comprehensive signature-based detection:
+```bash
+diec malware.exe  # Console output
+diec -d malware.exe  # Deep scan mode
+diec --json malware.exe  # JSON output for automation
+diec -r /malware_samples/  # Recursive directory scan
+```
+
+Detection output includes:
+- Packer/protector name and version
+- Compiler information
+- Entry point characteristics
+- Overlay detection
+- Digital signature status
+
+**PEiD** (legacy but useful database):
+```bash
+# PEiD runs on Windows but signature database can be used with other tools
+# Alternative: Use PEiD signatures with yara rules conversion
+```
+
+**Exeinfo PE** - Windows PE analysis tool with extensive signature database:
+- Detects 600+ packers, compilers, and protectors
+- Shows entry point disassembly
+- Identifies obfuscation techniques
+
+**VirusTotal / YARA rules** for automated identification:
+```bash
+# Upload to VirusTotal API or use locally
+curl --request POST \
+  --url 'https://www.virustotal.com/api/v3/files' \
+  --header 'x-apikey: YOUR_API_KEY' \
+  --form file=@malware.exe
+
+# Local YARA scanning with packer rules
+yara -r packer_rules.yar /malware_samples/
+```
+
+### Manual Packer Identification Techniques
+
+**Entropy analysis** - Packed/encrypted sections show high entropy:
+```bash
+# binwalk entropy analysis
+binwalk -E malware.exe  # Generates entropy graph
+
+# Manual calculation with Python
+python3 -c "
+import math
+from collections import Counter
+data = open('malware.exe', 'rb').read()
+entropy = -sum(count/len(data) * math.log2(count/len(data)) 
+               for count in Counter(data).values())
+print(f'Entropy: {entropy:.4f}')  # Values > 7.0 suggest encryption/compression
+"
+```
+
+**PE header analysis**:
+```bash
+# readelf for ELF binaries
+readelf -h malware.elf
+readelf -S malware.elf  # Section headers
+
+# pefile for PE analysis (Python)
+python3 << 'EOF'
+import pefile
+pe = pefile.PE('malware.exe')
+
+# Check for packer indicators
+print(f"Entry Point: {hex(pe.OPTIONAL_HEADER.AddressOfEntryPoint)}")
+print(f"Number of Sections: {pe.FILE_HEADER.NumberOfSections}")
+
+for section in pe.sections:
+    name = section.Name.decode().strip('\x00')
+    vsize = section.Misc_VirtualSize
+    rsize = section.SizeOfRawData
+    entropy = section.get_entropy()
+    
+    print(f"\n{name}:")
+    print(f"  Virtual Size: {vsize}")
+    print(f"  Raw Size: {rsize}")
+    print(f"  Entropy: {entropy:.2f}")
+    print(f"  Characteristics: {hex(section.Characteristics)}")
+    
+    # Suspicious indicators [Inference: heuristic-based]
+    if entropy > 7.0:
+        print(f"  [!] High entropy - likely packed/encrypted")
+    if vsize > rsize * 2:
+        print(f"  [!] Large virtual size - possible unpacking stub")
+
+# Check imports
+print(f"\nImport Directory Entries: {len(pe.DIRECTORY_ENTRY_IMPORT) if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT') else 0}")
+if not hasattr(pe, 'DIRECTORY_ENTRY_IMPORT') or len(pe.DIRECTORY_ENTRY_IMPORT) < 5:
+    print("[!] Few imports - possible import obfuscation")
+EOF
+```
+
+**Section analysis indicators**:
+
+| Packer | Common Section Names | Characteristics |
+|--------|---------------------|-----------------|
+| UPX | UPX0, UPX1 | Section names explicitly labeled |
+| ASPack | .aspack, .adata | High entropy, few imports |
+| PECompact | PEC2, PECompact2 | Modified PE header, compressed data |
+| Themida/WinLicense | .themida, .winlice | Virtual machine obfuscation, anti-debug |
+| VMProtect | .vmp0, .vmp1 | Code virtualization, encrypted sections |
+| Armadillo | - | Code splicing, nanomite protection |
+| Molebox | - | Virtual file system, import elimination |
+
+**Import Address Table (IAT) inspection**:
+```bash
+# Using objdump
+objdump -x malware.exe | grep -A 50 "Import Table"
+
+# Using pefile
+python3 << 'EOF'
+import pefile
+pe = pefile.PE('malware.exe')
+
+if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
+    for entry in pe.DIRECTORY_ENTRY_IMPORT:
+        print(f"\n{entry.dll.decode()}:")
+        for imp in entry.imports:
+            if imp.name:
+                print(f"  {imp.name.decode()}")
+else:
+    print("[!] No import table - likely obfuscated or packed")
+EOF
+```
+
+### Common Packer Unpacking Techniques
+
+**UPX unpacking** (easiest case):
+```bash
+upx -d malware.exe -o unpacked.exe  # Official decompressor
+upx -d -f malware.exe  # Force decompress even if modified
+
+# Verify unpacking success
+diec unpacked.exe  # Should show no UPX signature
+```
+
+**Generic unpacking approaches**:
+
+1. **OEP (Original Entry Point) discovery**:
+```bash
+# Using x64dbg/gdb with plugins
+# Manual technique: Set breakpoint on common API calls
+# LoadLibrary, GetProcAddress, VirtualProtect, VirtualAlloc
+```
+
+2. **Memory dumping at OEP**:
+```bash
+# Using Scylla or similar IAT rebuilding tools
+# [Unverified] Manual approach with gdb:
+gdb ./malware.elf
+(gdb) break *0x401000  # Suspected OEP
+(gdb) run
+(gdb) generate-core-file unpacked.core
+(gdb) quit
+
+# Extract executable from core dump
+objcopy -O binary -j .text unpacked.core unpacked.bin
+```
+
+3. **Automated unpacking with sandboxes**:
+```bash
+# Using CAPE sandbox (Cuckoo fork with unpacking)
+cape submit malware.exe --package exe --enforce-timeout
+
+# Using un{i}packer (automated generic unpacker)
+unipacker malware.exe
+```
+
+**PE reconstruction after unpacking**:
+```bash
+# Using pe-sieve
+pe-sieve.exe /pid <PID> /mode 3 /dump 1
+
+# Using Scylla (Windows)
+# GUI-based IAT reconstruction and dump fixing
+
+# Manual PE fixing with Python [Inference: requires PE format knowledge]
+python3 << 'EOF'
+import pefile
+
+# Load dumped memory
+pe = pefile.PE('dumped.bin')
+
+# Fix image base if necessary
+pe.OPTIONAL_HEADER.ImageBase = 0x400000
+
+# Rebuild import table (requires IAT recovery)
+# [Unverified: Complex process requiring runtime analysis]
+
+# Write fixed PE
+pe.write('fixed.exe')
+EOF
+```
+
+## IOC Extraction
+
+Indicators of Compromise (IOCs) are forensic artifacts that identify malicious activity. Extraction focuses on network indicators, file-based indicators, and behavioral markers.
+
+### Static IOC Extraction
+
+**String extraction and analysis**:
+```bash
+# Basic ASCII strings
+strings -a -n 8 malware.exe > strings.txt  # Minimum 8 characters
+strings -el malware.exe  # 16-bit littleendian (Unicode)
+strings -eb malware.exe  # 16-bit bigendian
+
+# Advanced filtering for suspicious patterns
+strings -a malware.exe | grep -E '(http|https|ftp)://' > urls.txt
+strings -a malware.exe | grep -E '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' > ips.txt
+strings -a malware.exe | grep -E '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}' > emails.txt
+strings -a malware.exe | grep -i -E '(password|passwd|pwd|token|api[_-]?key)' > credentials.txt
+
+# Registry keys
+strings -a malware.exe | grep -i "HKEY_" > registry_keys.txt
+
+# File paths
+strings -a malware.exe | grep -E '(C:\\|\\Users\\|\\Windows\\|/tmp/|/var/)' > paths.txt
+
+# Base64 encoded data
+strings -a malware.exe | grep -E '^[A-Za-z0-9+/]{20,}={0,2}$' | while read line; do
+    echo "$line" | base64 -d 2>/dev/null && echo ""
+done
+```
+
+**FLOSS (FireEye Labs Obfuscated String Solver)**:
+```bash
+floss malware.exe  # Extract all strings including obfuscated
+floss -n 6 malware.exe  # Minimum length 6
+floss --json malware.exe > iocs.json  # JSON output
+floss -g malware.exe  # Group output by function
+
+# Specific extraction modes
+floss --no-static-strings malware.exe  # Only decoded strings
+floss --functions=0x401000,0x402000 malware.exe  # Specific functions
+```
+
+**PE resource extraction**:
+```bash
+# Using peframe
+peframe malware.exe --json
+
+# Manual resource extraction with pefile
+python3 << 'EOF'
+import pefile
+import os
+
+pe = pefile.PE('malware.exe')
+
+if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+    output_dir = 'extracted_resources'
+    os.makedirs(output_dir, exist_ok=True)
+    
+    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+        if hasattr(resource_type, 'directory'):
+            for resource_id in resource_type.directory.entries:
+                if hasattr(resource_id, 'directory'):
+                    for resource_lang in resource_id.directory.entries:
+                        data = pe.get_data(resource_lang.data.struct.OffsetToData, 
+                                          resource_lang.data.struct.Size)
+                        
+                        filename = f"{output_dir}/resource_{resource_type.id}_{resource_id.id}.bin"
+                        with open(filename, 'wb') as f:
+                            f.write(data)
+                        print(f"Extracted: {filename}")
+EOF
+
+# Analyze extracted resources
+for file in extracted_resources/*; do
+    echo "=== $file ==="
+    file "$file"
+    strings -a "$file" | head -20
+done
+```
+
+**YARA rule generation from samples**:
+```bash
+# Using yarGen
+python3 yarGen.py -m malware.exe -o malware.yar
+
+# Manual YARA rule template [Unverified example]:
+cat > malware.yar << 'EOF'
+rule Malware_Sample_IOCs {
+    meta:
+        description = "Detected IOCs from malware sample"
+        author = "Analyst"
+        date = "2025-10-25"
+    
+    strings:
+        // Network IOCs
+        $url1 = "http://malicious-c2.example.com" ascii
+        $ip1 = "192.0.2.100" ascii
+        
+        // File paths
+        $path1 = "C:\\Users\\Public\\svchost.exe" ascii wide
+        
+        // Mutex names
+        $mutex1 = "Global\\MalwareMutex" ascii wide
+        
+        // Registry keys
+        $reg1 = "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" ascii wide
+        
+        // Suspicious strings
+        $api1 = "VirtualAllocEx" ascii
+        $api2 = "WriteProcessMemory" ascii
+        $api3 = "CreateRemoteThread" ascii
+        
+    condition:
+        uint16(0) == 0x5A4D and  // PE signature
+        filesize < 5MB and
+        (3 of ($url*,$ip*) or 4 of ($api*))
+}
+EOF
+```
+
+### Dynamic IOC Extraction
+
+**Network traffic capture**:
+```bash
+# Using tcpdump during malware execution
+sudo tcpdump -i eth0 -w malware_traffic.pcap
+
+# Filter specific protocols
+sudo tcpdump -i eth0 'tcp port 80 or tcp port 443 or tcp port 8080' -w http_traffic.pcap
+
+# Real-time monitoring with tshark
+tshark -i eth0 -Y "http.request or dns" -T fields -e ip.dst -e http.host -e dns.qry.name
+```
+
+**Network IOC extraction from PCAP**:
+```bash
+# Extract HTTP URIs
+tshark -r malware_traffic.pcap -Y "http.request" -T fields -e http.host -e http.request.uri | sort -u
+
+# Extract DNS queries
+tshark -r malware_traffic.pcap -Y "dns.qry.name" -T fields -e dns.qry.name | sort -u
+
+# Extract contacted IPs
+tshark -r malware_traffic.pcap -T fields -e ip.dst | sort -u | grep -v "^192.168\|^10\.\|^172\.(1[6-9]|2[0-9]|3[0-1])\."
+
+# SSL/TLS certificate analysis
+tshark -r malware_traffic.pcap -Y "ssl.handshake.certificate" -T fields -e x509sat.uTF8String
+
+# Extract HTTP User-Agents
+tshark -r malware_traffic.pcap -Y "http.user_agent" -T fields -e http.user_agent | sort -u
+
+# JA3 fingerprinting (TLS client fingerprint)
+# [Inference: Requires ja3 tshark plugin or external tools]
+ja3 malware_traffic.pcap > ja3_hashes.txt
+```
+
+**Process monitoring and API calls**:
+```bash
+# Using strace (Linux)
+strace -f -e trace=network,file,process -o malware_trace.log ./malware.elf
+
+# Filter for specific IOCs
+grep -E '(connect|socket|open|execve)' malware_trace.log
+
+# Using ltrace for library calls
+ltrace -f -e '*' -o malware_ltrace.log ./malware.elf
+```
+
+**File system monitoring**:
+```bash
+# Using inotifywait
+inotifywait -m -r -e create,modify,delete --format '%T %w%f %e' --timefmt '%Y-%m-%d %H:%M:%S' /tmp /var /home > file_changes.log &
+
+# Run malware
+./malware.elf
+
+# Stop monitoring
+kill %1
+
+# Analysis
+cat file_changes.log | sort | uniq
+```
+
+**Registry monitoring (Windows via analysis VM)**:
+```bash
+# Using regshot (before/after comparison)
+# [Inference: Requires Windows environment or Wine]
+
+# Export changes for analysis
+regshot compare shot1.hive shot2.hive > registry_changes.txt
+```
+
+### Automated IOC Extraction Frameworks
+
+**capa (FLARE capability detection)**:
+```bash
+capa malware.exe  # Full capability analysis
+capa -v malware.exe  # Verbose with matched rules
+capa -j malware.exe > capabilities.json  # JSON output
+
+# Specific capability queries
+capa malware.exe | grep -A 5 "persistence"
+capa malware.exe | grep -A 5 "anti-analysis"
+capa malware.exe | grep -A 5 "communication"
+```
+
+**Cuckoo Sandbox automated analysis**:
+```bash
+# Submit sample
+cuckoo submit malware.exe --package exe --timeout 120
+
+# Wait for completion and retrieve report
+cuckoo report <task_id> --format json > analysis_report.json
+
+# Extract IOCs from JSON report
+jq '.network.domains[]' analysis_report.json
+jq '.network.hosts[]' analysis_report.json
+jq '.behavior.processtree[]' analysis_report.json
+```
+
+**MISP (IOC management and sharing)**:
+```bash
+# PyMISP for automated IOC export
+python3 << 'EOF'
+from pymisp import PyMISP
+
+misp_url = 'https://misp.local'
+misp_key = 'YOUR_API_KEY'  # [Unverified: Requires MISP instance]
+misp = PyMISP(misp_url, misp_key, False)
+
+# Create event
+event = misp.new_event(info="Malware Analysis - Sample XYZ")
+
+# Add network IOCs
+misp.add_url(event, 'http://malicious-c2.com/gate.php')
+misp.add_ipdst(event, '192.0.2.100')
+misp.add_domain(event, 'evil.example.com')
+
+# Add file IOCs
+misp.add_filename(event, 'malware.exe')
+misp.add_hashes(event, md5='...', sha1='...', sha256='...')
+
+# Add mutex
+misp.add_mutex(event, 'Global\\MalwareMutex')
+EOF
+```
+
+## Behavioral Artifact Identification
+
+Behavioral artifacts reveal malware actions through traces left on the system. Analysis focuses on persistence mechanisms, privilege escalation, lateral movement, and data exfiltration indicators.
+
+### Persistence Mechanism Detection
+
+**Registry Run keys (Windows artifacts)**:
+```bash
+# Analyzing registry hives from forensic image
+reglookup /mnt/evidence/NTUSER.DAT | grep -i "\\Run"
+reglookup /mnt/evidence/SOFTWARE | grep -i "\\CurrentVersion\\Run"
+
+# Key locations to check:
+# HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+# HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce
+# HKLM\Software\Microsoft\Windows\CurrentVersion\Run
+# HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce
+# HKLM\Software\Microsoft\Windows\CurrentVersion\RunServices
+# HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run
+```
+
+**Scheduled tasks (Linux cron analysis)**:
+```bash
+# System-wide crontabs
+cat /etc/crontab
+ls -la /etc/cron.*
+cat /etc/cron.d/*
+
+# User crontabs
+for user in $(cut -f1 -d: /etc/passwd); do
+    echo "=== $user ==="
+    sudo crontab -u $user -l 2>/dev/null
+done
+
+# Systemd timers
+systemctl list-timers --all
+find /etc/systemd /usr/lib/systemd -name "*.timer" -exec cat {} \;
+```
+
+**Systemd service analysis**:
+```bash
+# List all services including disabled
+systemctl list-unit-files --type=service
+
+# Check for suspicious services
+find /etc/systemd/system /usr/lib/systemd/system -name "*.service" -newer /tmp/infection_timestamp
+
+# Analyze service file content
+for service in /etc/systemd/system/*.service; do
+    echo "=== $service ==="
+    cat "$service"
+    systemctl status "$(basename $service)"
+done
+
+# Check for user-level systemd services
+find ~/.config/systemd /home/*/.config/systemd -name "*.service" 2>/dev/null
+```
+
+**Startup script modification**:
+```bash
+# Check common startup locations
+ls -lah /etc/init.d/
+ls -lah /etc/rc*.d/
+cat /etc/rc.local
+
+# Shell profile modifications
+for profile in /etc/profile /etc/bash.bashrc ~/.bashrc ~/.bash_profile ~/.profile; do
+    if [ -f "$profile" ]; then
+        echo "=== $profile ==="
+        cat "$profile" | grep -v "^#" | grep -v "^$"
+    fi
+done
+
+# Check for LD_PRELOAD abuse
+cat /etc/ld.so.preload 2>/dev/null
+```
+
+**Binary replacement (trojanization)**:
+```bash
+# Compare system binaries against known good hashes
+# [Inference: Requires baseline or package manager verification]
+
+# Debian/Ubuntu
+debsums -c  # Check all packages
+
+# RHEL/CentOS
+rpm -Va  # Verify all packages
+
+# Manual comparison
+find /bin /sbin /usr/bin /usr/sbin -type f -exec sha256sum {} \; > current_hashes.txt
+# Compare against baseline_hashes.txt
+diff baseline_hashes.txt current_hashes.txt
+```
+
+### Process Injection and Hollowing Detection
+
+**Memory analysis with volatility**:
+```bash
+# Capture memory dump first
+sudo insmod lime-$(uname -r).ko "path=/tmp/memory.lime format=lime"
+# Or use dd for /dev/mem, AVML, or similar tools
+
+# Analyze with Volatility 3
+vol3 -f memory.lime linux.pslist  # Process listing
+vol3 -f memory.lime linux.malfind  # Detect injected code
+vol3 -f memory.lime linux.lsmod  # List kernel modules
+
+# Suspicious process detection
+vol3 -f memory.lime linux.pslist | grep -E '(deleted|suspicious_name)'
+
+# Hidden processes
+vol3 -f memory.lime linux.pslist > pslist.txt
+vol3 -f memory.lime linux.pstree > pstree.txt
+# Compare with runtime ps output for discrepancies
+```
+
+**Process hollowing detection** [Inference: heuristic approach]:
+```bash
+# Check for mismatched path/command line
+ps auxww | awk '{print $2, $11}' | while read pid cmd; do
+    exe=$(readlink /proc/$pid/exe 2>/dev/null)
+    if [ -n "$exe" ] && [ "$exe" != "$cmd" ]; then
+        echo "[!] PID $pid: cmd=$cmd exe=$exe"
+    fi
+done
+
+# Check memory mappings for suspicious patterns
+for pid in $(pgrep -v '\['); do
+    maps="/proc/$pid/maps"
+    if [ -r "$maps" ]; then
+        # Look for RWX pages (read-write-execute)
+        if grep -q "rwxp" "$maps"; then
+            echo "[!] PID $pid has RWX memory regions:"
+            grep "rwxp" "$maps"
+        fi
+    fi
+done
+```
+
+**LD_PRELOAD and library injection detection**:
+```bash
+# Check for preloaded libraries
+grep -r "LD_PRELOAD" /proc/*/environ 2>/dev/null
+
+# List loaded libraries per process
+for pid in $(pgrep -v '\['); do
+    echo "=== PID $pid: $(ps -p $pid -o comm=) ==="
+    cat /proc/$pid/maps | grep "\.so" | awk '{print $6}' | sort -u
+done | tee loaded_libraries.txt
+
+# Identify unusual library paths
+grep -v "/lib\|/usr/lib" loaded_libraries.txt
+```
+
+### Data Exfiltration Indicators
+
+**Network connection analysis**:
+```bash
+# Active connections
+sudo netstat -antp | grep ESTABLISHED
+
+# Connections by process
+sudo lsof -i -n -P | grep ESTABLISHED
+
+# Historical connections (requires connection tracking)
+sudo ausearch -m SYSCALL -sc connect -i | grep -A 10 "addr"
+
+# High-volume transfers
+iftop -n -P  # Real-time bandwidth monitoring
+vnstat -l  # Live traffic statistics
+```
+
+**DNS tunneling detection** [Inference: pattern-based heuristics]:
+```bash
+# Analyze DNS queries for suspicious patterns
+# Long subdomain queries (potential data encoding)
+tshark -r traffic.pcap -Y "dns.qry.name" -T fields -e dns.qry.name | \
+    awk '{if (length($0) > 50) print}'
+
+# High DNS query frequency to single domain
+tshark -r traffic.pcap -Y "dns" -T fields -e dns.qry.name | \
+    sort | uniq -c | sort -rn | head -20
+
+# Unusual TXT record queries
+tshark -r traffic.pcap -Y "dns.qry.type == 16" -T fields -e dns.qry.name
+
+# Check for base32/base64 patterns in DNS queries
+tshark -r traffic.pcap -Y "dns.qry.name" -T fields -e dns.qry.name | \
+    grep -E "^[A-Z2-7]{32,}\." | head
+```
+
+**File access timeline analysis**:
+```bash
+# Recently accessed files
+find / -type f -atime -1 2>/dev/null | grep -v "/proc\|/sys"
+
+# Files accessed by specific process
+lsof -p <PID> | grep REG
+
+# Timeline generation with mactime
+fls -r -m /mnt/forensic_image /dev/sda1 > bodyfile
+mactime -b bodyfile -d > timeline.csv
+
+# Filter for exfiltration timeframe
+mactime -b bodyfile -d 2025-10-25..2025-10-26 | grep -E "(Documents|Downloads|\.zip|\.rar)"
+```
+
+**Clipboard and keylogging artifacts**:
+```bash
+# X11 clipboard history (if logged)
+xclip -o -selection clipboard 2>/dev/null
+
+# Check for keylogger processes
+ps aux | grep -iE '(keylog|xinput|xev|xdotool)' | grep -v grep
+
+# Look for suspicious input device access
+lsof | grep "/dev/input/event"
+```
+
+### Anti-Analysis Behavior Detection
+
+**Debugger detection checks**:
+```bash
+# Static analysis - search for anti-debug functions
+strings malware.elf | grep -iE '(ptrace|isdebuggerpresent|checkremotedebugger)'
+
+# Dynamic analysis - monitor ptrace calls
+strace -e trace=ptrace ./malware.elf 2>&1 | grep ptrace
+
+# Check /proc/self/status for TracerPid
+grep TracerPid /proc/self/status
+```
+
+**VM detection indicators**:
+```bash
+# Static strings indicating VM detection
+strings malware.exe | grep -iE '(vmware|virtualbox|vbox|qemu|hyperv|parallels|sandboxie|wine)'
+
+# Hardware checks
+strings malware.exe | grep -iE '(cpuid|vendor_id)'
+
+# MAC address checks (VMware defaults)
+strings malware.exe | grep -i "00:0c:29\|00:50:56"
+```
+
+**Sandbox evasion artifacts**:
+```bash
+# Time-based delays
+strings malware.exe | grep -iE '(sleep|delay|wait)'
+
+# User interaction requirements
+strings malware.exe | grep -iE '(click|mouse|keyboard|input)'
+
+# File/process checks
+strings malware.exe | grep -iE '(totalexec|sample|malware|virus|sandbox|cuckoo)'
+```
+
+## C2 Communication Patterns
+
+Command and Control (C2) infrastructure analysis reveals attacker infrastructure, communication protocols, and operational patterns. Detection focuses on network behavior, protocol anomalies, and traffic characteristics.
+
+### C2 Protocol Identification
+
+**HTTP/HTTPS C2 detection**:
+```bash
+# Extract HTTP headers and analyze patterns
+tshark -r traffic.pcap -Y "http.request" -T fields \
+    -e ip.dst -e http.host -e http.request.method -e http.request.uri -e http.user_agent | \
+    sort -u > http_requests.txt
+
+# Identify beaconing behavior (regular intervals)
+tshark -r traffic.pcap -Y "http.request" -T fields -e frame.time_epoch -e ip.dst | \
+    awk '{print $1, $2}' | sort -n > beacon_times.txt
+
+# Calculate intervals with Python
+python3 << 'EOF'
+import sys
+from collections import defaultdict
+
+timestamps = defaultdict(list)
+with open('beacon_times.txt') as f:
+    for line in f:
+        time, ip = line.strip().split()
+        timestamps[ip].append(float(time))
+
+for ip, times in timestamps.items():
+    if len(times) < 3:
+        continue
+    intervals = [times[i+1] - times[i] for i in range(len(times)-1)]
+    avg_interval = sum(intervals) / len(intervals)
+    std_dev = (sum((x - avg_interval)**2 for x in intervals) / len(intervals)) ** 0.5
+    
+    # [Inference] Regular beaconing typically has low standard deviation
+    if std_dev < avg_interval * 0.1 and avg_interval < 600:
+        print(f"[!] Potential C2 beacon: {ip}")
+        print(f"    Average interval: {avg_interval:.2f}s")
+        print(f"    Standard deviation: {std_dev:.2f}s")
+EOF
+```
+
+**DNS C2 detection**:
+```bash
+# Suspicious DNS patterns
+tshark -r traffic.pcap -Y "dns.qry.name" -T fields -e dns.qry.name -e dns.qry.type | \
+    grep -v "^$" | sort | uniq -c | sort -rn
+
+# Long domain names (potential data exfil)
+tshark -r traffic.pcap -Y "dns.qry.name" -T fields -e dns.qry.name | \
+    awk '{if (length($0) > 50) print length($0), $0}' | sort -rn
+
+# Newly registered domains (requires WHOIS lookups)
+# [Unverified: Requires external API or database]
+for domain in $(tshark -r traffic.pcap -Y "dns.qry.name" -T fields -e dns.qry.name | sort -u); do
+    whois "$domain" | grep -i "creation date"
+done
+```
+
+**Raw socket and custom protocol C2**:
+```bash
+# Identify non-standard ports with high traffic
+tshark -r traffic.pcap -q -z conv,tcp | grep -v "443\|80\|22\|53" | sort -k8 -rn
+
+# Extract payload from TCP streams
+tshark -r traffic.pcap -Y "tcp.stream eq 5" -T fields -e tcp.payload | \
+    tr -d '\n' | xxd -r -p > stream_5_payload.bin
+
+# Pattern analysis on custom protocols
+strings stream_5_payload.bin | head -50
+hexdump -C stream_5_payload.bin | head -50
+
+# Entropy check for encryption
+python3 -c "
+import math
+from collections import Counter
+data = open('stream_5_payload.bin', 'rb').read()
+entropy = -sum(count/len(data) * math.log2(count/len(data)) 
+               for count in Counter(data).values())
+print(f'Entropy: {entropy:.4f}')
+"
+```
+
+### C2 Traffic Characteristics
+
+**Request/response pattern analysis**:
+```bash
+# HTTP request size distribution
+tshark -r traffic.pcap -Y "http.request" -T fields -e http.content_length | \
+    sort -n | uniq -c
+
+# Response size distribution
+tshark -r traffic.pcap -Y "http.response" -T fields -e http.content_length | \
+    sort -n | uniq -c
+
+# Check for consistent sizes (beacon heartbeats) [Inference: heuristic]
+# Small consistent requests (100-500 bytes) with variable responses common for C2
+```
+
+**URI pattern analysis**:
+```bash
+# Extract and analyze URI patterns
+tshark -r traffic.pcap -Y "http.request" -T fields -e http.request.uri | \
+sed 's/[? & = ].*//g' | sort | uniq -c | sort -rn > uri_patterns.txt
+
+# Look for suspicious patterns
+
+grep -E '(/admin | /panel | /gate | /cmd | /bot | /c2)' uri_patterns.txt
+
+# Base64 encoded parameters
+
+tshark -r traffic.pcap -Y "http.request" -T fields -e http.request.uri | 
+grep -oE '[A-Za-z0-9+/]{20,} = {0,2}' | while read b64 ; do decoded = $(echo "$b64" | base64 -d 2 > /dev/null) if [ $? -eq 0 ] ; then echo "Encoded: $b64" echo "Decoded: $decoded" echo "---" fi done
+````
+
+**User-Agent analysis**:
+```bash
+# Extract all User-Agents
+tshark -r traffic.pcap -Y "http.user_agent" -T fields -e http.user_agent | \
+    sort | uniq -c | sort -rn > user_agents.txt
+
+# Known malware User-Agents [Inference: Based on threat intel databases]
+grep -iE '(Mozilla/4\.0 \(compatible; MSIE 6\.0|curl/|python-requests|malware|bot)' user_agents.txt
+
+# Unusual or outdated User-Agents
+grep -E 'MSIE [1-6]\.' user_agents.txt
+grep -E 'Windows NT [1-5]\.' user_agents.txt
+````
+
+**JA3/JA3S fingerprinting** (TLS handshake patterns):
+
+```bash
+# Using ja3 tool (requires installation)
+ja3 -r traffic.pcap -o ja3_hashes.json
+
+# Analyze JA3 hashes
+python3 << 'EOF'
+import json
+from collections import Counter
+
+with open('ja3_hashes.json') as f:
+    data = json.load(f)
+
+ja3_counts = Counter(item['ja3_hash'] for item in data)
+
+print("Top JA3 fingerprints:")
+for ja3, count in ja3_counts.most_common(10):
+    print(f"{ja3}: {count} connections")
+    
+# Known malware JA3 signatures [Unverified: Requires threat intel]
+malware_ja3s = [
+    'e7d705a3286e19ea42f587b344ee6865',  # Example Emotet
+    'e35df3e00ca4ef31d42b34bebaa2f86e',  # Example TrickBot
+]
+
+for ja3 in ja3_counts.keys():
+    if ja3 in malware_ja3s:
+        print(f"[!] Known malware JA3 detected: {ja3}")
+EOF
+```
+
+### C2 Infrastructure Analysis
+
+**Domain and IP relationships**:
+
+```bash
+# Extract all contacted domains and IPs
+tshark -r traffic.pcap -Y "dns.qry.name" -T fields -e dns.qry.name | sort -u > domains.txt
+tshark -r traffic.pcap -Y "ip.dst" -T fields -e ip.dst | grep -v "^192\.168\|^10\.\|^172\.(1[6-9]|2[0-9]|3[0-1])\." | sort -u > external_ips.txt
+
+# DNS resolution mapping
+tshark -r traffic.pcap -Y "dns.qry.name and dns.a" -T fields \
+    -e dns.qry.name -e dns.a | sort -u > dns_resolutions.txt
+
+# Check for Fast Flux (multiple IPs for single domain)
+awk '{print $1}' dns_resolutions.txt | sort | uniq -c | sort -rn | head -20
+```
+
+**WHOIS and passive DNS analysis**:
+
+```bash
+# Bulk WHOIS lookups
+while read domain; do
+    echo "=== $domain ==="
+    whois "$domain" | grep -E "(Registrar:|Creation Date:|Registrant|Name Server)"
+    echo ""
+done < domains.txt > whois_results.txt
+
+# Check for recently registered domains [Inference: Common C2 indicator]
+grep -A 2 "Creation Date" whois_results.txt | \
+    grep -E "202[4-5]" | grep -B 2 "Creation Date"
+
+# Using passive DNS services (requires API keys)
+# [Unverified: Requires external service]
+while read domain; do
+    curl -s "https://api.passivetotal.org/v2/dns/passive?query=$domain" \
+        -u "API_KEY:SECRET" | jq '.results[] | {firstSeen, lastSeen, resolve}'
+done < domains.txt
+```
+
+**Certificate analysis**:
+
+```bash
+# Extract SSL certificates from traffic
+tshark -r traffic.pcap -Y "ssl.handshake.certificate" \
+    --export-objects "ssl,./extracted_certs/"
+
+# Analyze certificates
+for cert in extracted_certs/*; do
+    echo "=== $cert ==="
+    openssl x509 -in "$cert" -inform DER -noout -text | \
+        grep -A 2 "Subject:\|Issuer:\|Not Before\|Not After\|Subject Alternative Name"
+    echo ""
+done > cert_analysis.txt
+
+# Look for suspicious certificate attributes [Inference: Heuristic indicators]
+grep -E "(Self-signed|localhost|example\.com|test)" cert_analysis.txt
+```
+
+**ASN and geolocation analysis**:
+
+```bash
+# Get ASN information for IPs (requires whois or API)
+while read ip; do
+    echo "=== $ip ==="
+    whois -h whois.cymru.com " -v $ip" | tail -n +2
+done < external_ips.txt > asn_info.txt
+
+# Using MaxMind GeoIP (requires database)
+# [Unverified: Requires GeoIP database installation]
+geoiplookup $(cat external_ips.txt)
+
+# Identify hosting providers commonly used for C2
+grep -iE "(bulletproof|offshore|vps|digital ocean|vultr)" asn_info.txt
+```
+
+### Protocol-Specific C2 Analysis
+
+**Cobalt Strike beacon detection**:
+
+```bash
+# Known Cobalt Strike indicators [Inference: Based on public research]
+
+# HTTP patterns
+tshark -r traffic.pcap -Y "http" -T fields -e http.request.uri | \
+    grep -E "(/submit\.php|/__utm\.gif|/pixel\.gif|/match)" | head
+
+# Default User-Agents
+tshark -r traffic.pcap -Y "http.user_agent" -T fields -e http.user_agent | \
+    grep -E "(Mozilla/5\.0.*compatible)" | head
+
+# Analyze HTTP POST bodies for encoded payloads
+tshark -r traffic.pcap -Y "http.request.method == POST" -T fields \
+    -e http.file_data | xxd -r -p > cs_post_data.bin
+
+# Check for XOR-encoded data patterns
+python3 << 'EOF'
+import sys
+
+def test_xor_key(data, key):
+    decoded = bytes([b ^ key for b in data])
+    # Check for MZ header or other indicators
+    if decoded.startswith(b'MZ'):
+        return True, decoded
+    return False, None
+
+with open('cs_post_data.bin', 'rb') as f:
+    data = f.read()
+
+for key in range(256):
+    found, decoded = test_xor_key(data, key)
+    if found:
+        print(f"[!] Found XOR key: {hex(key)}")
+        with open(f'decoded_key_{key}.bin', 'wb') as out:
+            out.write(decoded)
+EOF
+```
+
+**Metasploit C2 detection**:
+
+```bash
+# Default Metasploit HTTP URIs
+tshark -r traffic.pcap -Y "http.request" -T fields -e http.request.uri | \
+    grep -E "(checksum|/INITM|/INITJM)"
+
+# Metasploit RC4 encrypted payloads (check entropy)
+tshark -r traffic.pcap -Y "http" -T fields -e http.file_data | \
+    head -1 | xxd -r -p > payload_sample.bin
+
+python3 -c "
+import math
+from collections import Counter
+data = open('payload_sample.bin', 'rb').read()
+if len(data) > 0:
+    entropy = -sum(count/len(data) * math.log2(count/len(data)) 
+                   for count in Counter(data).values())
+    print(f'Entropy: {entropy:.4f}')
+    if entropy > 7.5:
+        print('[!] High entropy - likely encrypted Metasploit payload')
+"
+
+# Reverse shell connections
+tshark -r traffic.pcap -Y "tcp.flags.syn == 1 and tcp.dstport > 1024" \
+    -T fields -e ip.dst -e tcp.dstport | sort -u
+```
+
+**Empire C2 patterns**:
+
+```bash
+# Empire HTTP staging URIs
+tshark -r traffic.pcap -Y "http.request" -T fields -e http.request.uri | \
+    grep -E "(login/process\.php|admin/get\.php|news\.php)"
+
+# Default Empire User-Agents
+tshark -r traffic.pcap -Y "http.user_agent" -T fields -e http.user_agent | \
+    grep -iE "(Mozilla/5\.0.*AppleWebKit.*like Gecko)" | sort -u
+
+# Cookie analysis (Empire uses specific cookie format)
+tshark -r traffic.pcap -Y "http.cookie" -T fields -e http.cookie | \
+    grep -E "session=[A-Za-z0-9+/]{40,}" | head
+```
+
+**DNS tunneling (Iodine, dnscat2, etc.)**:
+
+```bash
+# Suspicious TXT record queries
+tshark -r traffic.pcap -Y "dns.qry.type == 16" -T fields \
+    -e dns.qry.name -e dns.txt | head -20
+
+# NULL record queries (used by some tools)
+tshark -r traffic.pcap -Y "dns.qry.type == 10" -T fields -e dns.qry.name
+
+# Subdomain pattern analysis for encoded data
+tshark -r traffic.pcap -Y "dns.qry.name" -T fields -e dns.qry.name | \
+    awk -F'.' '{print $1}' | \
+    grep -E '^[a-f0-9]{32,}$' | head -10  # Hex-encoded subdomain
+
+# Check for high query frequency (dnscat2 characteristic)
+tshark -r traffic.pcap -Y "dns" -T fields -e frame.time_epoch -e dns.qry.name | \
+    awk '{domain=$2; if (domain != "") {count[domain]++; times[domain]=times[domain]" "$1}} 
+         END {for (d in count) if (count[d] > 100) print d, count[d]}'
+```
+
+**ICMP tunneling detection**:
+
+```bash
+# Extract ICMP payload data
+tshark -r traffic.pcap -Y "icmp.type == 8 or icmp.type == 0" \
+    -T fields -e icmp.data | head -20 | xxd -r -p > icmp_payloads.bin
+
+# Check for non-standard ICMP payload patterns
+tshark -r traffic.pcap -Y "icmp" -T fields -e data.len | sort -n | uniq -c
+
+# Analyze payload entropy
+strings -a icmp_payloads.bin | head
+hexdump -C icmp_payloads.bin | head -20
+
+# Large or variable ICMP packet sizes indicate tunneling [Inference]
+tshark -r traffic.pcap -Y "icmp" -T fields -e frame.len | \
+    awk '{sum+=$1; count++} END {print "Average:", sum/count}'
+```
+
+### C2 Traffic Decryption and Analysis
+
+**SSL/TLS traffic decryption** (when private key available):
+
+```bash
+# Decrypt TLS traffic with server private key
+tshark -r encrypted_traffic.pcap -o "tls.keys_list:0.0.0.0,443,http,server.key" \
+    -Y "http" -T fields -e http.request.full_uri
+
+# Export decrypted HTTP objects
+tshark -r encrypted_traffic.pcap -o "tls.keys_list:0.0.0.0,443,http,server.key" \
+    --export-objects "http,./decrypted_objects/"
+
+# Using SSLKEYLOGFILE from browser/malware
+# [Inference: Requires SSLKEYLOGFILE environment variable capture]
+tshark -r traffic.pcap -o "tls.keylog_file:sslkeys.log" -Y "http" -T fields -e http.host
+```
+
+**Custom encryption analysis**:
+
+```bash
+# Extract encrypted payloads
+tshark -r traffic.pcap -Y "tcp.payload" -T fields -e tcp.payload | \
+    head -10 | xxd -r -p > encrypted_samples.bin
+
+# Frequency analysis for simple ciphers
+python3 << 'EOF'
+from collections import Counter
+
+with open('encrypted_samples.bin', 'rb') as f:
+    data = f.read()
+
+# Byte frequency distribution
+freq = Counter(data)
+print("Top 10 bytes:")
+for byte, count in freq.most_common(10):
+    print(f"{hex(byte)}: {count} ({100*count/len(data):.2f}%)")
+
+# Check for XOR with common keys
+common_xor_keys = [0x00, 0xFF, 0xAA, 0x55, 0x42]
+for key in common_xor_keys:
+    decoded = bytes([b ^ key for b in data[:100]])
+    if b'GET' in decoded or b'POST' in decoded or b'HTTP' in decoded:
+        print(f"\n[!] Possible XOR key found: {hex(key)}")
+        print(f"Decoded sample: {decoded[:50]}")
+EOF
+```
+
+### Automated C2 Detection Tools
+
+**RITA (Real Intelligence Threat Analytics)**:
+
+```bash
+# Import PCAP into RITA
+rita import traffic.pcap dataset_name
+
+# Run analysis
+rita show-beacons dataset_name  # Detect beaconing behavior
+rita show-long-connections dataset_name  # Long-duration connections
+rita show-dns dataset_name  # DNS analysis
+
+# Export results
+rita show-beacons dataset_name --human-readable > beacons.txt
+```
+
+**Suricata IDS with C2 rules**:
+
+```bash
+# Update Suricata rules
+suricata-update
+
+# Run against PCAP
+suricata -r traffic.pcap -c /etc/suricata/suricata.yaml -l /var/log/suricata/
+
+# Analyze alerts
+jq '.alert.signature' /var/log/suricata/eve.json | sort | uniq -c | sort -rn
+
+# Filter for C2-specific alerts
+jq 'select(.alert.category == "Potential Corporate Privacy Violation" or 
+           .alert.category == "A Network Trojan was detected")' \
+    /var/log/suricata/eve.json
+```
+
+**Zeek (Bro) network analysis**:
+
+```bash
+# Process PCAP with Zeek
+zeek -r traffic.pcap
+
+# Analyze generated logs
+cat conn.log | zeek-cut id.orig_h id.resp_h id.resp_p duration bytes | \
+    awk '$4 > 600' | sort -k4 -rn  # Long connections
+
+# DNS analysis
+cat dns.log | zeek-cut query answers | grep -v "^-$" | head -20
+
+# HTTP analysis
+cat http.log | zeek-cut host uri user_agent | sort | uniq -c | sort -rn
+
+# SSL certificate analysis
+cat ssl.log | zeek-cut server_name validation_status | grep -v "ok"
+```
+
+**NetworkMiner for automated extraction**:
+
+```bash
+# NetworkMiner CLI (mono required on Linux)
+# [Unverified: May require Windows or Wine]
+mono NetworkMinerCLI.exe -r traffic.pcap -o ./output/
+
+# Extracted artifacts locations:
+ls output/Files/
+ls output/Credentials/
+ls output/Messages/
+```
+
+### C2 Kill Chain Reconstruction
+
+**Timeline creation**:
+
+```bash
+# Generate comprehensive timeline
+tshark -r traffic.pcap -T fields \
+    -e frame.time -e ip.src -e ip.dst -e tcp.dstport \
+    -e http.host -e http.request.uri -e dns.qry.name | \
+    grep -v "^$" | sort > communication_timeline.txt
+
+# Identify initial compromise
+head -50 communication_timeline.txt
+
+# Track command execution patterns
+grep -E "(cmd|exec|shell|powershell)" communication_timeline.txt
+```
+
+**C2 session reconstruction**:
+
+```bash
+# Follow specific TCP streams
+tshark -r traffic.pcap -Y "tcp.stream eq 5" -T fields -e tcp.payload | \
+    tr -d '\n' | xxd -r -p > session_5.bin
+
+# Extract all HTTP conversations
+tshark -r traffic.pcap -Y "http" --export-objects "http,./http_objects/"
+
+# Reconstruct command sequences [Inference: Requires protocol knowledge]
+for file in http_objects/*; do
+    echo "=== $(basename $file) ==="
+    file "$file"
+    strings -a "$file" | head -20
+    echo ""
+done
+```
+
+---
+
+**Critical related topics for comprehensive malware forensics**:
+
+- **Memory forensics** - Process memory analysis, memory-resident malware, rootkit detection
+- **Reverse engineering fundamentals** - Disassembly with Ghidra/IDA, deobfuscation techniques, control flow analysis
+- **Anti-forensics techniques** - Data wiping, timestamp manipulation, log deletion detection
+- **Incident response procedures** - Evidence preservation, chain of custody, malware containment strategies
+- **Threat intelligence integration** - MISP, STIX/TAXII, automated IOC correlation with threat feeds
 
 ---
 
@@ -19672,6 +26265,1635 @@ echo "Analysis complete. Results saved to $OUTPUT_DIR/"
 
 ---
 
+## Email Threading Reconstruction
+
+Email threading reconstruction involves analyzing email headers, message relationships, and conversation metadata to rebuild complete email conversations from fragmented, deleted, or corrupted mailbox data. This is critical in CTF scenarios for understanding communication patterns, extracting hidden information, and recovering deleted correspondence.
+
+### Email Threading Fundamentals
+
+**Email Threading Concepts:**
+
+- **Thread**: A conversation consisting of an original message and all replies/forwards
+- **Message-ID**: Unique identifier for each email message
+- **In-Reply-To**: References the Message-ID of the message being replied to
+- **References**: Chain of all previous Message-IDs in the thread
+- **Subject Threading**: Fallback method using subject line patterns (Re:, Fwd:)
+
+**Threading Headers:**
+
+```
+Message-ID: <unique-id@domain.com>
+In-Reply-To: <parent-message-id@domain.com>
+References: <original-id@domain.com> <parent-message-id@domain.com>
+Subject: Re: Original Subject
+```
+
+### Email File Formats
+
+**Common Email Storage Formats:**
+
+- **EML**: Individual email message (RFC 822 format)
+- **MSG**: Microsoft Outlook message format
+- **MBOX**: Unix mailbox format (multiple messages in single file)
+- **PST/OST**: Outlook Personal Storage Table
+- **Maildir**: Directory-based storage (one file per message)
+- **DBX**: Outlook Express mailbox
+
+### Email Header Analysis Tools
+
+**Email header extraction and parsing:**
+
+```bash
+# Extract headers from EML file
+grep -E "^(From|To|Subject|Date|Message-ID|In-Reply-To|References):" message.eml
+
+# Python-based header extraction
+python3 << 'EOF'
+import email
+from email import policy
+
+with open('message.eml', 'rb') as f:
+    msg = email.message_from_binary_file(f, policy=policy.default)
+
+print(f"From: {msg['From']}")
+print(f"To: {msg['To']}")
+print(f"Subject: {msg['Subject']}")
+print(f"Date: {msg['Date']}")
+print(f"Message-ID: {msg['Message-ID']}")
+print(f"In-Reply-To: {msg['In-Reply-To']}")
+print(f"References: {msg['References']}")
+EOF
+
+# Extract all headers
+formail -X "" < message.eml
+
+# Parse MBOX file headers
+formail -s formail -X "From:" -X "Subject:" -X "Message-ID:" < mailbox.mbox
+```
+
+**readpst** - Extract emails from PST files
+
+```bash
+# Install readpst
+apt-get install pst-utils
+
+# Extract PST to individual EML files
+readpst -o output_dir mailbox.pst
+
+# Extract with directory structure
+readpst -r -o output_dir mailbox.pst
+
+# Extract to MBOX format
+readpst -m -o output_dir mailbox.pst
+
+# Detailed extraction
+readpst -D -o output_dir mailbox.pst
+```
+
+**mbox-tools** - MBOX manipulation
+
+```bash
+# Split MBOX into individual messages
+formail -s sh -c 'cat > msg_$$.eml' < mailbox.mbox
+
+# Count messages
+formail -s echo | wc -l < mailbox.mbox
+
+# Extract specific message
+formail -s formail -X "" +$N < mailbox.mbox  # N = message number
+```
+
+### Threading Reconstruction Methods
+
+**Method 1: Message-ID Based Threading (Most Reliable)**
+
+```python
+#!/usr/bin/env python3
+# Reconstruct email threads using Message-ID headers
+import email
+from email import policy
+from collections import defaultdict
+import os
+import json
+
+def parse_email_file(filepath):
+    """Extract threading metadata from email file"""
+    try:
+        with open(filepath, 'rb') as f:
+            msg = email.message_from_binary_file(f, policy=policy.default)
+        
+        return {
+            'file': filepath,
+            'message_id': msg.get('Message-ID', '').strip('<>'),
+            'in_reply_to': msg.get('In-Reply-To', '').strip('<>'),
+            'references': [ref.strip('<>') for ref in msg.get('References', '').split()],
+            'subject': msg.get('Subject', ''),
+            'from': msg.get('From', ''),
+            'to': msg.get('To', ''),
+            'date': msg.get('Date', ''),
+            'body_preview': str(msg.get_body(preferencelist=('plain', 'html')))[:200] if msg.get_body() else ''
+        }
+    except Exception as e:
+        print(f"[Unverified] Error parsing {filepath}: {e}")
+        return None
+
+def build_thread_tree(emails):
+    """Build threading tree structure"""
+    # Index emails by Message-ID
+    by_id = {email['message_id']: email for email in emails if email['message_id']}
+    
+    # Build parent-child relationships
+    threads = defaultdict(list)
+    root_messages = []
+    
+    for email_data in emails:
+        msg_id = email_data['message_id']
+        in_reply_to = email_data['in_reply_to']
+        
+        if in_reply_to and in_reply_to in by_id:
+            # This is a reply - add to parent's children
+            threads[in_reply_to].append(msg_id)
+        elif email_data['references']:
+            # Use last reference as parent
+            parent_id = email_data['references'][-1]
+            if parent_id in by_id:
+                threads[parent_id].append(msg_id)
+            else:
+                root_messages.append(msg_id)
+        else:
+            # Root message (no parent)
+            root_messages.append(msg_id)
+    
+    return threads, root_messages, by_id
+
+def print_thread(msg_id, threads, by_id, level=0):
+    """Recursively print thread structure"""
+    if msg_id not in by_id:
+        return
+    
+    email_data = by_id[msg_id]
+    indent = "  " * level
+    
+    print(f"{indent}├─ {email_data['subject']}")
+    print(f"{indent}│  From: {email_data['from']}")
+    print(f"{indent}│  Date: {email_data['date']}")
+    print(f"{indent}│  Message-ID: {msg_id}")
+    print(f"{indent}│  File: {email_data['file']}")
+    
+    # Print children
+    if msg_id in threads:
+        for child_id in threads[msg_id]:
+            print_thread(child_id, threads, by_id, level + 1)
+
+def reconstruct_threads(email_dir):
+    """Main threading reconstruction function"""
+    print("Scanning email files...")
+    
+    emails = []
+    for root, dirs, files in os.walk(email_dir):
+        for filename in files:
+            if filename.endswith(('.eml', '.msg')):
+                filepath = os.path.join(root, filename)
+                email_data = parse_email_file(filepath)
+                if email_data:
+                    emails.append(email_data)
+    
+    print(f"Found {len(emails)} email messages\n")
+    
+    # Build thread structure
+    threads, root_messages, by_id = build_thread_tree(emails)
+    
+    print(f"Identified {len(root_messages)} conversation threads\n")
+    print("=" * 80)
+    
+    # Print each thread
+    for i, root_id in enumerate(root_messages, 1):
+        print(f"\nTHREAD {i}:")
+        print("=" * 80)
+        print_thread(root_id, threads, by_id)
+        print()
+    
+    # Export to JSON for further analysis
+    thread_data = {
+        'threads': threads,
+        'root_messages': root_messages,
+        'emails': {email['message_id']: email for email in emails if email['message_id']}
+    }
+    
+    with open('thread_reconstruction.json', 'w') as f:
+        json.dump(thread_data, f, indent=2, default=str)
+    
+    print(f"\nThread data exported to thread_reconstruction.json")
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1:
+        email_dir = sys.argv[1]
+    else:
+        email_dir = "."
+    
+    reconstruct_threads(email_dir)
+```
+
+**Method 2: Subject-Based Threading (Fallback)**
+
+```python
+#!/usr/bin/env python3
+# Thread emails by subject line when headers are missing
+import re
+from collections import defaultdict
+
+def normalize_subject(subject):
+    """Normalize subject for threading"""
+    if not subject:
+        return ""
+    
+    # Remove Re:, Fwd:, etc.
+    subject = re.sub(r'^(Re|RE|Fwd|FWD|Fw):\s*', '', subject, flags=re.IGNORECASE)
+    subject = re.sub(r'\s+', ' ', subject)  # Normalize whitespace
+    subject = subject.strip()
+    
+    return subject.lower()
+
+def thread_by_subject(emails):
+    """Group emails by normalized subject"""
+    threads = defaultdict(list)
+    
+    for email_data in emails:
+        subject = email_data.get('subject', '')
+        normalized = normalize_subject(subject)
+        
+        if normalized:
+            threads[normalized].append(email_data)
+    
+    # Sort each thread by date
+    for subject in threads:
+        threads[subject].sort(key=lambda x: x.get('date', ''))
+    
+    return threads
+
+def print_subject_threads(threads):
+    """Display subject-based threads"""
+    for i, (subject, messages) in enumerate(threads.items(), 1):
+        print(f"\nTHREAD {i}: {subject}")
+        print("=" * 80)
+        
+        for j, msg in enumerate(messages, 1):
+            print(f"  {j}. From: {msg.get('from', 'Unknown')}")
+            print(f"     Date: {msg.get('date', 'Unknown')}")
+            print(f"     Subject: {msg.get('subject', 'No subject')}")
+            print(f"     File: {msg.get('file', 'Unknown')}")
+            print()
+
+# Usage with previously parsed emails
+# threads = thread_by_subject(emails)
+# print_subject_threads(threads)
+```
+
+**Method 3: Temporal Clustering**
+
+```python
+#!/usr/bin/env python3
+# Group emails by temporal proximity (useful when headers are missing)
+from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
+
+def parse_email_date(date_str):
+    """Parse email date string to datetime object"""
+    try:
+        return parsedate_to_datetime(date_str)
+    except:
+        return None
+
+def temporal_clustering(emails, time_window_hours=24):
+    """Cluster emails by temporal proximity"""
+    # Sort emails by date
+    dated_emails = []
+    for email_data in emails:
+        date = parse_email_date(email_data.get('date', ''))
+        if date:
+            dated_emails.append((date, email_data))
+    
+    dated_emails.sort(key=lambda x: x[0])
+    
+    # Cluster by time window
+    clusters = []
+    current_cluster = []
+    last_time = None
+    
+    for date, email_data in dated_emails:
+        if last_time is None or (date - last_time) <= timedelta(hours=time_window_hours):
+            current_cluster.append(email_data)
+        else:
+            if current_cluster:
+                clusters.append(current_cluster)
+            current_cluster = [email_data]
+        
+        last_time = date
+    
+    if current_cluster:
+        clusters.append(current_cluster)
+    
+    return clusters
+
+def print_temporal_clusters(clusters):
+    """Display temporally clustered emails"""
+    for i, cluster in enumerate(clusters, 1):
+        print(f"\nTEMPORAL CLUSTER {i} ({len(cluster)} messages)")
+        print("=" * 80)
+        
+        for msg in cluster:
+            print(f"  Date: {msg.get('date', 'Unknown')}")
+            print(f"  From: {msg.get('from', 'Unknown')}")
+            print(f"  Subject: {msg.get('subject', 'No subject')}")
+            print()
+```
+
+### Advanced Threading Reconstruction
+
+**Handling Missing Message-IDs:**
+
+```python
+#!/usr/bin/env python3
+# Generate synthetic Message-IDs for messages that lack them
+import hashlib
+
+def generate_message_id(email_data):
+    """Generate synthetic Message-ID from email content"""
+    # Combine stable fields
+    components = [
+        email_data.get('from', ''),
+        email_data.get('to', ''),
+        email_data.get('date', ''),
+        email_data.get('subject', ''),
+        email_data.get('body_preview', '')[:100]
+    ]
+    
+    combined = '|'.join(components)
+    hash_value = hashlib.sha256(combined.encode()).hexdigest()[:16]
+    
+    return f"synthetic-{hash_value}@reconstructed.local"
+
+def fix_missing_message_ids(emails):
+    """Add synthetic Message-IDs where missing"""
+    for email_data in emails:
+        if not email_data.get('message_id'):
+            synthetic_id = generate_message_id(email_data)
+            email_data['message_id'] = synthetic_id
+            email_data['synthetic_id'] = True
+            print(f"[Inference] Generated synthetic Message-ID: {synthetic_id}")
+    
+    return emails
+```
+
+**Reconstructing Deleted Messages:**
+
+```python
+#!/usr/bin/env python3
+# Identify gaps in thread and attempt to infer missing messages
+def find_thread_gaps(threads, by_id):
+    """Identify missing messages in threads"""
+    gaps = []
+    
+    for email_data in by_id.values():
+        # Check if In-Reply-To references missing message
+        in_reply_to = email_data.get('in_reply_to')
+        if in_reply_to and in_reply_to not in by_id:
+            gaps.append({
+                'missing_id': in_reply_to,
+                'referenced_by': email_data['message_id'],
+                'subject': email_data.get('subject', ''),
+                'type': 'parent'
+            })
+        
+        # Check References chain
+        for ref_id in email_data.get('references', []):
+            if ref_id not in by_id:
+                gaps.append({
+                    'missing_id': ref_id,
+                    'referenced_by': email_data['message_id'],
+                    'type': 'ancestor'
+                })
+    
+    return gaps
+
+def create_placeholder_messages(gaps):
+    """Create placeholder entries for missing messages"""
+    placeholders = {}
+    
+    for gap in gaps:
+        msg_id = gap['missing_id']
+        if msg_id not in placeholders:
+            placeholders[msg_id] = {
+                'message_id': msg_id,
+                'subject': f"[DELETED/MISSING: {gap.get('subject', 'Unknown')}]",
+                'from': '[UNKNOWN]',
+                'to': '[UNKNOWN]',
+                'date': '[UNKNOWN]',
+                'file': '[NOT AVAILABLE]',
+                'is_placeholder': True
+            }
+    
+    return placeholders
+```
+
+**Cross-Reference Analysis:**
+
+```python
+#!/usr/bin/env python3
+# Find relationships between threads based on participants and content
+from collections import defaultdict
+import re
+
+def extract_email_addresses(field):
+    """Extract email addresses from header field"""
+    if not field:
+        return []
+    
+    # Simple regex for email extraction
+    pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    return re.findall(pattern, field)
+
+def build_participant_graph(emails):
+    """Build graph of email participants"""
+    participant_pairs = defaultdict(int)
+    participant_threads = defaultdict(set)
+    
+    for email_data in emails:
+        from_addrs = extract_email_addresses(email_data.get('from', ''))
+        to_addrs = extract_email_addresses(email_data.get('to', ''))
+        cc_addrs = extract_email_addresses(email_data.get('cc', ''))
+        
+        all_to = to_addrs + cc_addrs
+        msg_id = email_data['message_id']
+        
+        for from_addr in from_addrs:
+            participant_threads[from_addr.lower()].add(msg_id)
+            
+            for to_addr in all_to:
+                # Count interactions between participants
+                pair = tuple(sorted([from_addr.lower(), to_addr.lower()]))
+                participant_pairs[pair] += 1
+    
+    return participant_pairs, participant_threads
+
+def find_related_threads(threads, by_id):
+    """Identify potentially related threads"""
+    participant_pairs, participant_threads = build_participant_graph(by_id.values())
+    
+    # Find threads with overlapping participants
+    thread_participants = {}
+    
+    for root_id in threads:
+        # Get all participants in this thread
+        participants = set()
+        
+        def collect_participants(msg_id):
+            if msg_id not in by_id:
+                return
+            
+            email_data = by_id[msg_id]
+            participants.update(extract_email_addresses(email_data.get('from', '')))
+            participants.update(extract_email_addresses(email_data.get('to', '')))
+            
+            if msg_id in threads:
+                for child_id in threads[msg_id]:
+                    collect_participants(child_id)
+        
+        collect_participants(root_id)
+        thread_participants[root_id] = {p.lower() for p in participants}
+    
+    # Find overlaps
+    related = []
+    thread_ids = list(thread_participants.keys())
+    
+    for i in range(len(thread_ids)):
+        for j in range(i + 1, len(thread_ids)):
+            thread1 = thread_ids[i]
+            thread2 = thread_ids[j]
+            
+            overlap = thread_participants[thread1] & thread_participants[thread2]
+            if len(overlap) >= 2:  # At least 2 shared participants
+                related.append({
+                    'thread1': thread1,
+                    'thread2': thread2,
+                    'shared_participants': list(overlap),
+                    'overlap_count': len(overlap)
+                })
+    
+    return related
+```
+
+### MBOX Threading Analysis
+
+**Complete MBOX threading tool:**
+
+```bash
+#!/bin/bash
+# Extract and thread MBOX file
+
+MBOX_FILE="$1"
+OUTPUT_DIR="mbox_threading"
+
+mkdir -p "$OUTPUT_DIR"
+
+echo "Extracting messages from MBOX..."
+cd "$OUTPUT_DIR"
+
+# Split MBOX into individual messages
+formail -s sh -c 'cat > msg_$(echo $$ | md5sum | cut -c1-8).eml' < "../$MBOX_FILE"
+
+MESSAGE_COUNT=$(ls -1 msg_*.eml 2>/dev/null | wc -l)
+echo "Extracted $MESSAGE_COUNT messages"
+
+# Extract threading information
+echo "Analyzing message headers..."
+python3 << 'EOF'
+import email
+import glob
+import json
+
+messages = []
+for filepath in glob.glob('msg_*.eml'):
+    with open(filepath, 'rb') as f:
+        msg = email.message_from_binary_file(f)
+    
+    messages.append({
+        'file': filepath,
+        'message_id': msg.get('Message-ID', ''),
+        'in_reply_to': msg.get('In-Reply-To', ''),
+        'references': msg.get('References', ''),
+        'subject': msg.get('Subject', ''),
+        'from': msg.get('From', ''),
+        'date': msg.get('Date', '')
+    })
+
+with open('messages.json', 'w') as f:
+    json.dump(messages, f, indent=2)
+
+print(f"Extracted metadata for {len(messages)} messages")
+EOF
+
+echo "Threading analysis complete. Check messages.json for results."
+```
+
+### PST File Threading
+
+**Extract and thread PST files:**
+
+```bash
+#!/bin/bash
+# PST extraction and threading
+
+PST_FILE="$1"
+OUTPUT_DIR="pst_threading"
+
+echo "Extracting PST file..."
+readpst -r -D -o "$OUTPUT_DIR" "$PST_FILE"
+
+echo "Building thread index..."
+python3 << 'EOF'
+import os
+import email
+from email import policy
+import json
+from collections import defaultdict
+
+def scan_pst_output(base_dir):
+    """Recursively scan extracted PST output"""
+    emails = []
+    
+    for root, dirs, files in os.walk(base_dir):
+        for filename in files:
+            if filename.endswith('.eml'):
+                filepath = os.path.join(root, filename)
+                
+                try:
+                    with open(filepath, 'rb') as f:
+                        msg = email.message_from_binary_file(f, policy=policy.default)
+                    
+                    emails.append({
+                        'file': filepath,
+                        'folder': os.path.relpath(root, base_dir),
+                        'message_id': msg.get('Message-ID', '').strip('<>'),
+                        'in_reply_to': msg.get('In-Reply-To', '').strip('<>'),
+                        'references': msg.get('References', ''),
+                        'subject': msg.get('Subject', ''),
+                        'from': msg.get('From', ''),
+                        'to': msg.get('To', ''),
+                        'date': msg.get('Date', '')
+                    })
+                except Exception as e:
+                    print(f"[Unverified] Error processing {filepath}: {e}")
+    
+    return emails
+
+emails = scan_pst_output('pst_threading')
+print(f"Found {len(emails)} emails in PST")
+
+# Group by folder
+by_folder = defaultdict(list)
+for email_data in emails:
+    by_folder[email_data['folder']].append(email_data)
+
+print(f"\nEmails by folder:")
+for folder, folder_emails in sorted(by_folder.items()):
+    print(f"  {folder}: {len(folder_emails)} emails")
+
+# Export for threading analysis
+with open('pst_emails.json', 'w') as f:
+    json.dump({
+        'emails': emails,
+        'folders': {k: len(v) for k, v in by_folder.items()}
+    }, f, indent=2)
+
+print("\nData exported to pst_emails.json")
+EOF
+```
+
+### Visualization and Export
+
+**Generate thread visualization:**
+
+```python
+#!/usr/bin/env python3
+# Generate visual thread representation
+import json
+from collections import defaultdict
+
+def generate_mermaid_diagram(threads, root_messages, by_id):
+    """Generate Mermaid diagram of email threads"""
+    output = ["graph TD"]
+    
+    node_counter = {}
+    
+    def get_node_id(msg_id):
+        if msg_id not in node_counter:
+            node_counter[msg_id] = f"N{len(node_counter)}"
+        return node_counter[msg_id]
+    
+    def add_node(msg_id):
+        if msg_id not in by_id:
+            return
+        
+        email_data = by_id[msg_id]
+        node_id = get_node_id(msg_id)
+        
+        # Sanitize subject for diagram
+        subject = email_data.get('subject', 'No subject')[:30]
+        subject = subject.replace('"', "'").replace('[', '(').replace(']', ')')
+        
+        from_addr = email_data.get('from', 'Unknown')[:20]
+        
+        label = f"{subject}\\n{from_addr}"
+        output.append(f'    {node_id}["{label}"]')
+        
+        # Add children
+        if msg_id in threads:
+            for child_id in threads[msg_id]:
+                child_node_id = get_node_id(child_id)
+                output.append(f"    {node_id} --> {child_node_id}")
+                add_node(child_id)
+    
+    for root_id in root_messages:
+        add_node(root_id)
+    
+    return '\n'.join(output)
+
+def generate_html_timeline(emails):
+    """Generate HTML timeline visualization"""
+    html = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Email Thread Timeline</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .timeline { border-left: 3px solid #007bff; padding-left: 20px; }
+        .email { margin-bottom: 20px; padding: 10px; background: #f8f9fa; border-radius: 5px; }
+        .email-header { font-weight: bold; color: #007bff; }
+        .email-meta { font-size: 0.9em; color: #666; }
+        .email-subject { font-size: 1.1em; margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <h1>Email Thread Timeline</h1>
+    <div class="timeline">
+"""
+    
+    # Sort emails by date
+    sorted_emails = sorted(emails, key=lambda x: x.get('date', ''))
+    
+    for email_data in sorted_emails:
+        html += f"""
+        <div class="email">
+            <div class="email-header">{email_data.get('from', 'Unknown')}</div>
+            <div class="email-meta">{email_data.get('date', 'Unknown date')}</div>
+            <div class="email-subject">{email_data.get('subject', 'No subject')}</div>
+            <div class="email-meta">Message-ID: {email_data.get('message_id', 'None')}</div>
+        </div>
+"""
+    
+    html += """
+    </div>
+</body>
+</html>
+"""
+    
+    with open('email_timeline.html', 'w') as f:
+        f.write(html)
+    
+    print("Timeline visualization saved to email_timeline.html")
+
+# Usage after threading reconstruction
+# mermaid_diagram = generate_mermaid_diagram(threads, root_messages, by_id)
+# with open('thread_diagram.mmd', 'w') as f:
+#     f.write(mermaid_diagram)
+```
+
+### Forensic Analysis Techniques
+
+**Detect thread manipulation:**
+
+```python
+#!/usr/bin/env python3
+# Detect anomalies in email threading
+from email.utils import parsedate_to_datetime
+from datetime import timedelta
+
+def detect_threading_anomalies(threads, by_id):
+    """Identify suspicious threading patterns"""
+    anomalies = []
+    
+    for msg_id, email_data in by_id.items():
+        # Anomaly 1: Reply sent before original
+        in_reply_to = email_data.get('in_reply_to')
+        if in_reply_to and in_reply_to in by_id:
+            try:
+                parent_date = parsedate_to_datetime(by_id[in_reply_to].get('date', ''))
+                reply_date = parsedate_to_datetime(email_data.get('date', ''))
+                
+                if reply_date < parent_date:
+                    anomalies.append({
+                        'type': 'temporal_inconsistency',
+                        'message_id': msg_id,
+                        'description': 'Reply sent before original message',
+                        'reply_date': str(reply_date),
+                        'parent_date': str(parent_date)
+                    })
+            except:
+                pass
+        
+        # Anomaly 2: Missing intermediate messages
+        references = email_data.get('references', [])
+        if len(references) > 1:
+            missing = [ref for ref in references if ref not in by_id]
+            if missing:
+                anomalies.append({
+                    'type': 'missing_messages',
+                    'message_id': msg_id,
+                    'description': f'{len(missing)} intermediate messages missing from thread',
+                    'missing_ids': missing
+                })
+        
+        # Anomaly 3: Subject line doesn't match thread
+        if in_reply_to and in_reply_to in by_id:
+            parent_subject = by_id[in_reply_to].get('subject', '')
+            current_subject = email_data.get('subject', '')
+            
+            # Remove Re:/Fwd: and compare
+            import re
+            parent_normalized = re.sub(r'^(Re|RE|Fwd|FWD):\s*', '', parent_subject, flags=re.IGNORECASE).strip()
+            current_normalized = re.sub(r'^(Re|RE|Fwd|FWD):\s*', '', current_subject, flags=re.IGNORECASE).strip()
+            
+            if parent_normalized and current_normalized:
+                if parent_normalized.lower() != current_normalized.lower():
+                    anomalies.append({
+                        'type': 'subject_mismatch',
+                        'message_id': msg_id,
+                        'description': 'Subject changed mid-thread',
+                        'parent_subject': parent_subject,
+                        'current_subject': current_subject
+                    })
+    
+    return anomalies
+
+def print_anomalies(anomalies):
+    """Display detected anomalies"""
+    if not anomalies:
+        print("No threading anomalies detected")
+        return
+    
+    print(f"\nDetected {len(anomalies)} threading anomalies:\n")
+    
+    for i, anomaly in enumerate(anomalies, 1):
+        print(f"Anomaly {i}: {anomaly['type']}")
+        print(f"  Message-ID: {anomaly['message_id']}")
+        print(f"  Description: {anomaly['description']}")
+        
+        for key, value in anomaly.items():
+            if key not in ['type', 'message_id', 'description']:
+                print(f"  {key}: {value}")
+        print()
+```
+
+**Extract conversation participants:**
+
+```python
+#!/usr/bin/env python3
+# Analyze participants in email threads
+from collections import Counter
+import re
+
+def extract_all_participants(threads, root_messages, by_id):
+    """Extract and analyze all thread participants"""
+    thread_participants = {}
+    
+    def collect_thread_participants(msg_id, participants=None):
+        """Recursively collect participants in thread"""
+        if participants is None:
+            participants = []
+        
+        if msg_id not in by_id:
+            return participants
+        
+        email_data = by_id[msg_id]
+        
+        # Extract addresses
+        from_addrs = extract_email_addresses(email_data.get('from', ''))
+        to_addrs = extract_email_addresses(email_data.get('to', ''))
+        cc_addrs = extract_email_addresses(email_data.get('cc', ''))
+        
+        participants.extend(from_addrs + to_addrs + cc_addrs)
+        
+        # Process children
+        if msg_id in threads:
+            for child_id in threads[msg_id]:
+                collect_thread_participants(child_id, participants)
+        
+        return participants
+    
+    for root_id in root_messages:
+        participants = collect_thread_participants(root_id)
+        participant_counts = Counter(p.lower() for p in participants)
+        thread_participants[root_id] = participant_counts
+    
+    return thread_participants
+
+def extract_email_addresses(field):
+    """Extract email addresses from header field"""
+    if not field:
+        return []
+    pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    return re.findall(pattern, field)
+
+def analyze_conversation_patterns(thread_participants, by_id):
+    """Analyze communication patterns in threads"""
+    patterns = {
+        'most_active_participants': Counter(),
+        'conversation_pairs': Counter(),
+        'thread_sizes': {},
+        'response_patterns': []
+    }
+    
+    for thread_id, participants in thread_participants.items():
+        # Track most active participants
+        patterns['most_active_participants'].update(participants)
+        
+        # Track thread size
+        patterns['thread_sizes'][thread_id] = sum(participants.values())
+        
+        # Track conversation pairs
+        participant_list = list(participants.keys())
+        for i in range(len(participant_list)):
+            for j in range(i + 1, len(participant_list)):
+                pair = tuple(sorted([participant_list[i], participant_list[j]]))
+                patterns['conversation_pairs'][pair] += 1
+    
+    return patterns
+
+def print_participant_analysis(patterns):
+    """Display participant analysis results"""
+    print("\n" + "=" * 80)
+    print("PARTICIPANT ANALYSIS")
+    print("=" * 80)
+    
+    print("\nTop 10 Most Active Participants:")
+    for email, count in patterns['most_active_participants'].most_common(10):
+        print(f"  {email}: {count} messages")
+    
+    print("\nTop 10 Communication Pairs:")
+    for (email1, email2), count in patterns['conversation_pairs'].most_common(10):
+        print(f"  {email1} <-> {email2}: {count} interactions")
+    
+    print(f"\nThread Statistics:")
+    thread_sizes = list(patterns['thread_sizes'].values())
+    if thread_sizes:
+        print(f"  Total threads: {len(thread_sizes)}")
+        print(f"  Average thread size: {sum(thread_sizes) / len(thread_sizes):.1f} messages")
+        print(f"  Largest thread: {max(thread_sizes)} messages")
+        print(f"  Smallest thread: {min(thread_sizes)} messages")
+```
+
+### Recovering Deleted Threads
+
+**Carve email data from disk images:**
+
+```bash
+#!/bin/bash
+# Carve email messages from disk image
+
+DISK_IMAGE="$1"
+OUTPUT_DIR="carved_emails"
+
+mkdir -p "$OUTPUT_DIR"
+
+echo "Carving email messages from disk image..."
+
+# Use photorec to carve email files
+photorec /d "$OUTPUT_DIR" /cmd "$DISK_IMAGE" fileopt,eml,msg,mbox,search
+
+# Use scalpel for additional carving
+cat > email_scalpel.conf << 'EOF'
+# Email file signatures
+eml     y   10000000    \x52\x65\x63\x65\x69\x76\x65\x64\x3a\x20    \x0d\x0a\x0d\x0a
+msg     y   10000000    \xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1
+mbox    y   50000000    \x46\x72\x6f\x6d\x20
+EOF
+
+scalpel -c email_scalpel.conf -o "$OUTPUT_DIR/scalpel" "$DISK_IMAGE"
+
+echo "Email carving complete. Analyzing recovered messages..."
+
+# Analyze carved messages
+python3 << 'EOF'
+import os
+import email
+from email import policy
+import glob
+
+carved_dir = "carved_emails"
+valid_emails = []
+
+print("Validating carved email messages...")
+
+for root, dirs, files in os.walk(carved_dir):
+    for filename in files:
+        filepath = os.path.join(root, filename)
+        
+        try:
+            with open(filepath, 'rb') as f:
+                content = f.read()
+            
+            # Try to parse as email
+            msg = email.message_from_bytes(content, policy=policy.default)
+            
+            # Validate it has key email headers
+            if msg.get('From') and (msg.get('To') or msg.get('Subject')):
+                valid_emails.append({
+                    'file': filepath,
+                    'from': msg.get('From'),
+                    'to': msg.get('To'),
+                    'subject': msg.get('Subject'),
+                    'date': msg.get('Date'),
+                    'message_id': msg.get('Message-ID')
+                })
+                
+                # Save valid email
+                output_file = os.path.join('carved_emails', f'valid_{len(valid_emails)}.eml')
+                with open(output_file, 'wb') as out:
+                    out.write(content)
+        except:
+            pass
+
+print(f"\nRecovered {len(valid_emails)} valid email messages")
+
+for i, email_data in enumerate(valid_emails, 1):
+    print(f"\n{i}. {email_data['subject']}")
+    print(f"   From: {email_data['from']}")
+    print(f"   Date: {email_data['date']}")
+EOF
+```
+
+**Recover deleted messages from MBOX:**
+
+```python
+#!/usr/bin/env python3
+# Recover deleted messages from MBOX slack space
+import os
+import re
+
+def recover_mbox_deleted(mbox_file):
+    """Attempt to recover deleted messages from MBOX file"""
+    with open(mbox_file, 'rb') as f:
+        data = f.read()
+    
+    # Find all potential message boundaries
+    # MBOX format: Messages start with "From " line
+    from_pattern = rb'^From \S+.*?\n'
+    
+    recovered = []
+    pos = 0
+    
+    print("Scanning for message boundaries...")
+    
+    while pos < len(data):
+        # Look for "From " at start of line
+        match = re.search(from_pattern, data[pos:pos+10000], re.MULTILINE)
+        
+        if not match:
+            pos += 10000
+            continue
+        
+        msg_start = pos + match.start()
+        
+        # Find next message or end of file
+        next_match = re.search(from_pattern, data[msg_start+10:], re.MULTILINE)
+        
+        if next_match:
+            msg_end = msg_start + 10 + next_match.start()
+        else:
+            msg_end = len(data)
+        
+        message_data = data[msg_start:msg_end]
+        
+        # Try to parse as email
+        try:
+            import email
+            from email import policy
+            msg = email.message_from_bytes(message_data, policy=policy.default)
+            
+            if msg.get('From'):
+                recovered.append({
+                    'offset': msg_start,
+                    'size': msg_end - msg_start,
+                    'from': msg.get('From'),
+                    'subject': msg.get('Subject'),
+                    'date': msg.get('Date'),
+                    'message_id': msg.get('Message-ID'),
+                    'data': message_data
+                })
+                
+                print(f"  Found message at offset {msg_start}: {msg.get('Subject')}")
+        except:
+            pass
+        
+        pos = msg_start + 100
+    
+    return recovered
+
+def save_recovered_messages(recovered, output_dir):
+    """Save recovered messages to individual files"""
+    os.makedirs(output_dir, exist_ok=True)
+    
+    for i, msg_data in enumerate(recovered, 1):
+        filename = f"recovered_{i:04d}.eml"
+        filepath = os.path.join(output_dir, filename)
+        
+        with open(filepath, 'wb') as f:
+            f.write(msg_data['data'])
+    
+    print(f"\nSaved {len(recovered)} recovered messages to {output_dir}")
+
+# Usage
+if __name__ == "__main__":
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("Usage: python3 recover_mbox.py <mbox_file>")
+        sys.exit(1)
+    
+    mbox_file = sys.argv[1]
+    recovered = recover_mbox_deleted(mbox_file)
+    
+    print(f"\nRecovered {len(recovered)} messages")
+    save_recovered_messages(recovered, "recovered_mbox")
+```
+
+### Thread Metadata Analysis
+
+**Extract and analyze email metadata:**
+
+```python
+#!/usr/bin/env python3
+# Comprehensive email metadata extraction
+import email
+from email import policy
+from email.utils import parsedate_to_datetime, parseaddr
+import json
+import hashlib
+
+def extract_comprehensive_metadata(email_file):
+    """Extract all available metadata from email"""
+    with open(email_file, 'rb') as f:
+        msg = email.message_from_binary_file(f, policy=policy.default)
+    
+    metadata = {
+        'basic_headers': {},
+        'routing': {},
+        'authentication': {},
+        'content': {},
+        'attachments': [],
+        'received_chain': [],
+        'forensic': {}
+    }
+    
+    # Basic headers
+    metadata['basic_headers'] = {
+        'from': msg.get('From'),
+        'to': msg.get('To'),
+        'cc': msg.get('Cc'),
+        'bcc': msg.get('Bcc'),
+        'subject': msg.get('Subject'),
+        'date': msg.get('Date'),
+        'message_id': msg.get('Message-ID'),
+        'in_reply_to': msg.get('In-Reply-To'),
+        'references': msg.get('References')
+    }
+    
+    # Routing information
+    metadata['routing'] = {
+        'return_path': msg.get('Return-Path'),
+        'reply_to': msg.get('Reply-To'),
+        'sender': msg.get('Sender'),
+        'x_originating_ip': msg.get('X-Originating-IP'),
+        'x_mailer': msg.get('X-Mailer'),
+        'user_agent': msg.get('User-Agent')
+    }
+    
+    # Authentication headers
+    metadata['authentication'] = {
+        'dkim_signature': msg.get('DKIM-Signature'),
+        'spf': msg.get('Received-SPF'),
+        'dmarc': msg.get('Authentication-Results'),
+        'arc_authentication': msg.get('ARC-Authentication-Results')
+    }
+    
+    # Content metadata
+    metadata['content'] = {
+        'content_type': msg.get_content_type(),
+        'content_transfer_encoding': msg.get('Content-Transfer-Encoding'),
+        'mime_version': msg.get('MIME-Version'),
+        'x_priority': msg.get('X-Priority'),
+        'importance': msg.get('Importance')
+    }
+    
+    # Parse Received headers (mail server chain)
+    received_headers = msg.get_all('Received', [])
+    for i, received in enumerate(received_headers):
+        metadata['received_chain'].append({
+            'hop': i + 1,
+            'raw': received,
+            'parsed': parse_received_header(received)
+        })
+    
+    # Extract attachments
+    for part in msg.walk():
+        if part.get_content_disposition() == 'attachment':
+            filename = part.get_filename()
+            content = part.get_content()
+            
+            attachment_info = {
+                'filename': filename,
+                'content_type': part.get_content_type(),
+                'size': len(content) if content else 0
+            }
+            
+            # Calculate hash of attachment
+            if content:
+                attachment_info['md5'] = hashlib.md5(content).hexdigest()
+                attachment_info['sha256'] = hashlib.sha256(content).hexdigest()
+            
+            metadata['attachments'].append(attachment_info)
+    
+    # Forensic metadata
+    try:
+        date_obj = parsedate_to_datetime(msg.get('Date', ''))
+        metadata['forensic']['parsed_date'] = str(date_obj)
+        metadata['forensic']['timestamp'] = date_obj.timestamp()
+    except:
+        pass
+    
+    # Extract raw email size
+    with open(email_file, 'rb') as f:
+        raw_content = f.read()
+        metadata['forensic']['file_size'] = len(raw_content)
+        metadata['forensic']['sha256'] = hashlib.sha256(raw_content).hexdigest()
+    
+    # Count header fields
+    metadata['forensic']['header_count'] = len(msg.items())
+    
+    return metadata
+
+def parse_received_header(received):
+    """Parse Received header to extract routing information"""
+    # [Inference] This parsing may not capture all variations of Received header format
+    parsed = {
+        'from': None,
+        'by': None,
+        'with': None,
+        'id': None,
+        'for': None,
+        'date': None
+    }
+    
+    import re
+    
+    # Extract "from" field
+    from_match = re.search(r'from\s+(\S+)', received)
+    if from_match:
+        parsed['from'] = from_match.group(1)
+    
+    # Extract "by" field
+    by_match = re.search(r'by\s+(\S+)', received)
+    if by_match:
+        parsed['by'] = by_match.group(1)
+    
+    # Extract "with" field (protocol)
+    with_match = re.search(r'with\s+(\S+)', received)
+    if with_match:
+        parsed['with'] = with_match.group(1)
+    
+    # Extract "id" field
+    id_match = re.search(r'id\s+(\S+)', received)
+    if id_match:
+        parsed['id'] = id_match.group(1)
+    
+    # Extract "for" field (recipient)
+    for_match = re.search(r'for\s+<([^>]+)>', received)
+    if for_match:
+        parsed['for'] = for_match.group(1)
+    
+    # Extract date (usually at the end, preceded by semicolon)
+    date_match = re.search(r';\s*(.+)$', received)
+    if date_match:
+        parsed['date'] = date_match.group(1).strip()
+    
+    return parsed
+
+def export_metadata_report(metadata, output_file):
+    """Export metadata to JSON report"""
+    with open(output_file, 'w') as f:
+        json.dump(metadata, f, indent=2, default=str)
+    
+    print(f"Metadata report saved to {output_file}")
+
+# Usage
+if __name__ == "__main__":
+    import sys
+    import glob
+    
+    if len(sys.argv) < 2:
+        print("Usage: python3 extract_metadata.py <email_file_or_directory>")
+        sys.exit(1)
+    
+    path = sys.argv[1]
+    
+    if os.path.isfile(path):
+        files = [path]
+    else:
+        files = glob.glob(os.path.join(path, '*.eml'))
+    
+    all_metadata = []
+    
+    for email_file in files:
+        print(f"Processing: {email_file}")
+        metadata = extract_comprehensive_metadata(email_file)
+        metadata['source_file'] = email_file
+        all_metadata.append(metadata)
+    
+    export_metadata_report(all_metadata, 'email_metadata_report.json')
+    print(f"\nProcessed {len(all_metadata)} email files")
+```
+
+### Advanced Thread Reconstruction Scenarios
+
+**Scenario 1: Reconstruct threads from fragmented headers:**
+
+```python
+#!/usr/bin/env python3
+# Reconstruct threads when only partial headers are available
+import re
+from collections import defaultdict
+
+def extract_partial_threading_info(corrupted_email):
+    """Extract threading info even from corrupted/partial emails"""
+    with open(corrupted_email, 'rb') as f:
+        data = f.read()
+    
+    # Try to extract key headers even if structure is damaged
+    threading_info = {}
+    
+    # Search for Message-ID pattern
+    msg_id_pattern = rb'Message-ID:\s*<?([^>\r\n]+)>?'
+    msg_id_match = re.search(msg_id_pattern, data, re.IGNORECASE)
+    if msg_id_match:
+        threading_info['message_id'] = msg_id_match.group(1).decode('utf-8', errors='ignore')
+    
+    # Search for In-Reply-To
+    reply_pattern = rb'In-Reply-To:\s*<?([^>\r\n]+)>?'
+    reply_match = re.search(reply_pattern, data, re.IGNORECASE)
+    if reply_match:
+        threading_info['in_reply_to'] = reply_match.group(1).decode('utf-8', errors='ignore')
+    
+    # Search for References
+    ref_pattern = rb'References:\s*([^\r\n]+)'
+    ref_match = re.search(ref_pattern, data, re.IGNORECASE)
+    if ref_match:
+        refs = ref_match.group(1).decode('utf-8', errors='ignore')
+        # Extract all Message-IDs from References
+        threading_info['references'] = re.findall(r'<?([^<>\s]+@[^<>\s]+)>?', refs)
+    
+    # Extract Subject with Re:/Fwd: markers
+    subject_pattern = rb'Subject:\s*([^\r\n]+)'
+    subject_match = re.search(subject_pattern, data, re.IGNORECASE)
+    if subject_match:
+        threading_info['subject'] = subject_match.group(1).decode('utf-8', errors='ignore')
+    
+    # Extract Date
+    date_pattern = rb'Date:\s*([^\r\n]+)'
+    date_match = re.search(date_pattern, data, re.IGNORECASE)
+    if date_match:
+        threading_info['date'] = date_match.group(1).decode('utf-8', errors='ignore')
+    
+    # Extract From
+    from_pattern = rb'From:\s*([^\r\n]+)'
+    from_match = re.search(from_pattern, data, re.IGNORECASE)
+    if from_match:
+        threading_info['from'] = from_match.group(1).decode('utf-8', errors='ignore')
+    
+    return threading_info
+
+def reconstruct_from_fragments(email_fragments):
+    """Reconstruct threading from fragmented email data"""
+    partial_threads = defaultdict(list)
+    
+    for fragment_file in email_fragments:
+        print(f"Processing fragment: {fragment_file}")
+        info = extract_partial_threading_info(fragment_file)
+        
+        if info:
+            # Group by Message-ID or subject
+            key = info.get('message_id') or info.get('subject', 'unknown')
+            partial_threads[key].append({
+                'file': fragment_file,
+                'info': info
+            })
+    
+    return partial_threads
+```
+
+**Scenario 2: Cross-platform thread correlation:**
+
+```python
+#!/usr/bin/env python3
+# Correlate email threads across multiple platforms (Gmail, Outlook, etc.)
+
+def normalize_message_id(msg_id):
+    """Normalize Message-ID format across platforms"""
+    if not msg_id:
+        return None
+    
+    # Remove angle brackets
+    msg_id = msg_id.strip('<>')
+    
+    # Some platforms add prefixes
+    msg_id = re.sub(r'^CAP\+\w+\.', '', msg_id)  # Gmail format
+    msg_id = re.sub(r'^[A-Z]{2}\d+\.', '', msg_id)  # Outlook format
+    
+    return msg_id.lower()
+
+def correlate_cross_platform_threads(platform_emails):
+    """
+    Correlate threads across different email platforms
+    platform_emails: dict with platform name as key, list of emails as value
+    """
+    # Build unified index
+    unified_index = {}
+    platform_sources = defaultdict(list)
+    
+    for platform, emails in platform_emails.items():
+        for email_data in emails:
+            msg_id = normalize_message_id(email_data.get('message_id'))
+            
+            if msg_id:
+                if msg_id not in unified_index:
+                    unified_index[msg_id] = email_data
+                
+                platform_sources[msg_id].append(platform)
+    
+    # Find messages present in multiple platforms
+    cross_platform = {}
+    for msg_id, platforms in platform_sources.items():
+        if len(set(platforms)) > 1:
+            cross_platform[msg_id] = {
+                'platforms': list(set(platforms)),
+                'count': len(platforms),
+                'email_data': unified_index[msg_id]
+            }
+    
+    print(f"\nFound {len(cross_platform)} messages across multiple platforms:")
+    for msg_id, data in cross_platform.items():
+        print(f"  {msg_id[:30]}... : {data['platforms']}")
+    
+    return cross_platform, unified_index
+```
+
+**Scenario 3: Timeline reconstruction with missing dates:**
+
+```python
+#!/usr/bin/env python3
+# Reconstruct timeline even when date headers are missing or corrupted
+
+def estimate_message_date(email_data, thread_context):
+    """
+    Estimate message date using context clues
+    [Inference] Date estimation based on thread context is not guaranteed accurate
+    """
+    estimated_date = None
+    confidence = "low"
+    method = None
+    
+    # Method 1: Use Received headers
+    received_chain = email_data.get('received_chain', [])
+    if received_chain and received_chain[-1].get('parsed', {}).get('date'):
+        estimated_date = received_chain[-1]['parsed']['date']
+        confidence = "high"
+        method = "received_header"
+    
+    # Method 2: Interpolate from thread context
+    elif thread_context:
+        in_reply_to = email_data.get('in_reply_to')
+        if in_reply_to and in_reply_to in thread_context:
+            parent_date = thread_context[in_reply_to].get('date')
+            if parent_date:
+                # Assume reply within 24 hours of parent
+                try:
+                    from datetime import datetime, timedelta
+                    from email.utils import parsedate_to_datetime
+                    
+                    parent_dt = parsedate_to_datetime(parent_date)
+                    estimated_dt = parent_dt + timedelta(hours=1)
+                    estimated_date = estimated_dt.strftime("%a, %d %b %Y %H:%M:%S %z")
+                    confidence = "medium"
+                    method = "parent_interpolation"
+                except:
+                    pass
+    
+    # Method 3: Use file modification time
+    if not estimated_date and 'file' in email_data:
+        try:
+            import os
+            from datetime import datetime
+            
+            mtime = os.path.getmtime(email_data['file'])
+            estimated_dt = datetime.fromtimestamp(mtime)
+            estimated_date = estimated_dt.strftime("%a, %d %b %Y %H:%M:%S %z")
+            confidence = "low"
+            method = "file_mtime"
+        except:
+            pass
+    
+    return {
+        'estimated_date': estimated_date,
+        'confidence': confidence,
+        'method': method
+    }
+```
+
+### CTF-Specific Techniques
+
+**Hidden data in email headers:**
+
+```bash
+# Extract custom X-headers that might contain flags
+grep -r "^X-" *.eml | grep -i "flag\|ctf\|secret"
+
+# Check for Base64 encoded data in headers
+grep -r "^X-" *.eml | grep -oE "[A-Za-z0-9+/]{20,}={0,2}" | while read line; do
+    echo "$line" | base64 -d 2>/dev/null
+done
+
+# Look for unusual header fields
+python3 << 'EOF'
+import email
+import glob
+from collections import Counter
+
+all_headers = Counter()
+
+for filepath in glob.glob('*.eml'):
+    with open(filepath, 'rb') as f:
+        msg = email.message_from_binary_file(f)
+    
+    for header in msg.keys():
+        all_headers[header] += 1
+
+print("Unusual headers (appear in <10% of messages):")
+total = sum(all_headers.values())
+for header, count in all_headers.items():
+    if count / total < 0.1:
+        print(f"  {header}: {count} occurrences")
+EOF
+```
+
+**Steganography in email attachments:**
+
+```bash
+# Extract all attachments from thread
+python3 << 'EOF'
+import email
+from email import policy
+import glob
+import os
+
+output_dir = "extracted_attachments"
+os.makedirs(output_dir, exist_ok=True)
+
+for filepath in glob.glob('*.eml'):
+    with open(filepath, 'rb') as f:
+        msg = email.message_from_binary_file(f, policy=policy.default)
+    
+    for i, part in enumerate(msg.walk()):
+        if part.get_content_disposition() == 'attachment':
+            filename = part.get_filename() or f"attachment_{i}"
+            content = part.get_content()
+            
+            output_path = os.path.join(output_dir, f"{os.path.basename(filepath)}_{filename}")
+            
+            with open(output_path, 'wb') as out:
+                out.write(content)
+            
+            print(f"Extracted: {output_path}")
+EOF
+
+# Check attachments for steganography
+cd extracted_attachments
+for file in *; do
+    echo "Checking: $file"
+    steghide info "$file" 2>/dev/null
+    strings "$file" | grep -i "flag\|ctf"
+done
+```
+
+**Email header timestamp analysis:**
+
+```python
+#!/usr/bin/env python3
+# Analyze timestamp discrepancies across email chain
+
+from email.utils import parsedate_to_datetime
+from datetime import timedelta
+
+def analyze_timestamp_anomalies(emails):
+    """Detect suspicious timestamp patterns"""
+    anomalies = []
+    
+    for email_data in emails:
+        # Compare Date header with Received headers
+        date_header = email_data.get('date')
+        received_chain = email_data.get('received_chain', [])
+        
+        if date_header and received_chain:
+            try:
+                claimed_date = parsedate_to_datetime(date_header)
+                
+                # Get first received timestamp (closest to sender)
+                first_received = received_chain[-1].get('parsed', {}).get('date')
+                if first_received:
+                    received_date = parsedate_to_datetime(first_received)
+                    
+                    # Check if claimed date is significantly different
+                    diff = abs((claimed_date - received_date).total_seconds())
+                    
+                    if diff > 3600:  # More than 1 hour difference
+                        anomalies.append({
+                            'message_id': email_data.get('message_id'),
+                            'claimed_date': str(claimed_date),
+                            'received_date': str(received_date),
+                            'difference_hours': diff / 3600,
+                            'description': 'Significant timestamp discrepancy'
+                        })
+            except:
+                pass
+    
+    return anomalies
+```
+
+---
+
+## Important Related Topics
+
+For comprehensive email forensics preparation in CTF scenarios, consider exploring:
+
+- **Email Header Analysis** - SMTP routing, SPF/DKIM/DMARC authentication, IP geolocation
+- **Email Content Analysis** - MIME structure, encoding detection, attachment extraction
+- **Webmail Forensics** - Browser artifacts, session tokens, cached email data
+- **Email Encryption** - PGP/GPG message recovery, S/MIME analysis
+- **Mobile Email Forensics** - iOS Mail.app, Android Gmail artifacts, sync protocols
+
+---
+
 # Database Forensics
 
 ## SQLite Database Recovery
@@ -22333,3 +30555,21303 @@ WHERE content REGEXP '^[A-Za-z0-9+/]+={0,2}$'  -- Base64 pattern
 ```
 
 **Related topics:** File system forensics (recovering deleted database files), memory forensics (extracting live database connections and queries), network forensics (capturing database traffic), application forensics (web application database interactions), encryption analysis (encrypted database columns, TDE)
+
+---
+
+# Cloud and Container Forensics
+
+Cloud and container forensics involves analyzing ephemeral infrastructure, distributed storage systems, and containerized application artifacts. Evidence volatility is critical—containers and cloud instances can be destroyed within seconds, requiring rapid collection and understanding of cloud-native architectures.
+
+## Cloud Storage Artifacts
+
+Cloud storage leaves artifacts across provider APIs, local sync clients, metadata services, and cached credentials. Evidence includes file synchronization logs, API access patterns, and deleted object recovery.
+
+**AWS S3 Forensics:**
+
+S3 bucket enumeration and access:
+
+```bash
+aws s3 ls s3://bucket-name --recursive
+aws s3 ls s3://bucket-name --recursive --human-readable
+aws s3api list-objects-v2 --bucket bucket-name
+aws s3api list-object-versions --bucket bucket-name  # Includes deleted objects
+```
+
+Versioning enables recovery of deleted/modified objects:
+
+```bash
+aws s3api list-object-versions --bucket bucket-name --prefix path/to/file
+aws s3api get-object --bucket bucket-name --key file.txt --version-id VERSION_ID output.txt
+```
+
+S3 access logs analysis (if enabled):
+
+```bash
+aws s3 sync s3://logging-bucket/prefix/ ./s3-logs/
+grep "REST.GET.OBJECT" s3-logs/*.log
+awk '{print $8}' s3-logs/*.log | sort | uniq -c | sort -rn  # Most accessed IPs
+```
+
+CloudTrail logs for S3 API activity:
+
+```bash
+aws cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue=bucket-name
+aws cloudtrail lookup-events --start-time 2025-10-01T00:00:00Z --end-time 2025-10-25T23:59:59Z
+```
+
+Metadata extraction:
+
+```bash
+aws s3api head-object --bucket bucket-name --key file.txt
+# Returns: Content-Type, Last-Modified, ETag, Metadata, ServerSideEncryption
+```
+
+**Google Cloud Storage (GCS):**
+
+```bash
+gsutil ls gs://bucket-name
+gsutil ls -L gs://bucket-name/file.txt  # Long listing with metadata
+gsutil ls -la gs://bucket-name  # All versions including deleted
+```
+
+Object versioning recovery:
+
+```bash
+gsutil ls -a gs://bucket-name/file.txt
+gsutil cp gs://bucket-name/file.txt#generation output.txt
+```
+
+Access logs (Cloud Logging):
+
+```bash
+gcloud logging read "resource.type=gcs_bucket AND resource.labels.bucket_name=bucket-name" --limit 500 --format json
+```
+
+**Azure Blob Storage:**
+
+```bash
+az storage blob list --account-name storageaccount --container-name containername
+az storage blob show --account-name storageaccount --container-name containername --name file.txt
+```
+
+Soft-deleted blob recovery (if enabled):
+
+```bash
+az storage blob list --account-name storageaccount --container-name containername --include d
+az storage blob undelete --account-name storageaccount --container-name containername --name file.txt
+```
+
+Access logs via Storage Analytics:
+
+```bash
+az storage logging show --services b --account-name storageaccount
+az storage blob download --account-name storageaccount --container-name '$logs' --name blob/YYYY/MM/DD/HHMM/log.log
+```
+
+**Local Cloud Storage Client Artifacts:**
+
+Dropbox artifacts (Linux):
+
+```bash
+~/.dropbox/
+~/.dropbox/instance1/sync_history.db  # SQLite database
+sqlite3 ~/.dropbox/instance1/sync_history.db "SELECT * FROM file_journal;"
+~/.dropbox-dist/  # Application binaries
+```
+
+Google Drive (Linux - via gnome-online-accounts):
+
+```bash
+~/.config/goa-1.0/accounts.conf
+~/.cache/gvfs-metadata/  # GVFS metadata cache
+journalctl --user -u gvfs-daemon  # Access logs
+```
+
+OneDrive (Linux - via onedrive client):
+
+```bash
+~/.config/onedrive/
+~/.config/onedrive/sync_list
+sqlite3 ~/.config/onedrive/items.sqlite3 "SELECT * FROM item_table;"
+```
+
+AWS CLI credentials and history:
+
+```bash
+~/.aws/credentials  # API keys
+~/.aws/config  # Region/output configuration
+~/.bash_history | grep aws  # Command history
+```
+
+**Cloud Instance Metadata:**
+
+AWS EC2 metadata service (accessible from within instance):
+
+```bash
+curl http://169.254.169.254/latest/meta-data/
+curl http://169.254.169.254/latest/meta-data/instance-id
+curl http://169.254.169.254/latest/user-data  # Launch configuration
+curl http://169.254.169.254/latest/dynamic/instance-identity/document
+```
+
+Google Cloud metadata:
+
+```bash
+curl "http://metadata.google.internal/computeMetadata/v1/?recursive=true" -H "Metadata-Flavor: Google"
+curl "http://metadata.google.internal/computeMetadata/v1/instance/attributes/" -H "Metadata-Flavor: Google"
+```
+
+Azure metadata:
+
+```bash
+curl -H Metadata:true "http://169.254.169.254/metadata/instance?api-version=2021-02-01"
+```
+
+## Container Image Analysis
+
+Container images are layered filesystems stored as tarballs. Each layer represents filesystem changes from a Dockerfile instruction. Analysis involves extracting layers, examining configuration, and identifying malicious modifications.
+
+**Image Acquisition:**
+
+Pull and save images:
+
+```bash
+docker pull suspicious-image:tag
+docker save suspicious-image:tag -o image.tar
+docker save suspicious-image:tag | gzip > image.tar.gz
+
+# Export running container as image
+docker export container_id -o container.tar
+```
+
+Podman (rootless alternative):
+
+```bash
+podman pull suspicious-image:tag
+podman save suspicious-image:tag -o image.tar
+```
+
+**Image Structure Examination:**
+
+Extract image tarball:
+
+```bash
+mkdir image-analysis
+tar -xf image.tar -C image-analysis/
+cd image-analysis/
+ls -la
+# Contains: manifest.json, repositories, layer directories (sha256:...)
+```
+
+Manifest analysis:
+
+```bash
+cat manifest.json | jq .
+```
+
+Manifest contains layer order, configuration blob reference, and repository tags.
+
+Configuration inspection:
+
+```bash
+cat */json | jq .
+# OR find specific config
+CONFIG_SHA=$(jq -r '.[0].Config' manifest.json)
+cat $CONFIG_SHA | jq .
+```
+
+Configuration reveals:
+
+- Environment variables (may contain secrets)
+- Exposed ports
+- Entrypoint and CMD
+- Working directory
+- User context
+- Build history with layer commands
+
+**Layer Extraction and Analysis:**
+
+```bash
+# Each layer is a tar.gz containing filesystem changes
+for layer in */layer.tar; do
+    echo "Analyzing $layer"
+    tar -tzf "$layer" | head -n 20
+done
+
+# Extract specific layer
+mkdir layer1
+tar -xf <layer-sha>/layer.tar -C layer1/
+```
+
+Dive tool - Interactive layer analysis:
+
+```bash
+dive suspicious-image:tag
+```
+
+Navigate layers with arrow keys, view file changes per layer, identify wasted space, and detect added binaries/scripts.
+
+Automated layer inspection:
+
+```bash
+# Extract all layers sequentially
+for dir in */; do
+    if [ -f "$dir/layer.tar" ]; then
+        mkdir -p "extracted/$dir"
+        tar -xf "$dir/layer.tar" -C "extracted/$dir"
+    fi
+done
+```
+
+**Security Analysis:**
+
+Search for secrets across layers:
+
+```bash
+find extracted/ -type f -exec grep -l "password\|secret\|api_key\|token\|BEGIN.*PRIVATE KEY" {} \;
+grep -r "AWS_ACCESS_KEY_ID\|AWS_SECRET_ACCESS_KEY" extracted/
+```
+
+Identify SUID/SGID binaries:
+
+```bash
+find extracted/ -type f \( -perm -4000 -o -perm -2000 \) -ls
+```
+
+Check for suspicious network tools:
+
+```bash
+find extracted/ -type f \( -name "nc" -o -name "ncat" -o -name "socat" -o -name "nmap" \) -ls
+```
+
+Malware scanning:
+
+```bash
+clamscan -r extracted/
+```
+
+**Trivy - Vulnerability Scanner:**
+
+```bash
+trivy image suspicious-image:tag
+trivy image --severity HIGH,CRITICAL suspicious-image:tag
+trivy image --format json -o results.json suspicious-image:tag
+```
+
+Scans for:
+
+- OS package vulnerabilities
+- Application dependency vulnerabilities (Python, Node.js, Ruby, etc.)
+- Misconfigurations
+- Secrets in layers
+
+**Grype - Alternative Vulnerability Scanner:**
+
+```bash
+grype suspicious-image:tag
+grype dir:./extracted/
+```
+
+**Image History Analysis:**
+
+```bash
+docker history suspicious-image:tag
+docker history --no-trunc suspicious-image:tag  # Full commands
+docker history --format "{{.ID}}: {{.CreatedBy}}" suspicious-image:tag
+```
+
+Reveals build commands including deleted files and sensitive data accidentally committed then removed. [Inference: Data "removed" in later layers remains in earlier layers and is recoverable]
+
+**Dockerfile Reconstruction:**
+
+```bash
+# Using docker history
+docker history --no-trunc --format "{{.CreatedBy}}" suspicious-image:tag | tac
+
+# Using dfimage
+alias dfimage="docker run -v /var/run/docker.sock:/var/run/docker.sock --rm alpine/dfimage"
+dfimage suspicious-image:tag
+```
+
+[Unverified: Reconstruction accuracy depends on image build method and layer metadata preservation]
+
+## Docker Layer Examination
+
+Layer-by-layer forensics identifies when malicious content was introduced, detects supply chain compromises, and reconstructs container modification timeline.
+
+**Layer Differencing:**
+
+Container-diff tool:
+
+```bash
+container-diff diff daemon://image1:tag daemon://image2:tag
+container-diff diff daemon://image:tag --type=file --type=metadata
+```
+
+Types of analysis:
+
+- `file`: Filesystem changes
+- `metadata`: Image config differences
+- `apt`: Debian package differences
+- `pip`: Python package differences
+- `npm`: Node.js package differences
+
+Manual diff between layers:
+
+```bash
+# Compare two extracted layers
+diff -r extracted/layer1/ extracted/layer2/
+diff -qr extracted/layer1/ extracted/layer2/ | grep "Only in"
+```
+
+**Whiteout Files:**
+
+Deletion in layers creates `.wh.*` files indicating removed content:
+
+```bash
+find extracted/ -name ".wh.*"
+```
+
+`.wh.file.txt` means `file.txt` was deleted in this layer. `.wh..wh..opq` indicates entire directory was deleted (opaque whiteout).
+
+**Timeline Reconstruction:**
+
+Extract timestamps from layer metadata:
+
+```bash
+for dir in */; do
+    if [ -f "$dir/json" ]; then
+        echo "Layer: $dir"
+        jq -r '.created' "$dir/json"
+    fi
+done | sort
+```
+
+Filesystem modification times within layers:
+
+```bash
+find extracted/layer1/ -type f -printf "%T+ %p\n" | sort
+```
+
+**Binary Analysis in Layers:**
+
+Identify executables added:
+
+```bash
+find extracted/ -type f -executable
+file extracted/layer3/usr/local/bin/suspicious
+```
+
+Check for packed/obfuscated binaries:
+
+```bash
+strings extracted/layer3/usr/local/bin/suspicious | less
+objdump -d extracted/layer3/usr/local/bin/suspicious
+```
+
+Dynamic analysis (if safe environment available):
+
+```bash
+# Run container with limited permissions
+docker run --rm --network none --read-only suspicious-image:tag /bin/bash
+```
+
+**Supply Chain Verification:**
+
+Verify image signatures (Docker Content Trust):
+
+```bash
+export DOCKER_CONTENT_TRUST=1
+docker pull image:tag  # Only pulls signed images
+```
+
+Inspect signing metadata:
+
+```bash
+docker trust inspect image:tag
+docker trust inspect --pretty image:tag
+```
+
+Cosign for container signing (CNCF project):
+
+```bash
+cosign verify --key cosign.pub image:tag
+cosign tree image:tag
+```
+
+**Registry Artifact Analysis:**
+
+Direct registry API access:
+
+```bash
+# List tags
+curl https://registry.example.com/v2/repository/tags/list
+
+# Get manifest
+curl -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+  https://registry.example.com/v2/repository/manifests/tag
+
+# Download layer
+curl https://registry.example.com/v2/repository/blobs/sha256:DIGEST -o layer.tar.gz
+```
+
+**Memory Analysis of Running Containers:**
+
+Dump container process memory:
+
+```bash
+# Get PID of container process
+docker inspect --format '{{.State.Pid}}' container_id
+
+# Dump memory (requires root)
+sudo gcore PID
+sudo cat /proc/PID/maps > maps.txt
+sudo dd if=/proc/PID/mem of=mem.dump bs=1024
+```
+
+Volatility 3 for container memory analysis:
+
+```bash
+python3 vol.py -f mem.dump linux.pslist
+python3 vol.py -f mem.dump linux.bash
+```
+
+## Kubernetes Artifact Collection
+
+Kubernetes orchestrates containers across distributed nodes. Forensics requires collecting pod logs, configurations, persistent volumes, etcd state, and node-level artifacts.
+
+**Cluster State Collection:**
+
+Pod information:
+
+```bash
+kubectl get pods --all-namespaces -o wide
+kubectl get pods -n namespace -o yaml > pods.yaml
+kubectl describe pod pod-name -n namespace
+```
+
+Pod logs (stdout/stderr):
+
+```bash
+kubectl logs pod-name -n namespace
+kubectl logs pod-name -n namespace --previous  # Logs from crashed container
+kubectl logs pod-name -n namespace --timestamps
+kubectl logs pod-name -c container-name -n namespace  # Multi-container pods
+```
+
+Container streaming logs in real-time:
+
+```bash
+kubectl logs -f pod-name -n namespace
+```
+
+**Resource Configuration Extraction:**
+
+```bash
+kubectl get all --all-namespaces -o yaml > cluster-state.yaml
+kubectl get deployments,services,configmaps,secrets --all-namespaces -o yaml > resources.yaml
+kubectl get nodes -o yaml > nodes.yaml
+kubectl get events --all-namespaces --sort-by='.lastTimestamp' > events.txt
+```
+
+Specific resource types:
+
+```bash
+kubectl get configmaps -n namespace config-name -o yaml
+kubectl get secrets -n namespace secret-name -o yaml
+kubectl get persistentvolumes -o yaml
+kubectl get persistentvolumeclaims --all-namespaces -o yaml
+```
+
+**etcd Database Extraction:**
+
+etcd stores all cluster state. Direct access requires authentication:
+
+```bash
+# Access etcd pod
+kubectl exec -it etcd-pod-name -n kube-system -- sh
+
+# Inside etcd pod
+ETCDCTL_API=3 etcdctl \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  get / --prefix --keys-only
+```
+
+Backup entire etcd:
+
+```bash
+ETCDCTL_API=3 etcdctl snapshot save etcd-backup.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+```
+
+Extract secrets from etcd backup:
+
+```bash
+ETCDCTL_API=3 etcdctl snapshot restore etcd-backup.db --data-dir=/tmp/etcd-restore
+# Parse restored data
+```
+
+**Audit Logs:**
+
+Kubernetes audit logs (if enabled):
+
+```bash
+# Location varies by installation
+/var/log/kubernetes/audit/audit.log
+journalctl -u kube-apiserver | grep audit
+
+# Search for specific operations
+grep "create\|delete\|update" /var/log/kubernetes/audit/audit.log | jq .
+```
+
+Audit events to monitor:
+
+- Pod creation/deletion
+- Secret access
+- Exec into pods
+- Authorization failures
+- Configuration changes
+
+**Persistent Volume Forensics:**
+
+List PVs and PVCs:
+
+```bash
+kubectl get pv
+kubectl get pvc --all-namespaces
+kubectl describe pv pv-name
+```
+
+Access PV data depends on storage backend (hostPath, NFS, cloud storage).
+
+For hostPath volumes on nodes:
+
+```bash
+ssh node-hostname
+# Navigate to PV path specified in PV definition
+ls -la /mnt/data/pv-path/
+```
+
+For cloud-backed volumes:
+
+```bash
+# AWS EBS
+aws ec2 describe-volumes --volume-ids vol-xxxxx
+aws ec2 create-snapshot --volume-id vol-xxxxx
+
+# GCP Persistent Disk
+gcloud compute disks snapshot disk-name
+
+# Azure Disk
+az snapshot create --resource-group rg --source disk-name --name snapshot-name
+```
+
+**Pod Filesystem Examination:**
+
+Copy files from running pod:
+
+```bash
+kubectl cp namespace/pod-name:/path/to/file ./local-file
+kubectl cp namespace/pod-name:/var/log/ ./pod-logs/ -c container-name
+```
+
+Execute shell in pod for live analysis:
+
+```bash
+kubectl exec -it pod-name -n namespace -- /bin/bash
+kubectl exec -it pod-name -n namespace -c container-name -- /bin/sh
+```
+
+[Inference: Shell availability depends on container image; minimal images may lack shells]
+
+**Network Policy and Service Mesh Analysis:**
+
+```bash
+kubectl get networkpolicies --all-namespaces -o yaml
+kubectl get services --all-namespaces -o wide
+kubectl get ingress --all-namespaces -o yaml
+```
+
+Istio service mesh (if deployed):
+
+```bash
+istioctl analyze --all-namespaces
+kubectl logs pod-name -c istio-proxy -n namespace  # Sidecar logs
+```
+
+**RBAC and Security Context:**
+
+```bash
+kubectl get roles,rolebindings --all-namespaces -o yaml
+kubectl get clusterroles,clusterrolebindings -o yaml
+kubectl auth can-i --list --as=system:serviceaccount:namespace:sa-name
+```
+
+Pod security contexts:
+
+```bash
+kubectl get pods -o json | jq '.items[] | {name: .metadata.name, securityContext: .spec.securityContext}'
+```
+
+**Runtime Security Monitoring:**
+
+Falco - Kubernetes threat detection (if installed):
+
+```bash
+kubectl logs -n falco -l app=falco
+# Analyzes syscalls for suspicious behavior
+```
+
+**Node-Level Forensics:**
+
+Access node directly:
+
+```bash
+ssh node-hostname
+```
+
+Container runtime artifacts (containerd):
+
+```bash
+/var/lib/containerd/
+/run/containerd/
+crictl ps -a  # List containers
+crictl logs container-id
+crictl inspect container-id
+```
+
+Docker runtime (deprecated but still used):
+
+```bash
+/var/lib/docker/
+docker ps -a
+docker logs container-id
+```
+
+Kubelet logs:
+
+```bash
+journalctl -u kubelet
+/var/log/kubelet.log
+```
+
+Pod manifest files:
+
+```bash
+/etc/kubernetes/manifests/  # Static pods
+/var/lib/kubelet/pods/  # Pod directories
+```
+
+**Forensic Tool Pods:**
+
+Deploy forensic container in cluster:
+
+```bash
+kubectl run forensics --image=nicolaka/netshoot --rm -it -- /bin/bash
+kubectl run forensics --image=alpine --rm -it -- /bin/sh
+```
+
+Privileged pod for node access:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: forensics-node-access
+spec:
+  hostNetwork: true
+  hostPID: true
+  hostIPC: true
+  containers:
+  - name: forensics
+    image: nicolaka/netshoot
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - name: host
+      mountPath: /host
+  volumes:
+  - name: host
+    hostPath:
+      path: /
+```
+
+**Kubernetes Forensics Collector:**
+
+Automated collection tools:
+
+kubectl-capture (plugin):
+
+```bash
+kubectl capture pod-name -n namespace
+```
+
+Sysdig Inspect:
+
+```bash
+kubectl apply -f sysdig-daemonset.yaml
+kubectl logs sysdig-pod-name > capture.scap
+```
+
+**Timeline Analysis:**
+
+Event timeline reconstruction:
+
+```bash
+kubectl get events --all-namespaces --sort-by='.lastTimestamp' -o json | \
+  jq -r '.items[] | "\(.lastTimestamp) \(.involvedObject.kind)/\(.involvedObject.name) \(.message)"'
+```
+
+**Important Subtopics for Further Study:**
+
+- Serverless forensics (Lambda, Cloud Functions, Cloud Run)
+- Kubernetes admission controller logs and policy violations
+- Container escape detection and post-exploitation artifacts
+- Service mesh traffic analysis (Envoy access logs)
+- Cloud-native SIEM integration (CloudWatch, Stackdriver, Azure Monitor)
+- Encrypted volume forensics in cloud environments
+
+---
+
+## Cloud Service Logs
+
+Cloud service logs are critical artifacts for understanding user activity, API calls, resource access, and security events. Each major cloud provider implements different logging mechanisms.
+
+### AWS CloudTrail
+
+CloudTrail records AWS API calls and related events for account activity auditing.
+
+**Log Acquisition:**
+
+```bash
+# Install AWS CLI
+apt-get install awscli
+# or
+pip3 install awscli
+
+# Configure credentials
+aws configure
+# Enter Access Key ID, Secret Access Key, region, output format
+
+# List available trails
+aws cloudtrail describe-trails
+
+# Download CloudTrail logs from S3
+aws s3 ls s3://bucket-name/AWSLogs/account-id/CloudTrail/
+aws s3 sync s3://bucket-name/AWSLogs/account-id/CloudTrail/ ./cloudtrail-logs/
+
+# Query recent events directly
+aws cloudtrail lookup-events --lookup-attributes AttributeKey=Username,AttributeValue=target-user
+aws cloudtrail lookup-events --max-results 50 --start-time 2025-01-01T00:00:00Z
+```
+
+**Log Analysis:**
+
+CloudTrail logs are JSON-formatted, typically gzip-compressed.
+
+```bash
+# Decompress logs
+gunzip *.json.gz
+
+# Parse JSON logs
+cat log-file.json | jq '.'
+
+# Extract specific event types
+jq '.Records[] | select(.eventName=="ConsoleLogin")' *.json
+
+# Find failed authentication attempts
+jq '.Records[] | select(.errorCode=="InvalidUserID" or .errorCode=="AccessDenied")' *.json
+
+# Identify EC2 instance actions
+jq '.Records[] | select(.eventSource=="ec2.amazonaws.com") | {time: .eventTime, user: .userIdentity.userName, event: .eventName, instance: .requestParameters.instanceId}' *.json
+
+# Track S3 bucket access
+jq '.Records[] | select(.eventSource=="s3.amazonaws.com") | {time: .eventTime, user: .userIdentity.userName, bucket: .requestParameters.bucketName, action: .eventName}' *.json
+
+# Identify privilege escalation attempts
+jq '.Records[] | select(.eventName | contains("Policy") or contains("Role") or contains("User") or contains("Group"))' *.json
+
+# Timeline analysis
+jq -r '.Records[] | [.eventTime, .userIdentity.userName, .eventName, .sourceIPAddress] | @tsv' *.json | sort
+```
+
+**CloudTrail Event Fields:**
+
+- `eventVersion`: CloudTrail format version
+- `userIdentity`: Identity information (type, principalId, arn, accountId, userName)
+- `eventTime`: Timestamp in UTC
+- `eventSource`: AWS service (e.g., ec2.amazonaws.com)
+- `eventName`: API action performed
+- `awsRegion`: AWS region
+- `sourceIPAddress`: Originating IP
+- `userAgent`: Client software
+- `errorCode`: Error if action failed
+- `requestParameters`: API request parameters
+- `responseElements`: API response data
+
+### AWS VPC Flow Logs
+
+Network traffic metadata for VPC interfaces.
+
+```bash
+# Enable VPC Flow Logs (if you have permissions)
+aws ec2 create-flow-logs --resource-type VPC --resource-ids vpc-id --traffic-type ALL --log-destination-type s3 --log-destination s3://bucket-name/
+
+# Download from S3
+aws s3 sync s3://bucket-name/vpc-flow-logs/ ./vpc-flow-logs/
+
+# Decompress and analyze
+gunzip *.gz
+
+# Flow log format (default):
+# version account-id interface-id srcaddr dstaddr srcport dstport protocol packets bytes start end action log-status
+
+# Extract connections to specific IP
+awk '$4 == "10.0.1.5" || $5 == "10.0.1.5"' flow-log.txt
+
+# Find rejected connections
+awk '$13 == "REJECT"' flow-log.txt
+
+# Top talkers by bytes
+awk '{sum[$4]+=$10} END {for (ip in sum) print sum[ip], ip}' flow-log.txt | sort -rn | head -20
+
+# Identify port scanning activity
+awk '{print $4, $7}' flow-log.txt | sort | uniq -c | sort -rn | head -20
+```
+
+### AWS GuardDuty Findings
+
+Threat detection service findings.
+
+```bash
+# List GuardDuty findings
+aws guardduty list-findings --detector-id detector-id
+
+# Get finding details
+aws guardduty get-findings --detector-id detector-id --finding-ids finding-id-1 finding-id-2
+
+# Export findings to JSON
+aws guardduty get-findings --detector-id detector-id --finding-ids $(aws guardduty list-findings --detector-id detector-id --query 'FindingIds' --output text) > guardduty-findings.json
+
+# Analyze findings
+jq '.Findings[] | {severity: .Severity, type: .Type, title: .Title, time: .CreatedAt, resource: .Resource}' guardduty-findings.json
+```
+
+### Azure Activity Logs
+
+Azure's equivalent to CloudTrail.
+
+```bash
+# Install Azure CLI
+curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+
+# Login
+az login
+
+# Query activity logs
+az monitor activity-log list --start-time 2025-01-01T00:00:00Z --output json > azure-activity.json
+
+# Filter by resource group
+az monitor activity-log list --resource-group myResourceGroup --output json
+
+# Specific operations
+az monitor activity-log list --caller user@domain.com --output json
+
+# Parse with jq
+jq '.[] | {time: .eventTimestamp, caller: .caller, operation: .operationName.localizedValue, status: .status.localizedValue}' azure-activity.json
+```
+
+### Google Cloud Audit Logs
+
+GCP provides Admin Activity, Data Access, System Event, and Policy Denied logs.
+
+```bash
+# Install gcloud CLI
+curl https://sdk.cloud.google.com | bash
+
+# Authenticate
+gcloud auth login
+
+# Read audit logs
+gcloud logging read "logName:activity" --limit 100 --format json > gcp-audit.json
+
+# Filter by user
+gcloud logging read 'protoPayload.authenticationInfo.principalEmail="user@domain.com"' --format json
+
+# Filter by service
+gcloud logging read 'protoPayload.serviceName="compute.googleapis.com"' --format json
+
+# Specific time range
+gcloud logging read 'timestamp>="2025-01-01T00:00:00Z"' --format json
+
+# Analyze with jq
+jq '.[] | {time: .timestamp, user: .protoPayload.authenticationInfo.principalEmail, method: .protoPayload.methodName, resource: .protoPayload.resourceName}' gcp-audit.json
+```
+
+### Container and Kubernetes Logs
+
+**Docker Container Logs:**
+
+```bash
+# View container logs
+docker logs container-id
+docker logs --since 2h container-id
+docker logs --tail 100 container-id
+
+# Export logs
+docker logs container-id > container-logs.txt 2>&1
+
+# Inspect container metadata
+docker inspect container-id > container-metadata.json
+
+# Container filesystem export
+docker export container-id -o container-filesystem.tar
+
+# Extract and analyze
+tar -xf container-filesystem.tar -C ./container-fs/
+find ./container-fs/ -name "*.log" -o -name "*history*" -o -name "*.sh"
+grep -r "flag\|password\|secret" ./container-fs/
+```
+
+**Kubernetes Audit Logs:**
+
+```bash
+# Get pod logs
+kubectl logs pod-name
+kubectl logs pod-name -c container-name  # Specific container
+kubectl logs pod-name --previous  # Previous crashed container
+
+# Get logs from all pods in deployment
+kubectl logs -l app=myapp --all-containers=true
+
+# Export events
+kubectl get events -A -o json > k8s-events.json
+
+# Audit logs (if enabled on API server)
+# Located on control plane nodes, typically:
+# /var/log/kubernetes/audit/audit.log
+
+# Parse Kubernetes audit logs
+jq '.items[] | {time: .lastTimestamp, type: .type, reason: .reason, message: .message, object: .involvedObject}' k8s-events.json
+
+# Check audit policy on API server
+cat /etc/kubernetes/audit-policy.yaml
+
+# Analyze API server audit log
+jq 'select(.verb=="delete" or .verb=="create") | {time: .requestReceivedTimestamp, user: .user.username, verb: .verb, resource: .objectRef.resource, name: .objectRef.name}' audit.log
+```
+
+**[Inference]** Log availability and retention depend on cloud provider configuration, organization policies, and whether logging services were enabled before the incident. In CTF scenarios, logs may be pre-collected and provided as artifacts.
+
+## Virtual Machine Snapshots
+
+VM snapshots capture the complete state of a virtual machine at a specific point in time, including memory, disk, and configuration.
+
+### AWS EC2 Snapshots
+
+**Snapshot Acquisition:**
+
+```bash
+# List available snapshots
+aws ec2 describe-snapshots --owner-ids self
+
+# Create snapshot from volume
+aws ec2 create-snapshot --volume-id vol-xxxxx --description "Forensic snapshot"
+
+# Check snapshot progress
+aws ec2 describe-snapshots --snapshot-ids snap-xxxxx
+
+# Create volume from snapshot
+aws ec2 create-volume --snapshot-id snap-xxxxx --availability-zone us-east-1a
+
+# Attach volume to analysis instance
+aws ec2 attach-volume --volume-id vol-xxxxx --instance-id i-xxxxx --device /dev/sdf
+```
+
+**Snapshot Analysis:**
+
+```bash
+# On analysis EC2 instance, after attaching volume:
+
+# List block devices
+lsblk
+
+# Identify filesystem type
+file -s /dev/xvdf1
+blkid /dev/xvdf1
+
+# Mount for analysis (read-only recommended)
+mkdir /mnt/evidence
+mount -o ro,noload /dev/xvdf1 /mnt/evidence
+
+# For NTFS filesystems
+mount -o ro,show_sys_files /dev/xvdf1 /mnt/evidence
+
+# For XFS filesystems (noload prevents journal replay)
+mount -o ro,norecovery /dev/xvdf1 /mnt/evidence
+
+# Acquire disk image for offline analysis
+dcfldd if=/dev/xvdf of=/mnt/analysis/evidence.dd hash=sha256 hashlog=/mnt/analysis/evidence.hash bs=4M
+# or
+dd if=/dev/xvdf of=/mnt/analysis/evidence.dd bs=4M status=progress conv=noerror,sync
+sha256sum /mnt/analysis/evidence.dd > evidence.sha256
+```
+
+**EBS Volume Direct API Access:**
+
+```bash
+# List snapshot blocks (for differential analysis)
+aws ebs list-snapshot-blocks --snapshot-id snap-xxxxx
+
+# Get changed blocks between snapshots
+aws ebs list-changed-blocks --first-snapshot-id snap-old --second-snapshot-id snap-new
+
+# Download specific blocks
+aws ebs get-snapshot-block --snapshot-id snap-xxxxx --block-index 0 --block-token token outfile.bin
+
+# Reconstruct full disk from blocks (advanced)
+#!/bin/bash
+SNAPSHOT_ID="snap-xxxxx"
+BLOCK_SIZE=524288  # 512 KiB
+
+aws ebs list-snapshot-blocks --snapshot-id $SNAPSHOT_ID --output json | \
+jq -r '.Blocks[] | [.BlockIndex, .BlockToken] | @tsv' | \
+while IFS=$'\t' read -r index token; do
+  aws ebs get-snapshot-block --snapshot-id $SNAPSHOT_ID \
+    --block-index $index --block-token "$token" block_${index}.bin
+  dd if=block_${index}.bin of=disk.img bs=$BLOCK_SIZE seek=$index conv=notrunc
+done
+```
+
+### Azure VM Disk Snapshots
+
+```bash
+# List managed disks
+az disk list -o table
+
+# Create snapshot
+az snapshot create --resource-group myRG --source /subscriptions/.../disks/myDisk --name forensic-snapshot
+
+# Grant access and generate SAS URL
+az snapshot grant-access --resource-group myRG --name forensic-snapshot --duration-in-seconds 3600
+
+# Download VHD using generated URL
+wget -O disk.vhd "https://storage-url-with-sas-token"
+# or use Azure Storage Explorer or azcopy
+
+# Convert VHD to raw format
+qemu-img convert -f vpc -O raw disk.vhd disk.raw
+
+# Alternative: mount VHD directly
+modprobe nbd max_part=16
+qemu-nbd -c /dev/nbd0 disk.vhd
+partprobe /dev/nbd0
+mount -o ro /dev/nbd0p1 /mnt/evidence
+
+# Analyze filesystem
+fdisk -l disk.raw
+losetup -fP disk.raw
+lsblk
+mount -o ro /dev/loop0p1 /mnt/evidence
+```
+
+### GCP Persistent Disk Snapshots
+
+```bash
+# List snapshots
+gcloud compute snapshots list
+
+# Create snapshot
+gcloud compute disks snapshot disk-name --snapshot-names=forensic-snapshot --zone=us-central1-a
+
+# Create disk from snapshot
+gcloud compute disks create restored-disk --source-snapshot=forensic-snapshot --zone=us-central1-a
+
+# Attach to analysis instance
+gcloud compute instances attach-disk analysis-instance --disk=restored-disk --zone=us-central1-a --mode=ro
+
+# On analysis instance
+lsblk
+mount -o ro /dev/sdb1 /mnt/evidence
+
+# Alternative: Export snapshot to Cloud Storage
+gcloud compute images create forensic-image --source-snapshot=forensic-snapshot
+gcloud compute images export --image=forensic-image --destination-uri=gs://bucket/disk.vmdk
+```
+
+### VMware Snapshots
+
+VMware snapshots consist of .vmdk (virtual disk), .vmem (memory), and .vmsn (snapshot state) files.
+
+```bash
+# List VM snapshots (on ESXi host via SSH)
+vim-cmd vmsvc/getallvms
+vim-cmd vmsvc/snapshot.get vmid
+
+# Export VM files (from datastore)
+scp root@esxi-host:/vmfs/volumes/datastore/VM-name/* ./
+
+# Analyze VMDK
+qemu-img info vm-disk.vmdk
+qemu-img convert -f vmdk -O raw vm-disk.vmdk vm-disk.raw
+
+# Mount VMDK directly (without conversion)
+modprobe nbd max_part=8
+qemu-nbd --connect=/dev/nbd0 --read-only vm-disk.vmdk
+fdisk -l /dev/nbd0
+mount -o ro /dev/nbd0p1 /mnt/evidence
+
+# Disconnect when done
+qemu-nbd --disconnect /dev/nbd0
+
+# Analyze memory dump (.vmem)
+volatility -f vm.vmem imageinfo
+volatility -f vm.vmem --profile=Win10x64_19041 pslist
+volatility -f vm.vmem --profile=Win10x64_19041 netscan
+
+# Extract VMDK descriptor
+head -n 20 vm-disk.vmdk
+```
+
+### Memory Analysis from Snapshots
+
+When VM snapshots include memory state:
+
+```bash
+# Volatility Framework (version 2)
+volatility -f memory.dmp imageinfo
+volatility -f memory.dmp --profile=LinuxUbuntu2004x64 linux_banner
+volatility -f memory.dmp --profile=Win10x64_19041 pslist
+volatility -f memory.dmp --profile=Win10x64_19041 netscan
+volatility -f memory.dmp --profile=Win10x64_19041 cmdline
+volatility -f memory.dmp --profile=Win10x64_19041 filescan | grep -i "flag\|password\|secret"
+volatility -f memory.dmp --profile=Win10x64_19041 consoles
+volatility -f memory.dmp --profile=Win10x64_19041 clipboard
+
+# Volatility 3
+vol3 -f memory.dmp windows.info
+vol3 -f memory.dmp windows.pslist
+vol3 -f memory.dmp windows.pstree
+vol3 -f memory.dmp windows.netscan
+vol3 -f memory.dmp windows.cmdline
+vol3 -f memory.dmp windows.filescan | grep -i flag
+vol3 -f memory.dmp linux.bash
+vol3 -f memory.dmp linux.pslist
+
+# Extract process memory
+vol3 -f memory.dmp -o /tmp/output windows.memmap --pid 1234 --dump
+vol3 -f memory.dmp -o /tmp/output windows.dumpfiles --pid 1234
+
+# Search memory for strings
+strings -a -t d memory.dmp | grep -i "flag{\|password\|secret"
+bulk_extractor -o output_dir memory.dmp
+```
+
+### Filesystem Timeline Analysis
+
+```bash
+# Create filesystem timeline with Sleuthkit
+fls -r -m / /dev/loop0 > body.txt
+mactime -b body.txt -d > timeline.csv
+
+# Or using tsk_gettimes
+tsk_gettimes -m /mnt/evidence > timeline.txt
+
+# Analyze with log2timeline/plaso
+log2timeline.py --storage-file timeline.plaso /mnt/evidence
+psort.py -o l2tcsv -w timeline.csv timeline.plaso
+
+# Filter timeline
+psort.py -o l2tcsv -w filtered.csv timeline.plaso "date > '2025-01-01 00:00:00'"
+
+# Search for specific artifacts
+grep -i "bash_history\|\.ssh\|\.aws\|\.docker\|\.kube" timeline.csv
+grep -i "flag\|password\|secret" timeline.csv
+
+# Analyze specific timeframes
+awk -F',' '$1 >= "2025-01-15" && $1 <= "2025-01-16"' timeline.csv
+```
+
+### Cloud-Init and User Data
+
+EC2 instances often contain cloud-init data with provisioning scripts.
+
+```bash
+# On mounted evidence volume
+cat /mnt/evidence/var/lib/cloud/instance/user-data.txt
+cat /mnt/evidence/var/lib/cloud/instance/scripts/*
+cat /mnt/evidence/var/log/cloud-init.log
+cat /mnt/evidence/var/log/cloud-init-output.log
+
+# Check for embedded secrets
+grep -ri "password\|secret\|key\|token\|flag" /mnt/evidence/var/lib/cloud/
+
+# Azure equivalent
+cat /mnt/evidence/var/lib/waagent/ovf-env.xml
+cat /mnt/evidence/var/log/waagent.log
+
+# GCP equivalent
+cat /mnt/evidence/var/log/google-startup-scripts.log
+```
+
+### Common Forensic Artifacts in VM Snapshots
+
+**Linux Systems:**
+
+```bash
+# Command history
+cat /mnt/evidence/root/.bash_history
+cat /mnt/evidence/home/*/.bash_history
+cat /mnt/evidence/root/.zsh_history
+
+# SSH keys and config
+find /mnt/evidence -name "authorized_keys" -o -name "id_rsa" -o -name "id_ed25519"
+cat /mnt/evidence/root/.ssh/config
+cat /mnt/evidence/home/*/.ssh/config
+
+# Cloud credentials
+cat /mnt/evidence/root/.aws/credentials
+cat /mnt/evidence/root/.aws/config
+cat /mnt/evidence/home/*/.aws/credentials
+
+# Docker/Kubernetes credentials
+cat /mnt/evidence/root/.docker/config.json
+cat /mnt/evidence/root/.kube/config
+
+# System logs
+cat /mnt/evidence/var/log/auth.log
+cat /mnt/evidence/var/log/syslog
+cat /mnt/evidence/var/log/secure
+
+# Cron jobs
+cat /mnt/evidence/etc/crontab
+cat /mnt/evidence/var/spool/cron/crontabs/*
+
+# Network configuration
+cat /mnt/evidence/etc/hosts
+cat /mnt/evidence/etc/resolv.conf
+cat /mnt/evidence/etc/network/interfaces
+```
+
+**Windows Systems:**
+
+```bash
+# Extract Windows registry hives for offline analysis
+cp /mnt/evidence/Windows/System32/config/SAM ./
+cp /mnt/evidence/Windows/System32/config/SYSTEM ./
+cp /mnt/evidence/Windows/System32/config/SOFTWARE ./
+cp /mnt/evidence/Users/*/NTUSER.DAT ./
+
+# Parse with reglookup or python-registry
+reglookup -p /Select SAM
+
+# Event logs
+find /mnt/evidence/Windows/System32/winevt/Logs/ -name "*.evtx"
+
+# PowerShell history
+find /mnt/evidence/Users/ -name "ConsoleHost_history.txt"
+
+# Scheduled tasks
+find /mnt/evidence/Windows/System32/Tasks/ -type f
+```
+
+## S3 Bucket Artifacts
+
+S3 buckets store objects with metadata, versioning, and access logs that provide forensic value.
+
+### S3 Bucket Enumeration
+
+```bash
+# List accessible buckets
+aws s3 ls
+
+# List bucket contents
+aws s3 ls s3://bucket-name/
+aws s3 ls s3://bucket-name/prefix/ --recursive
+aws s3 ls s3://bucket-name/ --recursive --human-readable --summarize
+
+# Detailed object information
+aws s3api list-objects-v2 --bucket bucket-name --output json > objects.json
+
+# Include deleted markers (if versioning enabled)
+aws s3api list-object-versions --bucket bucket-name --output json > versions.json
+
+# Check bucket configuration
+aws s3api get-bucket-location --bucket bucket-name
+aws s3api get-bucket-versioning --bucket bucket-name
+aws s3api get-bucket-encryption --bucket bucket-name
+aws s3api get-bucket-logging --bucket bucket-name
+```
+
+### Object Download and Analysis
+
+```bash
+# Download entire bucket (preserves structure)
+aws s3 sync s3://bucket-name/ ./local-copy/
+
+# Download with metadata preservation
+aws s3 cp s3://bucket-name/object.txt ./object.txt --metadata-directive COPY
+
+# Get object metadata without downloading
+aws s3api head-object --bucket bucket-name --key object.txt
+
+# Download specific version
+aws s3api get-object --bucket bucket-name --key object.txt --version-id version-id output.txt
+
+# Batch download with metadata
+aws s3api list-objects-v2 --bucket bucket-name --query 'Contents[].Key' --output text | \
+while read key; do
+  aws s3api head-object --bucket bucket-name --key "$key" > "metadata_$(echo $key | tr '/' '_').json"
+  aws s3 cp "s3://bucket-name/$key" "objects/$key"
+done
+
+# Analyze downloaded objects
+file *
+binwalk -e suspicious-file.bin
+strings -a *.bin | grep -i "flag\|password\|secret"
+exiftool -a -G1 *
+
+# Check for hidden data in images
+zsteg image.png
+steghide info image.jpg
+```
+
+### S3 Server Access Logs
+
+S3 can log all requests made to a bucket.
+
+```bash
+# Enable logging (if you have permissions)
+cat > logging-config.json << 'EOF'
+{
+  "LoggingEnabled": {
+    "TargetBucket": "logging-bucket",
+    "TargetPrefix": "logs/"
+  }
+}
+EOF
+aws s3api put-bucket-logging --bucket target-bucket --bucket-logging-status file://logging-config.json
+
+# Download access logs
+aws s3 sync s3://logging-bucket/logs/ ./s3-access-logs/
+
+# Log format (space-delimited):
+# bucket-owner bucket [time] remote-ip requester request-id operation key "request-uri" http-status error-code bytes-sent object-size total-time turn-around-time "referer" "user-agent" version-id host-id signature-version cipher-suite authentication-type host-header tls-version
+
+# Parse access logs
+cat *.log | awk '{print $3, $5, $8, $9}' | sort
+# Extract: timestamp, remote-ip, operation, key
+
+# Find unauthorized access attempts (403 errors)
+awk '$13 == "403"' *.log
+
+# Find 404 errors (potential enumeration)
+awk '$13 == "404"' *.log | awk '{print $5, $9}' | sort | uniq -c
+
+# Identify data exfiltration (large GET requests)
+awk '$8 == "REST.GET.OBJECT" && $12 > 10000000 {print $3, $5, $9, $12}' *.log | sort -k4 -rn
+
+# Track specific object access
+grep "sensitive-file.txt" *.log
+
+# Identify unusual user agents
+awk -F'"' '{print $6}' *.log | sort | uniq -c | sort -rn
+
+# Timeline of bucket operations
+awk '{print $3, $8, $9}' *.log | sort > bucket-timeline.txt
+
+# Identify access from suspicious IPs
+awk '{print $5}' *.log | sort | uniq -c | sort -rn | head -20
+
+# Track delete operations
+awk '$8 ~ /DELETE/' *.log
+
+# Find bulk operations
+awk '{print $5, $8}' *.log | sort | uniq -c | sort -rn | head -20
+```
+
+### S3 Object Metadata and Tags
+
+```bash
+# Get object metadata
+aws s3api head-object --bucket bucket-name --key object.txt
+
+# Metadata fields include:
+# - LastModified
+# - ContentLength
+# - ETag (MD5 hash for single-part uploads)
+# - ContentType
+# - ServerSideEncryption
+# - Metadata (custom key-value pairs)
+
+# Extract custom metadata
+aws s3api head-object --bucket bucket-name --key object.txt --query 'Metadata'
+
+# Get object tags
+aws s3api get-object-tagging --bucket bucket-name --key object.txt
+
+# Search for objects with specific metadata
+aws s3api list-objects-v2 --bucket bucket-name --query 'Contents[?LastModified>=`2025-01-01`]'
+
+# Bulk metadata extraction
+aws s3api list-objects-v2 --bucket bucket-name --query 'Contents[].Key' --output text | \
+while read key; do
+  echo "=== $key ==="
+  aws s3api head-object --bucket bucket-name --key "$key"
+done > all-metadata.txt
+```
+
+### S3 Bucket Policies and ACLs
+
+```bash
+# Get bucket policy
+aws s3api get-bucket-policy --bucket bucket-name --output text | jq '.' > bucket-policy.json
+
+# Analyze policy for misconfigurations
+jq '.Statement[] | select(.Effect=="Allow" and .Principal=="*")' bucket-policy.json
+jq '.Statement[] | select(.Effect=="Allow" and (.Principal.AWS | contains("*")))' bucket-policy.json
+
+# Get bucket ACL
+aws s3api get-bucket-acl --bucket bucket-name
+
+# Check for public access
+aws s3api get-bucket-acl --bucket bucket-name --query 'Grants[?Grantee.URI==`http://acs.amazonaws.com/groups/global/AllUsers`]'
+aws s3api get-bucket-acl --bucket bucket-name --query 'Grants[?Grantee.URI==`http://acs.amazonaws.com/groups/global/AuthenticatedUsers`]'
+
+# Get object ACL
+aws s3api get-object-acl --bucket bucket-name --key object.txt
+
+# Public access block configuration
+aws s3api get-public-access-block --bucket bucket-name
+
+# Check CORS configuration
+aws s3api get-bucket-cors --bucket bucket-name
+
+# Check lifecycle rules
+aws s3api get-bucket-lifecycle-configuration --bucket bucket-name
+```
+
+### S3 Versioning Analysis
+
+When versioning is enabled, all object versions and delete markers are retained.
+
+```bash
+# Check if versioning is enabled
+aws s3api get-bucket-versioning --bucket bucket-name
+
+# List all versions
+aws s3api list-object-versions --bucket bucket-name --prefix path/ > versions.json
+
+# Parse versions with jq
+jq '.Versions[] | {Key: .Key, VersionId: .VersionId, LastModified: .LastModified, IsLatest: .IsLatest, Size: .Size}' versions.json
+
+# Find deleted objects (delete markers)
+jq '.DeleteMarkers[] | {Key: .Key, VersionId: .VersionId, LastModified: .LastModified}' versions.json
+
+# Identify objects with multiple versions
+jq -r '.Versions[] | .Key' versions.json | sort | uniq -c | sort -rn
+
+# Download previous version
+aws s3api get-object --bucket bucket-name --key file.txt --version-id version-id restored-file.txt
+
+# Download all versions of an object
+jq -r '.Versions[] | select(.Key=="target-file.txt") | [.VersionId, .LastModified] | @tsv' versions.json | \
+while IFS=$'\t' read version timestamp; do
+  aws s3api get-object --bucket bucket-name --key target-file.txt --version-id "$version" \
+    "target-file_${version}.txt"
+done
+
+# Timeline of object changes
+jq -r '.Versions[] | [.LastModified, .Key, .VersionId, .Size] | @tsv' versions.json | sort > version-timeline.txt
+
+# Compare versions
+aws s3api get-object --bucket bucket-name --key file.txt --version-id old-version old.txt
+aws s3api get-object --bucket bucket-name --key file.txt --version-id new-version new.txt
+diff old.txt new.txt
+```
+
+### S3 Select for Log Analysis
+
+S3 Select enables SQL queries directly on S3 objects without full download.
+
+```bash
+# Query CSV log file in S3
+aws s3api select-object-content \
+  --bucket bucket-name \
+  --key logs/access.csv \
+  --expression "SELECT * FROM s3object s WHERE s.status_code = '403'" \
+  --expression-type SQL \
+  --input-serialization '{"CSV": {"FileHeaderInfo": "USE", "FieldDelimiter": ","}}' \
+  --output-serialization '{"CSV": {}}' \
+  output.csv
+
+# Query JSON logs
+aws s3api select-object-content \
+  --bucket bucket-name \
+  --key logs/cloudtrail.json \
+  --expression "SELECT * FROM s3object[*].Records[*] s WHERE s.errorCode IS NOT NULL" \
+  --expression-type SQL \
+  --input-serialization '{"JSON": {"Type": "DOCUMENT"}, "CompressionType": "GZIP"}' \
+  --output-serialization '{"JSON": {}}' \
+  errors.json
+
+# Complex query example
+aws s3api select-object-content \
+  --bucket bucket-name \
+  --key data.csv \
+  --expression "SELECT * FROM s3object s WHERE s.timestamp > '2025-01-01' AND s.action = 'DELETE'" \
+  --expression-type SQL \
+  --input-serialization '{"CSV": {"FileHeaderInfo": "USE"}}' \
+  --output-serialization '{"CSV": {}}' \
+  filtered.csv
+```
+
+### S3 Intelligent Analysis Workflow
+
+```bash
+# Comprehensive S3 forensic workflow
+#!/bin/bash
+
+BUCKET="target-bucket"
+OUTPUT_DIR="./s3-forensics-$(date +%Y%m%d-%H%M%S)"
+
+mkdir -p "$OUTPUT_DIR"/{objects,metadata,logs,analysis}
+
+echo "[+] Starting S3 bucket forensic analysis: $BUCKET"
+
+# 1. List all objects and versions
+echo "[+] Enumerating objects and versions..."
+aws s3api list-object-versions --bucket "$BUCKET" > "$OUTPUT_DIR/metadata/versions.json"
+aws s3api list-objects-v2 --bucket "$BUCKET" > "$OUTPUT_DIR/metadata/objects.json"
+
+# 2. Download bucket configuration
+echo "[+] Collecting bucket configuration..."
+aws s3api get-bucket-policy --bucket "$BUCKET" > "$OUTPUT_DIR/metadata/bucket-policy.json" 2>/dev/null
+aws s3api get-bucket-acl --bucket "$BUCKET" > "$OUTPUT_DIR/metadata/bucket-acl.json"
+aws s3api get-bucket-versioning --bucket "$BUCKET" > "$OUTPUT_DIR/metadata/versioning.json"
+aws s3api get-bucket-encryption --bucket "$BUCKET" > "$OUTPUT_DIR/metadata/encryption.json" 2>/dev/null
+aws s3api get-bucket-logging --bucket "$BUCKET" > "$OUTPUT_DIR/metadata/logging.json" 2>/dev/null
+aws s3api get-public-access-block --bucket "$BUCKET" > "$OUTPUT_DIR/metadata/public-access-block.json" 2>/dev/null
+
+# 3. Download access logs if available
+echo "[+] Downloading access logs..."
+LOGGING_BUCKET=$(jq -r '.LoggingEnabled.TargetBucket // empty' "$OUTPUT_DIR/metadata/logging.json")
+if [ -n "$LOGGING_BUCKET" ]; then
+  aws s3 sync "s3://${LOGGING_BUCKET}/" "$OUTPUT_DIR/logs/" --exclude "*" --include "*.log" 2>/dev/null
+fi
+
+# 4. Identify recently modified objects
+echo "[+] Analyzing recent modifications..."
+jq -r '.Versions[] | select(.LastModified >= "2025-01-01") | [.LastModified, .Key, .VersionId, .Size] | @tsv' \
+  "$OUTPUT_DIR/metadata/versions.json" | sort > "$OUTPUT_DIR/analysis/recent-changes.txt"
+
+# 5. Identify deleted objects
+echo "[+] Identifying deleted objects..."
+jq -r '.DeleteMarkers[] | [.LastModified, .Key, .VersionId] | @tsv' \
+  "$OUTPUT_DIR/metadata/versions.json" > "$OUTPUT_DIR/analysis/deleted-objects.txt"
+
+# 6. Check for public objects
+echo "[+] Checking for public access..."
+aws s3api list-objects-v2 --bucket "$BUCKET" --query 'Contents[].Key' --output text | \
+while read key; do
+  ACL=$(aws s3api get-object-acl --bucket "$BUCKET" --key "$key" 2>/dev/null)
+  if echo "$ACL" | jq -e '.Grants[] | select(.Grantee.URI | contains("AllUsers") or contains("AuthenticatedUsers"))' > /dev/null 2>&1; then
+    echo "$key" >> "$OUTPUT_DIR/analysis/public-objects.txt"
+  fi
+done
+
+# 7. Download suspicious or flagged objects
+echo "[+] Downloading flagged objects..."
+while IFS=$'\t' read -r modified key version size; do
+  if [ $size -lt 10485760 ]; then  # Only download files < 10MB
+    mkdir -p "$OUTPUT_DIR/objects/$(dirname "$key")"
+    aws s3api get-object --bucket "$BUCKET" --key "$key" --version-id "$version" \
+      "$OUTPUT_DIR/objects/${key}" 2>/dev/null
+  fi
+done < "$OUTPUT_DIR/analysis/recent-changes.txt"
+
+# 8. Analyze downloaded objects
+echo "[+] Analyzing downloaded objects..."
+cd "$OUTPUT_DIR/objects"
+find . -type f -exec file {} \; > ../analysis/file-types.txt
+find . -type f -exec strings {} \; | grep -iE "flag\{|CTF\{|password|secret|key|token|api" > ../analysis/interesting-strings.txt 2>/dev/null
+
+# 9. Parse access logs if available
+echo "[+] Parsing access logs..."
+if [ -d "$OUTPUT_DIR/logs" ] && [ "$(ls -A $OUTPUT_DIR/logs/*.log 2>/dev/null)" ]; then
+  cd "$OUTPUT_DIR/logs"
+  
+  # Create timeline
+  cat *.log 2>/dev/null | awk '{print $3, $5, $8, $9, $13}' | sort > ../analysis/access-timeline.txt
+  
+  # Failed requests
+  awk '$13 ~ /^(403|404|500)$/' *.log 2>/dev/null > ../analysis/failed-requests.txt
+  
+  # Top IPs
+  awk '{print $5}' *.log 2>/dev/null | sort | uniq -c | sort -rn | head -20 > ../analysis/top-ips.txt
+  
+  # Suspicious operations
+  awk '$8 ~ /(DELETE|PUT)/' *.log 2>/dev/null > ../analysis/write-operations.txt
+fi
+
+# 10. Generate summary report
+cd "$OUTPUT_DIR"
+cat > analysis/summary.txt << EOF
+S3 Bucket Forensic Analysis Summary
+Bucket: $BUCKET
+Analysis Date: $(date)
+=====================================
+
+Object Statistics:
+- Total Objects: $(jq -r '.Versions | length' metadata/versions.json)
+- Delete Markers: $(jq -r '.DeleteMarkers | length' metadata/versions.json)
+- Recent Changes (since 2025-01-01): $(wc -l < analysis/recent-changes.txt)
+- Deleted Objects: $(wc -l < analysis/deleted-objects.txt)
+
+Bucket Configuration:
+- Versioning: $(jq -r '.Status // "Not Enabled"' metadata/versioning.json)
+- Encryption: $(jq -r '.ServerSideEncryptionConfiguration // "Not Enabled"' metadata/encryption.json 2>/dev/null || echo "Not Enabled")
+- Logging: $(jq -r '.LoggingEnabled // "Not Enabled"' metadata/logging.json)
+- Public Access Block: $(jq -r 'if . then "Enabled" else "Not Enabled" end' metadata/public-access-block.json 2>/dev/null || echo "Not Enabled")
+
+Analysis Complete: Check individual files in analysis/ directory for details
+EOF
+
+echo "[+] Analysis complete. Results saved to: $OUTPUT_DIR"
+cat "$OUTPUT_DIR/analysis/summary.txt"
+```
+
+### Container Registry Forensics
+
+Docker images stored in cloud registries (ECR, GCR, ACR) may contain forensic artifacts.
+
+**AWS ECR (Elastic Container Registry):**
+
+```bash
+# List repositories
+aws ecr describe-repositories
+
+# List images in repository
+aws ecr list-images --repository-name repo-name
+
+# Get image details
+aws ecr describe-images --repository-name repo-name
+aws ecr describe-images --repository-name repo-name --image-ids imageTag=latest
+
+# Get image scan results (if enabled)
+aws ecr describe-image-scan-findings --repository-name repo-name --image-id imageTag=latest
+
+# Pull image
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin account-id.dkr.ecr.region.amazonaws.com
+docker pull account-id.dkr.ecr.region.amazonaws.com/repo-name:tag
+
+# Analyze image layers
+docker history account-id.dkr.ecr.region.amazonaws.com/repo-name:tag --no-trunc
+docker inspect account-id.dkr.ecr.region.amazonaws.com/repo-name:tag
+
+# Extract filesystem without running container
+docker save account-id.dkr.ecr.region.amazonaws.com/repo-name:tag -o image.tar
+mkdir image-analysis
+tar -xf image.tar -C image-analysis/
+
+# Analyze layer contents
+cd image-analysis/
+for layer in */layer.tar; do
+  echo "=== Analyzing $layer ==="
+  tar -tf "$layer" | head -20
+  tar -xf "$layer" -C "$(dirname $layer)/extracted/"
+done
+
+# Search for secrets in all layers
+find . -name layer.tar -exec tar -xOf {} \; | strings | grep -iE "password|secret|key|token|flag" > secrets.txt
+
+# Check for exposed credentials
+find image-analysis/ -type f -name "*.env" -o -name "*.conf" -o -name "*.json" -o -name "*.yaml" | xargs grep -i "password\|secret\|key"
+
+# Examine entrypoint and commands
+jq '.[]' image-analysis/manifest.json
+jq '.[].Config' image-analysis/manifest.json | while read config; do
+  jq '.config.Cmd, .config.Entrypoint, .config.Env' "$config"
+done
+```
+
+**Google Container Registry (GCR):**
+
+```bash
+# Authenticate
+gcloud auth configure-docker
+
+# List images
+gcloud container images list --repository=gcr.io/project-id
+
+# List tags for specific image
+gcloud container images list-tags gcr.io/project-id/image-name
+
+# Get image metadata
+gcloud container images describe gcr.io/project-id/image-name:tag
+
+# Pull and analyze
+docker pull gcr.io/project-id/image-name:tag
+docker history gcr.io/project-id/image-name:tag --no-trunc
+docker inspect gcr.io/project-id/image-name:tag
+
+# Get vulnerability scan results
+gcloud container images describe gcr.io/project-id/image-name:tag --show-package-vulnerability
+```
+
+**Azure Container Registry (ACR):**
+
+```bash
+# Login
+az acr login --name registryname
+
+# List repositories
+az acr repository list --name registryname
+
+# List tags
+az acr repository show-tags --name registryname --repository repo-name
+
+# Get image metadata
+az acr repository show --name registryname --repository repo-name
+
+# Pull and analyze
+docker pull registryname.azurecr.io/repo-name:tag
+docker history registryname.azurecr.io/repo-name:tag --no-trunc
+docker inspect registryname.azurecr.io/repo-name:tag
+```
+
+### Container Image Layer Analysis
+
+**Dive - Container Image Layer Analysis Tool:**
+
+```bash
+# Install dive
+wget https://github.com/wagoodman/dive/releases/download/v0.10.0/dive_0.10.0_linux_amd64.deb
+dpkg -i dive_0.10.0_linux_amd64.deb
+
+# Analyze image
+dive image-name:tag
+
+# Export analysis to JSON
+dive image-name:tag --ci --json > dive-analysis.json
+
+# Key insights from dive:
+# - Layer efficiency
+# - Wasted space
+# - File modifications across layers
+# - Added/removed/modified files per layer
+```
+
+**Manual Layer Extraction and Analysis:**
+
+```bash
+# Extract image
+docker save image-name:tag -o image.tar
+mkdir analysis && cd analysis
+tar -xf ../image.tar
+
+# Examine manifest
+cat manifest.json | jq '.'
+
+# Extract each layer
+for layer_tar in */layer.tar; do
+  layer_dir="${layer_tar%/layer.tar}/fs"
+  mkdir -p "$layer_dir"
+  tar -xf "$layer_tar" -C "$layer_dir"
+  
+  echo "=== Layer: $layer_tar ==="
+  
+  # Look for interesting files
+  find "$layer_dir" -type f \( -name "*.key" -o -name "*.pem" -o -name "*secret*" -o -name "*password*" \)
+  
+  # Check for shell history
+  find "$layer_dir" -name "*history*"
+  
+  # Look for configuration files
+  find "$layer_dir" -name "*.conf" -o -name "*.cfg" -o -name "*.ini" -o -name "*.env"
+done
+
+# Analyze image configuration
+CONFIG=$(jq -r '.[0].Config' manifest.json)
+jq '.' "$CONFIG"
+
+# Extract environment variables
+jq '.config.Env[]' "$CONFIG"
+
+# Extract CMD and ENTRYPOINT
+jq '.config.Cmd, .config.Entrypoint' "$CONFIG"
+
+# Check for exposed ports
+jq '.config.ExposedPorts' "$CONFIG"
+```
+
+### Docker Container Runtime Forensics
+
+When analyzing running or stopped containers:
+
+```bash
+# List all containers (including stopped)
+docker ps -a
+
+# Inspect container
+docker inspect container-id
+
+# Extract important information
+docker inspect container-id | jq '.[0].Mounts'  # Volume mounts
+docker inspect container-id | jq '.[0].NetworkSettings'  # Network config
+docker inspect container-id | jq '.[0].Config.Env'  # Environment variables
+
+# Get container logs
+docker logs container-id --timestamps > container.log
+
+# Copy files from container
+docker cp container-id:/path/to/file ./local-path
+
+# Export container filesystem
+docker export container-id -o container-fs.tar
+mkdir container-fs && tar -xf container-fs.tar -C container-fs/
+
+# Analyze filesystem
+cd container-fs/
+find . -name "*history*" -o -name "*.log" -o -name "*.conf"
+grep -r "password\|secret\|key\|flag" . 2>/dev/null
+
+# Check for suspicious processes (if container is running)
+docker top container-id
+docker stats container-id --no-stream
+
+# Execute commands in running container
+docker exec container-id ps aux
+docker exec container-id netstat -tulpn
+docker exec container-id ls -la /tmp
+docker exec container-id cat /proc/net/tcp
+```
+
+### Kubernetes Pod and Container Forensics
+
+**Pod Analysis:**
+
+```bash
+# Get pod details
+kubectl get pod pod-name -o yaml > pod-config.yaml
+kubectl describe pod pod-name
+
+# Get pod logs
+kubectl logs pod-name > pod.log
+kubectl logs pod-name --previous > pod-previous.log  # From crashed container
+kubectl logs pod-name -c container-name > container.log
+
+# Get logs from all containers in pod
+for container in $(kubectl get pod pod-name -o jsonpath='{.spec.containers[*].name}'); do
+  kubectl logs pod-name -c $container > ${container}.log
+done
+
+# Execute commands in pod
+kubectl exec pod-name -- ps aux
+kubectl exec pod-name -- ls -la /tmp
+kubectl exec pod-name -- cat /proc/self/environ
+kubectl exec pod-name -- netstat -tulpn
+
+# Copy files from pod
+kubectl cp pod-name:/path/to/file ./local-file
+kubectl cp pod-name:/var/log/ ./pod-logs/ -c container-name
+
+# Get shell access
+kubectl exec -it pod-name -- /bin/bash
+
+# Analyze pod events
+kubectl get events --field-selector involvedObject.name=pod-name
+
+# Check pod security context
+kubectl get pod pod-name -o jsonpath='{.spec.securityContext}'
+kubectl get pod pod-name -o jsonpath='{.spec.containers[*].securityContext}'
+```
+
+**Kubernetes Secret and ConfigMap Analysis:**
+
+```bash
+# List secrets
+kubectl get secrets
+
+# Get secret content
+kubectl get secret secret-name -o yaml
+kubectl get secret secret-name -o jsonpath='{.data}' | jq '.'
+
+# Decode base64-encoded secret values
+kubectl get secret secret-name -o jsonpath='{.data.password}' | base64 -d
+
+# List ConfigMaps
+kubectl get configmaps
+
+# Get ConfigMap content
+kubectl get configmap configmap-name -o yaml
+
+# Check which pods use specific secrets/configmaps
+kubectl get pods -o json | jq '.items[] | select(.spec.volumes[]?.secret.secretName=="secret-name") | .metadata.name'
+```
+
+**Kubernetes Network Policy and Service Analysis:**
+
+```bash
+# List services
+kubectl get services
+
+# Get service details
+kubectl describe service service-name
+
+# List network policies
+kubectl get networkpolicies
+
+# Analyze network policy rules
+kubectl get networkpolicy policy-name -o yaml
+
+# Check pod network endpoints
+kubectl get endpoints
+
+# Analyze ingress rules
+kubectl get ingress
+kubectl describe ingress ingress-name
+```
+
+**Persistent Volume Claims:**
+
+```bash
+# List PVCs
+kubectl get pvc
+
+# Get PVC details
+kubectl describe pvc pvc-name
+
+# Find which pod uses PVC
+kubectl get pods -o json | jq '.items[] | select(.spec.volumes[]?.persistentVolumeClaim.claimName=="pvc-name") | .metadata.name'
+
+# Access PV data (create debug pod)
+cat > debug-pod.yaml << 'EOF'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: debug-pvc
+spec:
+  containers:
+  - name: debug
+    image: busybox
+    command: ['sh', '-c', 'sleep 3600']
+    volumeMounts:
+    - name: data
+      mountPath: /mnt/data
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: target-pvc-name
+EOF
+
+kubectl apply -f debug-pod.yaml
+kubectl exec -it debug-pvc -- sh
+# Now you can access /mnt/data
+```
+
+### Serverless Function Forensics
+
+**AWS Lambda:**
+
+```bash
+# List Lambda functions
+aws lambda list-functions
+
+# Get function configuration
+aws lambda get-function --function-name function-name
+
+# Get function code
+aws lambda get-function --function-name function-name --query 'Code.Location' --output text | xargs wget -O function.zip
+unzip function.zip
+
+# Analyze function code
+find . -type f -name "*.py" -o -name "*.js" -o -name "*.go"
+grep -r "password\|secret\|key\|flag" .
+
+# Get function environment variables
+aws lambda get-function-configuration --function-name function-name --query 'Environment.Variables'
+
+# Get function logs from CloudWatch
+aws logs tail /aws/lambda/function-name --follow
+aws logs filter-log-events --log-group-name /aws/lambda/function-name --start-time $(date -d '1 hour ago' +%s)000
+
+# List function layers
+aws lambda get-function --function-name function-name --query 'Configuration.Layers'
+
+# Download and analyze layers
+aws lambda get-layer-version --layer-name layer-name --version-number 1 --query 'Content.Location' --output text | xargs wget -O layer.zip
+```
+
+**Google Cloud Functions:**
+
+```bash
+# List functions
+gcloud functions list
+
+# Get function details
+gcloud functions describe function-name
+
+# Download function source
+gcloud functions describe function-name --format="value(sourceArchiveUrl)" | xargs gsutil cp - function.zip
+unzip function.zip
+
+# Get function logs
+gcloud functions logs read function-name --limit 100
+```
+
+**Azure Functions:**
+
+```bash
+# List function apps
+az functionapp list
+
+# Get function app settings
+az functionapp config appsettings list --name function-app-name --resource-group rg-name
+
+# Download function code
+az functionapp deployment source show --name function-app-name --resource-group rg-name
+
+# Get function logs
+az webapp log tail --name function-app-name --resource-group rg-name
+```
+
+### Cloud Storage Bucket Enumeration (Multi-Cloud)
+
+**Anonymous/Public Bucket Discovery:**
+
+```bash
+# AWS S3 - Test public access
+aws s3 ls s3://bucket-name --no-sign-request
+
+# Download public bucket contents
+aws s3 sync s3://bucket-name ./local-copy --no-sign-request
+
+# Google Cloud Storage - Test public access
+gsutil ls -r gs://bucket-name
+
+# Download public GCS bucket
+gsutil -m cp -r gs://bucket-name ./local-copy
+
+# Azure Blob Storage - Test public access
+az storage blob list --account-name storageaccount --container-name container --auth-mode login
+
+# Using curl for direct access
+curl https://bucket-name.s3.amazonaws.com/
+curl https://storage.googleapis.com/bucket-name/
+curl https://storageaccount.blob.core.windows.net/container/
+```
+
+**Bucket Misconfiguration Testing:**
+
+```bash
+# S3 Bucket Finder (search for common patterns)
+#!/bin/bash
+COMPANY="targetcompany"
+PATTERNS=("$COMPANY" "$COMPANY-dev" "$COMPANY-prod" "$COMPANY-backup" "$COMPANY-data" "$COMPANY-logs")
+
+for pattern in "${PATTERNS[@]}"; do
+  if aws s3 ls "s3://$pattern" --no-sign-request 2>/dev/null; then
+    echo "[+] Found accessible bucket: $pattern"
+    aws s3 ls "s3://$pattern" --recursive --no-sign-request | head -20
+  fi
+done
+```
+
+---
+
+**Key CTF Strategy**: Cloud forensics challenges often require API credentials provided in the challenge description. Begin by enumerating available resources (buckets, snapshots, logs), check for versioning and deleted objects, analyze access logs for suspicious activity, and examine VM snapshots for credential files (`~/.aws`, `~/.ssh`, `~/.docker`, `~/.kube`). Container images frequently contain secrets in environment variables or layer history. [Inference] Many CTF scenarios simulate incident response where attackers have exfiltrated data, established persistence mechanisms, or misconfigured cloud resources - all visible in logs, metadata, and snapshots.
+
+**Important Related Topics**:
+
+- CloudTrail log aggregation across multiple AWS accounts using Organizations
+- AWS Config for resource configuration history and compliance tracking
+- Azure Network Watcher for packet capture and network diagnostics
+- GCP VPC Flow Logs for network traffic analysis
+- Container image vulnerability scanning with Trivy, Clair, or Anchore
+- Kubernetes audit policy configuration and centralized logging
+- Cloud Access Security Broker (CASB) logs
+- Cloud-native SIEM integration (Splunk, ELK Stack, Azure Sentinel)
+- Infrastructure as Code (IaC) analysis for Terraform/CloudFormation templates
+
+---
+
+# Timeline Analysis
+
+## Super Timeline Creation
+
+A super timeline consolidates timestamps from multiple artifact sources (filesystem metadata, registry, logs, browser history, etc.) into a single chronological view. This provides comprehensive visibility into system activity for incident reconstruction.
+
+### Concept and Purpose
+
+**What is a super timeline**:
+
+- Aggregated timeline combining MACB timestamps (Modified, Accessed, Changed, Born/Created)
+- Includes data from filesystem, registry, event logs, browser artifacts, application logs
+- Enables correlation of events across different data sources
+- Critical for establishing attack sequence and lateral movement
+
+**MACB Timestamps**:
+
+- **M (Modified)**: Content modification time
+- **A (Accessed)**: Last access time (often unreliable on modern systems)
+- **C (Changed)**: Metadata change time (inode change on Linux)
+- **B (Born/Created)**: File creation time
+
+**Timestamp considerations**:
+
+- Windows: Birth time preserved, last access often disabled for performance
+- Linux: No birth time in ext4 (until kernel 4.11+), access time may be mounted with noatime
+- NTFS: Maintains $STANDARD_INFORMATION and $FILE_NAME timestamps (may differ, indicates anti-forensics)
+- FAT32: 2-second granularity, no changed time
+
+### Timeline Creation Workflow
+
+**Standard process**:
+
+1. **Image acquisition**: Obtain forensic image (dd, FTK Imager, etc.)
+2. **Parsing**: Extract timestamps from all artifacts using log2timeline
+3. **Storage**: Save to intermediate format (Plaso storage file)
+4. **Filtering**: Apply filters to reduce noise
+5. **Output**: Generate human-readable timeline (CSV, dynamic formats)
+6. **Analysis**: Correlate events, identify anomalies
+
+## Log2timeline/Plaso Usage
+
+Plaso (Plaso Langar Að Safna Öllu) is the Python-based engine; log2timeline is the primary tool for timeline creation.
+
+### Installation and Setup
+
+**Kali Linux**:
+
+```bash
+# Install Plaso
+sudo apt update
+sudo apt install plaso-tools
+
+# Verify installation
+log2timeline.py --version
+psort.py --version
+
+# Common dependencies
+sudo apt install python3-plaso python3-dfvfs
+```
+
+### Log2timeline.py - Timeline Creation
+
+**Basic syntax**:
+
+```bash
+log2timeline.py [OPTIONS] PLASO_STORAGE_FILE IMAGE_FILE
+```
+
+**Basic timeline creation**:
+
+```bash
+# Process disk image
+log2timeline.py timeline.plaso evidence.dd
+
+# Process mounted image
+log2timeline.py timeline.plaso /mnt/evidence/
+
+# Process specific directory (live system)
+sudo log2timeline.py timeline.plaso /home/suspect/
+```
+
+**Important parameters**:
+
+```bash
+# Specify parsers (faster, focused analysis)
+log2timeline.py --parsers "winevt,pe,prefetch,filestat" timeline.plaso evidence.dd
+
+# List available parsers
+log2timeline.py --parsers list
+
+# Exclude parsers (remove noisy sources)
+log2timeline.py --parsers "!syslog,!apache_access" timeline.plaso evidence.dd
+
+# Set timezone
+log2timeline.py --timezone "America/New_York" timeline.plaso evidence.dd
+
+# Process VSS (Volume Shadow Copies) - Windows only
+log2timeline.py --vss-stores all timeline.plaso evidence.dd
+
+# Increase workers (parallel processing)
+log2timeline.py --workers 8 timeline.plaso evidence.dd
+
+# Status view (monitor progress)
+log2timeline.py --status-view window timeline.plaso evidence.dd
+
+# Partition selection
+log2timeline.py --partition 2 timeline.plaso evidence.dd
+
+# Hash calculation for files
+log2timeline.py --hashers md5,sha256 timeline.plaso evidence.dd
+```
+
+**Parser categories**:
+
+```bash
+# Filesystem parsers
+filestat - Basic file timestamps (MACB)
+ntfs - NTFS-specific artifacts ($MFT, $UsnJrnl, $LogFile)
+ntfs_mft - $MFT parsing only
+
+# Windows artifacts
+winevt - Windows Event Logs (EVTX)
+winevtx - Windows XML Event Logs
+prefetch - Windows Prefetch files
+userassist - UserAssist registry keys
+recycle_bin - Recycle Bin artifacts
+lnk - Windows shortcut files
+pe - Portable Executable metadata
+mrulist - Most Recently Used lists
+
+# Browser artifacts  
+chrome_cache - Chrome cache
+chrome_history - Chrome browsing history
+firefox_history - Firefox places.sqlite
+safari_history - Safari history
+
+# Linux artifacts
+syslog - Syslog files
+bash_history - Bash command history
+utmp - Login records
+selinux - SELinux logs
+
+# Application logs
+apache_access - Apache access logs
+iis - IIS web server logs
+mcafee_av - McAfee antivirus logs
+```
+
+**Practical examples**:
+
+```bash
+# Windows incident response - focus on execution and access
+log2timeline.py --parsers "winevt,prefetch,userassist,mft,lnk,recycle_bin" \
+  --timezone "UTC" \
+  --vss-stores all \
+  --status-view window \
+  windows_timeline.plaso \
+  evidence.E01
+
+# Linux server compromise investigation
+log2timeline.py --parsers "filestat,syslog,bash_history,utmp,apache_access" \
+  --timezone "America/Los_Angeles" \
+  linux_timeline.plaso \
+  /mnt/server_image/
+
+# Browser forensics
+log2timeline.py --parsers "chrome_history,chrome_cache,firefox_history,firefox_cache" \
+  browser_timeline.plaso \
+  /home/user/.mozilla/
+
+# Quick triage (filesystem only)
+log2timeline.py --parsers "filestat" \
+  quick_timeline.plaso \
+  /mnt/evidence/
+```
+
+### Psort.py - Timeline Filtering and Output
+
+**Basic syntax**:
+
+```bash
+psort.py [OPTIONS] -o OUTPUT_MODULE -w OUTPUT_FILE PLASO_STORAGE_FILE
+```
+
+**Output formats**:
+
+```bash
+# CSV output (most common)
+psort.py -o l2tcsv -w timeline.csv timeline.plaso
+
+# Dynamic output (more readable)
+psort.py -o dynamic -w timeline.txt timeline.plaso
+
+# JSON output
+psort.py -o json -w timeline.json timeline.plaso
+
+# JSONL (JSON Lines - one event per line)
+psort.py -o json_line -w timeline.jsonl timeline.plaso
+
+# Elasticsearch bulk import format
+psort.py -o elastic -w timeline_elastic.json timeline.plaso
+
+# TLN (timeline format)
+psort.py -o tln -w timeline.tln timeline.plaso
+
+# List available output formats
+psort.py -o list
+```
+
+**Filtering options**:
+
+```bash
+# Date range filtering
+psort.py -o l2tcsv -w filtered.csv \
+  --date-filter "2024-01-15..2024-01-20" \
+  timeline.plaso
+
+# Slice by date (alternative syntax)
+psort.py -o l2tcsv -w filtered.csv \
+  timeline.plaso "date > '2024-01-15 00:00:00' AND date < '2024-01-20 23:59:59'"
+
+# Filter by parser
+psort.py -o l2tcsv -w prefetch_only.csv \
+  --parsers "prefetch" \
+  timeline.plaso
+
+# Filter by source (file path)
+psort.py -o l2tcsv -w user_events.csv \
+  timeline.plaso "source_long contains 'Users\\suspect'"
+
+# Filter by event type
+psort.py -o l2tcsv -w file_creation.csv \
+  timeline.plaso "timestamp_desc == 'Creation Time'"
+
+# Exclude specific sources
+psort.py -o l2tcsv -w no_system.csv \
+  timeline.plaso "source_long not contains 'System32'"
+
+# Filter by keyword in description
+psort.py -o l2tcsv -w malware_events.csv \
+  timeline.plaso "description contains 'malware.exe'"
+
+# Combine multiple filters
+psort.py -o l2tcsv -w complex_filter.csv \
+  timeline.plaso "date > '2024-01-15' AND parser == 'prefetch' AND source_long contains 'Windows\\Prefetch'"
+```
+
+**Analysis helpers**:
+
+```bash
+# Show timeline statistics
+psort.py --status-view window -o null timeline.plaso
+
+# Extract unique values (usernames, hostnames)
+psort.py -o dynamic timeline.plaso | grep -i "username" | sort -u
+
+# Count events by parser
+psort.py -o l2tcsv timeline.plaso | cut -d',' -f3 | sort | uniq -c | sort -rn
+
+# Set output timezone
+psort.py -o l2tcsv -w timeline.csv --timezone "America/New_York" timeline.plaso
+```
+
+### Advanced Plaso Workflows
+
+**Analyzing Plaso storage files**:
+
+```bash
+# Use pinfo.py to inspect storage file
+pinfo.py timeline.plaso
+
+# Show stored parsers
+pinfo.py -v timeline.plaso
+
+# Compare two storage files
+pdiff.py timeline1.plaso timeline2.plaso
+```
+
+**Storage file management**:
+
+```bash
+# Merge multiple Plaso files
+psteal.py --source timeline1.plaso --write merged.plaso timeline2.plaso
+
+# Extract subset to new storage file
+psort.py --date-filter "2024-01-15..2024-01-16" \
+  -o null \
+  --write subset.plaso \
+  timeline.plaso
+```
+
+**Processing large images**:
+
+```bash
+# Use storage file append (process in chunks)
+log2timeline.py --partition 1 --storage-file timeline.plaso evidence.dd
+log2timeline.py --partition 2 --storage-file timeline.plaso evidence.dd
+
+# Process with lower memory footprint
+log2timeline.py --worker-memory-limit 512 timeline.plaso evidence.dd
+
+# Single-threaded processing (memory constrained systems)
+log2timeline.py --single-process timeline.plaso evidence.dd
+```
+
+### CTF-Specific Tips
+
+**Quick analysis targets**:
+
+```bash
+# Find recently created executables (Windows)
+psort.py -o l2tcsv timeline.plaso \
+  "source_long contains '.exe' AND timestamp_desc contains 'Creation'" | \
+  sort -t',' -k1 -r | head -20
+
+# Find recently accessed files in user directory
+psort.py -o l2tcsv timeline.plaso \
+  "source_long contains '/home/user' AND date > '2024-10-01'" | \
+  grep -i accessed
+
+# Identify persistence mechanisms (Windows)
+psort.py -o l2tcsv timeline.plaso \
+  "source_long contains 'Run' OR source_long contains 'Task' OR source_long contains 'Service'"
+```
+
+## Event Correlation
+
+Event correlation identifies relationships between timeline events to reconstruct attack narratives and user actions.
+
+### Correlation Methodology
+
+**Manual correlation workflow**:
+
+1. **Establish timeframe**: Identify suspicious activity window
+2. **Pivot points**: Find key events (logins, file creation, network connections)
+3. **Temporal clustering**: Group events within close time proximity
+4. **Causality**: Determine if Event A could have caused Event B
+5. **Attribution**: Link events to specific users/processes/systems
+
+### Key Events for Correlation
+
+**Windows execution artifacts**:
+
+- **Prefetch files**: Application execution (first/last run times)
+- **Amcache.hve**: Application installation and execution
+- **UserAssist**: GUI application launches
+- **BAM/DAM**: Background Activity Moderator (execution timestamps)
+- **WMI Event Logs**: Suspicious WMI usage
+- **PowerShell logs**: Script execution (Event ID 4104)
+
+**Windows access artifacts**:
+
+- **LNK files**: File access via Explorer
+- **JumpLists**: Recent documents per application
+- **RecentDocs**: Registry-based recent file tracking
+- **Office MRU**: Recently accessed Office documents
+
+**Authentication events**:
+
+- **Event ID 4624**: Successful logon
+- **Event ID 4625**: Failed logon
+- **Event ID 4672**: Special privileges assigned
+- **Event ID 4768/4769**: Kerberos TGT/TGS requests (Linux: auth.log, secure)
+
+**Linux artifacts**:
+
+- **auth.log/secure**: Authentication attempts
+- **bash_history**: Command execution
+- **wtmp/utmp**: Login records
+- **systemd journal**: Service and system events
+- **/var/log/syslog**: General system activity
+
+### Correlation Techniques
+
+**Time-boxed analysis**:
+
+```bash
+# Extract 5-minute window around incident
+psort.py -o l2tcsv -w incident_window.csv \
+  timeline.plaso \
+  "date > '2024-01-15 14:30:00' AND date < '2024-01-15 14:35:00'"
+
+# Analyze events in chronological order
+cat incident_window.csv | sort -t',' -k1
+```
+
+**Process tracking** [Inference: assumes correlation between prefetch and execution]:
+
+```bash
+# Find prefetch creation for suspicious executable
+grep "malware.exe" timeline.csv | grep -i prefetch
+
+# Correlate with file creation
+grep "malware.exe" timeline.csv | grep -i "creation time"
+
+# Find associated registry modifications (Run keys, services)
+grep -E "(Run|Service)" timeline.csv | \
+  grep -A5 -B5 "$(date -d '2024-01-15 14:32' +%s)"
+```
+
+**User activity profiling**:
+
+```python
+#!/usr/bin/env python3
+# Correlate user logon with file access
+
+import csv
+from datetime import datetime, timedelta
+
+def correlate_logon_activity(timeline_csv):
+    logon_events = []
+    file_events = []
+    
+    with open(timeline_csv, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if '4624' in row.get('description', ''):  # Logon event
+                logon_events.append(row)
+            elif 'File Opened' in row.get('description', ''):
+                file_events.append(row)
+    
+    # Find file access within 5 minutes of logon
+    for logon in logon_events:
+        logon_time = datetime.fromisoformat(logon['date'])
+        print(f"\nLogon at {logon_time}: {logon.get('username', 'N/A')}")
+        
+        for file_evt in file_events:
+            file_time = datetime.fromisoformat(file_evt['date'])
+            if abs((file_time - logon_time).total_seconds()) < 300:
+                print(f"  -> {file_evt['source_long']}")
+```
+
+**Temporal correlation script**:
+
+```python
+#!/usr/bin/env python3
+# Find events within time window
+
+import csv
+from datetime import datetime, timedelta
+
+def find_nearby_events(timeline_csv, target_time, window_seconds=300):
+    """Find all events within window_seconds of target_time"""
+    target = datetime.fromisoformat(target_time)
+    nearby = []
+    
+    with open(timeline_csv, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                event_time = datetime.fromisoformat(row['date'])
+                diff = abs((event_time - target).total_seconds())
+                
+                if diff <= window_seconds:
+                    nearby.append({
+                        'time': event_time,
+                        'offset': diff,
+                        'description': row.get('description', ''),
+                        'source': row.get('source_long', '')
+                    })
+            except:
+                continue
+    
+    # Sort by time offset
+    nearby.sort(key=lambda x: x['offset'])
+    return nearby
+
+# Usage
+events = find_nearby_events('timeline.csv', '2024-01-15 14:32:15', 300)
+for evt in events:
+    print(f"[+{evt['offset']:.0f}s] {evt['time']}: {evt['description']}")
+```
+
+### Correlation Patterns
+
+**Lateral movement detection**:
+
+1. Account logon (Event ID 4624, Type 3 - network)
+2. Service installation or scheduled task creation
+3. Remote file copy or share access
+4. Process execution on remote system
+
+**Data exfiltration indicators**:
+
+1. Large file access or compression (7zip, WinRAR)
+2. Cloud storage client execution
+3. Browser upload activity
+4. Removable media insertion (Event ID 20001)
+5. Network connection to external IP
+
+**Malware execution chain**:
+
+1. Email client or browser download activity
+2. File creation in Downloads or Temp
+3. Initial execution (prefetch creation)
+4. Registry persistence establishment
+5. Network callback activity
+6. Credential access attempts
+
+### Visualization and Analysis Tools
+
+**Timeline Explorer** (Windows-based):
+
+- GUI for CSV timeline analysis
+- Filtering, searching, tagging capabilities
+- Not native to Kali but can run via Wine [Unverified]
+
+**Command-line analysis**:
+
+```bash
+# CSV manipulation with csvkit
+sudo apt install csvkit
+
+# Filter timeline CSV
+csvgrep -c description -m "execution" timeline.csv | csvlook
+
+# Count events by type
+csvcut -c description timeline.csv | sort | uniq -c | sort -rn
+
+# Extract specific columns
+csvcut -c date,description,source_long timeline.csv > simplified.csv
+
+# Search for patterns
+csvgrep -c source_long -r ".*\.exe$" timeline.csv | \
+  csvgrep -c timestamp_desc -m "Creation Time"
+```
+
+**Python pandas analysis**:
+
+```python
+import pandas as pd
+
+# Load timeline
+df = pd.read_csv('timeline.csv')
+
+# Convert date column to datetime
+df['date'] = pd.to_datetime(df['date'])
+
+# Filter by date range
+mask = (df['date'] > '2024-01-15') & (df['date'] < '2024-01-16')
+filtered = df.loc[mask]
+
+# Group by parser
+parser_counts = df.groupby('parser').size().sort_values(ascending=False)
+
+# Find execution events
+executions = df[df['description'].str.contains('execution|execute|run', case=False, na=False)]
+
+# Identify file operations on specific file
+target_file = df[df['source_long'].str.contains('malware.exe', case=False, na=False)]
+
+# Time-based grouping (1-hour windows)
+df.set_index('date').groupby(pd.Grouper(freq='1H')).size()
+```
+
+### Correlation Checklist for CTFs
+
+**When analyzing suspicious activity**:
+
+1. ✓ Identify initial access vector (time, method)
+2. ✓ Find privilege escalation indicators
+3. ✓ Trace lateral movement paths
+4. ✓ Identify persistence mechanisms
+5. ✓ Document data access/exfiltration
+6. ✓ Timeline command execution
+7. ✓ Correlate network connections with processes
+8. ✓ Map user actions to system changes
+
+**Common pivot points**:
+
+- First appearance of suspicious file
+- Service/scheduled task creation
+- Registry modification timestamps
+- Account creation or privilege changes
+- Unusual logon patterns (time, source, account)
+
+### Practical CTF Scenarios
+
+**Scenario: Finding initial compromise time**:
+
+```bash
+# Create focused timeline
+log2timeline.py --parsers "winevt,prefetch,filestat" timeline.plaso evidence.dd
+
+# Filter for external connections and new executables
+psort.py -o l2tcsv -w analysis.csv timeline.plaso
+
+# Search for new EXE in user directories
+grep -i "\.exe" analysis.csv | \
+  grep -i "creation" | \
+  grep -i "users" | \
+  sort -t',' -k1 | head -20
+
+# Correlate with network logons within 10 minutes
+```
+
+**Scenario: Tracking data theft**:
+
+```bash
+# Find large file operations
+psort.py -o l2tcsv timeline.plaso | \
+  grep -E "(\.zip|\.rar|\.7z|sensitive|confidential)"
+
+# Look for USB insertion around same time
+grep -i "USBSTOR" timeline.csv
+
+# Check for file access before archiving
+grep "documents" timeline.csv | sort -t',' -k1
+```
+
+### Performance Optimization
+
+**For large timelines**:
+
+```bash
+# Process only relevant time period
+psort.py --date-filter "2024-01-01..2024-02-01" timeline.plaso
+
+# Focus on high-value parsers
+log2timeline.py --parsers "winevt,prefetch,mft,lnk" timeline.plaso evidence.dd
+
+# Split output by date
+psort.py -o l2tcsv -w jan_timeline.csv \
+  --date-filter "2024-01-01..2024-01-31" timeline.plaso
+
+# Use grep/awk for fast filtering instead of full re-parsing
+grep -i "keyword" timeline.csv > filtered.csv
+```
+
+### Key Limitations and Caveats
+
+[Unverified: Timestamp reliability varies by system configuration]
+
+- NTFS last access time often disabled (Windows Vista+)
+- Linux noatime mount option disables access time updates
+- Anti-forensics may manipulate timestamps (timestomp)
+- Virtual machines may have clock drift or timezone issues
+- Deleted files may only appear in $MFT or $UsnJrnl
+
+**Always cross-reference multiple artifact sources when establishing timeline conclusions**
+
+### Essential Resources
+
+**Plaso documentation**: https://plaso.readthedocs.io/ **SANS DFIR posters**: Reference for Windows/Linux artifacts **Eric Zimmerman tools**: Complement Plaso for Windows artifact parsing (not Plaso-based)
+
+---
+
+## Timeline Filtering Techniques
+
+### Timeline Fundamentals
+
+Timeline analysis consolidates events from multiple sources into chronological order to reconstruct user activity, identify anomalies, and establish causation chains.
+
+**Core Timeline Components:**
+
+- **Timestamp** - When the event occurred
+- **Source** - Which artifact generated the event (file system, registry, logs, application)
+- **Event Type** - Action performed (created, modified, accessed, deleted, executed)
+- **Artifact** - Specific file, registry key, or data structure
+- **Description** - Human-readable event context
+- **User/Process** - Actor responsible (when available)
+
+### Super Timeline Creation
+
+**Plaso/log2timeline:**
+
+```bash
+# Install
+apt-get install plaso-tools
+
+# Create super timeline from disk image
+log2timeline.py --storage-file timeline.plaso evidence.dd
+
+# From mounted file system
+log2timeline.py --storage-file timeline.plaso /mnt/evidence
+
+# Process specific parsers only (faster)
+log2timeline.py --parsers "win7,chrome,firefox" --storage-file timeline.plaso evidence.dd
+
+# List available parsers
+log2timeline.py --parsers list
+
+# With specific timezone
+log2timeline.py --storage-file timeline.plaso -z "Asia/Manila" evidence.dd
+
+# Process with hash calculation
+log2timeline.py --storage-file timeline.plaso --hashers md5,sha256 evidence.dd
+```
+
+**Converting Plaso to Readable Formats:**
+
+```bash
+# CSV output (most flexible for filtering)
+psort.py -o l2tcsv -w timeline.csv timeline.plaso
+
+# Excel format
+psort.py -o xlsx -w timeline.xlsx timeline.plaso
+
+# Elasticsearch (for large datasets)
+psort.py -o elastic --server 127.0.0.1 --port 9200 timeline.plaso
+
+# JSON output
+psort.py -o json -w timeline.json timeline.plaso
+
+# Dynamic output (interactive filtering)
+psort.py -o dynamic timeline.plaso
+```
+
+### Basic Filtering Techniques
+
+**Time-Based Filtering:**
+
+```bash
+# Filter specific date range
+psort.py -o l2tcsv -w filtered.csv timeline.plaso "date > '2024-10-01' AND date < '2024-10-31'"
+
+# Events after specific time
+psort.py -o l2tcsv -w filtered.csv timeline.plaso "date > '2024-10-25 14:30:00'"
+
+# Events on exact date
+psort.py -o l2tcsv -w filtered.csv timeline.plaso "date == '2024-10-25'"
+
+# Time of day filtering (business hours)
+psort.py -o l2tcsv -w filtered.csv timeline.plaso "time_hour >= 9 AND time_hour <= 17"
+
+# Weekend activity only
+psort.py -o l2tcsv -w filtered.csv timeline.plaso "day_of_week == 6 OR day_of_week == 7"
+```
+
+**Source-Based Filtering:**
+
+```bash
+# File system events only
+psort.py -o l2tcsv -w fs_timeline.csv timeline.plaso "parser contains 'filestat'"
+
+# Browser history only
+psort.py -o l2tcsv -w browser.csv timeline.plaso "parser contains 'chrome' OR parser contains 'firefox'"
+
+# Registry events
+psort.py -o l2tcsv -w registry.csv timeline.plaso "parser contains 'winreg'"
+
+# Prefetch files
+psort.py -o l2tcsv -w prefetch.csv timeline.plaso "parser contains 'prefetch'"
+
+# Event logs
+psort.py -o l2tcsv -w evtx.csv timeline.plaso "parser contains 'winevtx'"
+```
+
+**Content-Based Filtering:**
+
+```bash
+# Specific filename
+psort.py -o l2tcsv -w filtered.csv timeline.plaso "filename contains 'malware.exe'"
+
+# File extension
+psort.py -o l2tcsv -w docs.csv timeline.plaso "filename icontains '.docx' OR filename icontains '.pdf'"
+
+# Path filtering
+psort.py -o l2tcsv -w downloads.csv timeline.plaso "filename contains '/Downloads/' OR filename contains '\Downloads\'"
+
+# Specific user activity
+psort.py -o l2tcsv -w user_activity.csv timeline.plaso "username == 'jdoe'"
+
+# Exclude system files
+psort.py -o l2tcsv -w filtered.csv timeline.plaso "NOT filename contains '/Windows/System32/'"
+```
+
+**Event Type Filtering:**
+
+```bash
+# File creation events only
+psort.py -o l2tcsv -w created.csv timeline.plaso "timestamp_desc == 'Creation Time'"
+
+# File modification
+psort.py -o l2tcsv -w modified.csv timeline.plaso "timestamp_desc contains 'Modification'"
+
+# File access
+psort.py -o l2tcsv -w accessed.csv timeline.plaso "timestamp_desc contains 'Access'"
+
+# Entry modification (MFT)
+psort.py -o l2tcsv -w mft_changes.csv timeline.plaso "timestamp_desc contains 'Entry Modified'"
+```
+
+**Combined Filtering Logic:**
+
+```bash
+# Suspicious after-hours executable activity
+psort.py -o l2tcsv -w suspicious.csv timeline.plaso \
+  "(time_hour < 6 OR time_hour > 22) AND filename icontains '.exe' AND NOT filename contains 'Windows'"
+
+# Document exfiltration pattern
+psort.py -o l2tcsv -w exfil.csv timeline.plaso \
+  "filename icontains '.doc' AND (filename contains 'USB' OR filename contains 'Temp') AND date > '2024-10-20'"
+
+# Web browsing during specific incident window
+psort.py -o l2tcsv -w incident_browsing.csv timeline.plaso \
+  "parser contains 'chrome' AND date > '2024-10-25 13:00:00' AND date < '2024-10-25 15:00:00'"
+```
+
+### Advanced Filtering with Timeline Explorer
+
+**Timeline Explorer (GUI Tool by Eric Zimmerman):**
+
+```bash
+# Download from https://ericzimmerman.github.io
+# Windows tool but runs under Wine on Linux
+
+wine TimelineExplorer.exe timeline.csv
+```
+
+**Key Features:**
+
+- Column-based filtering with regex support
+- Color coding for event types
+- Tag suspicious entries
+- Export filtered subsets
+- Statistical summaries
+
+**Column Filter Examples (in GUI):**
+
+```
+Filename column: ^(?!.*Windows).*\.exe$  (executables outside Windows)
+Description column: USB|Removable         (external device activity)
+Source column: Prefetch|Amcache          (execution evidence)
+Timestamp: 2024-10-25                     (specific date)
+```
+
+### Command-Line CSV Filtering
+
+**Using grep:**
+
+```bash
+# Extract specific extensions
+grep -E "\.(exe|dll|sys)" timeline.csv > executables.csv
+
+# Case-insensitive search
+grep -i "suspicious" timeline.csv > flagged_events.csv
+
+# Exclude patterns
+grep -v "C:\\Windows\\System32" timeline.csv > non_system.csv
+
+# Multiple patterns
+grep -E "(malware|trojan|suspicious)" timeline.csv > threats.csv
+```
+
+**Using awk:**
+
+```bash
+# Events between specific hours (assuming timestamp in column 1)
+awk -F',' '$1 ~ /2024-10-25 (1[4-9]|2[0-3]):/ {print}' timeline.csv > afternoon.csv
+
+# Filter by specific column value (e.g., column 3 is source type)
+awk -F',' '$3 == "FILE" {print}' timeline.csv > file_events.csv
+
+# Count events by hour
+awk -F',' '{split($1,a," "); split(a[2],b,":"); print b[1]}' timeline.csv | sort | uniq -c
+
+# Statistical summary - events per day
+awk -F',' '{split($1,a," "); print a[1]}' timeline.csv | sort | uniq -c
+```
+
+**Using csvkit:**
+
+```bash
+# Install
+apt-get install csvkit
+
+# Query with SQL-like syntax
+csvsql --query "SELECT * FROM timeline WHERE filename LIKE '%.exe%'" timeline.csv > execs.csv
+
+# Filter and sort
+csvcut -c 1,3,5 timeline.csv | csvgrep -c 3 -m "Firefox" | csvsort -c 1 > firefox_sorted.csv
+
+# Get column statistics
+csvstat timeline.csv
+
+# Count unique values in column
+csvcut -c parser timeline.csv | tail -n +2 | sort | uniq -c
+```
+
+**Using Python pandas:**
+
+```python
+#!/usr/bin/env python3
+import pandas as pd
+
+# Load timeline
+df = pd.read_csv('timeline.csv')
+
+# Time-based filtering
+df['datetime'] = pd.to_datetime(df['date'])
+filtered = df[(df['datetime'] >= '2024-10-20') & (df['datetime'] <= '2024-10-30')]
+
+# Pattern matching
+execs = df[df['filename'].str.contains('.exe', case=False, na=False)]
+
+# Multiple conditions
+suspicious = df[
+    (df['filename'].str.contains('.exe', case=False, na=False)) &
+    (~df['filename'].str.contains('Windows', case=False, na=False)) &
+    (df['datetime'].dt.hour < 6) | (df['datetime'].dt.hour > 22)
+]
+
+# Statistical analysis
+print(df.groupby('parser')['parser'].count())
+print(df.groupby(df['datetime'].dt.date).size())
+
+# Export filtered results
+suspicious.to_csv('suspicious_filtered.csv', index=False)
+```
+
+### Stacking and Frequency Analysis
+
+**Identify Outliers by Frequency:**
+
+```bash
+# Files accessed only once (potential targeted access)
+awk -F',' '{print $5}' timeline.csv | sort | uniq -c | awk '$1 == 1 {print $2}' > rare_files.txt
+
+# Most frequently accessed files
+awk -F',' '{print $5}' timeline.csv | sort | uniq -c | sort -rn | head -20
+
+# Unique programs executed
+grep -i "prefetch" timeline.csv | awk -F',' '{print $5}' | sort -u
+
+# Activity by user
+awk -F',' '{print $7}' timeline.csv | sort | uniq -c | sort -rn
+```
+
+**Timeline Stacking Script:**
+
+```python
+#!/usr/bin/env python3
+import pandas as pd
+import sys
+
+def stack_timeline(csv_file, column_name, threshold=5):
+    """
+    Stack timeline events by column to identify anomalies.
+    Events occurring fewer than threshold times are flagged as outliers.
+    """
+    df = pd.read_csv(csv_file)
+    
+    # Count occurrences
+    counts = df[column_name].value_counts()
+    
+    # Identify rare events
+    rare = counts[counts < threshold]
+    
+    print(f"Total unique {column_name}: {len(counts)}")
+    print(f"Rare events (< {threshold} occurrences): {len(rare)}\n")
+    
+    print("Top 20 most common:")
+    print(counts.head(20))
+    
+    print("\n\nRare events:")
+    print(rare)
+    
+    # Export rare events
+    rare_entries = df[df[column_name].isin(rare.index)]
+    rare_entries.to_csv(f'rare_{column_name}.csv', index=False)
+    print(f"\nRare events exported to rare_{column_name}.csv")
+
+if __name__ == "__main__":
+    stack_timeline(sys.argv[1], sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 5)
+```
+
+Usage:
+
+```bash
+python3 stack_timeline.py timeline.csv filename 5
+python3 stack_timeline.py timeline.csv parser 10
+```
+
+## Temporal Analysis Methods
+
+### Gap Analysis
+
+**Identifying Suspicious Time Gaps:**
+
+Unusual gaps in activity may indicate:
+
+- Anti-forensics (timestamp manipulation, file deletion)
+- System shutdown/hibernation
+- Malware with scheduled execution
+- User absence during work hours
+
+**Calculate Time Gaps:**
+
+```python
+#!/usr/bin/env python3
+import pandas as pd
+import sys
+
+def find_gaps(csv_file, gap_threshold_hours=2):
+    df = pd.read_csv(csv_file)
+    df['datetime'] = pd.to_datetime(df['date'])
+    df = df.sort_values('datetime')
+    
+    # Calculate time differences
+    df['time_diff'] = df['datetime'].diff()
+    
+    # Find gaps exceeding threshold
+    gaps = df[df['time_diff'] > pd.Timedelta(hours=gap_threshold_hours)]
+    
+    print(f"Found {len(gaps)} gaps exceeding {gap_threshold_hours} hours:\n")
+    
+    for idx, row in gaps.iterrows():
+        print(f"Gap of {row['time_diff']} after {row['datetime']}")
+        print(f"  Previous event: {df.loc[idx-1, 'description']}")
+        print(f"  Next event: {row['description']}\n")
+    
+    gaps.to_csv('timeline_gaps.csv', index=False)
+
+if __name__ == "__main__":
+    find_gaps(sys.argv[1], float(sys.argv[2]) if len(sys.argv) > 2 else 2)
+```
+
+### Activity Pattern Analysis
+
+**Time-of-Day Distribution:**
+
+```python
+#!/usr/bin/env python3
+import pandas as pd
+import matplotlib.pyplot as plt
+
+def analyze_activity_patterns(csv_file):
+    df = pd.read_csv(csv_file)
+    df['datetime'] = pd.to_datetime(df['date'])
+    
+    # Hour distribution
+    hour_counts = df.groupby(df['datetime'].dt.hour).size()
+    
+    # Day of week distribution
+    dow_counts = df.groupby(df['datetime'].dt.dayofweek).size()
+    
+    # Visualize
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+    
+    hour_counts.plot(kind='bar', ax=ax1, title='Events by Hour of Day')
+    ax1.set_xlabel('Hour')
+    ax1.set_ylabel('Event Count')
+    
+    dow_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    dow_counts.plot(kind='bar', ax=ax2, title='Events by Day of Week')
+    ax2.set_xticklabels(dow_names, rotation=0)
+    ax2.set_xlabel('Day of Week')
+    ax2.set_ylabel('Event Count')
+    
+    plt.tight_layout()
+    plt.savefig('activity_patterns.png')
+    print("Pattern analysis saved to activity_patterns.png")
+    
+    # Identify anomalies
+    print("\nAnomaly Detection:")
+    mean_hourly = hour_counts.mean()
+    std_hourly = hour_counts.std()
+    
+    for hour, count in hour_counts.items():
+        if count > mean_hourly + (2 * std_hourly):
+            print(f"  Hour {hour:02d}: Unusually HIGH activity ({count} events)")
+        elif count < mean_hourly - (2 * std_hourly):
+            print(f"  Hour {hour:02d}: Unusually LOW activity ({count} events)")
+
+if __name__ == "__main__":
+    import sys
+    analyze_activity_patterns(sys.argv[1])
+```
+
+### Event Correlation and Sequencing
+
+**Identify Event Chains:**
+
+```python
+#!/usr/bin/env python3
+import pandas as pd
+
+def find_event_sequences(csv_file, window_seconds=60):
+    """
+    Find related events occurring within a time window.
+    Useful for identifying attack chains or user workflows.
+    """
+    df = pd.read_csv(csv_file)
+    df['datetime'] = pd.to_datetime(df['date'])
+    df = df.sort_values('datetime')
+    
+    sequences = []
+    current_sequence = [df.iloc[0]]
+    
+    for idx in range(1, len(df)):
+        time_diff = (df.iloc[idx]['datetime'] - current_sequence[-1]['datetime']).total_seconds()
+        
+        if time_diff <= window_seconds:
+            current_sequence.append(df.iloc[idx])
+        else:
+            if len(current_sequence) > 1:
+                sequences.append(current_sequence)
+            current_sequence = [df.iloc[idx]]
+    
+    # Output sequences
+    print(f"Found {len(sequences)} event sequences within {window_seconds}s windows:\n")
+    
+    for i, seq in enumerate(sequences[:10], 1):  # Show first 10
+        print(f"Sequence {i} ({len(seq)} events):")
+        for event in seq:
+            print(f"  {event['datetime']} | {event['description']}")
+        print()
+
+if __name__ == "__main__":
+    import sys
+    find_event_sequences(sys.argv[1], int(sys.argv[2]) if len(sys.argv) > 2 else 60)
+```
+
+### Execution Timeline Reconstruction
+
+**Pivot Around Suspicious Files:**
+
+```bash
+# Extract all events related to specific file
+SUSPICIOUS_FILE="malware.exe"
+
+# Events mentioning the file
+grep -i "$SUSPICIOUS_FILE" timeline.csv > malware_timeline.csv
+
+# Events in same directory within time window
+FILE_PATH=$(grep -i "$SUSPICIOUS_FILE" timeline.csv | head -1 | awk -F',' '{print $5}')
+DIR_PATH=$(dirname "$FILE_PATH")
+
+grep "$DIR_PATH" timeline.csv | \
+  awk -F',' '$1 >= "2024-10-25 13:00:00" && $1 <= "2024-10-25 15:00:00"' \
+  > directory_activity.csv
+```
+
+**Execution Evidence Correlation:**
+
+```python
+#!/usr/bin/env python3
+import pandas as pd
+
+def correlate_execution_evidence(csv_file, executable_name):
+    """
+    Find all evidence of program execution across multiple artifacts.
+    """
+    df = pd.read_csv(csv_file)
+    df['datetime'] = pd.to_datetime(df['date'])
+    
+    # Search for execution indicators
+    evidence = []
+    
+    # Prefetch
+    prefetch = df[df['parser'].str.contains('prefetch', case=False, na=False) & 
+                  df['filename'].str.contains(executable_name, case=False, na=False)]
+    if not prefetch.empty:
+        evidence.append(('Prefetch', prefetch))
+    
+    # Amcache
+    amcache = df[df['parser'].str.contains('amcache', case=False, na=False) & 
+                 df['filename'].str.contains(executable_name, case=False, na=False)]
+    if not amcache.empty:
+        evidence.append(('Amcache', amcache))
+    
+    # Shimcache
+    shimcache = df[df['parser'].str.contains('appcompatcache', case=False, na=False) & 
+                   df['filename'].str.contains(executable_name, case=False, na=False)]
+    if not shimcache.empty:
+        evidence.append(('Shimcache', shimcache))
+    
+    # BAM/DAM
+    bam = df[df['parser'].str.contains('bam', case=False, na=False) & 
+             df['description'].str.contains(executable_name, case=False, na=False)]
+    if not bam.empty:
+        evidence.append(('BAM/DAM', bam))
+    
+    # Output results
+    print(f"Execution Evidence for {executable_name}:\n")
+    for source, data in evidence:
+        print(f"{source}: {len(data)} entries")
+        print(data[['datetime', 'description']].to_string())
+        print("\n")
+
+if __name__ == "__main__":
+    import sys
+    correlate_execution_evidence(sys.argv[1], sys.argv[2])
+```
+
+### Timestamp Anomaly Detection
+
+**MACB Timeline Analysis:**
+
+Standard NTFS timestamps (MACB):
+
+- **M** - Modified (content changed)
+- **A** - Accessed (file opened)
+- **C** - Changed (metadata/MFT entry changed)
+- **B** - Birth/Created (file created)
+
+**Anomaly Indicators:**
+
+```python
+#!/usr/bin/env python3
+import pandas as pd
+
+def detect_timestamp_anomalies(csv_file):
+    """
+    Identify suspicious timestamp patterns indicating anti-forensics.
+    """
+    df = pd.read_csv(csv_file)
+    
+    # Group by filename
+    file_groups = df.groupby('filename')
+    
+    anomalies = []
+    
+    for filename, group in file_groups:
+        timestamps = {}
+        
+        for _, row in group.iterrows():
+            ts_type = row['timestamp_desc']
+            ts_value = pd.to_datetime(row['date'])
+            timestamps[ts_type] = ts_value
+        
+        # Check for logical inconsistencies
+        
+        # Born after modified
+        if 'Birth' in timestamps and 'Modification' in timestamps:
+            if timestamps['Birth'] > timestamps['Modification']:
+                anomalies.append({
+                    'file': filename,
+                    'issue': 'Birth after modification',
+                    'birth': timestamps['Birth'],
+                    'modified': timestamps['Modification']
+                })
+        
+        # Accessed before created
+        if 'Birth' in timestamps and 'Access' in timestamps:
+            if timestamps['Access'] < timestamps['Birth']:
+                anomalies.append({
+                    'file': filename,
+                    'issue': 'Access before creation',
+                    'birth': timestamps['Birth'],
+                    'access': timestamps['Access']
+                })
+        
+        # All timestamps identical (timestomping indicator)
+        unique_times = set(timestamps.values())
+        if len(timestamps) >= 3 and len(unique_times) == 1:
+            anomalies.append({
+                'file': filename,
+                'issue': 'All timestamps identical (timestomping)',
+                'timestamp': list(unique_times)[0]
+            })
+    
+    print(f"Found {len(anomalies)} timestamp anomalies:\n")
+    for anomaly in anomalies:
+        print(anomaly)
+        print()
+
+if __name__ == "__main__":
+    import sys
+    detect_timestamp_anomalies(sys.argv[1])
+```
+
+**[Inference] Common timestamp manipulation patterns:**
+
+- All MACB times identical (tools like timestomp)
+- Birth time after modification time
+- Round timestamps (00:00:00 times)
+- Timestamps outside system operational period
+- Future timestamps
+
+### Event Density Heatmap
+
+**Visualize Activity Concentration:**
+
+```python
+#!/usr/bin/env python3
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+def create_activity_heatmap(csv_file):
+    df = pd.read_csv(csv_file)
+    df['datetime'] = pd.to_datetime(df['date'])
+    
+    # Create hour and day columns
+    df['hour'] = df['datetime'].dt.hour
+    df['day'] = df['datetime'].dt.date
+    
+    # Pivot for heatmap
+    heatmap_data = df.groupby(['day', 'hour']).size().unstack(fill_value=0)
+    
+    # Plot
+    plt.figure(figsize=(16, 10))
+    sns.heatmap(heatmap_data, cmap='YlOrRd', linewidths=0.5, cbar_kws={'label': 'Event Count'})
+    plt.title('Activity Heatmap: Events by Day and Hour')
+    plt.xlabel('Hour of Day')
+    plt.ylabel('Date')
+    plt.tight_layout()
+    plt.savefig('activity_heatmap.png', dpi=150)
+    print("Heatmap saved to activity_heatmap.png")
+
+if __name__ == "__main__":
+    import sys
+    create_activity_heatmap(sys.argv[1])
+```
+
+## MFT Timeline Parsing
+
+### Master File Table (MFT) Overview
+
+The MFT is NTFS's central database containing metadata for every file and directory. Each entry is typically 1024 bytes and includes:
+
+- Filename and path
+- File size
+- MACB timestamps
+- Attribute lists ($STANDARD_INFORMATION, $FILE_NAME)
+- Deleted file records (until overwritten)
+
+### Extracting MFT
+
+**Using MFTECmd (Eric Zimmerman):**
+
+```bash
+# Parse $MFT file directly
+MFTECmd.exe -f "C:\$MFT" --csv /output/directory --csvf mft_output.csv
+
+# From disk image
+MFTECmd.exe --image evidence.dd --csv /output/directory
+
+# With deleted file recovery
+MFTECmd.exe -f '$MFT' --csv /output --csvf mft.csv --vss
+
+# On Linux with Wine
+wine MFTECmd.exe -f '$MFT' --csv . --csvf mft.csv
+```
+
+**Using analyzeMFT (Python):**
+
+```bash
+# Install
+pip install analyzeMFT
+
+# Parse MFT
+analyzeMFT.py -f '$MFT' -o mft_timeline.csv
+
+# With full path resolution
+analyzeMFT.py -f '$MFT' -o mft_timeline.csv --bodyfull
+
+# Output in body file format (for mactime)
+analyzeMFT.py -f '$MFT' -o mft.body -b
+```
+
+**Using The Sleuth Kit:**
+
+```bash
+# Extract $MFT from image
+icat evidence.dd 0 > mft.raw
+
+# Parse with fls (list files)
+fls -r -m / evidence.dd > mft_listing.txt
+
+# Create timeline in body format
+fls -r -m / -p evidence.dd > mft.body
+
+# Convert body to human-readable timeline
+mactime -b mft.body -d > mft_timeline.txt
+
+# Filter timeline by date range
+mactime -b mft.body -d 2024-10-20..2024-10-30 > filtered_mft.txt
+```
+
+### MFT Entry Structure
+
+**Key Attributes:**
+
+- **$STANDARD_INFORMATION** - MACB timestamps, file attributes, security ID
+- **$FILE_NAME** - Filename, parent directory reference, MACB timestamps
+- **$DATA** - File content (resident if <700 bytes, non-resident otherwise)
+- **$ATTRIBUTE_LIST** - List of attributes for large files
+- **$INDEX_ROOT/$INDEX_ALLOCATION** - Directory contents
+
+**Timestamp Discrepancies:**
+
+$STANDARD_INFORMATION vs $FILE_NAME timestamps:
+
+- $SI timestamps can be modified by user-mode applications [Inference]
+- $FN timestamps require kernel-mode access (harder to manipulate) [Inference]
+- Discrepancies indicate potential timestomping
+
+```python
+#!/usr/bin/env python3
+import pandas as pd
+
+def find_si_fn_discrepancies(mft_csv):
+    """
+    Identify files where $SI and $FN timestamps differ (timestomping indicator).
+    """
+    df = pd.read_csv(mft_csv)
+    
+    # Compare SI and FN modified times
+    si_fn_diff = df[
+        (pd.to_datetime(df['SI_Modified']) != pd.to_datetime(df['FN_Modified'])) &
+        (df['IsDirectory'] == False)
+    ]
+    
+    print(f"Found {len(si_fn_diff)} files with SI/FN timestamp discrepancies:\n")
+    
+    for _, row in si_fn_diff.iterrows():
+        print(f"File: {row['FullPath']}")
+        print(f"  SI Modified: {row['SI_Modified']}")
+        print(f"  FN Modified: {row['FN_Modified']}")
+        print(f"  Difference: {pd.to_datetime(row['SI_Modified']) - pd.to_datetime(row['FN_Modified'])}\n")
+    
+    si_fn_diff.to_csv('timestamp_anomalies.csv', index=False)
+
+if __name__ == "__main__":
+    import sys
+    find_si_fn_discrepancies(sys.argv[1])
+```
+
+### MFT-Specific Timeline Analysis
+
+**Identify Recently Created Files:**
+
+```bash
+# Using MFTECmd output
+csvcut -c FullPath,Created0x10 mft_output.csv | \
+  csvsql --query "SELECT * FROM stdin WHERE Created0x10 > '2024-10-20' ORDER BY Created0x10 DESC" \
+  > recent_files.csv
+```
+
+**Find Deleted Files:**
+
+```bash
+# MFT entries marked as deleted (InUse = False)
+csvgrep -c InUse -m "False" mft_output.csv | \
+  csvcut -c FullPath,Created0x10,Modified0x10,Size > deleted_files.csv
+
+# Analyze deletion patterns
+awk -F',' 'NR>1 {print $5}' deleted_files.csv | sort | uniq -c | sort -rn | head -20
+```
+
+**File Extension Analysis:**
+
+```bash
+# Count files by extension
+awk -F',' 'NR>1 {match($2, /\.[^.]+$/); ext=substr($2, RSTART); print ext}' mft_output.csv | \
+  sort | uniq -c | sort -rn > extension_counts.txt
+
+# Find specific extension
+grep -i "\.exe" mft_output.csv > executables.csv
+grep -i "\.doc\|\.docx\|\.pdf" mft_output.csv > documents.csv
+```
+
+**Directory Enumeration:**
+
+```bash
+# List all directories
+csvgrep -c IsDirectory -m "True" mft_output.csv | \
+  csvcut -c FullPath,Created0x10 > directories.csv
+
+# User profile directories
+grep "C:\\\\Users\\\\" mft_output.csv > user_files.csv
+```
+
+### Advanced MFT Timeline Techniques
+
+**Detect File Copying:**
+
+When files are copied:
+
+- Birth time = Copy time
+- Modified time = Original file's modified time
+- Birth newer than modified = copied file [Inference]
+
+```python
+#!/usr/bin/env python3
+import pandas as pd
+
+def detect_copied_files(mft_csv):
+    df = pd.read_csv(mft_csv)
+    
+    df['Created0x10'] = pd.to_datetime(df['Created0x10'])
+    df['Modified0x10'] = pd.to_datetime(df['Modified0x10'])
+    
+    # Files where creation is significantly after modification
+    copied = df[
+        (df['Created0x10'] > df['Modified0x10']) &
+        ((df['Created0x10'] - df['Modified0x10']).dt.days > 1) &
+        (df['IsDirectory'] == False)
+    ]
+    
+    print(f"Found {len(copied)} likely copied files:\n")
+    print(copied[['FullPath', 'Created0x10', 'Modified0x10', 'Size']].to_string())
+    
+    copied.to_csv('copied_files.csv', index=False)
+
+if __name__ == "__main__":
+    import sys
+    detect_copied_files(sys.argv[1])
+```
+
+**Zone Identifier Correlation:**
+
+Files downloaded from internet have ADS (Alternate Data Stream) Zone.Identifier:
+
+```bash
+# Extract files with Zone.Identifier
+grep "Zone.Identifier" mft_output.csv > downloads_with_motw.csv
+
+# Parse Zone.Identifier content [Unverified - requires ADS extraction]
+# Zone values: 0=Local, 1=Intranet, 2=Trusted, 3=Internet, 4=Restricted
+```
+
+**Resident vs Non-Resident Files:**
+
+```bash
+# Small files (resident in MFT)
+csvgrep -c IsResident -m "True" mft_output.csv > resident_files.csv
+
+# These files may not appear in carved data but exist in MFT
+```
+
+### MFT Integration with Super Timeline
+
+**Combining MFT with Full Timeline:**
+
+```bash
+# Parse MFT with log2timeline
+log2timeline.py --parsers "mft" --storage-file mft_only.plaso evidence.dd
+
+# Parse entire image with all parsers
+log2timeline.py --storage-file full_timeline.plaso evidence.dd
+
+# Export both and compare
+psort.py -o l2tcsv -w mft_timeline.csv mft_only.plaso
+psort.py -o l2tcsv -w full_timeline.csv full_timeline.plaso
+
+# Find events that only appear in MFT (deleted files)
+comm -23 <(cut -d',' -f5 mft_timeline.csv | sort -u) \
+         <(cut -d',' -f5 full_timeline.csv | sort -u) > mft_only_files.txt
+```
+
+**Correlate MFT with USN Journal:**
+
+The USN (Update Sequence Number) Journal tracks file system changes in real-time.
+
+```bash
+# Extract USN Journal
+fsutil usn readjournal C: csv > usn_journal.csv  # Windows
+# Or from Linux
+icat evidence.dd 0-128-8 > $UsnJrnl  # Extract $Extend\$UsnJrnl
+
+# Parse with MFTECmd
+MFTECmd.exe --csv /output --usnjrnl '$UsnJrnl:$J'
+
+# Analyze USN records
+csvcut -c TimeStamp,Filename,Reason usn_output.csv | head -50
+```
+
+**Cross-Reference with Prefetch:**
+
+```python
+#!/usr/bin/env python3
+import pandas as pd
+
+def correlate_mft_prefetch(mft_csv, timeline_csv):
+    """
+    Find executables in MFT and verify execution via Prefetch.
+    """
+    mft = pd.read_csv(mft_csv)
+    timeline = pd.read_csv(timeline_csv)
+    
+    # Extract executables from MFT
+    executables = mft[
+        mft['Extension'].str.upper() == 'EXE'
+    ][['FullPath', 'FileName', 'Created0x10', 'Modified0x10']]
+    
+    # Extract Prefetch events
+    prefetch = timeline[
+        timeline['parser'].str.contains('prefetch', case=False, na=False)
+    ]
+    
+    # Cross-reference
+    print("Executables with Prefetch Evidence:\n")
+    for _, exe in executables.iterrows():
+        exe_name = exe['FileName']
+        pf_match = prefetch[
+            prefetch['filename'].str.contains(exe_name, case=False, na=False)
+        ]
+        
+        if not pf_match.empty:
+            print(f"✓ {exe_name}")
+            print(f"  MFT Path: {exe['FullPath']}")
+            print(f"  MFT Created: {exe['Created0x10']}")
+            print(f"  Last Executed: {pf_match.iloc[0]['date']}")
+            print()
+    
+    print("\nExecutables WITHOUT Prefetch Evidence (may not have run):\n")
+    for _, exe in executables.iterrows():
+        exe_name = exe['FileName']
+        pf_match = prefetch[
+            prefetch['filename'].str.contains(exe_name, case=False, na=False)
+        ]
+        
+        if pf_match.empty:
+            print(f"✗ {exe_name} - {exe['FullPath']}")
+
+if __name__ == "__main__":
+    import sys
+    correlate_mft_prefetch(sys.argv[1], sys.argv[2])
+```
+
+### File System Tunneling Detection
+
+**NTFS Tunneling:** Windows caches file metadata for 15 seconds after deletion. If a new file is created with the same name in the same directory within this window, it inherits the old file's timestamps. [Unverified - documented behavior but timing may vary]
+
+```python
+#!/usr/bin/env python3
+import pandas as pd
+
+def detect_tunneling(mft_csv):
+    """
+    Identify potential tunneling artifacts where creation time predates modification.
+    """
+    df = pd.read_csv(mft_csv)
+    df['Created0x10'] = pd.to_datetime(df['Created0x10'])
+    df['Modified0x10'] = pd.to_datetime(df['Modified0x10'])
+    
+    # Tunneling indicator: Created significantly before modified
+    # AND accessed around the same time as modified (legitimate access pattern)
+    potential_tunneling = df[
+        (df['Created0x10'] < df['Modified0x10']) &
+        ((df['Modified0x10'] - df['Created0x10']).dt.total_seconds() > 86400) &
+        (df['IsDirectory'] == False)
+    ]
+    
+    print(f"Found {len(potential_tunneling)} potential tunneling artifacts:\n")
+    
+    for _, row in potential_tunneling.iterrows():
+        print(f"File: {row['FullPath']}")
+        print(f"  Created: {row['Created0x10']}")
+        print(f"  Modified: {row['Modified0x10']}")
+        print(f"  Gap: {(row['Modified0x10'] - row['Created0x10']).days} days\n")
+    
+    potential_tunneling.to_csv('tunneling_candidates.csv', index=False)
+
+if __name__ == "__main__":
+    import sys
+    detect_tunneling(sys.argv[1])
+```
+
+### Sparse File Detection
+
+Sparse files (large allocated size, small actual data) may indicate:
+
+- Disk wiping tools
+- Volume shadow copies
+- Database files
+- Intentional space reservation
+
+```bash
+# From MFTECmd output - compare AllocatedSize vs Size
+awk -F',' 'NR>1 && $20 > ($21 * 10) {print $2","$20","$21}' mft_output.csv > sparse_files.csv
+
+# Python analysis
+python3 << 'EOF'
+import pandas as pd
+df = pd.read_csv('mft_output.csv')
+sparse = df[df['AllocatedSize'] > (df['Size'] * 10)]
+print(f"Sparse files: {len(sparse)}")
+print(sparse[['FullPath', 'AllocatedSize', 'Size']])
+EOF
+```
+
+### Alternate Data Streams (ADS) Analysis
+
+ADS can hide data or execution evidence.
+
+**Identify Files with ADS:**
+
+```bash
+# MFTECmd shows ADS in filename format: file.txt:stream:$DATA
+grep ":" mft_output.csv | grep -v "^C:" > ads_files.csv
+
+# Count ADS by type
+grep ":" mft_output.csv | awk -F':' '{print $NF}' | sort | uniq -c
+
+# Common legitimate ADS
+# Zone.Identifier - Download source tracking
+# :AFP_AfpInfo - Mac compatibility
+# :com.apple.* - Mac metadata
+```
+
+**Extract ADS Content:**
+
+```bash
+# On Windows
+more < file.txt:stream
+
+# With PowerShell
+Get-Content -Path file.txt -Stream stream
+
+# From image with The Sleuth Kit
+icat -r evidence.dd <MFT_entry>-<ADS_attribute_type>-<ADS_attribute_id> > extracted_ads.data
+
+# Example: Extract Zone.Identifier
+icat evidence.dd 12345-128-3 > zone_identifier.txt
+cat zone_identifier.txt
+# [ZoneTransfer]
+# ZoneId=3
+# ReferrerUrl=https://malicious-site.com
+# HostUrl=https://malicious-site.com/payload.exe
+```
+
+### Timeline Reconstruction Workflow
+
+**Complete MFT Timeline Analysis Process:**
+
+```bash
+#!/bin/bash
+# Comprehensive MFT timeline analysis script
+
+IMAGE=$1
+OUTPUT_DIR="mft_analysis_$(date +%Y%m%d_%H%M%S)"
+
+mkdir -p "$OUTPUT_DIR"
+
+echo "[*] Extracting MFT..."
+icat "$IMAGE" 0 > "$OUTPUT_DIR/MFT.raw"
+
+echo "[*] Parsing MFT with MFTECmd..."
+wine MFTECmd.exe -f "$OUTPUT_DIR/MFT.raw" --csv "$OUTPUT_DIR" --csvf mft.csv
+
+echo "[*] Creating body file..."
+fls -r -m / -p "$IMAGE" > "$OUTPUT_DIR/mft.body"
+
+echo "[*] Converting to timeline..."
+mactime -b "$OUTPUT_DIR/mft.body" -d > "$OUTPUT_DIR/mft_timeline.txt"
+
+echo "[*] Analyzing deleted files..."
+csvgrep -c InUse -m "False" "$OUTPUT_DIR/mft.csv" > "$OUTPUT_DIR/deleted_files.csv"
+
+echo "[*] Finding recent activity (last 30 days)..."
+CUTOFF_DATE=$(date -d "30 days ago" +%Y-%m-%d)
+mactime -b "$OUTPUT_DIR/mft.body" -d "$CUTOFF_DATE.." > "$OUTPUT_DIR/recent_activity.txt"
+
+echo "[*] Identifying executables..."
+csvgrep -c Extension -m "EXE" "$OUTPUT_DIR/mft.csv" > "$OUTPUT_DIR/executables.csv"
+
+echo "[*] Detecting timestamp anomalies..."
+python3 << 'PYTHON'
+import pandas as pd
+df = pd.read_csv("$OUTPUT_DIR/mft.csv")
+df['Created0x10'] = pd.to_datetime(df['Created0x10'])
+df['Modified0x10'] = pd.to_datetime(df['Modified0x10'])
+anomalies = df[df['Created0x10'] > df['Modified0x10']]
+anomalies.to_csv("$OUTPUT_DIR/timestamp_anomalies.csv", index=False)
+print(f"Found {len(anomalies)} timestamp anomalies")
+PYTHON
+
+echo "[*] Extracting ADS..."
+grep ":" "$OUTPUT_DIR/mft.csv" | grep -v "^C:" > "$OUTPUT_DIR/alternate_data_streams.csv"
+
+echo "[*] Statistical summary..."
+echo "Total entries: $(wc -l < "$OUTPUT_DIR/mft.csv")"
+echo "Deleted files: $(wc -l < "$OUTPUT_DIR/deleted_files.csv")"
+echo "Executables: $(wc -l < "$OUTPUT_DIR/executables.csv")"
+echo "ADS files: $(wc -l < "$OUTPUT_DIR/alternate_data_streams.csv")"
+
+echo "[*] Analysis complete. Results in $OUTPUT_DIR/"
+```
+
+### Batch Timeline Processing
+
+**Process Multiple Evidence Items:**
+
+```python
+#!/usr/bin/env python3
+import os
+import subprocess
+import pandas as pd
+from pathlib import Path
+
+def batch_timeline_analysis(evidence_dir, output_dir):
+    """
+    Process multiple disk images and create unified timeline.
+    """
+    Path(output_dir).mkdir(exist_ok=True)
+    
+    evidence_files = list(Path(evidence_dir).glob('*.dd')) + \
+                    list(Path(evidence_dir).glob('*.E01')) + \
+                    list(Path(evidence_dir).glob('*.img'))
+    
+    all_timelines = []
+    
+    for evidence in evidence_files:
+        print(f"[*] Processing {evidence.name}...")
+        
+        # Create storage file
+        plaso_file = Path(output_dir) / f"{evidence.stem}.plaso"
+        
+        subprocess.run([
+            'log2timeline.py',
+            '--storage-file', str(plaso_file),
+            str(evidence)
+        ])
+        
+        # Export to CSV
+        csv_file = Path(output_dir) / f"{evidence.stem}_timeline.csv"
+        subprocess.run([
+            'psort.py',
+            '-o', 'l2tcsv',
+            '-w', str(csv_file),
+            str(plaso_file)
+        ])
+        
+        # Load and tag with source
+        df = pd.read_csv(csv_file)
+        df['evidence_source'] = evidence.name
+        all_timelines.append(df)
+    
+    # Merge all timelines
+    print("[*] Merging timelines...")
+    unified = pd.concat(all_timelines, ignore_index=True)
+    unified['date'] = pd.to_datetime(unified['date'])
+    unified = unified.sort_values('date')
+    
+    # Export unified timeline
+    unified_file = Path(output_dir) / 'unified_timeline.csv'
+    unified.to_csv(unified_file, index=False)
+    
+    print(f"[*] Unified timeline created: {unified_file}")
+    print(f"[*] Total events: {len(unified)}")
+    print(f"[*] Date range: {unified['date'].min()} to {unified['date'].max()}")
+    
+    return unified
+
+if __name__ == "__main__":
+    import sys
+    batch_timeline_analysis(sys.argv[1], sys.argv[2])
+```
+
+### Timeline Visualization Tools
+
+**Timesketch (Web-based Collaborative Timeline Analysis):**
+
+```bash
+# Install Timesketch (Docker recommended)
+git clone https://github.com/google/timesketch.git
+cd timesketch
+docker-compose up -d
+
+# Upload timeline
+# Access web interface at http://localhost:5000
+
+# Import CSV timeline via UI or CLI
+timesketch_importer --file timeline.csv --timeline_name "Evidence_Analysis"
+```
+
+**Features:**
+
+- Collaborative analysis with multiple analysts
+- Tagging and commenting
+- Saved searches
+- Graph visualization
+- Regex search across all timelines
+
+**DFTimewolf (Automated Timeline Processing):**
+
+```bash
+# Install
+pip install dftimewolf
+
+# Run automated processing recipe
+dftimewolf local_plaso /path/to/evidence.dd --incident_id CASE001
+
+# Process and upload to Timesketch
+dftimewolf timesketch_upload timeline.plaso --timeline_name "Case Evidence"
+```
+
+### Timeline Analysis Best Practices
+
+**1. Define Scope and Time Windows:**
+
+```bash
+# Identify incident timeframe first
+# Then expand window for context (±24 hours minimum)
+
+INCIDENT_START="2024-10-25 14:00:00"
+INCIDENT_END="2024-10-25 16:00:00"
+
+# Extract incident window with context
+psort.py -o l2tcsv -w incident.csv timeline.plaso \
+  "date > '2024-10-25 12:00:00' AND date < '2024-10-25 18:00:00'"
+```
+
+**2. Layer Analysis (Progressive Refinement):**
+
+```bash
+# Level 1: File system events (MFT)
+psort.py -o l2tcsv -w layer1_filesystem.csv timeline.plaso "parser contains 'filestat' OR parser contains 'mft'"
+
+# Level 2: Add execution evidence
+psort.py -o l2tcsv -w layer2_execution.csv timeline.plaso \
+  "parser contains 'prefetch' OR parser contains 'amcache' OR parser contains 'userassist'"
+
+# Level 3: Add user activity
+psort.py -o l2tcsv -w layer3_user.csv timeline.plaso \
+  "parser contains 'chrome' OR parser contains 'firefox' OR parser contains 'lnk'"
+
+# Level 4: Add network/registry
+psort.py -o l2tcsv -w layer4_network.csv timeline.plaso \
+  "parser contains 'winevtx' OR parser contains 'winreg'"
+```
+
+**3. Pivot Analysis:**
+
+```python
+#!/usr/bin/env python3
+import pandas as pd
+
+def pivot_analysis(csv_file, pivot_point):
+    """
+    Focus analysis around a specific suspicious event.
+    """
+    df = pd.read_csv(csv_file)
+    df['datetime'] = pd.to_datetime(df['date'])
+    
+    # Find pivot event
+    pivot_event = df[df['description'].str.contains(pivot_point, case=False, na=False)].iloc[0]
+    pivot_time = pivot_event['datetime']
+    
+    print(f"Pivot Event: {pivot_event['description']}")
+    print(f"Pivot Time: {pivot_time}\n")
+    
+    # Events within ±30 minutes
+    window_start = pivot_time - pd.Timedelta(minutes=30)
+    window_end = pivot_time + pd.Timedelta(minutes=30)
+    
+    context = df[(df['datetime'] >= window_start) & (df['datetime'] <= window_end)]
+    
+    print(f"Events in ±30 minute window: {len(context)}\n")
+    print(context[['datetime', 'source', 'description']].to_string())
+    
+    context.to_csv('pivot_context.csv', index=False)
+
+if __name__ == "__main__":
+    import sys
+    pivot_analysis(sys.argv[1], sys.argv[2])
+```
+
+**4. Document Findings:**
+
+```bash
+# Create analysis report structure
+mkdir -p case_report/{timelines,evidence,screenshots,notes}
+
+# Export filtered subsets with descriptive names
+cp suspicious_activity.csv case_report/timelines/01_initial_compromise.csv
+cp malware_execution.csv case_report/timelines/02_malware_execution.csv
+cp data_exfil.csv case_report/timelines/03_data_exfiltration.csv
+
+# Generate summary
+cat > case_report/TIMELINE_SUMMARY.md << 'EOF'
+# Timeline Analysis Summary
+
+## Incident Timeline
+- Initial Compromise: 2024-10-25 14:23:15
+- Malware Execution: 2024-10-25 14:25:43
+- Data Exfiltration: 2024-10-25 15:47:22
+
+## Key Findings
+1. Suspicious executable downloaded from external source
+2. Persistence established via Registry Run key
+3. 450MB of documents copied to USB device
+
+## Evidence Files
+- 01_initial_compromise.csv - Entry point analysis
+- 02_malware_execution.csv - Execution artifacts
+- 03_data_exfiltration.csv - Data staging and transfer
+EOF
+```
+
+### Performance Optimization for Large Timelines
+
+**Handling Multi-Million Event Timelines:**
+
+```bash
+# Process in chunks
+split -l 1000000 huge_timeline.csv chunk_
+
+# Parallel processing with GNU parallel
+parallel -j4 "csvgrep -c description -m 'malware' {} > filtered_{}" ::: chunk_*
+
+# Merge results
+cat filtered_* > final_filtered.csv
+
+# Use sqlite for querying large CSV
+csvsql --insert --db sqlite:///timeline.db timeline.csv
+
+sqlite3 timeline.db << 'SQL'
+CREATE INDEX idx_date ON timeline(date);
+CREATE INDEX idx_filename ON timeline(filename);
+CREATE INDEX idx_description ON timeline(description);
+
+SELECT * FROM timeline 
+WHERE filename LIKE '%.exe%' 
+  AND date BETWEEN '2024-10-20' AND '2024-10-30'
+ORDER BY date;
+SQL
+```
+
+**Sampling for Initial Assessment:**
+
+```bash
+# Random sample (10%)
+shuf -n $(($(wc -l < timeline.csv) / 10)) timeline.csv > sample.csv
+
+# Or every Nth line
+awk 'NR % 100 == 0' timeline.csv > sample.csv
+
+# Analyze sample first, then drill down
+```
+
+---
+
+## Related Critical Techniques
+
+For comprehensive timeline analysis mastery:
+
+- **Memory Forensics Timeline** - Correlate disk events with process memory artifacts for execution validation
+- **Network Timeline Analysis** - Integrate PCAP timestamps with file system events
+- **Registry Timeline Parsing** - Last write times for key modifications
+- **Event Log Correlation** - Windows event logs provide authentication and system event timelines
+- **SIEM Integration** - Feed timelines into Splunk/ELK for advanced correlation
+
+---
+
+# Data Recovery
+
+Data recovery in digital forensics involves retrieving deleted, corrupted, or inaccessible data from storage media. In CTF scenarios, you'll analyze disk images, file systems, and raw storage to recover artifacts that may contain flags or crucial evidence.
+
+## Deleted File Recovery Techniques
+
+### Understanding File Deletion
+
+When files are deleted, the operating system typically:
+
+1. Marks directory entry as deleted (not overwriting actual data)
+2. Marks disk blocks as available for reuse in allocation tables
+3. Leaves file content intact in unallocated space until overwritten
+
+**File System Metadata After Deletion:**
+
+- **ext4 (Linux):** Inode remains but pointers zeroed, data blocks marked free
+- **NTFS (Windows):** MFT entry marked as unused, data runs preserved initially
+- **FAT32:** First byte of filename changed to 0xE5, FAT entries cleared
+- **APFS/HFS+ (macOS):** Catalog record deleted, extent references removed
+
+### Basic Recovery with TestDisk
+
+TestDisk is a powerful open-source recovery tool included in Kali Linux.
+
+```bash
+# Launch TestDisk
+testdisk /dev/sdb  # For physical device
+testdisk image.dd   # For disk image
+
+# Interactive menu navigation:
+# 1. Select media
+# 2. Choose partition table type (Intel/PC, EFI GPT, Mac, etc.)
+# 3. Select [ Analyse ] -> [ Quick Search ]
+# 4. List files with [ Advanced ] -> Select partition -> [ List ]
+# 5. Navigate and copy files with 'c'
+```
+
+**Non-Interactive Recovery:**
+
+```bash
+# PhotoRec (companion tool for file carving)
+photorec /d /path/to/recovery /cmd image.dd search
+
+# Recover specific file types
+photorec /d ./recovered /cmd image.dd,options,paranoid,fileopt,everything,disable,fileopt,jpg,enable,search
+
+# File type options
+photorec /d ./recovered /cmd image.dd,fileopt,pdf,enable,fileopt,doc,enable,search
+```
+
+### Foremost - File Carving Tool
+
+Foremost recovers files based on headers, footers, and internal data structures.
+
+```bash
+# Basic usage
+foremost -i image.dd -o output_dir
+
+# Specify file types
+foremost -t jpg,png,pdf,doc -i image.dd -o recovered/
+
+# Use custom configuration
+foremost -c /etc/foremost.conf -i image.dd -o output/
+
+# Verbose output
+foremost -v -i image.dd -o output/
+```
+
+**Custom Configuration (/etc/foremost.conf):**
+
+```bash
+# Add custom file signatures
+# Format: extension case size header footer
+
+# Example: SQLite databases
+sqlite  y   104857600   \x53\x51\x4c\x69\x74\x65\x20\x66\x6f\x72\x6d\x61\x74\x20\x33\x00
+
+# ZIP files
+zip     y   104857600   \x50\x4b\x03\x04
+
+# PNG images
+png     y   10485760    \x89\x50\x4e\x47\x0d\x0a\x1a\x0a    \x49\x45\x4e\x44\xae\x42\x60\x82
+
+# JPEG with extended search
+jpg     y   20971520    \xff\xd8\xff        \xff\xd9
+```
+
+### Scalpel - Advanced File Carving
+
+Scalpel is an improved version of Foremost with better performance.
+
+```bash
+# Install if needed
+apt-get install scalpel
+
+# Configure file types in /etc/scalpel/scalpel.conf
+# Uncomment desired file types
+
+# Run scalpel
+scalpel -b -o output/ image.dd
+
+# Configuration examples for CTF flags
+# Edit /etc/scalpel/scalpel.conf:
+
+# Text files (may contain flags)
+txt     n   1000000     ASCII\x20text    \n\n
+
+# Custom binary format
+bin     n   5000000     FLAG{           }
+```
+
+### File System-Specific Recovery
+
+**ext4 Recovery:**
+
+```bash
+# extundelete - recover deleted files from ext3/ext4
+extundelete image.dd --restore-all
+
+# Restore specific directory
+extundelete image.dd --restore-directory /home/user/Documents
+
+# Restore files deleted after timestamp
+extundelete --after 1609459200 image.dd --restore-all
+
+# List deletable files first
+extundelete image.dd --restore-inode 12345
+```
+
+**NTFS Recovery:**
+
+```bash
+# Using ntfsundelete
+ntfsundelete /dev/sdb1 -u -m "*"
+
+# Scan for deleted files
+ntfsundelete /dev/sdb1 -s
+
+# Recover specific file by inode
+ntfsundelete /dev/sdb1 -u -i 1234
+
+# Recover files matching pattern
+ntfsundelete /dev/sdb1 -u -m "*.pdf"
+
+# Specify output directory
+ntfsundelete /dev/sdb1 -u -d /recovery/ -m "*"
+```
+
+**Manual Inode Recovery (ext4):**
+
+```bash
+# Find deleted inodes
+debugfs image.dd
+
+# Inside debugfs:
+debugfs: lsdel
+# Shows: Inode, Owner, Mode, Size, Blocks, Time deleted
+
+# Dump specific inode
+debugfs: dump <inode_number> /path/to/output/file
+
+# Example session:
+debugfs -R "lsdel" image.dd | grep "2024-01"
+debugfs -R "dump <12345> recovered_file.txt" image.dd
+```
+
+### SQLite Deleted Records Recovery
+
+SQLite databases often contain recoverable deleted data in freelist pages.
+
+```bash
+# Undark - SQLite deleted data recovery
+git clone https://github.com/inflex/undark.git
+cd undark && make
+
+# Recover from freelist
+./undark -i database.db --freelist --output recovered.txt
+
+# Recover from all sources
+./undark -i database.db --freelist --cell --output recovered.txt
+
+# Visualize freelist
+sqlite3 database.db
+PRAGMA freelist_count;
+PRAGMA page_count;
+```
+
+**Manual SQLite Recovery:**
+
+```bash
+# Dump raw database as hex
+xxd database.db > db_hex.txt
+
+# Search for deleted text patterns
+strings database.db | grep -i "flag\|password\|secret"
+
+# Extract specific table data including deleted
+sqlite3 database.db ".dump tablename" | grep -v "^--"
+```
+
+### Registry Hive Deleted Key Recovery
+
+Windows Registry hives may contain deleted keys in slack space.
+
+```bash
+# Using RegRipper
+rip.pl -r NTUSER.DAT -a > analysis.txt
+
+# Analyze with reglookup
+reglookup -p /Software SYSTEM > registry_dump.txt
+
+# Recover deleted keys (using yara rules for patterns)
+yara deleted_keys.yar NTUSER.DAT
+```
+
+## Unallocated Space Analysis
+
+Unallocated space contains data from deleted files and can be a rich source of artifacts.
+
+### Extracting Unallocated Space
+
+**Using blkls (Sleuth Kit):**
+
+```bash
+# Extract all unallocated space from partition
+blkls -e image.dd > unallocated.bin
+
+# From specific partition in multi-partition image
+mmls image.dd  # List partitions
+blkls -e -o 2048 image.dd > unallocated.bin  # Offset in sectors
+
+# Extract only allocated blocks (for comparison)
+blkls -a image.dd > allocated.bin
+```
+
+**Using dd:**
+
+```bash
+# Extract specific sectors (if known)
+dd if=image.dd of=unallocated.bin bs=512 skip=1000 count=5000
+
+# Extract between partitions (partition slack)
+# First, find partition layout
+fdisk -l image.dd
+# Then extract gap regions
+```
+
+### Analyzing Unallocated Space
+
+**String Analysis:**
+
+```bash
+# Extract ASCII strings (default min length 4)
+strings unallocated.bin > strings.txt
+
+# Extract with minimum length
+strings -n 10 unallocated.bin > strings_long.txt
+
+# Unicode strings (16-bit)
+strings -e l unallocated.bin > strings_unicode.txt
+
+# Both ASCII and Unicode
+strings -a -e l unallocated.bin > all_strings.txt
+
+# Search for specific patterns
+strings unallocated.bin | grep -i "flag{\|password\|api_key"
+
+# Context search (lines before/after match)
+strings -n 8 unallocated.bin | grep -B 2 -A 2 "admin"
+```
+
+**Hex Analysis:**
+
+```bash
+# Hex dump with ASCII representation
+xxd unallocated.bin | less
+
+# Search for specific hex patterns
+xxd unallocated.bin | grep "50 4b 03 04"  # ZIP signature
+
+# Find file signatures
+xxd unallocated.bin | grep -E "ff d8 ff|89 50 4e 47|25 50 44 46"
+
+# Extract region around pattern
+xxd -s 0x1000 -l 1024 unallocated.bin  # From offset 0x1000, 1024 bytes
+```
+
+**Bulk Extractor:**
+
+```bash
+# Comprehensive unallocated space analysis
+bulk_extractor -o bulk_output/ unallocated.bin
+
+# Output directories contain:
+# - email.txt: Email addresses
+# - url.txt: URLs
+# - domain.txt: Domain names
+# - telephone.txt: Phone numbers
+# - ccn.txt: Credit card numbers (if present)
+# - exif.txt: EXIF data from images
+
+# Analyze specific feature detectors
+bulk_extractor -E email -E url -o output/ unallocated.bin
+
+# Recursive carving
+bulk_extractor -e zip -e rar -o output/ unallocated.bin
+
+# Important CTF-relevant extractors:
+# - base64: Base64 encoded data
+# - json: JSON structures
+# - hex: Hexadecimal encoded data
+```
+
+**Searching for File Fragments:**
+
+```bash
+# Use file signatures to locate fragments
+# Common signatures:
+# PDF: 25 50 44 46 (header) / 0a 25 25 45 4f 46 (footer)
+# PNG: 89 50 4e 47 0d 0a 1a 0a (header) / 49 45 4e 44 ae 42 60 82 (footer)
+# ZIP: 50 4b 03 04 (header) / 50 4b 05 06 (footer)
+# JPEG: ff d8 ff (header) / ff d9 (footer)
+
+# Search for headers
+grep --binary-files=binary --byte-offset --only-matching --perl-regexp "\x89\x50\x4e\x47" unallocated.bin
+
+# Script to extract based on offset
+hexdump -C unallocated.bin | grep "89 50 4e 47"
+# Note offset, then extract:
+dd if=unallocated.bin of=found.png bs=1 skip=OFFSET count=SIZE
+```
+
+### Slack Space Analysis
+
+Slack space includes file slack (end of file to end of cluster) and RAM slack.
+
+**Extracting Slack Space:**
+
+```bash
+# Using Sleuth Kit
+ifind image.dd -d 12345  # Find data unit for inode
+icat -s image.dd 12345 > file_with_slack
+
+# Analyze only slack portion
+# Calculate: cluster_size - (file_size % cluster_size)
+
+# Using blkcalc
+blkcalc -d 12345 image.dd
+```
+
+**Automated Slack Analysis:**
+
+```bash
+# Using fls and icat in loop
+fls -r -p image.dd | while read line; do
+    inode=$(echo $line | awk '{print $2}')
+    icat -s image.dd $inode > slack_$inode.bin 2>/dev/null
+done
+
+# Analyze all slack files
+strings slack_*.bin | grep -i "flag"
+```
+
+### Cluster Analysis
+
+```bash
+# View cluster allocation
+fsstat image.dd
+
+# Block/cluster size information
+# Use to calculate slack space
+
+# Examine specific clusters
+blkcat image.dd 1000 > cluster_1000.bin
+
+# Sequential cluster analysis (looking for fragmented files)
+for i in {1000..1100}; do
+    blkcat image.dd $i >> sequential_clusters.bin
+done
+```
+
+### Data Carving from Unallocated Space
+
+```bash
+# Carve files using Scalpel
+scalpel -b -o carved/ unallocated.bin
+
+# Foremost on unallocated space
+foremost -t all -i unallocated.bin -o foremost_output/
+
+# Binwalk for embedded files
+binwalk -e unallocated.bin
+
+# Extract all signatures
+binwalk --dd='.*' unallocated.bin
+```
+
+### Timeline Analysis of Unallocated Data
+
+[Inference] Unallocated space may contain timestamps that help establish when files were deleted.
+
+```bash
+# Extract timestamps using bulk_extractor
+bulk_extractor -e exif -o bulk_out/ unallocated.bin
+
+# Parse exif.txt for timestamps
+grep -E "[0-9]{4}:[0-9]{2}:[0-9]{2}" bulk_out/exif.txt
+
+# Search for ISO timestamps
+grep -oE "[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}" unallocated.bin
+```
+
+## Journal Analysis for Recovery
+
+File system journals record metadata changes and can be used to recover information about deleted files and system activity.
+
+### ext3/ext4 Journal Analysis
+
+**Journal Structure:**
+
+- ext3/ext4 use journal to ensure file system consistency
+- Journal modes: data, ordered (default), writeback
+- Journal typically located at inode 8
+
+**Extracting Journal:**
+
+```bash
+# Find journal inode
+debugfs image.dd
+debugfs: stat <8>
+
+# Dump journal to file
+debugfs -R "dump <8> journal.img" image.dd
+
+# Alternative: extract journal from disk image
+dd if=image.dd of=journal.dd bs=4096 skip=JOURNAL_START count=JOURNAL_SIZE
+```
+
+**Analyzing Journal with jls (Sleuth Kit):**
+
+```bash
+# List journal entries
+jls image.dd
+
+# Output format: Entry_Num Sequence_Num Type Block Block_Count
+
+# Extract specific journal entry
+jcat image.dd 100 > journal_entry_100.bin
+
+# Parse journal entries for file operations
+jls -a image.dd | grep "UNLINK\|DELETE"
+```
+
+**Parsing Journal Manually:**
+
+```bash
+# Journal superblock at start
+xxd -l 1024 journal.img
+
+# Look for journal descriptor blocks
+# Descriptor magic: 0xC03B3998
+
+xxd journal.img | grep "c0 3b 39 98"
+
+# Parse commit blocks
+# Commit magic: 0xC03B3999
+
+xxd journal.img | grep "c0 3b 39 99"
+```
+
+**Extracting Deleted File Metadata:**
+
+```bash
+# Find inode information in journal
+strings journal.img | grep -E "\.txt|\.pdf|\.jpg"
+
+# Look for directory entry records
+# Format varies but often contains filename and inode
+
+# hex patterns for common file extensions
+xxd journal.img | grep -E "2e 74 78 74|2e 70 64 66"  # .txt .pdf
+```
+
+### NTFS $LogFile Analysis
+
+NTFS maintains transaction logs in $LogFile for recovery and forensics.
+
+**Extracting $LogFile:**
+
+```bash
+# Using ntfscat
+ntfscat -i 2 image.dd > logfile.bin
+
+# Or with icat
+icat -f ntfs image.dd 2 > logfile.bin
+
+# $LogFile inode is typically 2
+```
+
+**Parsing $LogFile:**
+
+```bash
+# Using LogFileParser (various tools available)
+# [Unverified] Custom parsers may be needed for detailed analysis
+
+# Analyze with NTFS Log Tracker
+# https://github.com/jschicht/LogFileParser
+
+# Basic strings analysis
+strings -e l logfile.bin > logfile_strings.txt
+grep -i "delete\|remove\|rename" logfile_strings.txt
+```
+
+**NTFS USN Journal:**
+
+```bash
+# Update Sequence Number (USN) journal tracks file changes
+# Located in $Extend/$UsnJrnl
+
+# Extract USN journal
+icat -f ntfs image.dd 0-128-1 > usn_journal.bin
+
+# Parse with tools
+# Using usn.py or MFTECmd
+
+# Manual analysis
+strings usn_journal.bin | grep -v "^$" > usn_strings.txt
+
+# Look for file operations
+grep -E "FILE_CREATE|FILE_DELETE|DATA_OVERWRITE" usn_strings.txt
+```
+
+**Extracting NTFS Transaction Metadata:**
+
+```bash
+# Parse for timestamps and file references
+xxd usn_journal.bin | grep -E "[0-9a-f]{2} 00 00 00 00 00 00 00"
+
+# USN record structure includes:
+# - File reference number
+# - Parent file reference
+# - Timestamp
+# - Reason (operation type)
+# - Filename
+```
+
+### HFS+/APFS Journal Analysis (macOS)
+
+**HFS+ Journal:**
+
+```bash
+# Journal located in .journal file or journal info block
+
+# Extract journal
+dd if=image.dmg of=journal.bin bs=512 skip=JOURNAL_START count=JOURNAL_SIZE
+
+# Parse journal header
+xxd -l 512 journal.bin
+
+# Look for transaction records
+strings journal.bin | grep -i "file\|delete"
+```
+
+**APFS Container Management:**
+
+```bash
+# APFS uses write-ahead logging
+# [Inference] Journal analysis requires understanding APFS container structure
+
+# Mount APFS image (if possible)
+mkdir /mnt/apfs
+apfs-fuse image.dmg /mnt/apfs
+
+# Extract logs
+find /mnt/apfs -name "*.log" -o -name "*.journal"
+```
+
+### Journal Carving and Recovery
+
+**Recovering File Content from Journals:**
+
+```bash
+# Journals may contain actual file data blocks (in data journaling mode)
+
+# Extract data blocks from ext4 journal
+jcat image.dd ENTRY_NUM > data_block.bin
+
+# Check if it's actual file content
+file data_block.bin
+strings data_block.bin | head -50
+
+# Carve files from journal
+foremost -t all -i journal.img -o journal_carved/
+```
+
+**Timeline Construction from Journal:**
+
+```bash
+# Extract all timestamps from journal
+strings journal.img | grep -oE "[0-9]{10}" | while read ts; do
+    date -d @$ts
+done | sort -u
+
+# Correlate with file system timeline
+fls -r -m / image.dd > timeline.body
+mactime -b timeline.body -d > timeline.txt
+
+# Combine journal events with timeline
+# [Inference] Manual correlation required for comprehensive analysis
+```
+
+### Advanced Journal Analysis Techniques
+
+**Detecting Anti-Forensics:**
+
+```bash
+# Check for journal wiping
+fsstat image.dd | grep -i journal
+
+# Empty or cleared journal may indicate tampering
+jls image.dd | wc -l
+
+# Compare journal size with expected activity
+debugfs -R "stat <8>" image.dd
+```
+
+**Transaction Reconstruction:**
+
+```bash
+# Piece together related journal entries
+jls -a image.dd | grep "sequence_num" | sort -n
+
+# Group by transaction
+# [Inference] Multiple journal entries form complete transactions
+
+# Extract transaction boundaries
+# Start: Descriptor block
+# End: Commit block
+```
+
+**Deleted Directory Structure Recovery:**
+
+```bash
+# Journal may contain directory entry information
+
+# Search for directory markers
+xxd journal.img | grep "44 00 00 00"  # ext4 directory entry
+
+# Extract filename and inode relationships
+strings journal.img | grep -B 2 -A 2 -E "^[a-zA-Z0-9_-]+\.(txt|doc|pdf)"
+
+# Reconstruct directory tree
+# [Inference] Requires manual analysis and correlation
+```
+
+### Automating Journal Analysis
+
+**Python Script for Journal Parsing:**
+
+```bash
+# Example: Extract ext4 journal entries
+python3 << 'PYEOF'
+import struct
+import sys
+
+def parse_journal_superblock(data):
+    # Journal superblock structure
+    magic = struct.unpack('>I', data[0:4])[0]
+    if magic == 0xC03B3998:
+        blocksize = struct.unpack('>I', data[4:8])[0]
+        maxlen = struct.unpack('>I', data[8:12])[0]
+        first = struct.unpack('>I', data[12:16])[0]
+        sequence = struct.unpack('>I', data[16:20])[0]
+        start = struct.unpack('>I', data[20:24])[0]
+        return {
+            'magic': hex(magic),
+            'blocksize': blocksize,
+            'maxlen': maxlen,
+            'first': first,
+            'sequence': sequence,
+            'start': start
+        }
+    return None
+
+with open('journal.img', 'rb') as f:
+    superblock = f.read(1024)
+    info = parse_journal_superblock(superblock)
+    if info:
+        print("Journal Superblock:")
+        for key, value in info.items():
+            print(f"  {key}: {value}")
+PYEOF
+```
+
+**Batch Processing:**
+
+```bash
+# Extract and analyze all journal entries
+for i in $(jls image.dd | awk '{print $1}'); do
+    jcat image.dd $i > entry_$i.bin
+    echo "Entry $i:"
+    file entry_$i.bin
+    strings entry_$i.bin | head -5
+    echo "---"
+done
+```
+
+### Cross-Reference with Other Artifacts
+
+```bash
+# Correlate journal findings with:
+
+# 1. MFT/Inode tables
+istat image.dd 12345  # Check inode status
+ls -li  # List with inode numbers
+
+# 2. File system metadata
+fls -rd image.dd  # Include deleted files
+
+# 3. System logs
+grep "delete\|remove" /var/log/syslog
+
+# 4. Timeline analysis
+log2timeline.py --storage-file timeline.plaso image.dd
+psort.py -o l2tcsv -w timeline.csv timeline.plaso
+```
+
+**Important Related Topics**
+
+For comprehensive data recovery in CTF scenarios, consider studying:
+
+- **File System Internals** - Deep understanding of ext4, NTFS, APFS structures and metadata
+- **Memory Forensics** - Recovering data from RAM dumps, including process memory and caches
+- **RAID Recovery** - Reconstructing data from degraded or partial RAID arrays
+- **Encryption Recovery** - Identifying and potentially recovering from encrypted volumes or individual files
+
+---
+
+## RAID Reconstruction Basics
+
+RAID (Redundant Array of Independent Disks) reconstruction involves recovering data from degraded, failed, or misconfigured RAID arrays. In CTF scenarios, this typically involves analyzing RAID metadata, determining configuration parameters, and reconstructing logical volumes from individual disk images.
+
+### RAID Fundamentals
+
+**RAID Levels Overview:**
+
+- **RAID 0** (Striping): Data split across disks, no redundancy, requires all disks
+- **RAID 1** (Mirroring): Identical copies on multiple disks, recoverable from any single disk
+- **RAID 5** (Striping with Parity): Data + parity distributed across ≥3 disks, tolerates 1 disk failure
+- **RAID 6** (Dual Parity): Like RAID 5 with two parity blocks, tolerates 2 disk failures
+- **RAID 10** (1+0): Mirrored sets in striped configuration
+
+**Critical RAID Parameters:**
+
+- **Chunk/Stripe Size**: Data block size written to each disk (typically 64KB, 128KB, 512KB)
+- **Number of Disks**: Total disks in array
+- **Parity Algorithm**: Left/right symmetric/asymmetric for RAID 5/6
+- **Disk Order**: Physical arrangement of disks in array
+- **Offset**: Starting position of RAID data on each disk
+
+### RAID Analysis Tools
+
+**mdadm** - Linux software RAID management
+
+```bash
+# Examine RAID superblock on disk
+mdadm --examine /dev/sdb1
+mdadm --examine /dev/sdc1
+mdadm --examine /dev/sdd1
+
+# Scan for RAID components
+mdadm --examine --scan
+
+# Assemble RAID from components
+mdadm --assemble --run /dev/md0 /dev/sdb1 /dev/sdc1 /dev/sdd1
+
+# Assemble with missing disk (degraded mode)
+mdadm --assemble --run /dev/md0 /dev/sdb1 /dev/sdc1 missing
+
+# Create RAID manually (when metadata damaged)
+mdadm --create /dev/md0 --level=5 --raid-devices=3 /dev/sdb1 /dev/sdc1 /dev/sdd1
+
+# Detail active RAID
+mdadm --detail /dev/md0
+
+# Stop RAID
+mdadm --stop /dev/md0
+```
+
+**TestDisk** - Partition and RAID recovery
+
+```bash
+testdisk /dev/md0
+# Interactive mode:
+# 1. Select disk
+# 2. Choose partition table type
+# 3. Analyze for partitions
+# 4. Search for lost RAID structures
+```
+
+**photorec** - File carving from RAID volumes
+
+```bash
+photorec /dev/md0
+# Operates at filesystem level, useful when RAID metadata corrupted
+```
+
+**xmount** - Mount disk images with RAID reconstruction
+
+```bash
+# Install xmount
+apt-get install xmount
+
+# Mount RAID 0 from images
+xmount --in raw disk1.img disk2.img --raid0 --out vdi --cache /mnt/cache /mnt/raid
+
+# Mount with offset
+xmount --in raw disk1.img --offset 512 --out raw /mnt/output
+```
+
+### RAID 0 Reconstruction
+
+RAID 0 requires all disks and correct ordering. Data is striped sequentially across disks.
+
+**Manual RAID 0 Reconstruction Script:**
+
+```bash
+#!/bin/bash
+# Reconstruct RAID 0 from disk images
+# Usage: ./raid0_reconstruct.sh chunk_size output.img disk1.img disk2.img [disk3.img ...]
+
+CHUNK_SIZE=$1
+OUTPUT=$2
+shift 2
+DISKS=("$@")
+NUM_DISKS=${#DISKS[@]}
+
+echo "Reconstructing RAID 0:"
+echo "Chunk Size: $CHUNK_SIZE bytes"
+echo "Output: $OUTPUT"
+echo "Disks: ${DISKS[@]}"
+
+rm -f $OUTPUT
+CHUNK=0
+
+while true; do
+    DATA_WRITTEN=0
+    for ((i=0; i<$NUM_DISKS; i++)); do
+        DISK="${DISKS[$i]}"
+        OFFSET=$((CHUNK * CHUNK_SIZE))
+        
+        dd if="$DISK" bs=$CHUNK_SIZE skip=$CHUNK count=1 2>/dev/null >> $OUTPUT
+        if [ $? -eq 0 ]; then
+            DATA_WRITTEN=1
+        fi
+    done
+    
+    if [ $DATA_WRITTEN -eq 0 ]; then
+        break
+    fi
+    
+    CHUNK=$((CHUNK + 1))
+    if [ $((CHUNK % 100)) -eq 0 ]; then
+        echo "Processed $CHUNK chunks..."
+    fi
+done
+
+echo "Reconstruction complete: $OUTPUT"
+```
+
+**Using mdadm for RAID 0:**
+
+```bash
+# Create loop devices from images
+losetup /dev/loop0 disk1.img
+losetup /dev/loop1 disk2.img
+
+# Assemble RAID 0
+mdadm --create /dev/md0 --level=0 --raid-devices=2 /dev/loop0 /dev/loop1 --assume-clean
+
+# Mount and access
+mount /dev/md0 /mnt/raid0
+ls -la /mnt/raid0
+
+# Cleanup
+umount /mnt/raid0
+mdadm --stop /dev/md0
+losetup -d /dev/loop0 /dev/loop1
+```
+
+### RAID 5 Reconstruction
+
+RAID 5 distributes data and parity across all disks. One disk failure can be recovered using XOR operations on remaining disks.
+
+**RAID 5 Parity Layouts:**
+
+- **Left Symmetric**: Parity rotates left, data follows
+- **Right Symmetric**: Parity rotates right, data follows
+- **Left Asymmetric**: Parity rotates left, data restarts each stripe
+- **Right Asymmetric**: Parity rotates right, data restarts each stripe
+
+**Manual RAID 5 Parity Calculation:**
+
+```python
+#!/usr/bin/env python3
+# XOR-based RAID 5 reconstruction
+import sys
+
+def xor_bytes(data_blocks):
+    """XOR multiple byte blocks together"""
+    result = bytearray(len(data_blocks[0]))
+    for block in data_blocks:
+        for i in range(len(block)):
+            result[i] ^= block[i]
+    return bytes(result)
+
+def reconstruct_raid5_block(disk_blocks, missing_disk):
+    """Reconstruct missing disk block using XOR"""
+    available_blocks = [block for i, block in enumerate(disk_blocks) if i != missing_disk]
+    return xor_bytes(available_blocks)
+
+# Example: Reconstruct missing disk 2 from 4-disk RAID 5
+chunk_size = 4096
+disk_files = ['disk0.img', 'disk1.img', None, 'disk3.img']  # disk2 missing
+missing_index = 2
+
+with open('reconstructed_disk2.img', 'wb') as output:
+    stripe = 0
+    while True:
+        blocks = []
+        eof = False
+        
+        for i, disk_file in enumerate(disk_files):
+            if disk_file is None:
+                blocks.append(None)
+            else:
+                with open(disk_file, 'rb') as f:
+                    f.seek(stripe * chunk_size)
+                    block = f.read(chunk_size)
+                    if len(block) == 0:
+                        eof = True
+                        break
+                    blocks.append(block)
+        
+        if eof:
+            break
+        
+        reconstructed = reconstruct_raid5_block(blocks, missing_index)
+        output.write(reconstructed)
+        stripe += 1
+        
+        if stripe % 1000 == 0:
+            print(f"Processed {stripe} stripes...")
+
+print("Reconstruction complete")
+```
+
+**Using mdadm for RAID 5 with Missing Disk:**
+
+```bash
+# Create loop devices
+losetup /dev/loop0 disk1.img
+losetup /dev/loop1 disk2.img
+losetup /dev/loop2 disk3.img
+
+# Assemble degraded RAID 5 (disk4 missing)
+mdadm --assemble /dev/md0 /dev/loop0 /dev/loop1 /dev/loop2 --run --force
+
+# Check status
+mdadm --detail /dev/md0
+
+# Mount
+mount -o ro /dev/md0 /mnt/raid5
+
+# If assembly fails, try manual creation with chunk size
+mdadm --create /dev/md0 --level=5 --raid-devices=4 --chunk=64 \
+      /dev/loop0 /dev/loop1 /dev/loop2 missing --assume-clean --force
+```
+
+**RAID 5 Parameter Bruteforce:**
+
+```bash
+#!/bin/bash
+# Try different RAID 5 configurations
+DISKS=("/dev/loop0" "/dev/loop1" "/dev/loop2" "/dev/loop3")
+CHUNK_SIZES=(4 8 16 32 64 128 256 512)
+ALGORITHMS=(left-symmetric right-symmetric left-asymmetric right-asymmetric)
+
+for CHUNK in "${CHUNK_SIZES[@]}"; do
+    for ALGO in "${ALGORITHMS[@]}"; do
+        echo "Testing: Chunk=${CHUNK}K, Algorithm=${ALGO}"
+        
+        mdadm --stop /dev/md0 2>/dev/null
+        
+        mdadm --create /dev/md0 --level=5 --raid-devices=4 \
+              --chunk=${CHUNK} --parity=${ALGO} \
+              "${DISKS[@]}" --assume-clean --force 2>/dev/null
+        
+        # Test if filesystem detectable
+        fsck -n /dev/md0 2>/dev/null
+        if [ $? -eq 0 ]; then
+            echo "SUCCESS: Chunk=${CHUNK}K, Algorithm=${ALGO}"
+            mdadm --detail /dev/md0
+            break 2
+        fi
+        
+        mdadm --stop /dev/md0 2>/dev/null
+    done
+done
+```
+
+### RAID Metadata Analysis
+
+**Locate RAID Superblock:**
+
+```bash
+# Linux MD RAID superblock locations:
+# v0.90: End of disk (last 64KB)
+# v1.0: End of disk (last 8KB)
+# v1.1: Start of disk (4KB offset)
+# v1.2: Start of disk (4KB offset)
+
+# Examine superblock
+mdadm --examine /dev/sdb1
+
+# Manually view superblock
+dd if=/dev/sdb1 bs=1K count=4 skip=4 | hexdump -C | grep -A 10 "fc4a 2ba1"
+# Magic number: a92b4efc (little-endian: fc 4e 2b a9)
+```
+
+**Extract RAID Parameters from Superblock:**
+
+```bash
+# Parse mdadm output
+mdadm --examine /dev/sdb1 | grep -E "Raid Level|Raid Devices|Chunk Size|Array UUID|Layout"
+
+# Example output parsing:
+# Raid Level : raid5
+# Raid Devices : 4
+# Chunk Size : 512K
+# Layout : left-symmetric
+```
+
+**Hexdump Superblock Analysis:**
+
+```bash
+# View raw superblock
+dd if=disk.img bs=1 count=4096 skip=4096 | xxd | less
+
+# Look for magic signatures:
+# MD superblock: fc 4e 2b a9
+# LVM: 4c 56 4d 32 (LVM2)
+```
+
+### CTF RAID Scenarios
+
+**Scenario 1: Disk Order Unknown**
+
+```bash
+# Try all permutations of disk order
+# For 3 disks (3! = 6 permutations)
+DISKS=(disk1.img disk2.img disk3.img)
+
+for perm in "0 1 2" "0 2 1" "1 0 2" "1 2 0" "2 0 1" "2 1 0"; do
+    ORDER=($perm)
+    echo "Testing order: ${ORDER[@]}"
+    
+    losetup /dev/loop0 ${DISKS[${ORDER[0]}]}
+    losetup /dev/loop1 ${DISKS[${ORDER[1]}]}
+    losetup /dev/loop2 ${DISKS[${ORDER[2]}]}
+    
+    mdadm --create /dev/md0 --level=0 --raid-devices=3 \
+          /dev/loop0 /dev/loop1 /dev/loop2 --assume-clean --force
+    
+    # Check for valid filesystem
+    file -s /dev/md0
+    
+    mdadm --stop /dev/md0
+    losetup -D
+done
+```
+
+**Scenario 2: Unknown Chunk Size**
+
+```bash
+# Test common chunk sizes
+for SIZE in 4 8 16 32 64 128 256 512 1024; do
+    echo "Testing chunk size: ${SIZE}K"
+    
+    mdadm --create /dev/md0 --level=0 --raid-devices=2 \
+          --chunk=${SIZE} /dev/loop0 /dev/loop1 --assume-clean --force
+    
+    # Look for filesystem magic bytes at expected locations
+    xxd /dev/md0 | head -20 | grep -i "53ef"  # ext2/3/4 magic
+    
+    mdadm --stop /dev/md0
+done
+```
+
+**Scenario 3: Partial RAID Image Recovery**
+
+```bash
+# Mount degraded RAID and extract what's accessible
+mdadm --assemble /dev/md0 /dev/loop0 /dev/loop1 missing --run --force
+
+# Attempt filesystem mount (may be read-only)
+mount -o ro,degraded /dev/md0 /mnt/raid
+
+# If mount fails, try file carving
+photorec /dev/md0
+
+# Or use dd_rescue to copy readable sectors
+dd_rescue -A /dev/md0 recovered.img
+```
+
+---
+
+## Corrupted File Repair
+
+Corrupted file repair involves identifying damage patterns, recovering parseable data, and reconstructing file structures using format specifications and redundant information.
+
+### File Corruption Types
+
+**Common Corruption Patterns:**
+
+- **Header corruption**: File signatures or metadata damaged
+- **Footer corruption**: End-of-file markers or checksums damaged
+- **Data corruption**: Content blocks damaged or missing
+- **Structural corruption**: Internal pointers or offsets incorrect
+- **Encoding corruption**: Character encoding or compression errors
+
+### General Repair Techniques
+
+**File Signature Analysis:**
+
+```bash
+# Identify file type despite corruption
+file corrupted_file
+file -b corrupted_file  # Brief mode
+file -k corrupted_file  # Continue checking after first match
+
+# Check magic bytes manually
+xxd corrupted_file | head -n 5
+hexdump -C corrupted_file | head -n 20
+
+# Common file signatures:
+# PNG: 89 50 4E 47 0D 0A 1A 0A
+# JPEG: FF D8 FF
+# PDF: 25 50 44 46 (%PDF)
+# ZIP: 50 4B 03 04
+# GIF: 47 49 46 38
+# ELF: 7F 45 4C 46
+```
+
+**Header Repair:**
+
+```bash
+# Replace corrupted header with known good signature
+# Example: Fix PNG header
+printf '\x89\x50\x4E\x47\x0D\x0A\x1A\x0A' | dd of=corrupted.png bs=1 count=8 conv=notrunc
+
+# Example: Fix PDF header
+echo -n "%PDF-1.4" | dd of=corrupted.pdf bs=1 count=8 conv=notrunc
+
+# Example: Fix JPEG header
+printf '\xFF\xD8\xFF\xE0' | dd of=corrupted.jpg bs=1 count=4 conv=notrunc
+```
+
+**Footer Repair:**
+
+```bash
+# Add missing EOF marker for PNG
+printf '\x00\x00\x00\x00\x49\x45\x4E\x44\xAE\x42\x60\x82' >> corrupted.png
+
+# Add missing EOF for PDF
+echo "%%EOF" >> corrupted.pdf
+
+# Add missing JPEG EOI marker
+printf '\xFF\xD9' >> corrupted.jpg
+```
+
+**Hex Editor Repair:**
+
+```bash
+# Interactive hex editing
+hexedit corrupted_file
+bvi corrupted_file  # Binary vi editor
+
+# Non-interactive patch
+echo "00000000: 8950 4e47 0d0a 1a0a" | xxd -r - corrupted.png
+```
+
+### Image File Repair
+
+**PNG Repair:**
+
+```bash
+# Fix PNG structure using pngcheck
+pngcheck -v corrupted.png  # Identify errors
+
+# Repair PNG chunks
+apt-get install pngcrush
+pngcrush -fix corrupted.png repaired.png
+
+# Manual PNG chunk structure:
+# 8-byte signature
+# Chunks: [4-byte length][4-byte type][data][4-byte CRC]
+# Critical chunks: IHDR (header), PLTE (palette), IDAT (data), IEND (end)
+
+# Rebuild PNG with correct CRCs using Python
+python3 << 'EOF'
+import struct
+import zlib
+
+# Read corrupted PNG
+with open('corrupted.png', 'rb') as f:
+    data = f.read()
+
+# PNG signature
+signature = b'\x89PNG\r\n\x1a\n'
+
+# Parse chunks and fix CRCs
+output = bytearray(signature)
+pos = 8
+
+while pos < len(data) - 12:
+    try:
+        length = struct.unpack('>I', data[pos:pos+4])[0]
+        chunk_type = data[pos+4:pos+8]
+        chunk_data = data[pos+8:pos+8+length]
+        
+        # Recalculate CRC
+        crc = zlib.crc32(chunk_type + chunk_data) & 0xffffffff
+        
+        output.extend(struct.pack('>I', length))
+        output.extend(chunk_type)
+        output.extend(chunk_data)
+        output.extend(struct.pack('>I', crc))
+        
+        pos += 12 + length
+        
+        if chunk_type == b'IEND':
+            break
+    except:
+        break
+
+with open('repaired.png', 'wb') as f:
+    f.write(output)
+    
+print("PNG repair complete")
+EOF
+```
+
+**JPEG Repair:**
+
+```bash
+# Identify JPEG structure issues
+jpeginfo -c corrupted.jpg
+
+# Repair JPEG using ImageMagick
+convert corrupted.jpg -strip repaired.jpg
+
+# Manual JPEG structure:
+# SOI (Start of Image): FF D8
+# APPn segments: FF Ex
+# DQT (Quantization Table): FF DB
+# SOF (Start of Frame): FF C0
+# DHT (Huffman Table): FF C4
+# SOS (Start of Scan): FF DA
+# [Compressed data]
+# EOI (End of Image): FF D9
+
+# Extract JPEG even with corrupted segments
+JPEG_END=$(grep -obam1 $'\xFF\xD9' corrupted.jpg | cut -d: -f1)
+if [ -n "$JPEG_END" ]; then
+    dd if=corrupted.jpg of=extracted.jpg bs=1 count=$((JPEG_END + 2))
+fi
+```
+
+**GIF Repair:**
+
+```bash
+# Check GIF structure
+identify -verbose corrupted.gif
+
+# Repair using gifsicle
+gifsicle --no-warnings corrupted.gif > repaired.gif
+
+# GIF structure:
+# Header: "GIF87a" or "GIF89a"
+# Logical Screen Descriptor
+# Global Color Table (optional)
+# Image Descriptor(s)
+# Local Color Table (optional)
+# Image Data (LZW compressed)
+# Trailer: 0x3B
+```
+
+### Archive File Repair
+
+**ZIP Repair:**
+
+```bash
+# Analyze ZIP structure
+unzip -t corrupted.zip  # Test integrity
+zipinfo corrupted.zip   # Show structure
+
+# Repair using zip
+zip -FF corrupted.zip --out repaired.zip
+
+# Force extraction ignoring errors
+unzip -o corrupted.zip 2>/dev/null
+
+# Manual repair: Fix central directory
+# ZIP structure:
+# Local file headers
+# File data
+# Central directory
+# End of central directory record
+
+# Find central directory signature: 50 4B 01 02
+grep -obam1 $'\x50\x4B\x01\x02' corrupted.zip
+
+# Find EOCD signature: 50 4B 05 06
+grep -obam1 $'\x50\x4B\x05\x06' corrupted.zip
+
+# Reconstruct ZIP from local headers only
+python3 << 'EOF'
+import struct
+import os
+
+with open('corrupted.zip', 'rb') as f:
+    data = f.read()
+
+# Find all local file headers (50 4B 03 04)
+pos = 0
+files = []
+
+while True:
+    pos = data.find(b'PK\x03\x04', pos)
+    if pos == -1:
+        break
+    
+    try:
+        # Parse local file header
+        header = data[pos:pos+30]
+        filename_len = struct.unpack('<H', header[26:28])[0]
+        extra_len = struct.unpack('<H', header[28:30])[0]
+        compressed_size = struct.unpack('<I', header[18:22])[0]
+        
+        filename = data[pos+30:pos+30+filename_len]
+        file_data_start = pos+30+filename_len+extra_len
+        file_data = data[file_data_start:file_data_start+compressed_size]
+        
+        files.append((filename, file_data))
+        print(f"Found: {filename.decode('utf-8', errors='ignore')}")
+        pos += 30 + filename_len + extra_len + compressed_size
+    except:
+        pos += 1
+
+print(f"\nTotal files found: {len(files)}")
+EOF
+```
+
+**TAR Repair:**
+
+```bash
+# Test tar integrity
+tar -tvf corrupted.tar
+
+# Extract ignoring errors
+tar -xvf corrupted.tar --ignore-command-error
+
+# Repair using tar
+tar --test-label -f corrupted.tar
+
+# TAR structure: 512-byte blocks
+# Header (512 bytes) + Data (rounded to 512 bytes) + padding
+# End: Two 512-byte zero blocks
+
+# Extract files manually from damaged tar
+dd if=corrupted.tar bs=512 skip=0 count=1 | hexdump -C  # View first header
+
+# Script to extract individual files
+python3 << 'EOF'
+import struct
+import os
+
+with open('corrupted.tar', 'rb') as f:
+    pos = 0
+    file_count = 0
+    
+    while True:
+        f.seek(pos)
+        header = f.read(512)
+        
+        if len(header) < 512 or header == b'\x00' * 512:
+            break
+        
+        # Parse TAR header
+        try:
+            filename = header[0:100].rstrip(b'\x00').decode('utf-8', errors='ignore')
+            size_str = header[124:136].rstrip(b'\x00 ').decode('utf-8')
+            size = int(size_str, 8)  # Octal
+        except:
+            pos += 512
+            continue
+        
+        if filename and size > 0:
+            print(f"Found: {filename} ({size} bytes)")
+            
+            # Read file data
+            f.seek(pos + 512)
+            data = f.read(size)
+            
+            # Save file
+            safe_filename = filename.replace('/', '_').replace('..', '_')
+            with open(f"recovered_{safe_filename}", 'wb') as out:
+                out.write(data)
+            
+            file_count += 1
+        
+        # Move to next header (512-byte aligned)
+        pos += 512 + ((size + 511) // 512) * 512
+
+print(f"\nRecovered {file_count} files")
+EOF
+```
+
+**RAR Repair:**
+
+```bash
+# Test RAR integrity
+unrar t corrupted.rar
+
+# Repair RAR archive
+rar r corrupted.rar
+
+# Extract with recovery record
+unrar x -kb corrupted.rar
+
+# Force extraction
+unrar x -o+ -y corrupted.rar
+```
+
+### Document File Repair
+
+**PDF Repair:**
+
+```bash
+# Analyze PDF structure
+pdfinfo corrupted.pdf
+pdftk corrupted.pdf dump_data
+
+# Repair using Ghostscript
+gs -o repaired.pdf -sDEVICE=pdfwrite -dPDFSETTINGS=/prepress corrupted.pdf
+
+# Repair using qpdf
+qpdf --check corrupted.pdf
+qpdf corrupted.pdf repaired.pdf
+
+# Extract text even from corrupted PDF
+pdftotext -raw corrupted.pdf output.txt
+
+# Manual PDF structure repair
+# PDF structure:
+# %PDF-1.x header
+# Objects
+# xref table (cross-reference)
+# trailer
+# %%EOF
+
+# Rebuild xref table
+python3 << 'EOF'
+import re
+
+with open('corrupted.pdf', 'rb') as f:
+    data = f.read()
+
+# Find all objects: "obj_num 0 obj"
+objects = []
+for match in re.finditer(rb'(\d+) 0 obj', data):
+    obj_num = int(match.group(1))
+    offset = match.start()
+    objects.append((obj_num, offset))
+
+objects.sort()
+
+# Build xref table
+xref = "xref\n"
+xref += f"0 {len(objects) + 1}\n"
+xref += "0000000000 65535 f \n"
+
+for obj_num, offset in objects:
+    xref += f"{offset:010d} 00000 n \n"
+
+print(xref)
+print("\nAdd this xref table before the trailer in the PDF")
+EOF
+```
+
+**Office Document Repair (DOCX/XLSX/PPTX):**
+
+```bash
+# Office Open XML files are ZIP archives
+# Extract structure
+unzip -l corrupted.docx
+
+# Repair ZIP structure first
+zip -FF corrupted.docx --out repaired.docx
+
+# Extract and manually repair XML
+unzip corrupted.docx -d extracted/
+cd extracted/
+
+# Fix XML syntax errors in word/document.xml
+xmllint --recover word/document.xml > word/document_fixed.xml
+mv word/document_fixed.xml word/document.xml
+
+# Rebuild DOCX
+zip -r ../repaired.docx *
+
+# LibreOffice recovery
+libreoffice --headless --convert-to pdf corrupted.docx
+```
+
+**Database File Repair:**
+
+```bash
+# SQLite repair
+sqlite3 corrupted.db ".dump" | sqlite3 repaired.db
+sqlite3 corrupted.db "PRAGMA integrity_check"
+
+# Recover data from corrupted SQLite
+python3 << 'EOF'
+import sqlite3
+
+try:
+    conn = sqlite3.connect('corrupted.db')
+    conn.text_factory = bytes
+    cursor = conn.cursor()
+    
+    # Get table list
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = cursor.fetchall()
+    
+    for table in tables:
+        table_name = table[0].decode('utf-8', errors='ignore')
+        print(f"Extracting: {table_name}")
+        
+        try:
+            cursor.execute(f"SELECT * FROM {table_name}")
+            rows = cursor.fetchall()
+            print(f"  {len(rows)} rows recovered")
+            
+            # Save to file
+            with open(f"{table_name}.txt", 'w') as f:
+                for row in rows:
+                    f.write(str(row) + '\n')
+        except Exception as e:
+            print(f"  Error: {e}")
+    
+    conn.close()
+except Exception as e:
+    print(f"Fatal error: {e}")
+EOF
+```
+
+### Filesystem-Level Repair
+
+**ext2/ext3/ext4 Repair:**
+
+```bash
+# Check filesystem
+fsck.ext4 -n /dev/sdb1  # No changes, report only
+fsck.ext4 -f /dev/sdb1  # Force full check
+
+# Repair filesystem
+fsck.ext4 -y /dev/sdb1  # Auto-yes to all prompts
+
+# Recover deleted files
+extundelete /dev/sdb1 --restore-all
+extundelete /dev/sdb1 --restore-file /path/to/file
+```
+
+**NTFS Repair:**
+
+```bash
+# Check NTFS
+ntfsfix /dev/sdb1
+
+# Mount with recovery options
+mount -t ntfs-3g -o ro,recover /dev/sdb1 /mnt/ntfs
+```
+
+**FAT32 Repair:**
+
+```bash
+# Check and repair FAT
+fsck.vfat -a /dev/sdb1  # Auto-repair
+fsck.vfat -r /dev/sdb1  # Interactive repair
+fsck.vfat -v /dev/sdb1  # Verbose
+```
+
+---
+
+## Partial File Recovery
+
+Partial file recovery extracts usable data from incomplete, truncated, or fragmented files using format-specific techniques and heuristics.
+
+### File Carving Fundamentals
+
+File carving recovers files from raw data using header/footer signatures and file structure knowledge, without relying on filesystem metadata.
+
+**Carving Tools:**
+
+**foremost** - Header/footer-based carving
+
+```bash
+# Basic carving
+foremost -i disk.img -o output/
+
+# Specify file types
+foremost -t jpg,png,pdf -i disk.img -o output/
+
+# Custom configuration
+# Edit /etc/foremost.conf
+# Format: extension case offset header footer max_size
+# Example: jpg y 200000 \xff\xd8\xff \xff\xd9 30000000
+
+foremost -c /etc/foremost.conf -i disk.img -o output/
+
+# Carve from specific offset
+foremost -s 1024000 -i disk.img -o output/
+```
+
+**scalpel** - Improved foremost with better performance
+
+```bash
+# Configure file types in /etc/scalpel/scalpel.conf
+# Uncomment file types to carve
+
+scalpel disk.img -o output/
+scalpel -b disk.img -o output/  # Block-aligned carving (faster)
+scalpel -c custom.conf disk.img -o output/
+```
+
+**photorec** - Deep file carving with filesystem awareness
+
+```bash
+# Interactive mode
+photorec disk.img
+
+# Command-line mode
+photorec /d output/ /cmd disk.img fileopt,everything,search
+
+# Specific file types only
+photorec /d output/ /cmd disk.img fileopt,jpg,png,pdf,search
+```
+
+**binwalk** - Firmware and embedded file extraction
+
+```bash
+# Scan for signatures
+binwalk disk.img
+
+# Extract all found files
+binwalk -e disk.img
+
+# Deep extraction with recursion
+binwalk -Me disk.img
+
+# Carve specific types
+binwalk --dd='.*' disk.img
+```
+
+**bulk_extractor** - Feature extraction and carving
+
+```bash
+# Extract all features
+bulk_extractor -o output/ disk.img
+
+# Outputs include:
+# - email.txt (email addresses)
+# - url.txt (URLs)
+# - ip.txt (IP addresses)
+# - jpeg_carved/ (JPEG files)
+# - zip.txt (ZIP files)
+```
+
+### Format-Specific Partial Recovery
+
+**JPEG Partial Recovery:**
+
+JPEG structure allows partial display if truncated after scan data begins. Minimal requirements: SOI, Frame Header, Scan Header.
+
+```bash
+# Find JPEG boundaries
+grep -obUaP "\xFF\xD8\xFF" disk.img  # Start markers
+grep -obUaP "\xFF\xD9" disk.img      # End markers
+
+# Extract partial JPEG
+dd if=disk.img of=partial.jpg bs=1 skip=<start_offset> count=<size>
+
+# Repair partial JPEG by adding EOI marker
+printf '\xFF\xD9' >> partial.jpg
+
+# Progressive JPEG recovery script
+python3 << 'EOF'
+import struct
+import sys
+
+def find_jpeg_markers(data):
+    """Find all JPEG markers in data"""
+    markers = []
+    i = 0
+    while i < len(data) - 1:
+        if data[i] == 0xFF and data[i+1] != 0x00 and data[i+1] != 0xFF:
+            markers.append((i, data[i+1]))
+        i += 1
+    return markers
+
+def extract_partial_jpeg(input_file, output_file):
+    """Extract displayable JPEG even if truncated"""
+    with open(input_file, 'rb') as f:
+        data = f.read()
+    
+    # Find SOI (Start of Image: FF D8)
+    soi = data.find(b'\xFF\xD8')
+    if soi == -1:
+        print("No JPEG SOI found")
+        return False
+    
+    # Find SOS (Start of Scan: FF DA) - actual image data begins here
+    sos = data.find(b'\xFF\xDA', soi)
+    if sos == -1:
+        print("No SOS marker found - cannot extract image data")
+        return False
+    
+    # Extract up to EOI or end of file
+    eoi = data.find(b'\xFF\xD9', sos)
+    if eoi == -1:
+        # No EOI found, use all available data
+        jpeg_data = data[soi:]
+        # Add EOI marker
+        jpeg_data += b'\xFF\xD9'
+        print(f"Recovered partial JPEG (no EOI, added artificially)")
+    else:
+        jpeg_data = data[soi:eoi+2]
+        print(f"Recovered complete JPEG")
+    
+    with open(output_file, 'wb') as f:
+        f.write(jpeg_data)
+    
+    return True
+
+if __name__ == "__main__":
+    extract_partial_jpeg('corrupted.jpg', 'recovered.jpg')
+EOF
+```
+
+**PNG Partial Recovery:**
+
+PNG uses chunk-based structure. Critical chunks needed: IHDR (header), at least one IDAT (data), IEND (end).
+
+```python
+#!/usr/bin/env python3
+# PNG partial recovery - reconstruct from available chunks
+import struct
+import zlib
+
+def parse_png_chunks(data):
+    """Parse PNG chunk structure"""
+    if data[:8] != b'\x89PNG\r\n\x1a\n':
+        return None
+    
+    chunks = []
+    pos = 8
+    
+    while pos < len(data) - 12:
+        try:
+            length = struct.unpack('>I', data[pos:pos+4])[0]
+            chunk_type = data[pos+4:pos+8]
+            chunk_data = data[pos+8:pos+8+length]
+            crc = struct.unpack('>I', data[pos+8+length:pos+12+length])[0]
+            
+            chunks.append({
+                'type': chunk_type,
+                'data': chunk_data,
+                'length': length,
+                'crc': crc
+            })
+            
+            pos += 12 + length
+            
+            if chunk_type == b'IEND':
+                break
+        except:
+            break
+    
+    return chunks
+
+def reconstruct_png(chunks):
+    """Reconstruct valid PNG from available chunks"""
+    # Start with signature
+    output = bytearray(b'\x89PNG\r\n\x1a\n')
+    
+    # Must have IHDR
+    ihdr = next((c for c in chunks if c['type'] == b'IHDR'), None)
+    if not ihdr:
+        print("[Unverified] Cannot reconstruct: IHDR chunk missing")
+        return None
+    
+    # Add IHDR
+    output.extend(struct.pack('>I', ihdr['length']))
+    output.extend(ihdr['type'])
+    output.extend(ihdr['data'])
+    crc = zlib.crc32(ihdr['type'] + ihdr['data']) & 0xffffffff
+    output.extend(struct.pack('>I', crc))
+    
+    # Add all IDAT chunks (image data)
+    idat_chunks = [c for c in chunks if c['type'] == b'IDAT']
+    if not idat_chunks:
+        print("[Unverified] Cannot reconstruct: No IDAT chunks found")
+        return None
+    
+    for idat in idat_chunks:
+        output.extend(struct.pack('>I', idat['length']))
+        output.extend(idat['type'])
+        output.extend(idat['data'])
+        crc = zlib.crc32(idat['type'] + idat['data']) & 0xffffffff
+        output.extend(struct.pack('>I', crc))
+    
+    # Add IEND
+    output.extend(b'\x00\x00\x00\x00IEND\xae\x42\x60\x82')
+    
+    return bytes(output)
+
+# Usage
+with open('corrupted.png', 'rb') as f:
+    data = f.read()
+
+chunks = parse_png_chunks(data)
+if chunks:
+    print(f"Found {len(chunks)} chunks:")
+    for c in chunks:
+        print(f"  {c['type'].decode('ascii', errors='ignore')}: {c['length']} bytes")
+    
+    reconstructed = reconstruct_png(chunks)
+    if reconstructed:
+        with open('recovered.png', 'wb') as f:
+            f.write(reconstructed)
+        print("PNG reconstructed successfully")
+```
+
+**PDF Partial Recovery:**
+
+PDF objects can be extracted individually even if document structure is damaged.
+
+```bash
+# Extract PDF objects manually
+python3 << 'EOF'
+import re
+
+def extract_pdf_objects(filename):
+    """Extract individual PDF objects"""
+    with open(filename, 'rb') as f:
+        data = f.read()
+    
+    # Find all objects (pattern: "N 0 obj" ... "endobj")
+    object_pattern = rb'(\d+)\s+0\s+obj(.*?)endobj'
+    objects = re.findall(object_pattern, data, re.DOTALL)
+    
+    print(f"Found {len(objects)} objects\n")
+    
+    for obj_num, obj_data in objects:
+        obj_num = obj_num.decode('utf-8')
+        print(f"Object {obj_num}:")
+        
+        # Check for stream data
+        if b'stream' in obj_data:
+            stream_start = obj_data.find(b'stream') + 7
+            stream_end = obj_data.find(b'endstream')
+            
+            if stream_end != -1:
+                stream_data = obj_data[stream_start:stream_end]
+                
+                # Try to identify stream type
+                if obj_data[:50].find(b'/Image') != -1:
+                    print(f"  Type: Image stream ({len(stream_data)} bytes)")
+                    with open(f'object_{obj_num}_image.dat', 'wb') as f:
+                        f.write(stream_data)
+                elif obj_data[:50].find(b'/Font') != -1:
+                    print(f"  Type: Font stream")
+                else:
+                    print(f"  Type: Stream ({len(stream_data)} bytes)")
+        
+        # Check for text content
+        text_match = re.search(rb'\((.*?)\)', obj_data[:200])
+        if text_match:
+            try:
+                text = text_match.group(1).decode('utf-8', errors='ignore')
+                if text:
+                    print(f"  Text: {text[:50]}...")
+            except:
+                pass
+        
+        print()
+
+extract_pdf_objects('corrupted.pdf')
+EOF
+
+# Extract embedded images from PDF
+pdfimages corrupted.pdf output_prefix
+
+# Extract text even from damaged PDF
+strings corrupted.pdf | grep -E '^[A-Za-z ]{10,}' > extracted_text.txt
+```
+
+**ZIP Partial Recovery:**
+
+Extract individual files from ZIP even if central directory is corrupted.
+
+```python
+#!/usr/bin/env python3
+# Extract files from corrupted ZIP using local headers
+import struct
+import zlib
+
+def extract_zip_files(zip_file):
+    """Extract files from ZIP using local file headers only"""
+    with open(zip_file, 'rb') as f:
+        data = f.read()
+    
+    pos = 0
+    file_count = 0
+    
+    while True:
+        # Find local file header signature (50 4B 03 04)
+        pos = data.find(b'PK\x03\x04', pos)
+        if pos == -1:
+            break
+        
+        try:
+            # Parse local file header
+            header = data[pos:pos+30]
+            
+            version = struct.unpack('<H', header[4:6])[0]
+            flags = struct.unpack('<H', header[6:8])[0]
+            compression = struct.unpack('<H', header[8:10])[0]
+            crc32 = struct.unpack('<I', header[14:18])[0]
+            compressed_size = struct.unpack('<I', header[18:22])[0]
+            uncompressed_size = struct.unpack('<I', header[22:26])[0]
+            filename_len = struct.unpack('<H', header[26:28])[0]
+            extra_len = struct.unpack('<H', header[28:30])[0]
+            
+            # Extract filename
+            filename = data[pos+30:pos+30+filename_len].decode('utf-8', errors='ignore')
+            
+            # Extract compressed data
+            data_start = pos + 30 + filename_len + extra_len
+            compressed_data = data[data_start:data_start+compressed_size]
+            
+            print(f"Extracting: {filename}")
+            print(f"  Compression: {compression} (0=stored, 8=deflate)")
+            print(f"  Compressed: {compressed_size} bytes")
+            print(f"  Uncompressed: {uncompressed_size} bytes")
+            
+            # Decompress if needed
+            if compression == 0:
+                # Stored (no compression)
+                output_data = compressed_data
+            elif compression == 8:
+                # Deflate compression
+                try:
+                    output_data = zlib.decompress(compressed_data, -15)
+                except Exception as e:
+                    print(f"  [Unverified] Decompression failed: {e}")
+                    output_data = compressed_data
+            else:
+                print(f"  [Unverified] Unknown compression method")
+                output_data = compressed_data
+            
+            # Save extracted file
+            safe_filename = filename.replace('/', '_').replace('\\', '_')
+            with open(f'recovered_{safe_filename}', 'wb') as out:
+                out.write(output_data)
+            
+            file_count += 1
+            pos += 30 + filename_len + extra_len + compressed_size
+            
+        except Exception as e:
+            print(f"Error at position {pos}: {e}")
+            pos += 1
+    
+    print(f"\nRecovered {file_count} files")
+
+# Usage
+extract_zip_files('corrupted.zip')
+```
+
+### Media File Recovery
+
+**Video File Recovery (MP4/AVI):**
+
+```bash
+# MP4 structure recovery
+# MP4 uses atom/box structure
+# Critical atoms: ftyp, moov, mdat
+
+# Find MP4 atoms
+python3 << 'EOF'
+import struct
+
+def find_mp4_atoms(filename):
+    """Parse MP4 atom structure"""
+    with open(filename, 'rb') as f:
+        data = f.read()
+    
+    pos = 0
+    atoms = []
+    
+    while pos < len(data) - 8:
+        try:
+            size = struct.unpack('>I', data[pos:pos+4])[0]
+            atom_type = data[pos+4:pos+8].decode('ascii', errors='ignore')
+            
+            if size == 0:  # Atom extends to end of file
+                size = len(data) - pos
+            elif size == 1:  # 64-bit size
+                size = struct.unpack('>Q', data[pos+8:pos+16])[0]
+            
+            atoms.append({
+                'type': atom_type,
+                'offset': pos,
+                'size': size
+            })
+            
+            print(f"Atom: {atom_type:4s} at offset {pos:10d}, size {size:10d}")
+            
+            if size < 8:
+                break
+            
+            pos += size
+        except:
+            break
+    
+    return atoms
+
+# Find moov atom (contains metadata)
+atoms = find_mp4_atoms('corrupted.mp4')
+moov = next((a for a in atoms if a['type'] == 'moov'), None)
+if moov:
+    print(f"\nFound moov atom at offset {moov['offset']}")
+else:
+    print("\n[Unverified] moov atom not found - video may not be playable")
+EOF
+
+# Recover video using ffmpeg even if partially corrupted
+ffmpeg -i corrupted.mp4 -c copy recovered.mp4
+ffmpeg -err_detect ignore_err -i corrupted.mp4 -c copy recovered.mp4
+
+# Extract individual frames
+ffmpeg -i corrupted.mp4 -q:v 2 frame_%04d.jpg
+```
+
+**Audio File Recovery (MP3/WAV):**
+
+```bash
+# MP3 frame recovery
+# MP3 consists of frames starting with sync word (FF FB or FF FA)
+
+python3 << 'EOF'
+import struct
+
+def recover_mp3_frames(filename):
+    """Extract valid MP3 frames"""
+    with open(filename, 'rb') as f:
+        data = f.read()
+    
+    frames = []
+    pos = 0
+    
+    while pos < len(data) - 4:
+        # Look for MP3 sync word (11 bits set)
+        if data[pos] == 0xFF and (data[pos+1] & 0xE0) == 0xE0:
+            # Parse frame header
+            header = struct.unpack('>I', data[pos:pos+4])[0]
+            
+            # Extract frame info
+            version = (header >> 19) & 0x3
+            layer = (header >> 17) & 0x3
+            bitrate_index = (header >> 12) & 0xF
+            sampling_rate_index = (header >> 10) & 0x3
+            padding = (header >> 9) & 0x1
+            
+            # Calculate frame size (simplified)
+            if bitrate_index != 0 and bitrate_index != 15:
+                frames.append(pos)
+            
+            pos += 1
+        else:
+            pos += 1
+    
+    print(f"Found {len(frames)} potential MP3 frames")
+    
+    if frames:
+        # Extract from first frame to last
+        with open('recovered.mp3', 'wb') as f:
+            f.write(data[frames[0]:frames[-1]+500])
+        print("Recovered MP3 written to recovered.mp3")
+
+recover_mp3_frames('corrupted.mp3')
+EOF
+
+# WAV file recovery (simpler - just header + data)
+# WAV structure: RIFF header + fmt chunk + data chunk
+
+dd if=corrupted.wav of=recovered.wav bs=1 skip=0 count=$(stat -c%s corrupted.wav)
+```
+
+### Text and Document Recovery
+
+**Text File Recovery with Encoding Issues:**
+
+```bash
+# Detect encoding
+file -i corrupted.txt
+chardet corrupted.txt
+
+# Try multiple encodings
+for encoding in utf-8 latin1 iso-8859-1 windows-1252 cp437; do
+    echo "Trying encoding: $encoding"
+    iconv -f $encoding -t utf-8 corrupted.txt > recovered_${encoding}.txt 2>/dev/null
+done
+
+# Remove null bytes and control characters
+tr -d '\000\001\002\003\004\005\006\007\010\013\014\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037' < corrupted.txt > cleaned.txt
+
+# Extract printable strings
+strings -n 4 corrupted.txt > extracted_strings.txt
+```
+
+**Log File Recovery:**
+
+```bash
+# Extract structured log data even if corrupted
+grep -aE '^[0-9]{4}-[0-9]{2}-[0-9]{2}' corrupted.log > recovered.log
+
+# Extract JSON log entries
+grep -aoE '\{[^}]+\}' corrupted.log | jq . > recovered.json 2>/dev/null
+
+# Extract XML fragments
+grep -aoE '<[^>]+>.*</[^>]+>' corrupted.log > recovered.xml
+```
+
+### Binary File Fragment Analysis
+
+**Entropy-Based Fragment Classification:**
+
+```python
+#!/usr/bin/env python3
+# Classify file fragments by entropy
+import math
+from collections import Counter
+
+def calculate_entropy(data):
+    """Calculate Shannon entropy of data"""
+    if not data:
+        return 0
+    
+    counter = Counter(data)
+    length = len(data)
+    entropy = 0
+    
+    for count in counter.values():
+        p = count / length
+        entropy -= p * math.log2(p)
+    
+    return entropy
+
+def classify_fragment(fragment):
+    """Classify fragment type by entropy and patterns"""
+    entropy = calculate_entropy(fragment)
+    
+    # Entropy thresholds (approximate)
+    if entropy < 1.0:
+        return "Null/Empty data"
+    elif entropy < 3.0:
+        return "Text or highly structured"
+    elif entropy < 5.0:
+        return "Executable or formatted data"
+    elif entropy < 7.0:
+        return "Compressed or mixed content"
+    else:
+        return "Encrypted or random data"
+
+# Analyze file in chunks
+chunk_size = 4096
+with open('unknown_fragment.bin', 'rb') as f:
+    chunk_num = 0
+    while True:
+        chunk = f.read(chunk_size)
+        if not chunk:
+            break
+        
+        classification = classify_fragment(chunk)
+        entropy = calculate_entropy(chunk)
+        
+        print(f"Chunk {chunk_num}: Entropy={entropy:.2f}, Type={classification}")
+        chunk_num += 1
+```
+
+### Fragmented File Reassembly
+
+**Automated Fragment Ordering:**
+
+```bash
+# Use file carving to identify fragment boundaries
+scalpel -b -c fragments.conf disk.img -o carved/
+
+# Analyze fragment headers to determine order
+python3 << 'EOF'
+import os
+import struct
+
+def analyze_fragment_order(fragment_dir):
+    """Attempt to order fragments by analyzing headers"""
+    fragments = []
+    
+    for filename in sorted(os.listdir(fragment_dir)):
+        filepath = os.path.join(fragment_dir, filename)
+        with open(filepath, 'rb') as f:
+            data = f.read(1024)  # Read first 1KB
+            
+            # Check for sequence numbers or timestamps
+            # This is format-specific
+            fragments.append({
+                'file': filename,
+                'header': data,
+                'size': os.path.getsize(filepath)
+            })
+    
+    # Sort heuristics (format-specific)
+    # Example: Look for incrementing sequence numbers
+    # Example: Look for timestamp fields
+    
+    print(f"Found {len(fragments)} fragments")
+    for i, frag in enumerate(fragments):
+        print(f"{i}: {frag['file']} ({frag['size']} bytes)")
+
+analyze_fragment_order('carved/')
+EOF
+```
+
+### CTF-Specific Recovery Techniques
+
+**Hidden Data in Slack Space:**
+
+```bash
+# Extract data from file slack space (between logical and physical end)
+python3 << 'EOF'
+import os
+
+def extract_slack_space(filename, cluster_size=4096):
+    """Extract slack space from file"""
+    file_size = os.path.getsize(filename)
+    
+    # Calculate slack space size
+    if file_size % cluster_size == 0:
+        print("No slack space")
+        return
+    
+    slack_size = cluster_size - (file_size % cluster_size)
+    print(f"File size: {file_size}, Slack space: {slack_size} bytes")
+    
+    # Read entire cluster
+    with open(filename, 'rb') as f:
+        f.seek((file_size // cluster_size) * cluster_size)
+        cluster_data = f.read(cluster_size)
+        
+        # Slack space is after file_size
+        slack_offset = file_size % cluster_size
+        slack_data = cluster_data[slack_offset:]
+        
+        with open('slack_space.bin', 'wb') as out:
+            out.write(slack_data)
+        
+        print("Slack space extracted to slack_space.bin")
+
+extract_slack_space('suspicious_file.dat')
+EOF
+```
+
+**Steganography in Recovered Files:**
+
+```bash
+# Check recovered images for hidden data
+steghide info recovered.jpg
+steghide extract -sf recovered.jpg
+
+# LSB analysis
+stegsolve recovered.png  # GUI tool
+
+# Strings in image files (common CTF technique)
+strings recovered.png | grep -i "flag\|ctf\|password"
+
+# Hex analysis for appended data
+hexdump -C recovered.jpg | tail -n 50
+```
+
+**Data Recovery from Memory Dumps:**
+
+```bash
+# Extract files from memory dump
+bulk_extractor -o extracted/ memory.dump
+
+# Volatility for structured extraction
+volatility -f memory.dump --profile=Win7SP1x64 filescan
+volatility -f memory.dump --profile=Win7SP1x64 dumpfiles -Q 0xabc123 -D output/
+```
+
+---
+
+## Important Related Topics
+
+For comprehensive data recovery preparation in CTF scenarios, consider exploring:
+
+- **Advanced File System Analysis** - Journaling, metadata recovery, deleted inode reconstruction
+- **Memory Forensics** - Process memory dumps, heap/stack analysis
+- **Cloud Storage Recovery** - Distributed file systems, object storage forensics
+- **Mobile Device Recovery** - Android/iOS filesystem structures, app data extraction
+- **Encrypted Volume Recovery** - LUKS, BitLocker, VeraCrypt header repair and key recovery
+
+---
+
+# Anti-Forensics Detection
+
+Anti-forensics encompasses techniques attackers use to hide, destroy, or obfuscate evidence. Detection requires identifying anomalies in timestamps, recognizing data destruction patterns, and discovering concealed encrypted volumes. Understanding these techniques is essential for comprehensive forensic analysis.
+
+## Timestomping Detection
+
+Timestomping modifies file timestamps (MAC times: Modified, Accessed, Created/Changed) to conceal activity, evade timeline analysis, or blend malicious files with legitimate ones. Detection relies on identifying timestamp inconsistencies and cross-referencing multiple time sources.
+
+**Timestamp Fundamentals:**
+
+Linux filesystems store three primary timestamps:
+
+- **mtime** (modification time): Content last modified
+- **atime** (access time): File last accessed [Unverified: Modern systems may use relatime/noatime mount options that reduce atime updates for performance]
+- **ctime** (change time): Inode metadata last changed (permissions, ownership, or content)
+
+**Critical**: ctime cannot be directly modified by standard user-space tools and updates automatically when file metadata changes, making it a reliable forensic anchor.
+
+**Detection via Timestamp Inconsistencies:**
+
+Identify files where mtime is newer than ctime (impossible naturally):
+
+```bash
+find / -type f -newermt "$(stat -c %z file)" 2>/dev/null
+```
+
+Compare mtime and ctime for all files:
+
+```bash
+find /path -type f -printf "%p | mtime: %TY-%Tm-%Td %TH:%TM:%.2TS | ctime: %CY-%Cm-%Cd %CH:%CM:%.2CS\n" | \
+  awk -F'|' '$2 > $3 {print $0}'
+```
+
+Stat analysis for suspicious patterns:
+
+```bash
+stat file.txt
+# Compare: Modify, Access, Change timestamps
+```
+
+Example output showing timestomping:
+
+```
+Modify: 2020-01-01 00:00:00.000000000  (suspiciously old)
+Access: 2025-10-25 10:30:00.000000000
+Change: 2025-10-25 10:30:00.000000000  (recent, reveals actual activity)
+```
+
+**Bulk Timestomping Detection:**
+
+Identify files with identical timestamps (batch timestomping):
+
+```bash
+find /path -type f -printf "%TY-%Tm-%Td %TT %p\n" | sort | uniq -c | sort -rn | head -n 20
+```
+
+Detect files with unrealistic timestamps:
+
+```bash
+# Files claiming modification before installation
+find /path -type f -mtime +3650  # Modified >10 years ago
+
+# Files with future timestamps
+find /path -type f -newermt "$(date '+%Y-%m-%d')"
+```
+
+**Filesystem Journal Analysis:**
+
+ext4 journal contains original timestamp information:
+
+```bash
+debugfs /dev/sda1
+debugfs: logdump -a > journal_dump.txt
+```
+
+Search journal for inode modifications:
+
+```bash
+grep "inode <NUMBER>" journal_dump.txt
+```
+
+Parse journal timestamps and compare with current filesystem timestamps. [Inference: Discrepancies indicate timestamp manipulation after original write]
+
+**NTFS Filesystem ($MFT) Analysis (for Windows artifacts):**
+
+Master File Table records multiple timestamp sets:
+
+- **$STANDARD_INFORMATION**: Easily modified by tools
+- **$FILE_NAME**: Harder to modify, requires direct MFT manipulation
+
+```bash
+# Using mft2csv (part of analyzeMFT)
+python analyzeMFT.py -f \$MFT -o mft_analysis.csv
+
+# Compare SI and FN timestamps
+awk -F',' '$10 != $14 {print $2, $10, $14}' mft_analysis.csv
+# Fields: filename, SI_modified, FN_modified
+```
+
+Tools that parse NTFS $MFT:
+
+```bash
+# MFTECmd (requires NTFS image)
+MFTECmd.exe -f C:\$MFT --csv output_directory
+
+# analyzeMFT
+python analyzeMFT.py -f \$MFT -o output.csv
+```
+
+**Log File Cross-Reference:**
+
+Compare file timestamps against system logs:
+
+```bash
+# Check if file "creation" predates system logs showing actual activity
+journalctl --since "2020-01-01" | grep filename
+
+# Web server logs
+grep "filename" /var/log/apache2/access.log | head -n 1
+
+# Authentication logs
+grep "filename" /var/log/auth.log
+```
+
+**Metadata from Archives:**
+
+Files extracted from archives retain original timestamps. Compare:
+
+```bash
+tar -tvf archive.tar | grep filename  # Shows original timestamp
+stat extracted/filename  # Shows current timestamp
+```
+
+**Statistical Timeline Analysis:**
+
+Generate comprehensive timeline:
+
+```bash
+# Using fls (Sleuth Kit)
+fls -r -m / /dev/sda1 > timeline_bodyfile
+mactime -b timeline_bodyfile -d > timeline.txt
+
+# Using log2timeline/plaso
+log2timeline.py timeline.plaso /mount/point
+psort.py -o dynamic -w timeline.csv timeline.plaso
+```
+
+Identify temporal anomalies:
+
+```bash
+# Gaps in activity timeline
+awk '{print $1}' timeline.csv | sort | uniq -c
+
+# Files modified during system downtime
+# Cross-reference with boot logs
+last -F | grep reboot
+```
+
+**MACB Timeline Format:**
+
+```bash
+# Generate MACB timeline (Modified, Accessed, Changed, Birth)
+fls -m / -r /dev/sda1 | mactime -b - -d
+```
+
+Look for:
+
+- Files with MAC times clustered around single timestamp
+- Timestamps predating OS installation
+- Round numbers (00:00:00, suggesting manual setting)
+
+**Detection via Nanosecond Precision:**
+
+Modern filesystems store nanosecond-precision timestamps. Manual timestomping often sets precision to zero:
+
+```bash
+stat -c "%y %n" file.txt
+# Natural: 2025-10-25 14:32:17.438291847 +0800
+# Stomped:  2020-01-01 00:00:00.000000000 +0800
+```
+
+Identify zero-precision timestamps:
+
+```bash
+find /path -type f -printf "%TY-%Tm-%Td %TH:%TM:%TS %p\n" | grep "\.000000000"
+```
+
+**Common Timestomping Tools (for recognition):**
+
+Linux:
+
+- `touch -t`: Modifies atime/mtime but updates ctime
+- `touch -d`: Same behavior
+- `debugfs`: Can modify inode timestamps directly (requires unmounted filesystem)
+
+Windows:
+
+- `timestomp.exe` (Metasploit): Modifies all NTFS timestamps
+- PowerShell `Set-ItemProperty`: Modifies basic timestamps
+
+**Advanced Detection - Birth Time (ext4 crtime):**
+
+ext4 stores creation time (birth time) in extended inode:
+
+```bash
+debugfs /dev/sda1
+debugfs: stat <inode_number>
+```
+
+Look for `crtime` field. Compare with other timestamps. [Unverified: Birth time modification requires specialized forensic tools or direct disk manipulation]
+
+Alternative using stat (if supported):
+
+```bash
+stat file.txt | grep Birth
+```
+
+## Data Wiping Artifact Identification
+
+Data wiping attempts to make deleted data unrecoverable through overwriting, encryption, or metadata destruction. Detection involves identifying wiping tool artifacts, analyzing overwrite patterns, and recovering residual evidence.
+
+**Wiping Method Categories:**
+
+1. **Simple deletion**: Removes file pointer, data remains
+2. **Single-pass overwrite**: Writes zeros/random data once
+3. **Multi-pass overwrite**: Writes multiple patterns (DoD 5220.22-M, Gutmann method)
+4. **Crypto-shredding**: Encrypts then deletes encryption key
+
+**File Carving for Residual Data:**
+
+Even after wiping attempts, data fragments may survive:
+
+```bash
+# Foremost - Signature-based carving
+foremost -i /dev/sda1 -o recovered_files/
+
+# Scalpel - Faster, configurable
+scalpel /dev/sda1 -o recovered_files/
+
+# PhotoRec - Comprehensive file type support
+photorec /dev/sda1
+```
+
+Analyze recovered fragments for:
+
+- Partial file headers
+- Metadata remnants
+- Strings indicating wiping was incomplete
+
+**String Analysis of Wiped Areas:**
+
+```bash
+# Extract strings from unallocated space
+dd if=/dev/sda1 bs=512 skip=<start_block> count=<num_blocks> | strings -n 8 > strings.txt
+
+# Search for artifacts
+grep -i "password\|confidential\|secret" strings.txt
+```
+
+**Pattern Recognition:**
+
+Identify sectors with wiping patterns:
+
+```bash
+# Check for zero-filled blocks
+xxd /dev/sda1 | grep "0000 0000 0000 0000 0000 0000 0000 0000"
+
+# Check for 0xFF pattern
+xxd /dev/sda1 | grep "ffff ffff ffff ffff ffff ffff ffff ffff"
+
+# Random data analysis (statistical entropy)
+dd if=/dev/sda1 bs=4096 skip=<block> count=1 | ent
+```
+
+High entropy (close to 8.0 bits/byte) suggests random data or encryption. Multiple consecutive high-entropy blocks may indicate wiping.
+
+**Wiping Tool Artifact Detection:**
+
+Common wiping tools leave traces:
+
+`shred` artifacts:
+
+```bash
+# Command history
+grep shred ~/.bash_history /home/*/.bash_history
+
+# Process logs
+journalctl | grep shred
+```
+
+`srm` (Secure Remove) artifacts:
+
+```bash
+grep srm ~/.bash_history /home/*/.bash_history
+```
+
+`wipe` tool artifacts:
+
+```bash
+grep wipe ~/.bash_history /home/*/.bash_history
+```
+
+BleachBit artifacts:
+
+```bash
+~/.config/bleachbit/
+journalctl --user | grep bleachbit
+```
+
+Windows tools (CCleaner, Eraser):
+
+```bash
+# Analyze Windows registry hives
+grep -a "CCleaner\|Eraser" NTUSER.DAT
+```
+
+**System Log Analysis:**
+
+Detect mass deletion events:
+
+```bash
+# Audit logs (if enabled)
+ausearch -m DELETE -ts recent
+
+# Check for bulk unlink operations
+journalctl -u systemd-journald | grep -i "delete\|remove\|unlink"
+```
+
+**Filesystem Journal Examination:**
+
+ext4 journal may contain pre-deletion metadata:
+
+```bash
+debugfs /dev/sda1
+debugfs: logdump > journal_log.txt
+```
+
+Search for deleted inode references:
+
+```bash
+grep "unlink\|delete" journal_log.txt
+```
+
+**Slack Space Analysis:**
+
+File slack (space between EOF and end of cluster) may contain residual data:
+
+```bash
+# Using Sleuth Kit
+blkcat /dev/sda1 <inode> > file_with_slack
+xxd file_with_slack | tail -n 20  # View end of file including slack
+```
+
+**TRIM Command Detection (SSD):**
+
+SSDs use TRIM to wipe deleted blocks for performance. TRIM activity indicates intentional data destruction:
+
+```bash
+# Check if TRIM is enabled
+lsblk --discard
+
+# TRIM history (limited)
+smartctl -a /dev/sda | grep "TRIM"
+```
+
+[Unverified: TRIM makes data recovery significantly harder or impossible depending on SSD controller implementation]
+
+**RAM Slack vs File Slack:**
+
+- **RAM slack**: Last disk sector partially filled, padded with RAM contents
+- **File slack**: Unused clusters allocated to file
+
+```bash
+# Extract and analyze for sensitive data
+blkcat /dev/sda1 <inode> | strings | grep -i "password"
+```
+
+**Metadata Destruction Detection:**
+
+Attackers may wipe only metadata while leaving data intact:
+
+```bash
+# Find orphaned inodes
+debugfs /dev/sda1
+debugfs: lsdel
+```
+
+Orphaned inodes suggest metadata deletion attempts.
+
+**Free Space Analysis:**
+
+```bash
+# Extract unallocated space
+blkls /dev/sda1 > unallocated.img
+
+# Analyze for patterns
+xxd unallocated.img | less
+```
+
+Look for:
+
+- Repeated patterns indicating overwrite
+- High entropy (random data wiping)
+- File fragments (incomplete wiping)
+
+**Volume Shadow Copies (Windows):**
+
+Even if primary data is wiped, shadow copies may preserve it:
+
+```bash
+# Mount VSS with vshadowmount (libvshadow)
+vshadowmount -o <offset> /dev/sda2 /mnt/vss
+
+# List and mount specific snapshots
+ls /mnt/vss/
+mount -o ro,loop /mnt/vss/vss1 /mnt/snapshot
+```
+
+**Backup and Cloud Sync Detection:**
+
+Wiped data may still exist in:
+
+```bash
+# Time Machine (macOS)
+/Volumes/TimeMachine/.Backups.backlog.directory/
+
+# rsnapshot
+/var/cache/rsnapshot/
+
+# Cloud sync caches
+~/.dropbox/cache/
+~/.local/share/Trash/  # Trash bins often overlooked
+```
+
+**Anti-Forensic Script Detection:**
+
+Identify automated wiping scripts:
+
+```bash
+find / -name "*.sh" -o -name "*.py" | xargs grep -l "shred\|srm\|wipe\|rm -rf"
+
+# Check cron jobs
+crontab -l
+cat /etc/crontab /etc/cron.*/* | grep -i "clean\|wipe\|delete"
+```
+
+## Encryption Container Detection
+
+Encrypted containers (volumes, files) hide data within seemingly random data or disguised as other file types. Detection involves identifying cryptographic signatures, analyzing entropy, and recognizing container formats.
+
+**Common Encryption Containers:**
+
+- **LUKS** (Linux Unified Key Setup): dm-crypt header
+- **VeraCrypt/TrueCrypt**: Hidden volume support
+- **Bitlocker**: Windows full-disk encryption
+- **eCryptfs**: Stacked filesystem encryption
+- **GOCR**: GPG-encrypted archives
+- **Steganographic containers**: Encrypted data hidden in images/audio
+
+**LUKS Detection:**
+
+LUKS headers are recognizable:
+
+```bash
+# Check for LUKS signature
+xxd /dev/sda2 | head -n 5
+# Look for: "LUKS" magic bytes at offset 0
+
+# Using cryptsetup
+cryptsetup isLuks /dev/sda2 && echo "LUKS detected"
+
+# Detailed LUKS info
+cryptsetup luksDump /dev/sda2
+```
+
+LUKS header structure (first 592 bytes):
+
+- Offset 0-5: "LUKS\xBA\xBE" magic
+- Offset 6-7: Version
+- Offset 8-39: Cipher name
+- Offset 40-43: Cipher mode
+
+**VeraCrypt/TrueCrypt Detection:**
+
+No clear headers (plausible deniability design). Detection relies on entropy and size:
+
+```bash
+# Check entropy
+ent suspicious_file.img
+```
+
+VeraCrypt container characteristics:
+
+- High entropy (>7.9 bits/byte)
+- File size multiple of 512 bytes
+- No recognizable filesystem signature
+
+Automated detection:
+
+```bash
+# Using veracrypt
+veracrypt --text --list suspicious_file.img
+
+# Brute-force mount attempt (if password known)
+veracrypt --text --mount suspicious_file.img /mnt/vc
+```
+
+[Inference: Hidden volumes within VeraCrypt containers are nearly undetectable without password]
+
+**BitLocker Detection (Windows):**
+
+BitLocker metadata exists at volume start:
+
+```bash
+# Check for BitLocker signature
+xxd /dev/sda1 | head -n 10
+# Look for: "-FVE-FS-" signature at offset 3
+
+# Using dislocker
+dislocker-find
+
+# Mount BitLocker volume (with recovery key)
+dislocker -V /dev/sda1 -p<password> -- /mnt/bitlocker
+```
+
+**Entropy Analysis:**
+
+High entropy indicates encryption or compression:
+
+```bash
+ent file.img
+# Output shows:
+# - Entropy: ~7.999 (8.0 = perfect randomness)
+# - Chi-square: Low values suggest randomness
+# - Arithmetic mean: ~127.5 for random data
+```
+
+Bulk entropy scanning:
+
+```bash
+for file in *; do
+    echo -n "$file: "
+    ent "$file" | grep Entropy | awk '{print $3}'
+done
+```
+
+Files with entropy >7.8 warrant further investigation.
+
+**Block Device Analysis:**
+
+Identify encrypted partitions:
+
+```bash
+# List block devices
+lsblk -f
+
+# Check for crypt type
+blkid /dev/sda2
+# Look for: TYPE="crypto_LUKS"
+
+# Identify partition without recognizable filesystem
+file -s /dev/sda2
+```
+
+**File Signature Analysis:**
+
+```bash
+# Check magic bytes
+file suspicious_file.img
+hexdump -C suspicious_file.img | head -n 5
+```
+
+Compare against known encrypted container signatures:
+
+- LUKS: `4C 55 4B 53 BA BE` ("LUKS" + version)
+- GPG: `85 01` or `85 02` (packet tag)
+- PGP: `A6 00` (symmetric encryption packet)
+
+**GPG Encrypted Files:**
+
+```bash
+# Detect GPG files
+file encrypted.gpg
+# Output: GPG symmetrically encrypted data
+
+# List encrypted files
+find / -type f -exec file {} \; | grep "GPG\|PGP"
+
+# Check GPG headers
+xxd encrypted.gpg | head -n 3
+```
+
+**eCryptfs Detection:**
+
+eCryptfs encrypts individual files within a directory:
+
+```bash
+# Check mount points
+mount | grep ecryptfs
+
+# eCryptfs metadata location
+ls -la ~/.ecryptfs/
+ls -la ~/.Private/
+
+# Identify encrypted filenames (scrambled)
+ls /home/.ecryptfs/user/.Private/
+```
+
+Encrypted filenames appear as: `ECRYPTFS_FNEK_ENCRYPTED.FWYmUuvMfNpPcKqXQm--`
+
+**Hidden Volume Detection:**
+
+VeraCrypt hidden volumes exist within outer volume's free space. Detection is extremely difficult. [Unverified: Some research suggests analyzing write patterns may reveal hidden volumes, but this remains largely theoretical]
+
+Potential indicators:
+
+- Outer volume with unusual amount of "random" free space
+- Filesystem showing less usage than expected
+
+**Steganographic Container Detection:**
+
+Encrypted payloads hidden in media files:
+
+```bash
+# Check file size anomalies
+ls -lh image.jpg
+# Compare to typical sizes for similar images
+
+# Extract appended data
+binwalk -e image.jpg
+foremost -i image.jpg
+
+# Analyze with steganography tools (see Steganography Detection module)
+steghide info image.jpg
+```
+
+**Swap and Hibernation Analysis:**
+
+Encryption keys may reside in swap/hibernation files:
+
+```bash
+# Search swap for encryption artifacts
+strings /dev/sda3 | grep -i "luks\|veracrypt\|bitlocker"
+
+# Mount hibernation file
+hibr2bin hiberfil.sys hiberfil.bin  # Windows hibernation
+volatility -f hiberfil.bin imageinfo
+```
+
+**Memory Forensics for Key Recovery:**
+
+Active encrypted containers may have keys in RAM:
+
+```bash
+# Dump RAM (requires root)
+dd if=/dev/mem of=ram.dump bs=1024
+
+# Volatility 3 key extraction
+python3 vol.py -f ram.dump linux.truecrypt.master_key
+python3 vol.py -f ram.dump linux.truecrypt.passphrase
+
+# Bulk extractor for key material
+bulk_extractor -o output/ ram.dump
+grep -a "LUKS\|veracrypt" output/
+```
+
+**Container File Location:**
+
+Attackers may hide containers in non-obvious locations:
+
+```bash
+# Find large files
+find / -type f -size +100M 2>/dev/null
+
+# Find files with high entropy
+find / -type f -size +10M -exec sh -c 'ent "{}" | grep -q "Entropy = [78]" && echo "{}"' \;
+
+# Check hidden directories
+find / -type d -name ".*" 2>/dev/null
+
+# Analyze unusual extensions
+find / -type f -regex ".*\.\(dat\|bin\|img\|raw\)" 2>/dev/null
+```
+
+**Network Share Examination:**
+
+```bash
+# NFS shares
+showmount -e remote_host
+
+# SMB shares
+smbclient -L //remote_host/
+
+# Check for encrypted containers on shares
+find /mnt/share -type f -size +10M -exec file {} \; | grep "data"
+```
+
+**Partition Table Analysis:**
+
+Hidden partitions or unallocated space:
+
+```bash
+# List partitions
+fdisk -l /dev/sda
+gdisk -l /dev/sda  # GPT partitions
+
+# Check for gaps (potential hidden partitions)
+parted /dev/sda print free
+```
+
+Look for:
+
+- Unallocated space >100MB between partitions
+- Type 0x00 (hidden) partitions
+- Partitions with unknown types
+
+**Automated Container Detection Tools:**
+
+```bash
+# CryptDetect (custom script needed)
+# Scans for high-entropy files and known encryption signatures
+
+# Example basic detection script:
+find / -type f -size +10M 2>/dev/null | while read file; do
+    entropy=$(ent "$file" | grep Entropy | awk '{print $3}')
+    if (( $(echo "$entropy > 7.8" | bc -l) )); then
+        echo "$file: $entropy"
+    fi
+done
+```
+
+**Cloud Storage Container Detection:**
+
+```bash
+# Check cloud sync directories
+find ~/Dropbox ~/Google\ Drive ~/.dropbox -type f -size +10M
+
+# Analyze for encrypted containers
+file ~/Dropbox/*.img ~/Dropbox/*.dat
+```
+
+**Important Subtopics for Further Study:**
+
+- Cold boot attacks for encryption key recovery
+- Evil Maid attacks and bootloader forensics
+- Deniable encryption systems (TrueCrypt hidden volumes, StegFS)
+- Filesystem-level encryption (ZFS encryption, Btrfs encryption)
+- Hardware-based encryption detection (OPAL self-encrypting drives)
+- Android device encryption forensics (dm-verity, file-based encryption)
+
+---
+
+## Log Tampering Indicators
+
+Log tampering aims to hide attacker activity by deleting, modifying, or corrupting log files. Detection requires understanding log structures, baseline behaviors, and identifying anomalies.
+
+### Windows Event Log Tampering
+
+**Event log structure**:
+
+- Modern logs: EVTX format (binary XML)
+- Legacy logs: EVT format (Windows 2000/XP)
+- Stored in: `C:\Windows\System32\winevt\Logs\`
+
+**Detection indicators**:
+
+**1. Event Log Service Manipulation**
+
+```bash
+# Search for Event Log service stops/restarts
+# Event ID 1100: Event log service shutdown
+# Event ID 1102: Audit log cleared
+# Event ID 1104: Security log full
+# Event ID 1105: Event log automatic backup
+
+# Using Windows Event Logs on evidence image
+grep -i "EventLog.*stop\|1100\|1102" timeline.csv
+
+# Check System log for Event Log service events
+psort.py -o l2tcsv timeline.plaso \
+  "source_long contains 'System.evtx' AND (description contains '1100' OR description contains '1102')"
+```
+
+**Event ID reference for tampering**:
+
+- **1102**: Security log cleared (CRITICAL indicator)
+- **1100**: Event logging service shutdown
+- **104**: System log cleared
+- **1105**: Audit failure - log full, events discarded
+
+**2. Timeline Gaps**
+
+```python
+#!/usr/bin/env python3
+# Detect gaps in event log timeline
+
+import csv
+from datetime import datetime, timedelta
+
+def detect_timeline_gaps(evtx_csv, gap_threshold_minutes=30):
+    """Find suspicious gaps in event log timeline"""
+    events = []
+    
+    with open(evtx_csv, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                events.append(datetime.fromisoformat(row['date']))
+            except:
+                continue
+    
+    events.sort()
+    gaps = []
+    
+    for i in range(1, len(events)):
+        diff = (events[i] - events[i-1]).total_seconds() / 60
+        if diff > gap_threshold_minutes:
+            gaps.append({
+                'start': events[i-1],
+                'end': events[i],
+                'duration_minutes': diff
+            })
+    
+    return gaps
+
+# Usage
+gaps = detect_timeline_gaps('security_events.csv', 30)
+for gap in gaps:
+    print(f"[!] Gap: {gap['start']} -> {gap['end']} ({gap['duration_minutes']:.1f} min)")
+```
+
+**3. Inconsistent Record Numbers**
+
+Event logs contain sequential record numbers (Event Record ID). Gaps indicate deleted entries.
+
+```bash
+# Extract Event Record IDs from EVTX
+# Using evtxexport (libevtx-utils package)
+sudo apt install libevtx-utils
+
+evtxexport -f csv Security.evtx > security_export.csv
+
+# Check for record ID gaps
+awk -F',' '{print $1}' security_export.csv | sort -n | \
+  awk 'NR>1 {if ($1 != prev+1) print "Gap: " prev " -> " $1} {prev=$1}'
+```
+
+**Python validation**:
+
+```python
+#!/usr/bin/env python3
+# Detect missing event record IDs
+
+import Evtx.Evtx as evtx
+
+def check_record_gaps(evtx_file):
+    """Identify gaps in event record IDs"""
+    with evtx.Evtx(evtx_file) as log:
+        record_ids = []
+        for record in log.records():
+            record_ids.append(record.record_num())
+        
+        record_ids.sort()
+        gaps = []
+        
+        for i in range(1, len(record_ids)):
+            expected = record_ids[i-1] + 1
+            actual = record_ids[i]
+            if actual != expected:
+                gaps.append((expected, actual - 1))
+        
+        return gaps
+
+# Usage
+gaps = check_record_gaps('Security.evtx')
+for start, end in gaps:
+    print(f"[!] Missing records: {start} to {end} ({end-start+1} events)")
+```
+
+**4. File Timestamp Manipulation**
+
+```bash
+# Compare EVTX file timestamps with internal event timestamps
+stat Security.evtx
+
+# Check last event time vs file modified time
+evtxexport Security.evtx | tail -n 20
+
+# In timeline analysis - look for EVTX modified AFTER last event
+psort.py -o l2tcsv timeline.plaso | grep -i "Security.evtx"
+```
+
+**5. Log File Size Anomalies**
+
+```bash
+# Check all event log sizes
+ls -lh /mnt/evidence/Windows/System32/winevt/Logs/
+
+# Compare to typical sizes [Inference: based on common configurations]:
+# Security.evtx: Usually 20-128MB (high activity systems)
+# System.evtx: Usually 20MB
+# Application.evtx: Usually 20MB
+
+# Suspiciously small Security.evtx (< 1MB) may indicate clearing
+find /mnt/evidence/Windows/System32/winevt/Logs/ -name "*.evtx" -size -1M
+```
+
+### Linux Log Tampering
+
+**Log locations**:
+
+- `/var/log/auth.log` or `/var/log/secure`: Authentication
+- `/var/log/syslog` or `/var/log/messages`: General system
+- `/var/log/wtmp`, `/var/log/btmp`: Login records (binary)
+- `/var/log/lastlog`: Last login per user (binary)
+- `journalctl`: systemd journal (binary)
+
+**Detection indicators**:
+
+**1. Missing or Truncated Logs**
+
+```bash
+# Check for empty logs (suspicious)
+find /var/log -type f -size 0
+
+# Check last modification time
+ls -la /var/log/auth.log*
+
+# Compare log rotation timestamps
+stat /var/log/auth.log /var/log/auth.log.1
+
+# Check inode change time (may indicate tampering)
+stat /var/log/auth.log | grep -i change
+```
+
+**2. Inconsistent Log Entries**
+
+```bash
+# Check for timeline gaps in syslog
+awk '{print $1, $2, $3}' /var/log/syslog | uniq -c
+
+# Detect date reversals (entries out of order)
+awk '{print $1, $2, $3}' /var/log/auth.log | \
+  awk 'NR>1 {if ($0 < prev) print "Reversal at line " NR ": " prev " -> " $0} {prev=$0}'
+
+# Check for unusual gaps
+python3 << 'EOF'
+import re
+from datetime import datetime
+
+with open('/var/log/auth.log', 'r') as f:
+    timestamps = []
+    for line in f:
+        match = re.match(r'(\w+ +\d+ \d+:\d+:\d+)', line)
+        if match:
+            timestamps.append(match.group(1))
+    
+    # Compare consecutive timestamps for large gaps
+    for i in range(1, len(timestamps)):
+        # [Inference: Gap detection requires parsing - implementation simplified]
+        print(f"{timestamps[i-1]} -> {timestamps[i]}")
+EOF
+```
+
+**3. wtmp/utmp Tampering**
+
+```bash
+# Check wtmp integrity
+last -f /var/log/wtmp | head -20
+
+# Look for unusual entries or gaps
+last -f /var/log/wtmp | wc -l
+
+# Check file size (should grow, not shrink)
+ls -lh /var/log/wtmp
+
+# Compare with auth.log for consistency
+last -f /var/log/wtmp | head | \
+  while read user tty from time; do grep -i "$user.*$from" /var/log/auth.log; done
+
+# Detect utmpdump anomalies
+utmpdump /var/run/utmp
+utmpdump /var/log/wtmp > wtmp_dump.txt
+
+# Check for record gaps or NULL entries
+grep -i "null" wtmp_dump.txt
+```
+
+**Python wtmp analysis**:
+
+```python
+#!/usr/bin/env python3
+# Analyze wtmp for tampering
+
+import struct
+import sys
+from datetime import datetime
+
+# utmp structure (64-bit)
+UTMP_SIZE = 384
+UTMP_FORMAT = '2hi32s4s32s256shhiii4i20x'
+
+def parse_wtmp(wtmp_file):
+    """Parse wtmp file for anomalies"""
+    records = []
+    
+    with open(wtmp_file, 'rb') as f:
+        while True:
+            data = f.read(UTMP_SIZE)
+            if len(data) < UTMP_SIZE:
+                break
+            
+            try:
+                record = struct.unpack(UTMP_FORMAT, data)
+                ut_type, ut_pid = record[0], record[1]
+                ut_user = record[2].split(b'\x00')[0].decode('utf-8', errors='ignore')
+                ut_time = record[8]
+                
+                if ut_user:  # Non-empty record
+                    records.append({
+                        'type': ut_type,
+                        'user': ut_user,
+                        'timestamp': ut_time
+                    })
+            except:
+                continue
+    
+    # Check for timestamp reversals
+    for i in range(1, len(records)):
+        if records[i]['timestamp'] < records[i-1]['timestamp']:
+            print(f"[!] Timestamp reversal: {records[i-1]} -> {records[i]}")
+    
+    return records
+```
+
+**4. Journal Tampering (systemd)**
+
+```bash
+# Check journal integrity
+journalctl --verify
+
+# Look for tampering indicators in output:
+# - "FAIL" entries
+# - Broken chain of trust
+# - Missing journal files
+
+# Check journal file timestamps
+ls -la /var/log/journal/*/
+
+# Compare journal size to expected growth
+journalctl --disk-usage
+
+# Extract journal to text for analysis
+journalctl -o export > journal_export.txt
+```
+
+**5. Logrotate Configuration**
+
+Attackers may modify logrotate to delete logs more frequently.
+
+```bash
+# Check logrotate configuration
+cat /etc/logrotate.conf
+cat /etc/logrotate.d/*
+
+# Look for suspicious settings:
+# - Very short rotation intervals
+# - Immediate deletion (rotate 0)
+# - Missing compression
+
+# Example suspicious config:
+# /var/log/auth.log {
+#     daily
+#     rotate 0        <- Immediate deletion
+#     missingok
+#     notifempty
+# }
+```
+
+### Application Log Tampering
+
+**Web server logs**:
+
+```bash
+# Apache/Nginx access log gaps
+awk '{print $4}' /var/log/apache2/access.log | \
+  sed 's/\[//g' | sort | uniq -c
+
+# Check for missing log entries (compare to response codes)
+# Suspicious: All 200s, no 404s or errors
+
+# Look for manual deletions (grep for IP, then check context)
+grep "suspicious_ip" access.log
+grep -B5 -A5 "suspicious_ip" access.log  # Check surrounding entries
+
+# Check inode/timestamps
+stat /var/log/apache2/access.log
+ls -li /var/log/apache2/
+```
+
+**Database logs**:
+
+```bash
+# MySQL general log tampering
+# Check binary logs for gaps
+mysqlbinlog mysql-bin.000001 | grep -i "^# at"
+
+# Look for log purging commands in mysql.log
+grep -i "PURGE.*LOG\|FLUSH.*LOG" /var/log/mysql/mysql.log
+
+# PostgreSQL log analysis
+ls -la /var/log/postgresql/
+# Check for timestamp gaps or truncated files
+```
+
+### Memory-Resident Log Clearing
+
+Some tools clear logs without touching disk:
+
+**Detection**:
+
+```bash
+# Look for suspicious process execution
+grep -i "wevtutil\|Clear-EventLog\|Remove-EventLog" timeline.csv
+
+# Check PowerShell history
+cat /mnt/evidence/Users/*/AppData/Roaming/Microsoft/Windows/PowerShell/PSReadLine/ConsoleHost_history.txt | \
+  grep -i "clear.*log\|remove.*log"
+
+# Search for known log-clearing tools
+grep -iE "(wevtutil|clearev|phantom|logkiller)" timeline.csv
+```
+
+## Rootkit Artifact Detection
+
+Rootkits hide malicious activity by intercepting system calls, modifying kernel structures, or manipulating hardware. Detection focuses on inconsistencies and hidden artifacts.
+
+### Types of Rootkits
+
+**User-mode rootkits**:
+
+- DLL injection
+- API hooking
+- Process manipulation
+
+**Kernel-mode rootkits**:
+
+- Kernel object manipulation (DKOM)
+- System call hooking
+- Driver-based hiding
+- Bootkit (MBR/UEFI)
+
+### Detection Techniques
+
+**1. File System Discrepancies**
+
+**Direct disk vs filesystem API comparison**:
+
+```bash
+# List files via standard API
+ls -la /suspect_directory/ > api_listing.txt
+
+# List via direct disk read (bypasses rootkit hooks)
+debugfs /dev/sda1
+# Within debugfs:
+# ls /suspect_directory
+
+# Compare outputs
+diff api_listing.txt debugfs_listing.txt
+
+# Using alternate tools
+find /suspect_directory/ -ls > find_output.txt
+stat /suspect_directory/* > stat_output.txt
+```
+
+**Windows - MFT vs Directory listing**:
+
+```bash
+# Parse $MFT directly (analyzemft or MFTECmd)
+# Install if needed: pip3 install analyzemft
+
+analyzeMFT.py -f '$MFT' -o mft_listing.csv
+
+# Compare to normal directory listing
+dir /s /a C:\Windows\System32\drivers\ > dir_listing.txt
+
+# Look for files in $MFT but not in directory listing
+```
+
+**Using alternate data streams (ADS) - Windows**:
+
+```bash
+# Rootkits may hide in ADS
+# List all ADS
+dir /r C:\Windows\System32\
+
+# Or use streams.exe (Sysinternals)
+streams.exe -s C:\Windows\System32\
+
+# In Kali, analyzing NTFS image:
+sudo apt install liblnk-utils
+fls -r evidence.dd | grep -i ":$DATA"
+```
+
+**2. Process Hiding Detection**
+
+**Cross-verify process lists**:
+
+```bash
+# Compare multiple process enumeration methods
+
+# Method 1: ProcFS
+ls -la /proc/ | grep "^d" | awk '{print $NF}' | grep -E "^[0-9]+$" > procfs_pids.txt
+
+# Method 2: ps command
+ps aux | awk '{print $2}' | sort -n > ps_pids.txt
+
+# Method 3: Direct kernel memory (via volatility)
+volatility -f memory.dump --profile=LinuxUbuntu_5_4_0-42x64 linux_pslist > volatility_pids.txt
+
+# Compare outputs
+comm -23 procfs_pids.txt ps_pids.txt  # PIDs in procfs but not ps
+comm -13 procfs_pids.txt ps_pids.txt  # PIDs in ps but not procfs
+```
+
+**Windows hidden process detection**:
+
+```bash
+# Using Volatility 2
+volatility -f memory.dmp --profile=Win10x64_19041 pslist > pslist.txt
+volatility -f memory.dmp --profile=Win10x64_19041 psscan > psscan.txt
+
+# Compare: psscan finds hidden/terminated processes
+# Look for processes in psscan but not pslist
+
+# Using Volatility 3
+vol3 -f memory.dmp windows.pslist > vol3_pslist.txt
+vol3 -f memory.dmp windows.psscan > vol3_psscan.txt
+
+# Check for DKOM (Direct Kernel Object Manipulation)
+vol3 -f memory.dmp windows.pslist --physical
+```
+
+**3. Network Connection Hiding**
+
+**Cross-verify network connections**:
+
+```bash
+# Method 1: netstat
+netstat -antp > netstat_output.txt
+
+# Method 2: ss (socket statistics)
+ss -antp > ss_output.txt
+
+# Method 3: lsof
+lsof -i -n -P > lsof_output.txt
+
+# Method 4: /proc/net/tcp
+cat /proc/net/tcp > proc_tcp.txt
+
+# Compare for discrepancies
+diff netstat_output.txt ss_output.txt
+```
+
+**Memory-based network analysis**:
+
+```bash
+# Volatility - network connections
+volatility -f memory.dump --profile=LinuxUbuntu_5_4_0-42x64 linux_netstat
+
+# Windows
+vol3 -f memory.dmp windows.netscan
+vol3 -f memory.dmp windows.netstat
+```
+
+**4. Kernel Module Analysis**
+
+**Linux kernel module verification**:
+
+```bash
+# List loaded modules
+lsmod > lsmod_output.txt
+
+# Check /proc/modules
+cat /proc/modules > proc_modules.txt
+
+# Compare with /sys/module
+ls /sys/module/ > sys_module.txt
+
+# Check for hidden modules
+diff <(lsmod | awk '{print $1}' | sort) <(ls /sys/module/ | sort)
+
+# Verify module signatures (if kernel lockdown enabled)
+modinfo suspicious_module
+
+# Check for unsigned or invalid signatures
+for mod in $(lsmod | tail -n +2 | awk '{print $1}'); do
+    modinfo $mod | grep -i "sig\|vermagic"
+done
+```
+
+**Detect kernel rootkits with chkrootkit/rkhunter**:
+
+```bash
+# Install tools
+sudo apt install chkrootkit rkhunter
+
+# Run chkrootkit
+sudo chkrootkit > chkrootkit_report.txt
+
+# Check for known rootkit signatures
+grep -i "INFECTED\|warning" chkrootkit_report.txt
+
+# Run rkhunter
+sudo rkhunter --check --skip-keypress --report-warnings-only > rkhunter_report.txt
+
+# Update signatures first
+sudo rkhunter --update
+```
+
+**Windows driver analysis**:
+
+```bash
+# List drivers
+driverquery /v > drivers.txt
+
+# Check for unsigned drivers
+driverquery /si | findstr /i "false"
+
+# In forensic image - check driver files
+ls -la /mnt/evidence/Windows/System32/drivers/
+
+# Verify digital signatures
+# Use sigcheck (Sysinternals) on Windows or osslsigncode on Linux
+find /mnt/evidence/Windows/System32/drivers/ -name "*.sys" | \
+  while read driver; do
+    echo "Checking: $driver"
+    osslsigncode verify "$driver" 2>&1 | grep -i "verified"
+done
+```
+
+**5. System Call Hooking Detection**
+
+**Linux - Check for syscall hooks**:
+
+```bash
+# Compare syscall table to known good baseline
+# Requires memory dump and Volatility
+
+volatility -f memory.dump --profile=LinuxUbuntu_5_4_0-42x64 linux_check_syscall
+
+# Look for modified syscall entries
+grep -i "hook\|modified" volatility_syscall_output.txt
+
+# Check for inline hooks in kernel functions
+volatility -f memory.dump --profile=LinuxUbuntu_5_4_0-42x64 linux_check_inline_kernel
+```
+
+**Windows - SSDT/Shadow SSDT hooks**:
+
+```bash
+# Volatility 2
+volatility -f memory.dmp --profile=Win10x64_19041 ssdt > ssdt_output.txt
+
+# Check for hooked entries (addresses outside ntoskrnl.exe or win32k.sys)
+grep -v "ntoskrnl\|win32k" ssdt_output.txt
+
+# IRP hooking detection
+volatility -f memory.dmp --profile=Win10x64_19041 driverirp > irp_hooks.txt
+
+# Look for suspicious drivers with IRP hooks
+grep -i "hook\|unknown" irp_hooks.txt
+```
+
+**6. Bootkit Detection**
+
+**MBR analysis**:
+
+```bash
+# Extract MBR
+dd if=/dev/sda of=mbr.bin bs=512 count=1
+
+# Or from image
+dd if=evidence.dd of=mbr.bin bs=512 count=1
+
+# Analyze MBR
+hexdump -C mbr.bin | less
+
+# Check boot signature (should be 0x55AA at offset 0x1FE)
+xxd -s 510 -l 2 mbr.bin
+
+# Compare to known good MBR
+md5sum mbr.bin
+# Compare hash to baseline
+
+# Check for suspicious code in MBR
+strings mbr.bin
+objdump -D -b binary -mi386 -Maddr16,data16 mbr.bin
+```
+
+**UEFI bootkit detection**:
+
+```bash
+# Extract EFI system partition
+mkdir /mnt/efi
+mount /dev/sda1 /mnt/efi  # Adjust partition
+
+# Check bootloader integrity
+ls -la /mnt/efi/EFI/Boot/
+ls -la /mnt/efi/EFI/Microsoft/Boot/
+
+# Verify signatures
+sbverify --cert /path/to/cert.pem /mnt/efi/EFI/Boot/bootx64.efi
+
+# Check for unusual EFI executables
+find /mnt/efi -name "*.efi" -exec file {} \;
+
+# Look for persistence in NVRAM
+efibootmgr -v
+```
+
+**Volume Boot Record (VBR) analysis**:
+
+```bash
+# Extract VBR (first sector of partition)
+dd if=/dev/sda1 of=vbr.bin bs=512 count=1
+
+# Or from image (calculate offset)
+# For partition starting at sector 2048:
+dd if=evidence.dd of=vbr.bin bs=512 skip=2048 count=1
+
+# Analyze VBR
+hexdump -C vbr.bin | less
+
+# Check for known VBR signatures (NTFS, FAT32, ext4)
+# NTFS: "NTFS" at offset 0x03
+# FAT32: "FAT32" at offset 0x52
+```
+
+**7. Hidden Driver Detection**
+
+**Enumerate drivers via multiple methods**:
+
+```bash
+# Volatility - module list
+volatility -f memory.dmp --profile=Win10x64_19041 modules > modules.txt
+
+# Driver scan (finds unlinked drivers)
+volatility -f memory.dmp --profile=Win10x64_19041 driverscan > driverscan.txt
+
+# Compare outputs
+comm -13 <(awk '{print $3}' modules.txt | sort) <(awk '{print $3}' driverscan.txt | sort)
+
+# Check driver load order
+volatility -f memory.dmp --profile=Win10x64_19041 drivermodule
+```
+
+**8. Registry Rootkit Artifacts (Windows)**
+
+```bash
+# Check for rootkit persistence in registry
+# Common locations:
+# HKLM\SYSTEM\CurrentControlSet\Services
+# HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+
+# Parse registry hives
+regripper -r SYSTEM -p services > services_output.txt
+
+# Look for suspicious services
+grep -iE "type.*kernel|imagepath.*\.sys" services_output.txt
+
+# Check for TDL4/Alureon artifacts
+grep -i "tdss\|tdl4\|alureon" services_output.txt
+
+# Hidden service detection (comparing multiple sources)
+volatility -f memory.dmp --profile=Win10x64_19041 svcscan > svcscan.txt
+# Compare to parsed registry services
+```
+
+### Rootkit-Specific Indicators
+
+**Behavioral indicators**:
+
+- Processes with no parent (PPID = 0, excluding system idle)
+- Files visible in raw disk but not via filesystem API
+- Network connections without associated processes
+- Kernel modules without corresponding files in `/lib/modules/`
+- Services running but not in registry
+- Unsigned or tampered drivers
+
+**Temporal indicators**:
+
+- Driver loaded before boot-time drivers
+- Processes with creation time before system boot
+- Registry keys modified while system was offline [Inference]
+
+**Persistence mechanisms**:
+
+```bash
+# Check for rootkit persistence locations
+
+# Linux:
+# - /etc/ld.so.preload (LD_PRELOAD rootkits)
+cat /etc/ld.so.preload
+
+# - Kernel modules in /lib/modules/
+ls -la /lib/modules/$(uname -r)/kernel/
+
+# - Init scripts
+ls -la /etc/init.d/
+ls -la /etc/systemd/system/
+
+# Windows:
+# - Driver services in registry
+# - Filter drivers (minifilter)
+volatility -f memory.dmp --profile=Win10x64_19041 filescan | grep -i "fltmgr"
+```
+
+## VM/Sandbox Detection Artifacts
+
+Malware often detects analysis environments to evade detection. Forensic analysis can reveal these detection attempts.
+
+### Detection Artifact Categories
+
+### 1. Hardware Fingerprinting
+
+**CPU instruction detection**:
+
+- **CPUID**: Hypervisor bit (ECX bit 31 after CPUID with EAX=1)
+- **RDTSC/RDTSCP**: Timing discrepancies in VMs
+- **IN/OUT**: I/O port access (privileged in VMs, causes VMExit)
+
+**Memory analysis for VM detection code**:
+
+```bash
+# Search for CPUID instruction usage
+volatility -f memory.dmp --profile=Win10x64_19041 yarascan -y "{ 0F A2 }"
+# 0F A2 = CPUID opcode
+
+# Search for VM detection strings
+vol3 -f memory.dmp windows.vadyarascan --yara-rules "rule vmdetect { strings: $ = \"VMware\" $ = \"VirtualBox\" $ = \"QEMU\" $ = \"Xen\" condition: any of them }"
+
+# Search memory for timing check patterns
+# RDTSC = 0F 31
+yara -r timing_checks.yar memory.dmp
+```
+
+**Yara rule for VM detection**:
+
+```yara
+rule VM_Detection_Techniques {
+    strings:
+        // CPUID instruction
+        $cpuid = { 0F A2 }
+        
+        // RDTSC instruction
+        $rdtsc = { 0F 31 }
+        
+        // IN instruction (port I/O)
+        $in_inst = { EC | ED | EE | EF }
+        
+        // String artifacts
+        $vmware = "VMware" ascii wide
+        $vbox = "VirtualBox" ascii wide
+        $qemu = "QEMU" ascii wide
+        $hyperv = "Hyper-V" ascii wide
+        
+        // Registry keys
+        $vm_reg1 = "HARDWARE\\DEVICEMAP\\Scsi\\Scsi Port 0\\Scsi Bus 0\\Target Id 0\\Logical Unit Id 0" wide
+        $vm_reg2 = "SOFTWARE\\VMware, Inc.\\VMware Tools" wide
+        
+    condition:
+        3 of them
+}
+```
+
+### 2. System Information Checks
+
+**Registry artifacts (Windows)**:
+
+```bash
+# Check for VM detection registry queries
+# Parse NTUSER.DAT and SYSTEM hives
+
+regripper -r SYSTEM -p compname > system_info.txt
+
+# Look for VM-specific entries
+grep -iE "vmware|virtualbox|qemu|xen|hyperv" system_info.txt
+
+# Check registry keys commonly queried for VM detection:
+# HKLM\HARDWARE\DESCRIPTION\System\SystemBiosVersion
+# HKLM\HARDWARE\DESCRIPTION\System\VideoBiosVersion
+# HKLM\SYSTEM\CurrentControlSet\Services\Disk\Enum
+
+# Extract from evidence image
+hivexsh /mnt/evidence/Windows/System32/config/SYSTEM << EOF
+cd \ControlSet001\Services\Disk\Enum
+lsval
+EOF
+```
+
+**Common VM indicators in registry**:
+
+- **SystemBiosVersion**: "VBOX", "VMware", "Xen", "QEMU"
+- **SystemManufacturer**: "Microsoft Corporation" (Hyper-V)
+- **Services**: VMware Tools, VBoxService, QEMU Guest Agent
+- **Device**: vmbus, VBoxGuest, vmci
+
+**WMI queries logged**:
+
+```bash
+# Check WMI activity logs for VM detection queries
+# Location: C:\Windows\System32\wbem\Logs\
+
+# Common WMI queries for VM detection:
+# SELECT * FROM Win32_ComputerSystem
+# SELECT * FROM Win32_BIOS
+# SELECT * FROM Win32_BaseBoard
+# SELECT * FROM Win32_DiskDrive
+
+# Search for WMI queries in PowerShell logs
+grep -i "Win32_BIOS\|Win32_ComputerSystem\|Win32_BaseBoard" timeline.csv
+
+# Check EID 5861 (WMI-Activity operational log)
+psort.py -o l2tcsv timeline.plaso | grep -i "5861"
+```
+
+### 3. File System Artifacts
+
+**VM-specific files and directories**:
+
+```bash
+# VMware artifacts
+find /mnt/evidence -iname "*vmware*"
+# Expected: VMware Tools, vmtoolsd.exe, drivers (vmci.sys, vmmouse.sys)
+
+# VirtualBox artifacts
+find /mnt/evidence -iname "*vbox*"
+# Expected: VBoxService.exe, VBoxTray.exe, drivers (VBoxGuest.sys)
+
+# QEMU artifacts
+find /mnt/evidence -iname "*qemu*"
+# Expected: qemu-ga.exe (QEMU Guest Agent)
+
+# Hyper-V artifacts
+find /mnt/evidence -iname "*vmbus*" -o -iname "*hypervideo*"
+
+# Check for VMware tools installation
+ls -la "/mnt/evidence/Program Files/VMware/"
+
+# Check drivers directory
+ls -la /mnt/evidence/Windows/System32/drivers/ | grep -iE "vm|vbox|qemu"
+```
+
+**Linux VM detection artifacts**:
+
+```bash
+# Check for hypervisor type
+cat /proc/cpuinfo | grep -i hypervisor
+
+# DMI/SMBIOS information
+dmidecode -t system | grep -iE "manufacturer|product|version"
+
+# Loaded modules
+lsmod | grep -iE "vbox|vmw|kvm|xen|hyperv"
+
+# Check for VM-specific devices
+ls -la /dev/ | grep -iE "vbox|vmware"
+
+# Systemd services
+systemctl list-units | grep -iE "vmware|vbox|qemu"
+```
+
+### 4. Network Interface Detection
+
+**MAC address prefixes**:
+
+Common VM vendor MAC prefixes:
+
+- **VMware**: 00:50:56, 00:0C:29, 00:05:69
+- **VirtualBox**: 08:00:27
+- **Hyper-V**: 00:15:5D
+- **Xen**: 00:16:3E
+- **QEMU/KVM**: 52:54:00
+
+**Detection in evidence**:
+
+```bash
+# Check network interfaces
+ip link show | grep -i "link/ether"
+
+# From Windows registry (SYSTEM hive)
+# HKLM\SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}
+hivexget /mnt/evidence/Windows/System32/config/SYSTEM \
+  "ControlSet001\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}\0001" \
+  NetworkAddress
+
+# Search timeline for MAC address queries
+grep -i "00:50:56\|00:0c:29\|08:00:27\|00:15:5d" timeline.csv
+```
+
+### 5. Process and Service Artifacts
+
+**VM-related processes**:
+
+```bash
+# VMware processes
+pslist | grep -iE "vmware|vmtoolsd"
+
+# VirtualBox processes
+pslist | grep -iE "vbox|VBoxService|VBoxTray"
+
+# QEMU processes
+pslist | grep -i "qemu-ga"
+
+# Check for process checks in malware
+# Volatility - process scanning
+volatility -f memory.dmp --profile=Win10x64_19041 pslist | \
+  grep -iE "vmware|vbox|qemu"
+
+# Check for service enumeration
+volatility -f memory.dmp --profile=Win10x64_19041 svcscan | \
+  grep -iE "vmtools|vbox|qemu"
+
+# Linux - check running processes
+ps aux | grep -iE "vmware|vbox|qemu|kvm"
+```
+
+**Service detection in Windows**:
+
+```bash
+# Check Services registry key
+regripper -r SYSTEM -p services | \
+  grep -iE "vmware|vbox|qemu|xen|hyperv"
+
+# Common VM services:
+# - VMTools (VMware Tools)
+# - VBoxService (VirtualBox Guest Additions)
+# - vmicheartbeat, vmickvpexchange (Hyper-V Integration Services)
+# - QEMU Guest Agent
+
+# Extract service details
+hivexsh /mnt/evidence/Windows/System32/config/SYSTEM << EOF
+cd \ControlSet001\Services\VMTools
+lsval
+EOF
+```
+
+### 6. Timing and Performance Artifacts
+
+**RDTSC discrepancies**:
+
+Malware may measure time using RDTSC before and after CPU-intensive operations. Large discrepancies indicate VM overhead.
+
+```bash
+# Search for timing check patterns in memory
+vol3 -f memory.dmp windows.strings | grep -i "sleep\|delay\|rdtsc"
+
+# Look for timing loop patterns in disassembled code
+# Extract suspicious executable from memory
+vol3 -f memory.dmp windows.dumpfiles --pid 1234 --physaddr
+
+# Disassemble and search for timing patterns
+objdump -d -M intel extracted.exe | grep -A5 -B5 "rdtsc"
+```
+
+**Sleep acceleration detection**:
+
+Sandboxes often accelerate sleep calls to speed analysis. Malware detects this.
+
+```python
+#!/usr/bin/env python3
+# Example: Detect sleep acceleration artifacts in timeline
+
+import csv
+from datetime import datetime, timedelta
+
+def detect_sleep_acceleration(timeline_csv):
+    """Find evidence of sleep/delay manipulation"""
+    
+    with open(timeline_csv, 'r') as f:
+        reader = csv.DictReader(f)
+        
+        for row in reader:
+            desc = row.get('description', '').lower()
+            
+            # Look for sleep calls with short actual duration
+            if 'sleep' in desc or 'delay' in desc:
+                print(f"[*] Sleep call: {row['date']} - {row['description']}")
+                
+            # Look for GetTickCount or QueryPerformanceCounter
+            if 'gettickcount' in desc or 'queryperformance' in desc:
+                print(f"[*] Timing API: {row['date']} - {row['description']}")
+
+# Usage
+detect_sleep_acceleration('timeline.csv')
+```
+
+### 7. Mouse and Keyboard Activity Detection
+
+Sandboxes often lack genuine user interaction. Malware may check for mouse movements or keyboard input.
+
+```bash
+# Windows - check for user input detection via GetCursorPos, GetAsyncKeyState
+# Search for API calls in memory strings
+
+vol3 -f memory.dmp windows.vadinfo --pid 1234 | \
+  grep -iE "getcursorpos|getasynckeystate|getmessage"
+
+# Check for input events in timeline
+psort.py -o l2tcsv timeline.plaso | \
+  grep -iE "mouse|keyboard|input|cursor"
+
+# Registry - check last input time artifacts
+# HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer
+hivexget /mnt/evidence/Users/username/NTUSER.DAT \
+  "Software\Microsoft\Windows\CurrentVersion\Explorer" \
+  LastActiveClick
+```
+
+### 8. Screen Resolution Checks
+
+Sandboxes often use low resolution or standard VM resolutions (800x600, 1024x768).
+
+```bash
+# Windows registry - display settings
+# HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Configuration
+
+hivexsh /mnt/evidence/Windows/System32/config/SYSTEM << EOF
+cd \ControlSet001\Control\GraphicsDrivers\Configuration
+ls
+EOF
+
+# Check for resolution detection in memory
+vol3 -f memory.dmp windows.strings | grep -iE "800x600|1024x768|resolution"
+
+# Event logs - display change events
+psort.py -o l2tcsv timeline.plaso | grep -i "display\|resolution"
+```
+
+### 9. Disk Size and Resource Checks
+
+**Disk size verification**:
+
+Sandboxes often use small virtual disks (< 60GB). Malware may check available disk space.
+
+```bash
+# Check actual disk size from evidence
+fdisk -l evidence.dd
+
+# Or from partition info
+parted evidence.dd print
+
+# Windows - check disk info in registry
+# HKLM\SYSTEM\CurrentControlSet\Services\Disk\Enum
+hivexget /mnt/evidence/Windows/System32/config/SYSTEM \
+  "ControlSet001\Services\Disk\Enum" \
+  0
+
+# Search for GetDiskFreeSpace API calls
+vol3 -f memory.dmp windows.strings | grep -i "getdiskfreespace"
+```
+
+**RAM detection**:
+
+```bash
+# Check system RAM from memory dump
+volatility -f memory.dmp --profile=Win10x64_19041 imageinfo | grep -i "memory"
+
+# Windows registry - physical memory
+hivexget /mnt/evidence/Windows/System32/config/SYSTEM \
+  "ControlSet001\Control\Session Manager\Memory Management" \
+  PhysicalMemorySize
+
+# Linux - from dmidecode
+dmidecode -t memory | grep -i "size:"
+```
+
+**CPU core count**:
+
+```bash
+# Sandboxes often allocate few cores (1-2)
+# Check CPU info
+
+# Windows registry
+hivexsh /mnt/evidence/Windows/System32/config/SYSTEM << EOF
+cd \ControlSet001\Control\Session Manager\Environment
+lsval
+EOF
+
+# Linux
+cat /proc/cpuinfo | grep processor | wc -l
+
+# Check for GetSystemInfo API usage
+vol3 -f memory.dmp windows.strings | grep -i "getsysteminfo"
+```
+
+### 10. Sandbox-Specific Artifacts
+
+**Cuckoo Sandbox detection**:
+
+```bash
+# Cuckoo-specific files and processes
+find /mnt/evidence -iname "*cuckoo*"
+
+# Common artifacts:
+# - C:\cuckoo (agent directory)
+# - cuckoo.exe, agent.pyw
+# - analyzer.py
+
+# Check for Cuckoo agent in processes
+pslist | grep -i "agent\|analyzer\|cuckoo"
+
+# Registry artifacts
+grep -i "cuckoo" timeline.csv
+
+# Network artifacts - Cuckoo result server
+# Default: 192.168.56.1:8000
+netstat -an | grep "192.168.56.1:8000"
+```
+
+**Joe Sandbox detection**:
+
+```bash
+# Joe Sandbox artifacts
+find /mnt/evidence -iname "*joe*" -o -iname "*joeboxserver*" -o -iname "*joeboxcontrol*"
+
+# Common files:
+# - C:\Users\user\Desktop\JoeBox*
+# - JoeBoxControl.exe, JoeBoxServer.exe
+
+# Check username (often "user" or "JoeBox")
+whoami  # From live analysis
+# Or from registry
+hivexget /mnt/evidence/Windows/System32/config/SAM \
+  "SAM\Domains\Account\Users\Names"
+```
+
+**Any.run detection**:
+
+```bash
+# Any.run specific indicators
+# Hostname often: anyrun-* or similar patterns
+
+# Check hostname in registry
+hivexget /mnt/evidence/Windows/System32/config/SYSTEM \
+  "ControlSet001\Control\ComputerName\ComputerName" \
+  ComputerName
+
+# Desktop files indicating sandbox
+find /mnt/evidence/Users/*/Desktop/ -name "*.txt" -o -name "README*"
+
+# Check for analysis tools on desktop
+ls -la /mnt/evidence/Users/*/Desktop/
+```
+
+**CAPE Sandbox detection**:
+
+```bash
+# CAPE (Config And Payload Extraction) is based on Cuckoo
+# Similar artifacts plus:
+
+# Check for cape.exe or cape.dll
+find /mnt/evidence -iname "*cape*"
+
+# Monitor process injection artifacts
+volatility -f memory.dmp --profile=Win10x64_19041 malfind
+
+# Check for YaraPool signatures
+vol3 -f memory.dmp windows.strings | grep -i "yara\|cape"
+```
+
+### 11. Wine/ReactOS Detection
+
+Some analysis environments use Wine (Linux) or ReactOS instead of real Windows.
+
+```bash
+# Wine artifacts
+find /mnt/evidence -path "*/.wine/*"
+ls -la ~/.wine/  # If analyzing live system
+
+# Check for Wine-specific registry entries
+hivexget NTUSER.DAT "Software\Wine"
+
+# Wine-specific processes
+ps aux | grep -i wine
+
+# ReactOS detection - system files
+ls -la /mnt/evidence/ReactOS/
+
+# Check SYSTEM registry for ReactOS identifiers
+hivexget SYSTEM "CurrentVersion" ProductName
+# ReactOS shows "ReactOS" instead of "Windows"
+```
+
+### 12. Debug Environment Detection
+
+**Debugger presence**:
+
+```bash
+# Windows - common debugger checks
+# IsDebuggerPresent, CheckRemoteDebuggerPresent, NtQueryInformationProcess
+
+# Search for debugger API usage in memory
+vol3 -f memory.dmp windows.vadinfo --dump --pid 1234
+strings dumped_memory.dmp | grep -iE "isdebuggerpresent|checkremotedebugger|ntqueryinformationprocess"
+
+# PEB (Process Environment Block) BeingDebugged flag
+vol3 -f memory.dmp windows.peb --pid 1234
+
+# Check for debugger processes
+pslist | grep -iE "ollydbg|x64dbg|windbg|ida|ghidra"
+
+# Registry - Image File Execution Options (IFEO) debugger
+hivexget SOFTWARE \
+  "Microsoft\Windows NT\CurrentVersion\Image File Execution Options\malware.exe" \
+  Debugger
+```
+
+**Hardware breakpoint detection**:
+
+```bash
+# Dr0-Dr7 registers used for hardware breakpoints
+# Check via context records in memory dump
+
+volatility -f memory.dmp --profile=Win10x64_19041 threads --pid 1234 | \
+  grep -A10 "Dr0\|Dr1\|Dr2\|Dr3"
+```
+
+### 13. Analysis Tool Detection
+
+**Common analysis tools malware checks for**:
+
+```bash
+# Process names
+TOOLS=(
+  "procmon" "procexp" "processhacker"
+  "wireshark" "tcpview" "fiddler"
+  "ida" "ollydbg" "x64dbg" "windbg"
+  "regshot" "autoruns"
+  "fakenet" "inetsim"
+  "volatility" "rekall"
+)
+
+# Check for tool presence
+for tool in "${TOOLS[@]}"; do
+  find /mnt/evidence -iname "*${tool}*"
+done
+
+# Check running processes
+pslist | grep -iE "$(IFS='|'; echo "${TOOLS[*]}")"
+
+# Check recent programs in registry
+regripper -r NTUSER.DAT -p recentdocs | \
+  grep -iE "$(IFS='|'; echo "${TOOLS[*]}")"
+```
+
+**Driver artifacts**:
+
+```bash
+# Analysis tool drivers often loaded
+DRIVERS=(
+  "PROCMON24.SYS"  # Process Monitor
+  "PROCEXP152.SYS" # Process Explorer
+  "npf.sys"        # WinPcap/Npcap (Wireshark)
+  "fiddler.sys"    # Fiddler
+)
+
+# Check for driver presence
+for driver in "${DRIVERS[@]}"; do
+  find /mnt/evidence/Windows/System32/drivers/ -iname "${driver}"
+done
+
+# Check loaded drivers in memory
+volatility -f memory.dmp --profile=Win10x64_19041 modules | \
+  grep -iE "procmon|procexp|npf|fiddler"
+```
+
+### 14. Memory Dump Detection
+
+Malware may detect if it's being analyzed via memory dump.
+
+```bash
+# Check for memory dump creation events
+# Windows Event ID 41 (unexpected shutdown)
+# Windows Event ID 1001 (BugCheck/BSOD)
+
+psort.py -o l2tcsv timeline.plaso | \
+  grep -E "EventID: 41|EventID: 1001|MEMORY.DMP"
+
+# Check for dump file creation
+find /mnt/evidence/Windows/ -name "*.dmp" -exec ls -lh {} \;
+
+# Check for crash dump configuration
+hivexget SYSTEM \
+  "ControlSet001\Control\CrashControl" \
+  CrashDumpEnabled
+```
+
+### 15. Behavioral Detection Indicators
+
+**Stalling techniques**:
+
+Malware may delay execution to evade time-limited sandboxes.
+
+```bash
+# Search for sleep patterns in disassembly
+objdump -d malware.exe -M intel | grep -iE "sleep|delay|wait"
+
+# Check for long sleep durations in API logs
+grep -iE "sleep|delay" api_log.txt | awk '{if ($3 > 60000) print}'
+
+# Timeline analysis - look for gaps
+# [Inference: Requires correlation with expected execution time]
+python3 << 'EOF'
+import csv
+from datetime import datetime
+
+with open('timeline.csv', 'r') as f:
+    reader = csv.DictReader(f)
+    last_time = None
+    
+    for row in reader:
+        if 'malware.exe' in row.get('source_long', ''):
+            current_time = datetime.fromisoformat(row['date'])
+            if last_time:
+                gap = (current_time - last_time).total_seconds()
+                if gap > 300:  # 5 minute gap
+                    print(f"[!] Large gap: {gap}s between {last_time} and {current_time}")
+            last_time = current_time
+EOF
+```
+
+**User interaction requirements**:
+
+```bash
+# Check for MessageBox or dialog creation
+vol3 -f memory.dmp windows.strings | grep -iE "messagebox|dialogbox|showwindow"
+
+# Check for input requirement (mouse clicks, keystrokes)
+grep -iE "mouse|click|key|input" api_log.txt
+
+# GUI artifact detection in timeline
+psort.py -o l2tcsv timeline.plaso | grep -iE "window|dialog|button"
+```
+
+### 16. Domain and Network Checks
+
+**Command and Control (C2) connectivity tests**:
+
+```bash
+# Check for external connectivity attempts
+vol3 -f memory.dmp windows.netscan | \
+  grep -vE "127.0.0.1|0.0.0.0|::|^$"
+
+# DNS queries for C2 domains
+grep -i "dns" timeline.csv | grep -v "microsoft\|windows\|google"
+
+# Check for geolocation API usage
+vol3 -f memory.dmp windows.strings | \
+  grep -iE "geoip|geolocation|ipapi|ip-api"
+```
+
+**Internet connectivity check domains**:
+
+Malware often checks connectivity before executing:
+
+- microsoft.com, google.com (legitimate checks)
+- icanhazip.com, ipinfo.io (IP address checks)
+
+```bash
+# Extract DNS queries from PCAP (if available)
+tshark -r capture.pcap -Y "dns" -T fields -e dns.qry.name | sort -u
+
+# Check browser history for connectivity checks
+# Firefox places.sqlite
+sqlite3 places.sqlite "SELECT url, last_visit_date FROM moz_places WHERE url LIKE '%icanhazip%' OR url LIKE '%ipinfo%';"
+
+# Chrome History
+sqlite3 History "SELECT url, last_visit_time FROM urls WHERE url LIKE '%icanhazip%' OR url LIKE '%ipinfo%';"
+```
+
+### 17. Automated Analysis Scripts
+
+**Comprehensive VM detection artifact scanner**:
+
+```python
+#!/usr/bin/env python3
+# vm_artifact_scanner.py - Detect VM/sandbox artifacts in forensic image
+
+import os
+import re
+from pathlib import Path
+
+class VMDetector:
+    def __init__(self, mount_point):
+        self.mount_point = Path(mount_point)
+        self.findings = []
+    
+    def check_files(self):
+        """Check for VM-specific files"""
+        vm_files = [
+            '*vmware*', '*vbox*', '*qemu*', 
+            'cuckoo*', '*sandbox*', 'agent.pyw'
+        ]
+        
+        for pattern in vm_files:
+            for file in self.mount_point.rglob(pattern):
+                self.findings.append(f"[FILE] VM artifact: {file}")
+    
+    def check_drivers(self):
+        """Check Windows drivers directory"""
+        driver_path = self.mount_point / "Windows/System32/drivers"
+        vm_drivers = ['vmci', 'vmmouse', 'vmhgfs', 'VBoxGuest', 'VBoxSF']
+        
+        if driver_path.exists():
+            for driver in driver_path.iterdir():
+                for vm_drv in vm_drivers:
+                    if vm_drv.lower() in driver.name.lower():
+                        self.findings.append(f"[DRIVER] VM driver: {driver.name}")
+    
+    def check_services(self):
+        """Check for VM services in SYSTEM hive"""
+        # [Inference: Requires registry parsing library]
+        # Placeholder - would use python-registry or hivex
+        print("[*] Service check requires registry parsing")
+    
+    def check_mac_addresses(self):
+        """Extract and check MAC addresses"""
+        # Check network configuration
+        config_paths = [
+            "Windows/System32/config/SYSTEM",
+            "etc/network/interfaces"
+        ]
+        
+        vm_mac_prefixes = [
+            '00:50:56', '00:0C:29', '00:05:69',  # VMware
+            '08:00:27',                           # VirtualBox
+            '00:15:5D',                           # Hyper-V
+            '52:54:00'                            # QEMU
+        ]
+        
+        print(f"[*] Check MAC addresses against VM prefixes: {vm_mac_prefixes}")
+    
+    def generate_report(self):
+        """Output findings"""
+        print("\n=== VM/Sandbox Detection Report ===")
+        if not self.findings:
+            print("[+] No VM artifacts detected")
+        else:
+            for finding in self.findings:
+                print(finding)
+        print(f"\nTotal findings: {len(self.findings)}")
+
+# Usage
+if __name__ == "__main__":
+    detector = VMDetector("/mnt/evidence")
+    detector.check_files()
+    detector.check_drivers()
+    detector.generate_report()
+```
+
+**Timeline-based detection script**:
+
+```python
+#!/usr/bin/env python3
+# timeline_vm_detector.py - Find VM detection attempts in timeline
+
+import csv
+import sys
+
+def analyze_timeline(csv_file):
+    """Search timeline for VM detection indicators"""
+    
+    indicators = {
+        'files': ['vmware', 'vbox', 'qemu', 'cuckoo', 'sandbox'],
+        'registry': ['systemmanufacturer', 'systembiosversion', 'videobiosversion'],
+        'processes': ['vmtoolsd', 'vboxservice', 'qemu-ga'],
+        'apis': ['isdebuggerpresent', 'checkremotedebugger', 'cpuid']
+    }
+    
+    findings = []
+    
+    with open(csv_file, 'r') as f:
+        reader = csv.DictReader(f)
+        
+        for row in reader:
+            source = row.get('source_long', '').lower()
+            desc = row.get('description', '').lower()
+            combined = f"{source} {desc}"
+            
+            # Check each indicator category
+            for category, keywords in indicators.items():
+                for keyword in keywords:
+                    if keyword in combined:
+                        findings.append({
+                            'time': row.get('date'),
+                            'category': category,
+                            'keyword': keyword,
+                            'source': source,
+                            'description': desc[:100]
+                        })
+    
+    # Output results
+    print(f"\n[*] Found {len(findings)} VM detection indicators\n")
+    
+    for finding in findings:
+        print(f"[{finding['time']}] {finding['category'].upper()}: {finding['keyword']}")
+        print(f"    Source: {finding['source']}")
+        print(f"    Description: {finding['description']}\n")
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print(f"Usage: {sys.argv[0]} <timeline.csv>")
+        sys.exit(1)
+    
+    analyze_timeline(sys.argv[1])
+```
+
+### CTF-Specific Tips
+
+**Quick VM detection checks**:
+
+```bash
+# 1. Check obvious files
+find /mnt/evidence -iname "*vmware*" -o -iname "*vbox*" -o -iname "*qemu*"
+
+# 2. Check BIOS info in registry
+hivexget SYSTEM "ControlSet001\Control\SystemInformation" SystemManufacturer
+
+# 3. Check MAC address
+hivexget SYSTEM "ControlSet001\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}\0001" NetworkAddress
+
+# 4. Search timeline for detection patterns
+grep -iE "vmware|virtualbox|qemu|sandbox|cuckoo" timeline.csv | head -20
+
+# 5. Check for small disk size (< 60GB indicator)
+fdisk -l evidence.dd | grep -i "disk.*bytes"
+```
+
+**Common CTF scenarios**:
+
+1. **Malware that exits in VMs**: Look for VM detection followed by immediate process termination
+2. **Staged payloads**: Malware downloads additional payload only if not in VM
+3. **Time bombs**: Execution delayed to evade sandbox time limits
+4. **Anti-debug**: Debugger detection prevents analysis
+
+### Essential Detection Tools Summary
+
+**Memory analysis**:
+
+- Volatility 2/3: Comprehensive memory forensics
+- Rekall: Alternative memory analysis framework
+
+**File system**:
+
+- Autopsy/Sleuth Kit: Disk image analysis
+- FTK Imager: Image mounting and extraction
+
+**Registry**:
+
+- RegRipper: Registry parsing and analysis
+- hivex: Direct registry hive manipulation
+
+**Network**:
+
+- Wireshark/tshark: PCAP analysis
+- NetworkMiner: Network forensics
+
+**Automation**:
+
+- Yara: Pattern matching for artifacts
+- Python scripts: Custom detection logic
+
+### Key Takeaways
+
+1. **Log tampering**: Look for gaps, record ID inconsistencies, Event ID 1102, impossible timestamps
+2. **Rootkits**: Cross-verify with multiple tools, check for hidden processes/files, analyze syscall hooks
+3. **VM detection**: Check hardware artifacts, MAC addresses, services, file system indicators
+
+**All detection techniques should be used in combination - isolated indicators may be false positives. Correlation across multiple artifact sources increases confidence in findings.**
+
+---
+
+# Reporting and Documentation
+
+Comprehensive documentation and reporting are critical components of digital forensics work. In CTF scenarios, proper documentation demonstrates methodology, supports findings, and provides reproducible results. Professional forensic documentation follows established standards and maintains evidence integrity throughout the investigation.
+
+## Evidence Documentation Standards
+
+### Initial Documentation Requirements
+
+**Case Information Header:** Every forensic investigation should begin with standardized case documentation:
+
+```
+CASE IDENTIFICATION
+==================
+Case Number: CTF-2024-001
+Case Name: [Challenge/System Name]
+Examiner: [Your Name/Handle]
+Date/Time Started: 2024-10-25 14:30:00 UTC
+Organization: [Team/Organization]
+Authorization: [Challenge Rules/Legal Authority]
+```
+
+**Evidence Inventory:**
+
+```
+EVIDENCE ITEM INVENTORY
+=======================
+Item #: 001
+Description: USB Flash Drive (SanDisk 32GB)
+Serial Number: 0123456789ABCDEF
+Source: Seized from suspect workstation
+Collection Date: 2024-10-25 13:00:00 UTC
+Collected By: Jane Examiner
+Storage Location: Evidence Locker A-15
+```
+
+### Hash Documentation
+
+Cryptographic hashing proves evidence integrity and is mandatory for forensic work.
+
+```bash
+# Generate MD5 hash (legacy, still used)
+md5sum evidence.dd
+# Output: a1b2c3d4e5f6... evidence.dd
+
+# Generate SHA-1 hash
+sha1sum evidence.dd
+
+# Generate SHA-256 hash (current standard)
+sha256sum evidence.dd
+
+# Generate multiple hashes simultaneously
+md5sum evidence.dd > hashes.txt
+sha1sum evidence.dd >> hashes.txt
+sha256sum evidence.dd >> hashes.txt
+
+# Verify hash integrity later
+sha256sum -c hashes.txt
+```
+
+**Hash Documentation Template:**
+
+```
+HASH VALUES
+===========
+Evidence Item: 001 - USB Flash Drive Image
+File: evidence.dd
+Size: 32,017,047,552 bytes (29.8 GB)
+
+MD5:    a1b2c3d4e5f67890abcdef1234567890
+SHA-1:  1a2b3c4d5e6f7890abcdef1234567890abcdef12
+SHA-256: 1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890
+
+Hashed By: Jane Examiner
+Hash Date: 2024-10-25 14:35:00 UTC
+Hash Tool: sha256sum (GNU coreutils) 8.32
+Verification: Passed 2024-10-26 09:00:00 UTC
+```
+
+### Forensic Imaging Documentation
+
+**Acquisition Log:**
+
+```bash
+# Using dc3dd with logging
+dc3dd if=/dev/sdb of=evidence.dd hash=md5 hash=sha256 log=acquisition.log
+
+# Using dcfldd
+dcfldd if=/dev/sdb of=evidence.dd hash=sha256 hashlog=hashlog.txt
+
+# Using ewfacquire (Expert Witness Format)
+ewfacquire /dev/sdb -t evidence -C "Case CTF-2024-001" -D "USB Drive" \
+  -e "Jane Examiner" -N "Evidence 001" -c best -f encase6
+
+# FTK Imager command line (if available)
+ftkimager /dev/sdb evidence --e01 --compress 6 --case-number "CTF-2024-001"
+```
+
+**Imaging Documentation Template:**
+
+```
+ACQUISITION DETAILS
+===================
+Source Device: /dev/sdb (USB Mass Storage)
+Device Model: SanDisk Cruzer Glide
+Device Serial: 0123456789ABCDEF
+Capacity: 32 GB (32,017,047,552 bytes)
+
+Image File: evidence.dd
+Image Format: Raw (dd)
+Compression: None
+Segments: Single file
+
+Acquisition Method: Physical block-level copy
+Tool Used: dc3dd version 7.2.646
+Command: dc3dd if=/dev/sdb of=evidence.dd hash=md5 hash=sha256 log=acquisition.log
+
+Start Time: 2024-10-25 14:30:00 UTC
+End Time: 2024-10-25 15:45:00 UTC
+Duration: 1 hour 15 minutes
+Transfer Rate: 7.1 MB/s
+
+Write Blocker: Tableau T8-R2
+Write Block Verified: Yes
+
+Acquisition Hash (MD5): a1b2c3d4e5f67890abcdef1234567890
+Acquisition Hash (SHA-256): 1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890
+
+Source Hash (MD5): a1b2c3d4e5f67890abcdef1234567890
+Source Hash (SHA-256): 1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890
+
+Hash Verification: MATCH - Acquisition verified successful
+
+Acquired By: Jane Examiner
+Verified By: John Reviewer
+```
+
+### File System Documentation
+
+```bash
+# Document file system information
+fsstat evidence.dd > filesystem_info.txt
+
+# Generate file listing with metadata
+fls -r -m / -p evidence.dd > file_listing.body
+
+# Create timeline
+mactime -b file_listing.body -d > timeline.txt
+
+# Document partition structure
+mmls evidence.dd > partition_info.txt
+
+# Document volume information
+img_stat evidence.dd > volume_info.txt
+```
+
+**File System Documentation Template:**
+
+```
+FILE SYSTEM ANALYSIS
+====================
+Image File: evidence.dd
+File System Type: NTFS
+Volume Name: EVIDENCE_USB
+Volume Serial: 1A2B-3C4D
+
+Sector Size: 512 bytes
+Cluster Size: 4096 bytes (8 sectors)
+Total Sectors: 62,533,296
+Total Clusters: 7,816,662
+
+Volume Created: 2024-01-15 10:23:45 UTC
+Last Mounted: 2024-10-20 08:15:22 UTC
+
+File Count: 1,247 files
+Directory Count: 89 directories
+Deleted Items: 37 files (recoverable)
+
+Analysis Tool: fsstat (The Sleuth Kit 4.11.1)
+Analysis Date: 2024-10-25 16:00:00 UTC
+Analyst: Jane Examiner
+```
+
+### Screenshot and Visual Documentation
+
+```bash
+# Capture terminal session
+script -a session_log.txt
+# All commands and output recorded until exit
+
+# Capture with timing information
+script -t 2>timing.log -a session.log
+
+# Replay session later
+scriptreplay timing.log session.log
+
+# Take screenshots of GUI tools
+scrot screenshot_$(date +%Y%m%d_%H%M%S).png
+
+# Annotate screenshots (using ImageMagick)
+convert screenshot.png -pointsize 20 -fill red \
+  -annotate +10+30 'Evidence Item 001 - Timeline View' \
+  annotated_screenshot.png
+```
+
+**Screenshot Documentation:**
+
+```
+VISUAL EVIDENCE LOG
+===================
+Screenshot ID: SS-001
+Filename: evidence_timeline_20241025_1600.png
+Timestamp: 2024-10-25 16:00:00 UTC
+Description: Timeline view showing file access patterns
+Tool/Application: Autopsy 4.20.0
+Captured By: Jane Examiner
+Annotations: Highlighted suspicious access at 03:42 UTC
+Relevance: Shows unauthorized access timeframe
+```
+
+### Notes and Observations
+
+**Real-time Analysis Notes:**
+
+```
+ANALYSIS NOTES
+==============
+Date/Time: 2024-10-25 16:15:00 UTC
+Analyst: Jane Examiner
+
+Observation:
+Located deleted file "confidential.pdf" in unallocated space
+- Inode: 245678
+- Original path: /home/user/Documents/confidential.pdf
+- Deletion timestamp: 2024-10-20 14:23:11 UTC
+- Recovery method: extundelete
+- File hash (SHA-256): 9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b
+
+Action Taken:
+- Recovered file saved as: recovered_001_confidential.pdf
+- Hash verified: Match with original
+- Content preview: Contains financial records dated 2024-10-18
+
+Next Steps:
+- Analyze document metadata
+- Search for related correspondence
+- Check for other deleted financial documents
+```
+
+### Bookmarking and Tagging
+
+```bash
+# Create bookmark file for important findings
+cat >> bookmarks.txt << EOF
+[2024-10-25 16:20:00] BOOKMARK: Suspicious Registry Key
+Location: HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+Value: "malware" = "C:\Users\Public\svchost.exe"
+Significance: Persistence mechanism for malware
+EOF
+
+# Tag files of interest
+echo "evidence.dd:offset:0x1A2B3C:suspicious_executable" >> tags.txt
+```
+
+## Chain of Custody Maintenance
+
+Chain of custody documents every person who handled evidence, when they handled it, and what they did with it. This maintains evidence admissibility and integrity.
+
+### Chain of Custody Form
+
+**Standard CoC Template:**
+
+```
+CHAIN OF CUSTODY RECORD
+=======================
+Case Number: CTF-2024-001
+Evidence Item: 001
+Description: USB Flash Drive (SanDisk 32GB)
+Serial Number: 0123456789ABCDEF
+
+┌──────────────┬─────────────────────┬──────────────────────┬─────────────────────┬──────────────┐
+│ Date/Time    │ Released By         │ Received By          │ Purpose             │ Location     │
+├──────────────┼─────────────────────┼──────────────────────┼─────────────────────┼──────────────┤
+│ 2024-10-25   │ Officer J. Smith    │ Jane Examiner        │ Forensic Analysis   │ Lab A-3      │
+│ 13:00 UTC    │ Badge: 4567         │ ID: FE-001           │                     │              │
+│              │ Sign: [signature]   │ Sign: [signature]    │                     │              │
+├──────────────┼─────────────────────┼──────────────────────┼─────────────────────┼──────────────┤
+│ 2024-10-26   │ Jane Examiner       │ John Reviewer        │ Peer Review         │ Lab B-2      │
+│ 09:00 UTC    │ ID: FE-001          │ ID: FE-003           │                     │              │
+│              │ Sign: [signature]   │ Sign: [signature]    │                     │              │
+├──────────────┼─────────────────────┼──────────────────────┼─────────────────────┼──────────────┤
+│ 2024-10-26   │ John Reviewer       │ Evidence Custodian   │ Return to Storage   │ Locker A-15  │
+│ 14:30 UTC    │ ID: FE-003          │ ID: EC-012           │                     │              │
+│              │ Sign: [signature]   │ Sign: [signature]    │                     │              │
+└──────────────┴─────────────────────┴──────────────────────┴─────────────────────┴──────────────┘
+
+Notes:
+- Evidence seal intact at each transfer
+- USB drive maintained in anti-static bag
+- Storage in climate-controlled environment
+- No unauthorized access reported
+```
+
+### Digital Chain of Custody
+
+For digital evidence (images, files), maintain electronic CoC:
+
+```bash
+# Create digital CoC log
+cat > chain_of_custody_digital.txt << 'EOF'
+DIGITAL EVIDENCE CHAIN OF CUSTODY
+==================================
+Case: CTF-2024-001
+Digital Evidence: evidence.dd (forensic image)
+
+[2024-10-25 14:35:00 UTC]
+ACTION: Image Created
+PERFORMED BY: Jane Examiner (FE-001)
+LOCATION: Lab A-3 Workstation WS-05
+HASH: sha256:1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890
+TOOL: dc3dd 7.2.646
+NOTES: Original hash verified against source device
+
+[2024-10-25 15:50:00 UTC]
+ACTION: Image Copied to Analysis System
+PERFORMED BY: Jane Examiner (FE-001)
+SOURCE: /mnt/evidence_storage/evidence.dd
+DESTINATION: /cases/ctf-2024-001/evidence.dd
+HASH VERIFIED: PASS
+NOTES: Read-only mount used, no modifications
+
+[2024-10-25 16:00:00 UTC]
+ACTION: Analysis Initiated
+PERFORMED BY: Jane Examiner (FE-001)
+TOOL: Autopsy 4.20.0
+MOUNT: Read-only via loopback device
+NOTES: Case opened, initial file system scan completed
+
+[2024-10-26 09:15:00 UTC]
+ACTION: Image Transferred for Review
+PERFORMED BY: Jane Examiner (FE-001)
+TRANSFERRED TO: John Reviewer (FE-003)
+METHOD: Secure internal network transfer
+HASH VERIFIED: PASS (pre and post transfer)
+NOTES: Review requested for findings validation
+
+[2024-10-26 14:45:00 UTC]
+ACTION: Image Archived
+PERFORMED BY: Evidence Custodian (EC-012)
+LOCATION: Network Storage /evidence_archive/2024/ctf-2024-001/
+HASH VERIFIED: PASS
+BACKUP: Tape backup completed to LTO-8 tape #2024-1025
+NOTES: Original and working copies archived, access restricted
+EOF
+```
+
+### Automated CoC Tracking
+
+```bash
+# Script to log evidence access
+#!/bin/bash
+# evidence_access_log.sh
+
+EVIDENCE_FILE="evidence.dd"
+LOG_FILE="access_log.txt"
+
+log_access() {
+    echo "[$(date -u +%Y-%m-%d\ %H:%M:%S\ UTC)]" >> "$LOG_FILE"
+    echo "USER: $(whoami)" >> "$LOG_FILE"
+    echo "HOSTNAME: $(hostname)" >> "$LOG_FILE"
+    echo "ACTION: $1" >> "$LOG_FILE"
+    echo "HASH: $(sha256sum $EVIDENCE_FILE | awk '{print $1}')" >> "$LOG_FILE"
+    echo "---" >> "$LOG_FILE"
+}
+
+# Log before access
+log_access "ACCESSED"
+
+# Perform analysis
+# [analysis commands here]
+
+# Log after access (verify integrity)
+log_access "COMPLETED"
+
+# Verify hashes match
+HASH_BEFORE=$(sed -n '5p' "$LOG_FILE" | cut -d' ' -f2)
+HASH_AFTER=$(sha256sum "$EVIDENCE_FILE" | awk '{print $1}')
+
+if [ "$HASH_BEFORE" = "$HASH_AFTER" ]; then
+    echo "INTEGRITY VERIFIED: Evidence unchanged" >> "$LOG_FILE"
+else
+    echo "WARNING: Hash mismatch detected!" >> "$LOG_FILE"
+    echo "This requires investigation" >> "$LOG_FILE"
+fi
+```
+
+### Write Protection Documentation
+
+```bash
+# Document write blocker usage
+cat > write_blocker_verification.txt << 'EOF'
+WRITE BLOCKER VERIFICATION
+==========================
+Date: 2024-10-25 13:00:00 UTC
+Examiner: Jane Examiner
+
+Write Blocker Model: Tableau Forensic USB 3.0 Bridge T8-R2
+Serial Number: T8R2-12345
+Firmware Version: 2.1.4
+
+Pre-Acquisition Test:
+1. Connected known test USB drive
+2. Attempted write operation: echo "test" > /mnt/test/file.txt
+3. Result: Operation failed with "Read-only file system" error
+4. Conclusion: Write blocking functioning correctly
+
+Source Device Connection:
+- Device: SanDisk Cruzer Glide
+- Connected via: Write blocker USB port
+- System recognition: /dev/sdb (read-only)
+- Write attempts blocked: Verified
+
+Post-Acquisition Verification:
+- Source device hash: [recorded]
+- Image file hash: [recorded]
+- Hashes match: VERIFIED
+- Write blocker maintained throughout process
+
+Examiner Signature: _________________ Date: _________
+EOF
+```
+
+### Evidence Storage Documentation
+
+```
+EVIDENCE STORAGE LOG
+====================
+Evidence Item: 001
+Storage Location: Evidence Locker A-15
+Climate Conditions: 20°C ± 2°C, 40% RH ± 10%
+
+Access Log:
+┌──────────────┬─────────────────────┬─────────────────────┬──────────────────────┐
+│ Date/Time    │ Accessed By         │ Purpose             │ Condition Verified   │
+├──────────────┼─────────────────────┼─────────────────────┼──────────────────────┤
+│ 2024-10-25   │ Jane Examiner       │ Initial storage     │ Seal intact, no      │
+│ 13:15 UTC    │ ID: FE-001          │                     │ visible damage       │
+├──────────────┼─────────────────────┼─────────────────────┼──────────────────────┤
+│ 2024-10-25   │ Jane Examiner       │ Retrieval for       │ Seal intact          │
+│ 14:25 UTC    │ ID: FE-001          │ imaging             │                      │
+├──────────────┼─────────────────────┼─────────────────────┼──────────────────────┤
+│ 2024-10-25   │ Jane Examiner       │ Return after        │ Seal reapplied,      │
+│ 15:50 UTC    │ ID: FE-001          │ imaging             │ new seal #A-1234     │
+└──────────────┴─────────────────────┴─────────────────────┴──────────────────────┘
+
+Seal Numbers Used:
+- Initial seal: #A-1233 (applied by Officer J. Smith)
+- Second seal: #A-1234 (applied by Jane Examiner after imaging)
+
+Storage Security:
+- Locker access: Key card + PIN required
+- Authorized personnel: 3 persons
+- Video surveillance: Camera #A-15-01 (24/7 recording)
+- Access attempts logged electronically
+```
+
+## Technical Report Writing
+
+### Report Structure
+
+**Standard Forensic Report Format:**
+
+```
+FORENSIC EXAMINATION REPORT
+===========================
+
+1. EXECUTIVE SUMMARY
+   - Brief overview of case
+   - Key findings (1-2 paragraphs)
+   - Conclusions
+
+2. CASE INFORMATION
+   - Case number and name
+   - Requesting party
+   - Date received
+   - Date examined
+   - Examiner information
+
+3. EVIDENCE SUMMARY
+   - Description of evidence received
+   - Evidence identification numbers
+   - Chain of custody summary
+
+4. EXAMINATION OBJECTIVES
+   - Specific questions to be answered
+   - Scope of examination
+
+5. EXAMINATION DETAILS
+   - Tools and methods used
+   - Steps performed
+   - Technical procedures
+
+6. FINDINGS
+   - Detailed results
+   - Artifacts discovered
+   - Data recovered
+
+7. CONCLUSIONS
+   - Summary of findings
+   - Answers to examination objectives
+
+8. APPENDICES
+   - Tool versions and configurations
+   - Hash values
+   - Detailed logs
+   - Screenshots
+```
+
+### Executive Summary Template
+
+```
+EXECUTIVE SUMMARY
+=================
+
+On October 25, 2024, the Digital Forensics Laboratory received one USB flash 
+drive (Evidence Item #001) for forensic examination in connection with Case 
+CTF-2024-001. The examination was requested to determine whether the device 
+contained confidential documents removed from the network on October 20, 2024.
+
+Examination of the device revealed:
+
+1. The USB drive contained a deleted PDF file named "confidential.pdf" that 
+   matched the hash value of the missing document (SHA-256: 9a8b7c...).
+
+2. File system timestamps indicate the document was copied to the USB drive 
+   on October 20, 2024 at 14:15:32 UTC and deleted at 14:23:11 UTC.
+
+3. Unallocated space analysis recovered 37 additional deleted files, including 
+   draft versions of the confidential document and related correspondence.
+
+4. USB device metadata shows first connection to workstation "WS-ADMIN-05" on 
+   October 20, 2024 at 14:12:08 UTC, consistent with the suspected timeframe.
+
+The examination conclusively demonstrates that the confidential document was 
+present on the USB device and subsequently deleted. All findings are supported 
+by forensically sound methods maintaining evidence integrity throughout the 
+examination process.
+```
+
+### Methodology Section Template
+
+```
+EXAMINATION METHODOLOGY
+=======================
+
+The forensic examination was conducted in accordance with established digital 
+forensics standards and best practices. The following methodology was employed:
+
+1. EVIDENCE ACQUISITION
+   Tool: dc3dd version 7.2.646
+   Method: Physical bit-by-bit copy
+   Write Protection: Tableau T8-R2 forensic bridge
+   Hash Algorithm: SHA-256
+   
+   The source device was connected through a hardware write blocker to prevent 
+   any modifications. A complete physical image was created preserving all data 
+   including deleted files and unallocated space. Cryptographic hashes were 
+   calculated for both source device and resulting image file to verify 
+   acquisition integrity.
+
+2. IMAGE VERIFICATION
+   Tool: sha256sum (GNU coreutils 8.32)
+   
+   Pre-acquisition and post-acquisition hash values were compared and verified 
+   to match, confirming successful acquisition with no data corruption.
+
+3. FILE SYSTEM ANALYSIS
+   Tool: The Sleuth Kit (TSK) 4.11.1
+   
+   The file system structure was analyzed to document:
+   - Partition layout and volume information
+   - Directory structure and file listings
+   - File system metadata (timestamps, permissions, attributes)
+   - Deleted file entries
+
+4. DELETED FILE RECOVERY
+   Tool: extundelete 0.2.4
+   
+   Deleted files were identified through file system metadata analysis. 
+   Recoverable files were extracted from unallocated space using inode 
+   information preserved in the file system journal.
+
+5. UNALLOCATED SPACE ANALYSIS
+   Tool: bulk_extractor 1.5.5
+   
+   Unallocated disk space was analyzed to identify file fragments, deleted 
+   data, and artifacts not accessible through file system structures.
+
+6. TIMELINE ANALYSIS
+   Tool: mactime (TSK 4.11.1)
+   
+   A comprehensive timeline was generated from file system metadata including 
+   Modified, Accessed, Changed, and Created (MACC) timestamps for all files.
+
+7. HASH ANALYSIS
+   Tool: sha256sum (GNU coreutils 8.32)
+   
+   Cryptographic hashes were calculated for all files of interest to enable 
+   comparison with known file sets and to uniquely identify file contents.
+
+All examinations were performed on a forensically sanitized workstation 
+running Kali Linux 2024.2 with documented tool versions. The original evidence 
+remained unmodified throughout the examination process, with all analysis 
+performed on the forensic image.
+```
+
+### Findings Section Template
+
+```
+DETAILED FINDINGS
+=================
+
+FINDING 1: Deleted Confidential Document
+-----------------------------------------
+
+Description:
+A deleted PDF file matching the description of the missing confidential 
+document was recovered from unallocated space on the USB drive.
+
+Location:
+- Original path: /Documents/confidential.pdf
+- Inode number: 245678
+- Recovery source: Unallocated clusters 1024-1156
+
+File Metadata:
+- Filename: confidential.pdf
+- File size: 1,247,856 bytes (1.19 MB)
+- Created: 2024-10-18 09:23:45 UTC
+- Modified: 2024-10-18 16:42:11 UTC
+- Accessed: 2024-10-20 14:15:55 UTC
+- Deleted: 2024-10-20 14:23:11 UTC
+
+Hash Values:
+- MD5: a1b2c3d4e5f67890abcdef1234567890
+- SHA-256: 9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b
+
+Verification:
+The SHA-256 hash value matches the hash of the original confidential document 
+provided by the requesting party (reference: case file document #2024-1020-A).
+
+Content Summary:
+The recovered PDF contains financial records for Q3 2024, including revenue 
+figures, expense reports, and strategic planning information marked 
+"CONFIDENTIAL - Internal Use Only."
+
+Significance:
+This finding confirms that the confidential document was present on the USB 
+device between October 20, 2024 at 14:15:32 UTC (copy time) and 14:23:11 UTC 
+(deletion time).
+
+Supporting Evidence:
+- Screenshot: finding_001_file_recovery.png
+- Recovered file: evidence/recovered_001_confidential.pdf
+- Hash verification log: hash_verification_001.txt
+
+
+FINDING 2: USB Device First Connection
+---------------------------------------
+
+Description:
+Windows Registry analysis from the connected workstation revealed the first 
+connection time of the USB device.
+
+Location:
+Registry hive: SYSTEM
+Key: HKLM\SYSTEM\CurrentControlSet\Enum\USBSTOR\Disk&Ven_SanDisk&Prod_Cruzer_Glide
+Value: 0123 (First Install timestamp)
+
+Timestamp: 2024-10-20 14:12:08 UTC
+
+Device Information:
+- Vendor: SanDisk
+- Product: Cruzer Glide
+- Serial Number: 0123456789ABCDEF
+- Volume Name: EVIDENCE_USB
+
+Connection History:
+Analysis of the setupapi.dev.log shows the device was connected to workstation 
+"WS-ADMIN-05" at the documented timestamp. This was the first time this 
+specific USB device (identified by serial number) was connected to this system.
+
+Significance:
+The connection time (14:12:08 UTC) precedes the confidential document copy 
+time (14:15:32 UTC) by approximately 3 minutes, establishing a timeline 
+consistent with intentional document exfiltration.
+
+Supporting Evidence:
+- Registry export: registry_usb_history.txt
+- Timeline visualization: timeline_usb_connection.png
+
+
+FINDING 3: Additional Deleted Files
+------------------------------------
+
+Description:
+Thirty-seven additional deleted files were recovered from unallocated space, 
+including draft versions and related correspondence.
+
+File Categories:
+1. Document Drafts (8 files)
+   - confidential_draft_v1.pdf through confidential_draft_v5.pdf
+   - Various iterations dated 2024-10-15 through 2024-10-18
+
+2. Email Correspondence (12 files)
+   - .eml files containing discussions about the confidential project
+   - Date range: 2024-09-28 through 2024-10-19
+
+3. Spreadsheets (5 files)
+   - Financial calculation workbooks referenced in main document
+   - .xlsx format, dates matching document creation period
+
+4. Notes and Memos (12 files)
+   - .txt and .docx files containing project notes
+   - Some marked "TODO" and "DRAFT"
+
+Deletion Pattern:
+All 37 files were deleted within a 2-minute window (14:23:11 to 14:25:03 UTC 
+on October 20, 2024), suggesting systematic deletion rather than accidental 
+removal.
+
+Recovery Success:
+- 35 files: Complete recovery (100% of file content)
+- 2 files: Partial recovery (fragmented, approximately 60-70% recovered)
+
+Significance:
+The presence of multiple related files and their coordinated deletion pattern 
+suggests intentional collection and subsequent attempted destruction of 
+evidence.
+
+Supporting Evidence:
+- File list: deleted_files_inventory.csv
+- Recovery log: recovery_log_detailed.txt
+- Hash manifest: recovered_files_hashes.txt
+```
+
+### Conclusions Section Template
+
+```
+CONCLUSIONS
+===========
+
+Based on the forensic examination of Evidence Item #001 (USB flash drive), 
+the following conclusions can be drawn:
+
+1. PRESENCE OF CONFIDENTIAL DOCUMENT
+
+The examination conclusively demonstrates that the confidential document 
+"confidential.pdf" was present on the USB device. The recovered file's 
+cryptographic hash (SHA-256: 9a8b7c...) exactly matches the hash value of 
+the original document, confirming file identity beyond reasonable doubt.
+
+2. TIMELINE OF EVENTS
+
+File system metadata establishes the following timeline:
+- 14:12:08 UTC: USB device first connected to workstation WS-ADMIN-05
+- 14:15:32 UTC: Confidential document copied to USB device
+- 14:23:11 UTC: Document deleted from USB device
+- 14:25:03 UTC: Final related file deleted
+
+This timeline, derived from forensically sound examination of file system 
+metadata, demonstrates the document was present on the device for 
+approximately 7.5 minutes before deletion.
+
+3. INTENTIONAL DELETION PATTERN
+
+The systematic deletion of 38 files within a 2-minute window indicates 
+intentional removal rather than accidental deletion. The deleted files 
+consisted of the primary confidential document plus related drafts, 
+correspondence, and supporting materials.
+
+4. ATTEMPTED EVIDENCE DESTRUCTION
+
+[Inference] The deletion pattern suggests an attempt to remove evidence of 
+the document's presence on the USB device. However, standard deletion 
+operations do not overwrite data, allowing successful recovery through 
+forensic techniques.
+
+5. EXAMINATION INTEGRITY
+
+All forensic procedures were performed in accordance with established 
+standards:
+- Evidence integrity maintained through hardware write blocking
+- Cryptographic hashing verified acquisition and evidence integrity
+- Analysis performed on forensic image, preserving original evidence
+- Chain of custody documented throughout examination process
+- Industry-standard tools used with documented versions
+
+The findings presented in this report are based on scientifically sound 
+forensic methods and are reproducible by qualified examiners using the 
+documented methodology.
+
+
+ANSWERS TO EXAMINATION OBJECTIVES
+
+The initial examination request sought to answer the following questions:
+
+Q1: Does the USB device contain the confidential document reported missing 
+    from the network on October 20, 2024?
+
+A1: Yes. The confidential document was recovered from deleted files on the 
+    USB device. Hash verification confirms file identity.
+
+Q2: When was the document placed on the USB device?
+
+A2: File system metadata indicates the document was copied to the USB device 
+    on October 20, 2024 at 14:15:32 UTC.
+
+Q3: Was the document subsequently removed or deleted?
+
+A3: Yes. The document was deleted on October 20, 2024 at 14:23:11 UTC, 
+    approximately 7.5 minutes after being copied to the device.
+
+Q4: Are there any other relevant files on the device?
+
+A4: Yes. Thirty-seven additional deleted files were recovered, including 
+    document drafts, related correspondence, spreadsheets, and project notes. 
+    All were deleted in the same timeframe as the primary document.
+```
+
+### Technical Appendices
+
+**Appendix A: Tool Verification**
+
+```
+APPENDIX A: FORENSIC TOOLS AND VERSIONS
+========================================
+
+All tools used in this examination are industry-standard forensic applications 
+with documented reliability and acceptance in the forensic community.
+
+Operating System:
+- Distribution: Kali Linux 2024.2
+- Kernel: 6.6.9-amd64
+- Architecture: x86_64
+
+Hardware:
+- Workstation: Dell Precision 7920
+- Processor: Intel Xeon Gold 6248R
+- RAM: 128 GB ECC
+- Storage: 2TB NVMe SSD (forensically sanitized)
+
+Write Blocker:
+- Model: Tableau Forensic USB 3.0 Bridge T8-R2
+- Serial: T8R2-12345
+- Firmware: 2.1.4
+- Verification: Write blocking verified before acquisition
+
+Forensic Tools:
+
+1. dc3dd version 7.2.646
+   Purpose: Forensic imaging and hashing
+   Source: U.S. Department of Defense Cyber Crime Center
+   Verification: md5sum dc3dd: a1b2c3d4e5f67890abcdef1234567890
+   
+2. The Sleuth Kit (TSK) 4.11.1
+   Purpose: File system analysis and timeline generation
+   Source: https://www.sleuthkit.org/
+   Components used:
+   - mmls (partition analysis)
+   - fsstat (file system information)
+   - fls (file listing)
+   - istat (inode analysis)
+   - icat (file extraction)
+   - mactime (timeline generation)
+   
+3. extundelete 0.2.4
+   Purpose: ext3/ext4 deleted file recovery
+   Source: http://extundelete.sourceforge.net/
+   Verification: Package signature verified
+   
+4. bulk_extractor 1.5.5
+   Purpose: Unallocated space analysis
+   Source: https://github.com/simsong/bulk_extractor
+   Build: Official Kali repository package
+   
+5. sha256sum (GNU coreutils) 8.32
+   Purpose: Cryptographic hash calculation
+   Source: GNU Project
+   Algorithm: SHA-256 (FIPS 180-4 compliant)
+   
+6. Autopsy 4.20.0
+   Purpose: Forensic analysis GUI and reporting
+   Source: https://www.autopsy.com/
+   Backend: The Sleuth Kit 4.11.1
+
+Tool Validation:
+All tools were validated using known test data sets before examination:
+- NIST CFReDS (Computer Forensic Reference Data Sets)
+- Test images with known file structures and deleted files
+- Hash verification against published values
+
+Examiner Qualifications:
+- Name: Jane Examiner
+- Certifications: EnCE, GCFE, CHFI
+- Experience: 8 years in digital forensics
+- Training: Law Enforcement Digital Forensics Specialist
+```
+
+**Appendix B: Hash Values**
+
+```
+APPENDIX B: COMPLETE HASH MANIFEST
+===================================
+
+EVIDENCE ITEM HASHES
+--------------------
+
+Original Evidence (USB Device):
+Device: /dev/sdb
+Size: 32,017,047,552 bytes
+
+MD5:    a1b2c3d4e5f67890abcdef1234567890
+SHA-1:  1a2b3c4d5e6f7890abcdef1234567890abcdef12
+SHA-256: 1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890
+
+Calculated: 2024-10-25 14:32:15 UTC
+Tool: dc3dd 7.2.646
+
+
+Forensic Image:
+File: evidence.dd
+Size: 32,017,047,552 bytes
+
+MD5:    a1b2c3d4e5f67890abcdef1234567890
+SHA-1:  1a2b3c4d5e6f7890abcdef1234567890abcdef12
+SHA-256: 1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890
+
+Calculated: 2024-10-25 14:35:42 UTC
+Tool: sha256sum (GNU coreutils 8.32)
+Verification: MATCH - Acquisition successful
+
+
+RECOVERED FILES HASHES
+-----------------------
+
+File: recovered_001_confidential.pdf
+Size: 1,247,856 bytes
+Original Path: /Documents/confidential.pdf
+Inode: 245678
+
+MD5:    a1b2c3d4e5f67890abcdef1234567890
+SHA-1:  1a2b3c4d5e6f7890abcdef1234567890abcdef12
+SHA-256: 9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b
+
+Recovered: 2024-10-25 16:23:11 UTC
+Match: CONFIRMED against provided reference hash
+
+
+File: recovered_002_confidential_draft_v5.pdf
+Size: 1,198,234 bytes
+Original Path: /Documents/Drafts/confidential_draft_v5.pdf
+Inode: 245681
+
+MD5:    b2c3d4e5f6a78901bcdef234567890ab
+SHA-1:  2b3c4d5e6f7a8901bcdef234567890abcdef1234
+SHA-256: 2b3c4d5e6f7a8901bcdef234567890abcdef1234567890abcdef234567890abc
+
+Recovered: 2024-10-25 16:25:33 UTC
+
+
+[Additional 36 files with complete hash information...]
+
+Complete hash manifest available in: hash_manifest_complete.csv
+Format: filename,size,md5,sha1,sha256,recovery_timestamp
+```
+
+**Appendix C: Command Log**
+
+```
+APPENDIX C: COMPLETE COMMAND LOG
+=================================
+
+This appendix documents all commands executed during the forensic examination.
+Each command includes timestamp, user, working directory, and output summary.
+
+SESSION START: 2024-10-25 14:30:00 UTC
+USER: jexaminer
+WORKSTATION: ws-forensics-05
+WORKING DIR: /cases/ctf-2024-001
+
+[14:30:15] Verify write blocker connection
+Command: dmesg | tail -20
+Output: USB device detected, mounted read-only at /dev/sdb
+Result: Write blocker functioning correctly
+
+[14:31:02] Check source device information
+Command: fdisk -l /dev/sdb
+Output: Disk /dev/sdb: 29.8 GiB, 32017047552 bytes, 62533296 sectors
+Result: Device recognized, capacity confirmed
+
+[14:32:10] Calculate source device hashes
+Command: dc3dd if=/dev/sdb hash=md5 hash=sha1 hash=sha256 log=source_hashes.log
+Output: [Hash values recorded in source_hashes.log]
+Duration: 45 minutes
+Result: Source hashes calculated and logged
+
+[15:18:30] Create forensic image
+Command: dc3dd if=/dev/sdb of=evidence.dd hash=md5 hash=sha256 log=acquisition.log
+Output: 32017047552 bytes copied
+Duration: 42 minutes
+Result: Image created successfully
+
+[16:01:15] Verify image integrity
+Command: sha256sum evidence.dd
+Output: 1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890
+Result: Hash matches source device - VERIFIED
+
+[16:02:30] Analyze partition structure
+Command: mmls evidence.dd > partition_info.txt
+Output: 001: Primary Table #0, Offset 2048, Length 62531248
+Result: Single NTFS partition identified
+
+[16:03:45] Extract file system information
+Command: fsstat -o 2048 evidence.dd > filesystem_info.txt
+Output: File system type: NTFS, Volume Serial: 1A2B-3C4D
+Result: File system details documented
+
+[16:05:12] Generate file listing
+Command: fls -r -p -o 2048 evidence.dd > file_listing.txt
+Output: 1,247 files listed (including 38 deleted files marked with *)
+Result: Complete file structure documented
+
+[16:08:20] Create timeline
+Command: fls -r -m / -o 2048 evidence.dd > timeline.body
+Command: mactime -b timeline.body -d > timeline.txt
+Output: Timeline generated covering 2024-09-15 to 2024-10-20
+Result: Temporal analysis data created
+
+[16:15:40] Examine deleted file entries
+Command: fls -r -d -p -o 2048 evidence.dd > deleted_files.txt
+Output: 38 deleted files identified
+Result: Deleted files cataloged
+
+[16:18:30] Recover deleted files
+Command: extundelete --restore-all evidence.dd
+Output: 37 of 38 files recovered successfully
+Result: Files extracted to RECOVERED_FILES/ directory
+
+[16:25:15] Calculate recovered file hashes
+Command: find RECOVERED_FILES/ -type f -exec sha256sum {} \; > recovered_hashes.txt
+Output: Hash values for 37 recovered files
+Result: All recovered files hashed for verification
+
+[16:30:45] Analyze specific file (confidential.pdf)
+Command: sha256sum RECOVERED_FILES/Documents/confidential.pdf
+Output: 9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b
+Command: diff <hash> reference_hash.txt
+Output: Hashes match
+Result: File identity confirmed
+
+[16:35:20] Extract unallocated space
+Command: blkls -e -o 2048 evidence.dd > unallocated.bin
+Output: 15,234,876,928 bytes extracted
+Result: Unallocated space isolated for analysis
+
+[16:42:10] Analyze unallocated space with bulk_extractor
+Command: bulk_extractor -o bulk_output/ unallocated.bin
+Output: Analysis complete, artifacts extracted
+Result: Additional data patterns identified
+
+[16:55:30] Search for specific patterns
+Command: strings unallocated.bin | grep -i "confidential" > string_matches.txt
+Output: 156 matches found
+Result: Context around deleted files preserved
+
+[17:05:00] Generate Autopsy case
+Command: autopsy
+Action: Created case CTF-2024-001, added evidence.dd as data source
+Result: Case database created for GUI analysis and reporting
+
+[17:45:30] Export Autopsy timeline
+Action: Reports > Timeline > Export to CSV
+Output: autopsy_timeline.csv (8,234 events)
+Result: Comprehensive timeline for analysis
+
+[18:10:15] Verify all evidence hashes
+Command: sha256sum -c hash_verification.txt
+Output: evidence.dd: OK
+        All recovered files: OK
+Result: Complete hash verification successful
+
+SESSION END: 2024-10-25 18:15:00 UTC
+
+Total examination time: 3 hours 45 minutes
+Commands executed: 24
+Files created: 18 documentation/output files
+Result: Examination completed successfully, all findings documented
+```
+
+**Appendix D: Screenshots**
+
+```
+APPENDIX D: VISUAL DOCUMENTATION INDEX
+=======================================
+
+All screenshots were captured during the examination and are stored in the
+case evidence folder: /cases/ctf-2024-001/screenshots/
+
+Screenshot Inventory:
+
+SS-001: write_blocker_verification.png
+Timestamp: 2024-10-25 14:30:00 UTC
+Description: Write blocker LED status showing read-only mode active
+Tool: System camera
+Relevance: Documents write protection during acquisition
+
+SS-002: source_device_properties.png
+Timestamp: 2024-10-25 14:31:00 UTC
+Description: USB device properties showing serial number and capacity
+Tool: Nautilus file manager
+Relevance: Physical device identification
+
+SS-003: acquisition_progress.png
+Timestamp: 2024-10-25 14:45:00 UTC
+Description: dc3dd acquisition in progress with hash calculation
+Tool: Terminal screenshot (scrot)
+Relevance: Documents acquisition process
+
+SS-004: hash_verification_match.png
+Timestamp: 2024-10-25 16:01:00 UTC
+Description: Source and image hash comparison showing exact match
+Tool: Terminal screenshot
+Relevance: Proves acquisition integrity
+
+SS-005: partition_structure.png
+Timestamp: 2024-10-25 16:02:00 UTC
+Description: mmls output showing partition layout
+Tool: Terminal screenshot
+Relevance: Documents disk structure
+
+SS-006: filesystem_overview.png
+Timestamp: 2024-10-25 16:03:00 UTC
+Description: fsstat output displaying NTFS file system details
+Tool: Terminal screenshot
+Relevance: File system metadata documentation
+
+SS-007: deleted_files_list.png
+Timestamp: 2024-10-25 16:15:00 UTC
+Description: fls output highlighting 38 deleted files (marked with *)
+Tool: Terminal screenshot with annotations
+Relevance: Shows deleted file inventory
+
+SS-008: recovery_process.png
+Timestamp: 2024-10-25 16:20:00 UTC
+Description: extundelete recovery operation showing 37 successful recoveries
+Tool: Terminal screenshot
+Relevance: Documents recovery success rate
+
+SS-009: confidential_pdf_metadata.png
+Timestamp: 2024-10-25 16:25:00 UTC
+Description: File properties of recovered confidential.pdf
+Tool: exiftool output
+Relevance: Shows original file timestamps and metadata
+
+SS-010: hash_match_verification.png
+Timestamp: 2024-10-25 16:30:00 UTC
+Description: Side-by-side comparison of recovered file hash vs. reference hash
+Tool: Terminal screenshot with highlighting
+Relevance: Confirms file identity
+
+SS-011: autopsy_timeline_view.png
+Timestamp: 2024-10-25 17:15:00 UTC
+Description: Autopsy timeline showing October 20 file activity
+Tool: Autopsy 4.20.0 screenshot
+Relevance: Visual timeline of deletion events
+Annotation: Red box highlighting 14:23:11 deletion timestamp
+
+SS-012: autopsy_deleted_content.png
+Timestamp: 2024-10-25 17:20:00 UTC
+Description: Autopsy file tree showing deleted files in red
+Tool: Autopsy 4.20.0 screenshot
+Relevance: Visual representation of deleted file structure
+
+SS-013: file_content_preview.png
+Timestamp: 2024-10-25 17:25:00 UTC
+Description: First page of recovered confidential.pdf showing "CONFIDENTIAL" header
+Tool: PDF viewer (with sensitive content redacted for report)
+Relevance: Demonstrates successful file recovery and content verification
+
+SS-014: bulk_extractor_results.png
+Timestamp: 2024-10-25 17:40:00 UTC
+Description: bulk_extractor feature extraction summary
+Tool: bulk_extractor output summary
+Relevance: Shows additional artifacts found in unallocated space
+
+All screenshots are archived in original format (PNG, 24-bit color, no compression)
+with embedded EXIF metadata documenting capture time and workstation information.
+
+Chain of custody for screenshots maintained in digital_evidence_coc.txt
+```
+
+### Report Review and Quality Control
+
+**Internal Review Checklist:**
+
+```
+FORENSIC REPORT REVIEW CHECKLIST
+=================================
+Case Number: CTF-2024-001
+Report Author: Jane Examiner (FE-001)
+Reviewer: John Reviewer (FE-003)
+Review Date: 2024-10-26 10:00:00 UTC
+
+COMPLETENESS CHECKS:
+☑ Executive summary present and clear
+☑ Case information complete
+☑ Evidence properly identified with item numbers
+☑ Chain of custody documented
+☑ Examination objectives stated
+☑ Methodology thoroughly described
+☑ All findings documented with supporting evidence
+☑ Conclusions drawn from findings
+☑ Appendices included with technical details
+☑ All screenshots referenced and included
+☑ Hash values documented for all evidence items
+
+TECHNICAL ACCURACY:
+☑ Tool versions documented
+☑ Commands accurately recorded
+☑ Hash values verified
+☑ Timestamps in consistent format (UTC)
+☑ File paths accurate
+☑ Technical terminology used correctly
+☑ No unsupported claims or speculation (or marked as [Inference])
+
+QUALITY STANDARDS:
+☑ Professional language and formatting
+☑ No grammatical or spelling errors
+☑ Consistent terminology throughout
+☑ Clear and logical organization
+☑ Findings supported by evidence
+☑ Conclusions follow from findings
+☑ Report is reproducible by another examiner
+
+LEGAL/PROCEDURAL:
+☑ Write blocker use documented
+☑ Evidence integrity maintained
+☑ Chain of custody unbroken
+☑ Proper authorization documented
+☑ Examiner qualifications stated
+☑ Limitations acknowledged where appropriate
+
+DOCUMENTATION STANDARDS:
+☑ All claims can be verified from evidence
+☑ Screenshots properly labeled and referenced
+☑ File hashes provided for key evidence
+☑ Timeline analysis included where relevant
+☑ Original evidence preserved and documented
+
+REVIEWER NOTES:
+- Report is thorough and well-documented
+- All technical procedures properly described
+- Findings clearly supported by evidence
+- Minor formatting adjustment on page 12 (completed)
+- Ready for final approval
+
+APPROVAL STATUS: APPROVED
+Reviewer Signature: _________________
+Date: 2024-10-26
+```
+
+### Report Distribution and Storage
+
+```
+REPORT DISTRIBUTION LOG
+=======================
+Case Number: CTF-2024-001
+Report Title: Forensic Examination Report - USB Flash Drive
+Report Version: 1.0 Final
+Report Date: 2024-10-26
+Total Pages: 47 (including appendices)
+
+Distribution List:
+
+Copy #1 (Original)
+Recipient: Case File - Evidence Management
+Format: Printed, bound, signed original
+Delivered: 2024-10-26 14:00:00 UTC
+Received by: Evidence Custodian (EC-012)
+Signature: _________________
+
+Copy #2 (Digital)
+Recipient: Requesting Department
+Format: PDF (password protected)
+Password provided via: Separate secure channel
+Delivered: 2024-10-26 14:15:00 UTC
+Email to: investigator@agency.gov
+Delivery confirmation: Received 2024-10-26 14:16:23 UTC
+
+Copy #3 (Archive)
+Recipient: Digital Forensics Laboratory Archive
+Format: PDF + native formats (all evidence files)
+Storage location: /archive/2024/ctf-2024-001/
+Backup: LTO-8 tape #2024-1026-A
+Access restrictions: Authorized personnel only
+Retention period: 7 years per agency policy
+
+File Integrity:
+Report PDF SHA-256: 3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d
+Evidence package SHA-256: 4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
+
+Distribution authorized by: Lab Director
+Authorization date: 2024-10-26 13:45:00 UTC
+```
+
+### CTF-Specific Reporting Considerations
+
+For CTF competitions, adapt professional standards to the context:
+
+**CTF Write-up Template:**
+
+```
+CTF CHALLENGE WRITE-UP
+======================
+Challenge Name: Deleted Evidence
+Category: Digital Forensics
+Points: 500
+Team: [Your Team Name]
+Solver: [Your Name]
+Date: 2024-10-25
+
+CHALLENGE DESCRIPTION:
+A USB drive was seized during an investigation. Recover the deleted 
+confidential document and find the flag.
+
+APPROACH:
+1. Created forensic image of provided USB drive image
+2. Verified image integrity with hash comparison
+3. Analyzed file system for deleted files
+4. Recovered deleted files using extundelete
+5. Located confidential.pdf in recovered files
+6. Extracted flag from document metadata
+
+DETAILED SOLUTION:
+
+Step 1: Initial Analysis
+------------------------
+$ file evidence.img
+evidence.img: Linux rev 1.0 ext4 filesystem data
+
+$ fsstat evidence.img
+File System Type: Ext4
+Volume Name: EVIDENCE_USB
+Last Written: 2024-10-20 14:25:03 UTC
+
+Step 2: List Deleted Files
+---------------------------
+$ fls -d evidence.img
+* 12345: confidential.pdf
+* 12346: draft_v1.pdf
+[... additional deleted files ...]
+
+Step 3: Recover Deleted Files
+------------------------------
+$ extundelete --restore-inode 12345 evidence.img
+Successfully recovered inode 12345 to RECOVERED_FILES/file.12345
+
+$ file RECOVERED_FILES/file.12345
+RECOVERED_FILES/file.12345: PDF document, version 1.7
+
+Step 4: Extract Flag
+--------------------
+$ exiftool RECOVERED_FILES/file.12345 | grep -i flag
+Author: FLAG{d3l3t3d_but_n0t_g0n3_f0r3v3r}
+
+FLAG: FLAG{d3l3t3d_but_n0t_g0n3_f0r3v3r}
+
+TOOLS USED:
+- The Sleuth Kit (fsstat, fls)
+- extundelete
+- exiftool
+
+KEY LEARNING POINTS:
+- File deletion doesn't erase data immediately
+- Ext4 preserves inode information that enables recovery
+- File system metadata often contains valuable artifacts
+- Always verify recovered file integrity with hash values
+
+TIME TO SOLVE: 45 minutes
+DIFFICULTY RATING: Medium
+```
+
+### Automated Report Generation
+
+**Script for Standardized Reporting:**
+
+```bash
+#!/bin/bash
+# generate_forensic_report.sh
+# Automates collection of forensic examination data for reporting
+
+CASE_NUM="$1"
+EVIDENCE_FILE="$2"
+OUTPUT_DIR="report_${CASE_NUM}"
+
+if [ $# -ne 2 ]; then
+    echo "Usage: $0 <case_number> <evidence_file>"
+    exit 1
+fi
+
+echo "Generating forensic report for case: $CASE_NUM"
+mkdir -p "$OUTPUT_DIR"
+
+# Generate header information
+cat > "$OUTPUT_DIR/report_header.txt" << EOF
+FORENSIC EXAMINATION REPORT
+===========================
+Case Number: $CASE_NUM
+Evidence File: $EVIDENCE_FILE
+Examination Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+Examiner: $(whoami)
+Workstation: $(hostname)
+Operating System: $(uname -a)
+EOF
+
+# Calculate and document hashes
+echo "Calculating hash values..."
+cat > "$OUTPUT_DIR/hash_values.txt" << EOF
+EVIDENCE HASH VALUES
+====================
+File: $EVIDENCE_FILE
+Size: $(stat -f "%z" "$EVIDENCE_FILE" 2>/dev/null || stat -c "%s" "$EVIDENCE_FILE") bytes
+
+EOF
+
+md5sum "$EVIDENCE_FILE" >> "$OUTPUT_DIR/hash_values.txt"
+sha1sum "$EVIDENCE_FILE" >> "$OUTPUT_DIR/hash_values.txt"
+sha256sum "$EVIDENCE_FILE" >> "$OUTPUT_DIR/hash_values.txt"
+
+echo "Calculated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> "$OUTPUT_DIR/hash_values.txt"
+
+# Analyze file system
+echo "Analyzing file system..."
+fsstat "$EVIDENCE_FILE" > "$OUTPUT_DIR/filesystem_info.txt" 2>&1
+mmls "$EVIDENCE_FILE" > "$OUTPUT_DIR/partition_info.txt" 2>&1
+
+# Generate file listing
+echo "Generating file listing..."
+fls -r -p "$EVIDENCE_FILE" > "$OUTPUT_DIR/file_listing.txt" 2>&1
+
+# List deleted files
+echo "Identifying deleted files..."
+fls -r -d -p "$EVIDENCE_FILE" > "$OUTPUT_DIR/deleted_files.txt" 2>&1
+
+# Create timeline
+echo "Creating timeline..."
+fls -r -m / "$EVIDENCE_FILE" > "$OUTPUT_DIR/timeline.body" 2>&1
+mactime -b "$OUTPUT_DIR/timeline.body" -d > "$OUTPUT_DIR/timeline.txt" 2>&1
+
+# Generate summary
+TOTAL_FILES=$(fls -r "$EVIDENCE_FILE" 2>/dev/null | wc -l)
+DELETED_FILES=$(fls -r -d "$EVIDENCE_FILE" 2>/dev/null | wc -l)
+
+cat > "$OUTPUT_DIR/examination_summary.txt" << EOF
+EXAMINATION SUMMARY
+===================
+Case: $CASE_NUM
+Evidence: $EVIDENCE_FILE
+
+File System Statistics:
+- Total files found: $TOTAL_FILES
+- Deleted files identified: $DELETED_FILES
+
+Timeline Coverage:
+- Earliest timestamp: $(head -2 "$OUTPUT_DIR/timeline.txt" | tail -1 | awk '{print $1" "$2" "$3}')
+- Latest timestamp: $(tail -1 "$OUTPUT_DIR/timeline.txt" | awk '{print $1" "$2" "$3}')
+
+Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+EOF
+
+echo ""
+echo "Report data collected in: $OUTPUT_DIR/"
+echo "Files generated:"
+ls -1 "$OUTPUT_DIR/"
+echo ""
+echo "Review the generated files and compile into final report."
+```
+
+### Report Templates Repository
+
+Maintain a templates directory for consistency:
+
+```bash
+# Directory structure for forensic report templates
+/forensic_templates/
+├── report_template.md          # Master report template
+├── executive_summary.md        # Executive summary template
+├── methodology_template.md     # Standard methodology sections
+├── findings_template.md        # Findings documentation format
+├── coc_form.txt               # Chain of custody form
+├── hash_documentation.txt      # Hash value documentation
+├── screenshot_log.txt         # Screenshot inventory template
+├── command_log_template.txt   # Command execution log
+└── ctf_writeup_template.md    # CTF-specific write-up format
+```
+
+### Version Control for Reports
+
+```bash
+# Git-based version control for forensic reports
+# (for internal drafts only - final reports should be immutable)
+
+cd /cases/ctf-2024-001/
+git init
+git add report_draft.md
+git commit -m "Initial report draft - examination complete"
+
+# Track revisions during review process
+git add report_draft.md
+git commit -m "Updated findings section per reviewer comments"
+
+# Tag final version
+git tag -a v1.0-final -m "Final approved report version"
+
+# Generate changelog
+git log --oneline --decorate > report_revision_history.txt
+```
+
+**Important Related Topics**
+
+For comprehensive forensic documentation and reporting in CTF scenarios, consider studying:
+
+- **Legal Requirements for Digital Evidence** - Understanding admissibility standards, Daubert criteria, and legal frameworks (though [Unverified] specific legal requirements vary by jurisdiction and context)
+- **Expert Testimony Preparation** - Translating technical findings into clear explanations for non-technical audiences
+- **Peer Review Processes** - Implementing quality assurance through structured technical review
+- **Long-term Evidence Preservation** - Managing digital evidence storage, retention policies, and data integrity over time
+
+---
+
+## Finding Presentation
+
+Finding presentation structures technical discoveries into coherent narratives. Reports must balance technical depth with accessibility, prioritize critical findings, and provide clear recommendations.
+
+**Report Structure Framework:**
+
+Standard forensic report components:
+
+1. **Executive Summary** (non-technical audience)
+    
+    - Key findings in plain language
+    - Impact assessment
+    - Critical recommendations
+    - Timeline overview
+2. **Methodology** (technical validation)
+    
+    - Tools and versions used
+    - Analysis environment specifications
+    - Evidence acquisition procedures
+    - Analysis workflow
+3. **Findings** (detailed technical content)
+    
+    - Organized by severity or timeline
+    - Each finding with evidence references
+    - Technical details with context
+    - Artifact locations and hashes
+4. **Conclusions** (synthesis)
+    
+    - Attack narrative reconstruction
+    - Attribution indicators [Unverified: Attribution claims require careful qualification]
+    - Security posture assessment
+5. **Recommendations** (actionable guidance)
+    
+    - Immediate remediation steps
+    - Long-term security improvements
+    - Detection enhancement suggestions
+6. **Appendices** (supporting material)
+    
+    - Raw tool output
+    - Complete file listings
+    - Hash lists
+    - Full timeline data
+
+**Finding Classification Systems:**
+
+CVSS-style severity rating for CTF context:
+
+```
+CRITICAL (9.0-10.0): Direct system compromise, credential exposure
+HIGH (7.0-8.9): Privilege escalation, sensitive data access
+MEDIUM (4.0-6.9): Information disclosure, denial of service
+LOW (0.1-3.9): Minor misconfigurations, informational findings
+```
+
+Alternative: MITRE ATT&CK framework mapping:
+
+```markdown
+## Finding: Credential Dumping via /etc/shadow Access
+
+**MITRE ATT&CK**: T1003.008 - OS Credential Dumping: /etc/passwd and /etc/shadow
+**Severity**: CRITICAL
+**Tactic**: Credential Access
+
+**Description**: Obtained read access to /etc/shadow through misconfigured SUID binary.
+
+**Evidence**: 
+- File: /etc/shadow (SHA256: a3b5c7...)
+- Extraction timestamp: 2025-10-25 14:32:17 UTC
+- Method: Exploited custom binary /usr/local/bin/backup with SUID bit set
+```
+
+**Finding Templates:**
+
+Individual finding structure:
+
+```markdown
+### [SEVERITY] Finding Title
+
+**Category**: [Web/Network/System/Crypto/Forensics]
+**CWE**: [CWE-XXX if applicable]
+**Discovery Date**: YYYY-MM-DD HH:MM:SS UTC
+
+**Summary**:
+One-paragraph overview of the vulnerability or artifact discovered.
+
+**Technical Details**:
+- Affected component: [specific file/service/configuration]
+- Root cause: [technical explanation]
+- Attack vector: [how exploited]
+
+**Evidence**:
+- Artifact path: `/path/to/artifact`
+- Hash (SHA256): `abc123...`
+- Screenshot: `evidence/screenshot_001.png`
+- Tool output: `appendix_A.txt`
+
+**Exploitation Steps** (reproducible):
+1. Step-by-step commands
+2. Expected output
+3. Verification method
+
+**Impact Analysis**:
+Describe potential damage, data exposure, or system compromise.
+
+**Recommendations**:
+- Immediate: Patch X, disable Y
+- Long-term: Implement Z security control
+
+**References**:
+- CVE-XXXX-XXXX
+- Documentation: https://...
+```
+
+**Markdown Report Generation:**
+
+Automated report scaffolding:
+
+```bash
+#!/bin/bash
+# generate_report.sh
+
+REPORT="ctf_forensics_report_$(date +%Y%m%d).md"
+
+cat << EOF > "$REPORT"
+# CTF Forensics Report
+
+**Challenge**: Challenge Name
+**Team**: Team Name
+**Analyst**: Your Name
+**Date**: $(date '+%Y-%m-%d %H:%M:%S %Z')
+**Analysis Duration**: X hours
+
+---
+
+## Executive Summary
+
+[High-level overview]
+
+## Methodology
+
+### Tools Used
+- Tool 1 (version)
+- Tool 2 (version)
+
+### Analysis Environment
+- OS: $(uname -a)
+- Kernel: $(uname -r)
+- Analysis Host: $(hostname)
+
+---
+
+## Findings
+
+### [CRITICAL] Finding 1
+[Details]
+
+### [HIGH] Finding 2
+[Details]
+
+---
+
+## Timeline
+
+| Timestamp | Event | Artifact |
+|-----------|-------|----------|
+| 2025-10-25 14:30:00 | Initial access | /var/log/auth.log |
+
+---
+
+## Conclusions
+
+[Summary and narrative]
+
+---
+
+## Appendices
+
+### Appendix A: Tool Output
+\`\`\`
+[Raw output]
+\`\`\`
+
+EOF
+
+echo "Report template created: $REPORT"
+```
+
+**Visual Finding Presentation:**
+
+Network diagrams using Mermaid:
+
+```markdown
+## Attack Flow Diagram
+
+\`\`\`mermaid
+graph LR
+    A[Attacker] -->|Port Scan| B[Web Server :80]
+    B -->|SQL Injection| C[Database]
+    C -->|Extract Credentials| D[SSH Service :22]
+    D -->|Lateral Movement| E[Internal Host]
+    E -->|Privilege Escalation| F[Root Access]
+\`\`\`
+```
+
+Timeline visualization:
+
+```markdown
+\`\`\`mermaid
+gantt
+    title Attack Timeline
+    dateFormat  YYYY-MM-DD HH:mm
+    section Reconnaissance
+    Port Scanning           :2025-10-25 14:00, 15m
+    Service Enumeration     :2025-10-25 14:15, 20m
+    section Initial Access
+    SQLi Exploitation       :2025-10-25 14:35, 10m
+    section Privilege Escalation
+    Kernel Exploit          :2025-10-25 14:45, 5m
+\`\`\`
+```
+
+**Technical Audience vs Non-Technical Audience:**
+
+Executive summary example (non-technical):
+
+```
+An unauthorized individual gained administrative access to the system 
+by exploiting a vulnerability in the web application. This allowed 
+extraction of sensitive user credentials affecting approximately 
+1,000 accounts. Immediate password resets are required, and the 
+vulnerable application component must be updated within 24 hours.
+```
+
+Technical details (technical):
+
+```
+SQL injection vulnerability in login.php parameter 'username' 
+(Line 47: unsanitized input passed to mysqli_query()) allowed 
+UNION-based extraction of user table contents. Bcrypt password 
+hashes (cost=10) were obtained, and offline cracking yielded 
+234 plaintext passwords within 6 hours using hashcat with 
+rockyou.txt wordlist.
+```
+
+**Confidence Levels:**
+
+Label findings with confidence indicators:
+
+```
+[CONFIRMED]: Direct evidence with validation
+[HIGH CONFIDENCE]: Strong circumstantial evidence
+[MEDIUM CONFIDENCE]: Limited evidence, reasonable inference [Inference]
+[LOW CONFIDENCE]: Speculation based on patterns [Speculation]
+[UNVERIFIED]: Unable to confirm independently [Unverified]
+```
+
+**Flag Presentation in CTF Context:**
+
+```markdown
+## Flag Discovery
+
+**Flag**: `CTF{timestomp_detection_via_ctime_analysis}`
+**Location**: `/home/user/.hidden/flag.txt`
+**Discovery Method**: Timeline analysis revealed ctime/mtime inconsistency
+**Timestamp**: 2025-10-25 15:45:23 UTC
+**Validation**: SHA256 hash matches challenge requirements
+
+### Discovery Process
+1. Generated filesystem timeline using fls/mactime
+2. Identified anomalous timestamp patterns
+3. Investigated files with mtime < ctime
+4. Extracted flag from suspicious file
+
+### Evidence Chain
+- Timeline: `evidence/timeline.csv`
+- File hash: `evidence/hashes.txt`
+- Screenshot: `evidence/flag_capture.png`
+```
+
+**Automated Report Generation:**
+
+Using Python for structured reports:
+
+```python
+#!/usr/bin/env python3
+import json
+from datetime import datetime
+
+class ForensicReport:
+    def __init__(self, challenge_name):
+        self.challenge = challenge_name
+        self.findings = []
+        self.timeline = []
+        
+    def add_finding(self, severity, title, description, evidence):
+        finding = {
+            'severity': severity,
+            'title': title,
+            'description': description,
+            'evidence': evidence,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        self.findings.append(finding)
+    
+    def add_timeline_event(self, timestamp, event, artifact):
+        self.timeline.append({
+            'timestamp': timestamp,
+            'event': event,
+            'artifact': artifact
+        })
+    
+    def generate_markdown(self):
+        report = f"# Forensic Analysis Report: {self.challenge}\n\n"
+        report += f"**Generated**: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
+        
+        report += "## Findings\n\n"
+        for f in sorted(self.findings, key=lambda x: x['severity'], reverse=True):
+            report += f"### [{f['severity']}] {f['title']}\n\n"
+            report += f"{f['description']}\n\n"
+            report += f"**Evidence**: {f['evidence']}\n\n"
+        
+        report += "## Timeline\n\n"
+        report += "| Timestamp | Event | Artifact |\n"
+        report += "|-----------|-------|----------|\n"
+        for t in sorted(self.timeline, key=lambda x: x['timestamp']):
+            report += f"| {t['timestamp']} | {t['event']} | {t['artifact']} |\n"
+        
+        return report
+
+# Usage
+report = ForensicReport("Anti-Forensics Challenge")
+report.add_finding("CRITICAL", "Timestomping Detected", 
+                   "File timestamps manually altered", 
+                   "/evidence/stat_output.txt")
+report.add_timeline_event("2025-10-25 14:32:00", "Initial access", "/var/log/auth.log")
+print(report.generate_markdown())
+```
+
+**JSON Evidence Format:**
+
+Structured evidence for tool interoperability:
+
+```json
+{
+  "case_id": "CTF-2025-001",
+  "analyst": "analyst_name",
+  "timestamp": "2025-10-25T14:32:17Z",
+  "evidence": [
+    {
+      "id": "EVD-001",
+      "type": "file",
+      "path": "/etc/shadow",
+      "hash": {
+        "sha256": "abc123...",
+        "md5": "def456..."
+      },
+      "size": 1234,
+      "timestamps": {
+        "mtime": "2025-10-25T14:30:00Z",
+        "atime": "2025-10-25T14:31:00Z",
+        "ctime": "2025-10-25T14:30:00Z"
+      },
+      "acquisition_method": "dd",
+      "chain_of_custody": [
+        {
+          "timestamp": "2025-10-25T14:32:00Z",
+          "action": "collected",
+          "actor": "analyst_name"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "FND-001",
+      "severity": "CRITICAL",
+      "title": "Credential Exposure",
+      "evidence_refs": ["EVD-001"],
+      "mitre_attack": "T1003.008"
+    }
+  ]
+}
+```
+
+## Screenshot and Evidence Capture
+
+Visual evidence preserves context, demonstrates exploitation, and validates findings. Proper capture ensures authenticity, maintains metadata, and creates defensible documentation.
+
+**Screenshot Best Practices:**
+
+Include contextual information in every screenshot:
+
+- Terminal prompt showing hostname/username
+- Timestamp (date/time command output or system clock)
+- Full command and complete output
+- Window title bars when applicable
+
+**Terminal Screenshot Capture:**
+
+Using `script` for session recording:
+
+```bash
+# Start recording
+script -t 2>timing.log -a output.log
+
+# Perform analysis
+commands...
+
+# Stop recording
+exit
+
+# Playback with timing
+scriptreplay timing.log output.log
+```
+
+Using `asciinema` for shareable terminal recordings:
+
+```bash
+# Record session
+asciinema rec forensic_analysis.cast
+
+# Perform work
+commands...
+
+# Stop with Ctrl+D
+
+# Playback
+asciinema play forensic_analysis.cast
+
+# Upload (optional)
+asciinema upload forensic_analysis.cast
+```
+
+**Screenshot Tools:**
+
+GUI screenshots (full screen with context):
+
+```bash
+# Full screen
+gnome-screenshot -f screenshot_$(date +%Y%m%d_%H%M%S).png
+
+# Specific window
+gnome-screenshot -w -f screenshot_window.png
+
+# With delay for menu capture
+gnome-screenshot -d 5 -f screenshot_delayed.png
+
+# Using scrot
+scrot 'screenshot_%Y%m%d_%H%M%S.png' -q 100
+```
+
+Terminal-specific capture with `import` (ImageMagick):
+
+```bash
+# Select window interactively
+import screenshot.png
+
+# Specific window by ID
+xwininfo  # Get window ID
+import -window 0x1234567 screenshot.png
+```
+
+**Automated Screenshot Workflow:**
+
+Capture with metadata overlay:
+
+```bash
+#!/bin/bash
+# screenshot_with_metadata.sh
+
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S %Z')
+HOSTNAME=$(hostname)
+OUTPUT="evidence/screenshot_$(date +%Y%m%d_%H%M%S).png"
+
+# Capture screenshot
+gnome-screenshot -f /tmp/screenshot_temp.png
+
+# Add metadata overlay using ImageMagick
+convert /tmp/screenshot_temp.png \
+    -gravity South -pointsize 20 -fill white -stroke black -strokewidth 2 \
+    -annotate +0+10 "Host: $HOSTNAME | Time: $TIMESTAMP" \
+    "$OUTPUT"
+
+# Calculate hash
+sha256sum "$OUTPUT" >> evidence/screenshot_hashes.txt
+
+echo "Screenshot saved: $OUTPUT"
+```
+
+**Screen Recording:**
+
+For dynamic exploitation or GUI-heavy analysis:
+
+```bash
+# Using ffmpeg
+ffmpeg -video_size 1920x1080 -framerate 30 -f x11grab -i :0.0 \
+    -c:v libx264 -preset ultrafast -crf 18 \
+    evidence/screen_recording_$(date +%Y%m%d_%H%M%S).mp4
+
+# Stop with Ctrl+C
+
+# Using recordmydesktop
+recordmydesktop -o evidence/recording.ogv --width 1920 --height 1080
+```
+
+**Evidence Hashing:**
+
+Generate and verify evidence integrity:
+
+```bash
+# Hash individual file
+sha256sum evidence.png > evidence.png.sha256
+
+# Bulk hashing
+find evidence/ -type f -exec sha256sum {} \; > evidence/all_hashes.txt
+
+# MD5 and SHA256 together
+md5sum evidence.png > evidence.png.md5
+sha256sum evidence.png > evidence.png.sha256
+
+# Create cryptographic signature (GPG)
+gpg --detach-sign --armor evidence.png
+# Creates evidence.png.asc
+```
+
+Verification:
+
+```bash
+# Verify hash
+sha256sum -c evidence.png.sha256
+
+# Verify GPG signature
+gpg --verify evidence.png.asc evidence.png
+```
+
+**Screenshot Metadata:**
+
+Embed metadata using EXIF:
+
+```bash
+# Add metadata to screenshot
+exiftool -Comment="Evidence ID: EVD-001, Analyst: analyst_name" \
+    -Copyright="Forensic Analysis 2025" \
+    -DateTimeOriginal="2025:10:25 14:32:17" \
+    screenshot.png
+
+# View metadata
+exiftool screenshot.png
+
+# Extract specific field
+exiftool -Comment screenshot.png
+```
+
+**Evidence Packaging:**
+
+Create tamper-evident archives:
+
+```bash
+# Create tar archive with checksums
+tar -czf evidence_package.tar.gz evidence/
+sha256sum evidence_package.tar.gz > evidence_package.tar.gz.sha256
+
+# Create zip with verification
+zip -r evidence_package.zip evidence/
+sha256sum evidence_package.zip > evidence_package.zip.sha256
+
+# Advanced: Create signed archive
+tar -czf - evidence/ | gpg --encrypt --sign --armor -r analyst@example.com > evidence_package.tar.gz.gpg
+```
+
+**Chain of Custody Documentation:**
+
+Evidence tracking log:
+
+```bash
+# evidence_log.txt
+EVIDENCE_ID: EVD-001
+DESCRIPTION: Screenshot showing /etc/shadow access
+FILE: evidence/screenshot_20251025_143217.png
+SHA256: abc123def456...
+COLLECTED_BY: analyst_name
+COLLECTED_DATE: 2025-10-25 14:32:17 UTC
+COLLECTION_METHOD: gnome-screenshot
+STORAGE_LOCATION: /evidence/screenshots/
+ACCESS_LOG:
+  - 2025-10-25 14:32:17 UTC: Collected by analyst_name
+  - 2025-10-25 15:00:00 UTC: Reviewed by analyst_name
+  - 2025-10-25 16:00:00 UTC: Included in report by analyst_name
+```
+
+Automated logging:
+
+```python
+#!/usr/bin/env python3
+import hashlib
+import datetime
+import json
+import os
+
+class EvidenceLogger:
+    def __init__(self, log_file='evidence/evidence_log.json'):
+        self.log_file = log_file
+        self.log_data = self.load_log()
+    
+    def load_log(self):
+        if os.path.exists(self.log_file):
+            with open(self.log_file, 'r') as f:
+                return json.load(f)
+        return {'evidence': []}
+    
+    def calculate_hash(self, filepath):
+        sha256_hash = hashlib.sha256()
+        with open(filepath, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()
+    
+    def log_evidence(self, filepath, description, evidence_type='screenshot'):
+        evidence = {
+            'id': f"EVD-{len(self.log_data['evidence']) + 1:03d}",
+            'type': evidence_type,
+            'file': filepath,
+            'description': description,
+            'sha256': self.calculate_hash(filepath),
+            'size': os.path.getsize(filepath),
+            'collected_by': os.getenv('USER'),
+            'collected_timestamp': datetime.datetime.utcnow().isoformat() + 'Z',
+            'chain_of_custody': [
+                {
+                    'timestamp': datetime.datetime.utcnow().isoformat() + 'Z',
+                    'action': 'collected',
+                    'actor': os.getenv('USER')
+                }
+            ]
+        }
+        self.log_data['evidence'].append(evidence)
+        self.save_log()
+        return evidence['id']
+    
+    def save_log(self):
+        with open(self.log_file, 'w') as f:
+            json.dump(self.log_data, f, indent=2)
+
+# Usage
+logger = EvidenceLogger()
+evidence_id = logger.log_evidence(
+    'evidence/screenshot_20251025_143217.png',
+    'Screenshot showing unauthorized /etc/shadow access',
+    'screenshot'
+)
+print(f"Logged as {evidence_id}")
+```
+
+**Screenshot Organization:**
+
+Directory structure:
+
+```
+evidence/
+├── screenshots/
+│   ├── 001_initial_access.png
+│   ├── 002_privilege_escalation.png
+│   └── 003_flag_capture.png
+├── terminal_logs/
+│   ├── analysis_session.log
+│   └── command_history.txt
+├── artifacts/
+│   ├── suspicious_binary
+│   └── config_file.conf
+├── hashes.txt
+├── evidence_log.json
+└── README.txt
+```
+
+Naming convention:
+
+```
+[sequence]_[category]_[description]_[timestamp].png
+
+Examples:
+001_recon_nmap_scan_20251025_143000.png
+002_exploit_sqli_success_20251025_143500.png
+003_privesc_suid_binary_20251025_144000.png
+```
+
+**Network Traffic Capture:**
+
+Pcap file evidence:
+
+```bash
+# Capture during exploitation
+tcpdump -i eth0 -w evidence/traffic_capture_$(date +%Y%m%d_%H%M%S).pcap
+
+# With filters
+tcpdump -i eth0 'tcp port 80 or tcp port 443' -w evidence/web_traffic.pcap
+
+# Read back for verification
+tcpdump -r evidence/traffic_capture.pcap | head -n 20
+```
+
+**Web Page Evidence:**
+
+Capture complete web pages:
+
+```bash
+# Using wget
+wget --page-requisites --convert-links --no-parent \
+    http://target.com/vulnerable_page.php \
+    -P evidence/web_pages/
+
+# Using curl with save
+curl -o evidence/response.html http://target.com/page.php
+
+# With headers
+curl -i -o evidence/response_with_headers.txt http://target.com/page.php
+```
+
+Browser developer tools export:
+
+- Save HAR file (HTTP Archive)
+- Export network requests
+- Screenshot with DevTools open showing timeline
+
+**Timestamping Evidence:**
+
+RFC 3161 timestamp authority (TSA):
+
+```bash
+# Generate timestamp request
+openssl ts -query -data evidence.png -sha256 -out request.tsq
+
+# Submit to TSA (example with FreeTSA)
+curl -H "Content-Type: application/timestamp-query" \
+    --data-binary @request.tsq \
+    https://freetsa.org/tsr \
+    -o response.tsr
+
+# Verify timestamp
+openssl ts -verify -in response.tsr -data evidence.png \
+    -CAfile cacert.pem
+```
+
+[Unverified: TSA services provide cryptographic proof of existence at specific time, but availability and trustworthiness of free services varies]
+
+## Reproducible Analysis Methods
+
+Reproducible analysis enables peer validation, ensures consistency, and maintains scientific rigor. Documentation must provide sufficient detail for independent verification.
+
+**Analysis Environment Documentation:**
+
+Complete environment specification:
+
+```bash
+#!/bin/bash
+# environment_snapshot.sh
+
+cat << EOF > environment_report.txt
+=== Analysis Environment Report ===
+Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+== System Information ==
+Hostname: $(hostname)
+OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)
+Kernel: $(uname -r)
+Architecture: $(uname -m)
+Uptime: $(uptime -p)
+
+== Hardware ==
+CPU: $(lscpu | grep "Model name" | cut -d':' -f2 | xargs)
+RAM: $(free -h | grep Mem | awk '{print $2}')
+Storage: $(df -h / | tail -1 | awk '{print $2}')
+
+== Forensic Tools ==
+EOF
+
+# List forensic tools with versions
+tools=("volatility" "binwalk" "foremost" "steghide" "exiftool" "autopsy" "sleuthkit")
+
+for tool in "${tools[@]}"; do
+    if command -v "$tool" &> /dev/null; then
+        version=$($tool --version 2>&1 | head -1 || echo "version unavailable")
+        echo "$tool: $version" >> environment_report.txt
+    fi
+done
+
+cat << EOF >> environment_report.txt
+
+== Python Packages ==
+$(pip3 list 2>/dev/null | grep -E "volatility|yara|pefile|construct")
+
+== Network Configuration ==
+IP Address: $(hostname -I | awk '{print $1}')
+DNS: $(cat /etc/resolv.conf | grep nameserver | awk '{print $2}' | head -1)
+
+EOF
+
+echo "Environment report saved to environment_report.txt"
+```
+
+**Command-Line History Preservation:**
+
+Complete command log with timestamps:
+
+```bash
+# Enable detailed history
+export HISTTIMEFORMAT="%F %T "
+export HISTFILE=~/.forensic_analysis_history
+export HISTSIZE=10000
+export HISTFILESIZE=10000
+
+# Save all commands
+history > evidence/command_history.txt
+
+# Alternatively, use script
+script -a analysis_session.log
+# All commands and output recorded
+exit
+```
+
+Filter to analysis commands only:
+
+```bash
+grep -E "strings|binwalk|volatility|exiftool|dd|grep|find" \
+    ~/.bash_history > evidence/analysis_commands.txt
+```
+
+**Docker/Container-Based Analysis:**
+
+Create reproducible analysis environment:
+
+```dockerfile
+# Dockerfile.forensics
+FROM ubuntu:22.04
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install forensic tools
+RUN apt-get update && apt-get install -y \
+    binwalk \
+    foremost \
+    steghide \
+    exiftool \
+    sleuthkit \
+    autopsy \
+    wireshark-common \
+    tcpdump \
+    python3-pip \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python tools
+RUN pip3 install volatility3 yara-python pefile
+
+# Set working directory
+WORKDIR /analysis
+
+# Label for documentation
+LABEL description="CTF Forensics Analysis Environment v1.0"
+LABEL tools="binwalk,foremost,volatility,sleuthkit"
+LABEL version="1.0"
+LABEL maintainer="analyst@example.com"
+
+CMD ["/bin/bash"]
+```
+
+Build and use:
+
+```bash
+# Build image
+docker build -t ctf-forensics:v1.0 -f Dockerfile.forensics .
+
+# Run analysis
+docker run --rm -v $(pwd)/evidence:/analysis ctf-forensics:v1.0
+
+# Document exact image
+docker save ctf-forensics:v1.0 | gzip > ctf-forensics_v1.0.tar.gz
+docker inspect ctf-forensics:v1.0 > ctf-forensics_v1.0_metadata.json
+```
+
+**Scripted Analysis Workflows:**
+
+Complete analysis script with documentation:
+
+```bash
+#!/bin/bash
+# analyze_disk_image.sh - Reproducible disk image analysis
+#
+# Description: Comprehensive forensic analysis of disk image
+# Author: analyst_name
+# Date: 2025-10-25
+# Version: 1.0
+#
+# Requirements:
+#   - sleuthkit (fls, blkls, icat)
+#   - binwalk
+#   - foremost
+#
+# Usage: ./analyze_disk_image.sh <image_file> <output_dir>
+
+set -euo pipefail  # Exit on error, undefined variables
+
+# Input validation
+if [ $# -ne 2 ]; then
+    echo "Usage: $0 <image_file> <output_dir>"
+    exit 1
+fi
+
+IMAGE="$1"
+OUTPUT="$2"
+
+# Verify image exists
+if [ ! -f "$IMAGE" ]; then
+    echo "Error: Image file not found: $IMAGE"
+    exit 1
+fi
+
+# Create output structure
+mkdir -p "$OUTPUT"/{timeline,carved_files,strings,hashes}
+
+echo "[*] Starting analysis at $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+# Document environment
+echo "[+] Documenting environment"
+uname -a > "$OUTPUT/environment.txt"
+date -u >> "$OUTPUT/environment.txt"
+mmls --version >> "$OUTPUT/environment.txt" 2>&1 || true
+
+# Hash original image
+echo "[+] Hashing evidence file"
+sha256sum "$IMAGE" > "$OUTPUT/hashes/original_image.sha256"
+
+# Identify filesystem
+echo "[+] Analyzing partition structure"
+mmls "$IMAGE" > "$OUTPUT/partition_table.txt" 2>&1 || echo "No partition table"
+
+# Generate timeline
+echo "[+] Generating filesystem timeline"
+fls -r -m / "$IMAGE" > "$OUTPUT/timeline/bodyfile.txt"
+mactime -b "$OUTPUT/timeline/bodyfile.txt" -d > "$OUTPUT/timeline/timeline.csv"
+
+# File carving
+echo "[+] Carving files with foremost"
+foremost -i "$IMAGE" -o "$OUTPUT/carved_files" -q
+
+# String extraction
+echo "[+] Extracting strings"
+strings -n 8 "$IMAGE" > "$OUTPUT/strings/all_strings.txt"
+strings -n 8 "$IMAGE" | grep -iE "flag|password|key|secret" > "$OUTPUT/strings/interesting.txt" || true
+
+# Binwalk analysis
+echo "[+] Running binwalk"
+binwalk -e "$IMAGE" -C "$OUTPUT/binwalk_extracted" 2>&1 | tee "$OUTPUT/binwalk_output.txt"
+
+# Generate report
+cat << EOF > "$OUTPUT/ANALYSIS_REPORT.txt"
+Forensic Analysis Report
+========================
+Image: $IMAGE
+Analyst: $(whoami)
+Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+Analysis Host: $(hostname)
+
+Image Hash (SHA256):
+$(cat "$OUTPUT/hashes/original_image.sha256")
+
+Partition Structure:
+$(cat "$OUTPUT/partition_table.txt")
+
+Timeline Generated: $OUTPUT/timeline/timeline.csv
+Carved Files: $OUTPUT/carved_files/
+String Analysis: $OUTPUT/strings/
+
+Commands Executed:
+1. mmls "$IMAGE"
+2. fls -r -m / "$IMAGE"
+3. mactime -b bodyfile.txt -d
+4. foremost -i "$IMAGE" -o carved_files
+5. strings -n 8 "$IMAGE"
+6. binwalk -e "$IMAGE"
+
+EOF
+
+echo "[*] Analysis complete at $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+echo "[*] Results saved to: $OUTPUT"
+```
+
+**Makefile for Reproducible Analysis:**
+
+```makefile
+# Makefile for forensic analysis
+# Usage: make all IMAGE=evidence.dd
+
+IMAGE ?= disk.img
+OUTPUT_DIR ?= analysis_results
+TIMESTAMP := $(shell date +%Y%m%d_%H%M%S)
+
+.PHONY: all clean environment hash timeline carve strings report
+
+all: environment hash timeline carve strings report
+
+environment:
+	@echo "Documenting environment..."
+	mkdir -p $(OUTPUT_DIR)
+	uname -a > $(OUTPUT_DIR)/environment.txt
+	date >> $(OUTPUT_DIR)/environment.txt
+	mmls --version >> $(OUTPUT_DIR)/environment.txt 2>&1 || true
+
+hash:
+	@echo "Hashing evidence..."
+	mkdir -p $(OUTPUT_DIR)/hashes
+	sha256sum $(IMAGE) > $(OUTPUT_DIR)/hashes/image_$(TIMESTAMP).sha256
+	md5sum $(IMAGE) > $(OUTPUT_DIR)/hashes/image_$(TIMESTAMP).md5
+
+timeline:
+	@echo "Generating timeline..."
+	mkdir -p $(OUTPUT_DIR)/timeline
+	fls -r -m / $(IMAGE) > $(OUTPUT_DIR)/timeline/bodyfile.txt
+	mactime -b $(OUTPUT_DIR)/timeline/bodyfile.txt -d > $(OUTPUT_DIR)/timeline/timeline.csv
+
+carve:
+	@echo "Carving files..."
+	mkdir -p $(OUTPUT_DIR)/carved
+	foremost -i $(IMAGE) -o $(OUTPUT_DIR)/carved -q
+
+strings:
+	@echo "Extracting strings..."
+	mkdir -p $(OUTPUT_DIR)/strings
+	strings -n 8 $(IMAGE) > $(OUTPUT_DIR)/strings/all.txt
+	grep -iE "flag|password|key" $(OUTPUT_DIR)/strings/all.txt > $(OUTPUT_DIR)/strings/interesting.txt || true
+
+report:
+	@echo "Generating report..."
+	@echo "Analysis Report - $(TIMESTAMP)" > $(OUTPUT_DIR)/REPORT.txt
+	@echo "Image: $(IMAGE)" >> $(OUTPUT_DIR)/REPORT.txt
+	@echo "Analysis completed: $(shell date)" >> $(OUTPUT_DIR)/REPORT.txt
+
+clean:
+	rm -rf $(OUTPUT_DIR)
+
+verify:
+	@echo "Verifying hashes..."
+	sha256sum -c $(OUTPUT_DIR)/hashes/image_*.sha256
+```
+
+**Jupyter Notebook Documentation:**
+
+For complex analysis with inline documentation:
+
+```python
+# forensic_analysis.ipynb
+
+# Cell 1: Environment Setup (continued)
+import os
+import hashlib
+import subprocess
+from datetime import datetime
+import pandas as pd
+import json
+
+print(f"Analysis started: {datetime.utcnow().isoformat()}Z")
+print(f"Working directory: {os.getcwd()}")
+print(f"Python version: {subprocess.check_output(['python3', '--version']).decode().strip()}")
+
+# Cell 2: Evidence Documentation
+evidence_file = "disk.img"
+
+def calculate_hash(filepath):
+    """Calculate SHA256 hash of file"""
+    sha256_hash = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        for byte_block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(byte_block)
+    return sha256_hash.hexdigest()
+
+evidence_hash = calculate_hash(evidence_file)
+evidence_size = os.path.getsize(evidence_file)
+
+print(f"Evidence File: {evidence_file}")
+print(f"SHA256: {evidence_hash}")
+print(f"Size: {evidence_size:,} bytes ({evidence_size/1024/1024:.2f} MB)")
+
+# Cell 3: Timeline Generation
+timeline_cmd = f"fls -r -m / {evidence_file}"
+timeline_output = subprocess.check_output(timeline_cmd, shell=True).decode()
+
+# Parse timeline into DataFrame
+timeline_data = []
+for line in timeline_output.split('\n'):
+    if line.strip():
+        parts = line.split('|')
+        if len(parts) >= 10:
+            timeline_data.append({
+                'md5': parts[0],
+                'filename': parts[1],
+                'inode': parts[2],
+                'mode': parts[3],
+                'uid': parts[4],
+                'gid': parts[5],
+                'size': parts[6],
+                'atime': parts[7],
+                'mtime': parts[8],
+                'ctime': parts[9],
+                'crtime': parts[10] if len(parts) > 10 else ''
+            })
+
+df_timeline = pd.DataFrame(timeline_data)
+print(f"Timeline entries: {len(df_timeline)}")
+df_timeline.head()
+
+# Cell 4: Suspicious File Detection
+# Find files with timestamp anomalies
+suspicious_files = df_timeline[
+    (df_timeline['mtime'] < df_timeline['ctime']) |
+    (df_timeline['mtime'].str.contains('1970-01-01', na=False))
+]
+
+print(f"Files with timestamp anomalies: {len(suspicious_files)}")
+suspicious_files[['filename', 'mtime', 'ctime']].head(10)
+
+# Cell 5: String Extraction
+strings_cmd = f"strings -n 8 {evidence_file}"
+all_strings = subprocess.check_output(strings_cmd, shell=True).decode()
+
+# Search for interesting patterns
+patterns = ['flag', 'password', 'CTF{', 'secret', 'key', 'token']
+interesting_strings = []
+
+for line in all_strings.split('\n'):
+    for pattern in patterns:
+        if pattern.lower() in line.lower():
+            interesting_strings.append(line)
+            break
+
+print(f"Total strings: {len(all_strings.split())}")
+print(f"Interesting strings: {len(interesting_strings)}")
+print("\nSample interesting strings:")
+for s in interesting_strings[:10]:
+    print(f"  {s}")
+
+# Cell 6: Findings Summary
+findings = {
+    'analysis_date': datetime.utcnow().isoformat() + 'Z',
+    'evidence_file': evidence_file,
+    'evidence_hash': evidence_hash,
+    'timeline_entries': len(df_timeline),
+    'suspicious_files': len(suspicious_files),
+    'interesting_strings': len(interesting_strings)
+}
+
+print(json.dumps(findings, indent=2))
+
+# Save findings
+with open('findings_summary.json', 'w') as f:
+    json.dump(findings, f, indent=2)
+```
+
+**Version Control for Analysis:**
+
+Git repository for forensic project:
+
+```bash
+# Initialize repository
+git init forensic-analysis
+cd forensic-analysis
+
+# Create .gitignore
+cat << EOF > .gitignore
+# Exclude large evidence files
+*.img
+*.dd
+*.raw
+*.vmem
+*.dmp
+
+# Exclude extracted/carved files
+carved_files/
+extracted/
+
+# Keep scripts and reports
+!scripts/
+!reports/
+!evidence/hashes.txt
+!evidence/evidence_log.json
+EOF
+
+# Commit analysis scripts
+git add scripts/ Makefile Dockerfile.forensics
+git commit -m "Initial commit: analysis framework"
+
+# Tag versions
+git tag -a v1.0 -m "Analysis version 1.0 - Initial findings"
+```
+
+**Configuration Management:**
+
+YAML configuration for reproducible parameters:
+
+```yaml
+# analysis_config.yaml
+analysis:
+  version: "1.0"
+  analyst: "analyst_name"
+  case_id: "CTF-2025-001"
+  
+evidence:
+  source_file: "disk.img"
+  source_hash_sha256: "abc123def456..."
+  acquisition_date: "2025-10-25T14:00:00Z"
+  
+tools:
+  sleuthkit_version: "4.11.1"
+  volatility_version: "3.0"
+  binwalk_version: "2.3.3"
+  
+parameters:
+  timeline:
+    filesystem_offset: 0
+    timezone: "UTC"
+  
+  strings:
+    min_length: 8
+    encoding: "ascii"
+  
+  carving:
+    enabled_types:
+      - jpg
+      - png
+      - zip
+      - pdf
+    
+output:
+  base_directory: "analysis_results"
+  report_format: "markdown"
+  screenshot_format: "png"
+```
+
+Load in scripts:
+
+```python
+#!/usr/bin/env python3
+import yaml
+
+with open('analysis_config.yaml', 'r') as f:
+    config = yaml.safe_load(f)
+
+print(f"Analysis version: {config['analysis']['version']}")
+print(f"Evidence file: {config['evidence']['source_file']}")
+```
+
+**Automated Testing for Analysis Scripts:**
+
+Test framework for validation:
+
+```bash
+#!/bin/bash
+# test_analysis.sh - Validate analysis scripts
+
+set -e
+
+echo "[*] Running analysis script tests..."
+
+# Test 1: Script exists and is executable
+if [ ! -x "analyze_disk_image.sh" ]; then
+    echo "[FAIL] analyze_disk_image.sh not executable"
+    exit 1
+fi
+echo "[PASS] Script executable"
+
+# Test 2: Required tools installed
+required_tools=("fls" "mmls" "strings" "binwalk" "foremost")
+for tool in "${required_tools[@]}"; do
+    if ! command -v "$tool" &> /dev/null; then
+        echo "[FAIL] Required tool not found: $tool"
+        exit 1
+    fi
+done
+echo "[PASS] All required tools available"
+
+# Test 3: Run on test image
+test_image="test_data/test.img"
+if [ -f "$test_image" ]; then
+    echo "[*] Running analysis on test image..."
+    ./analyze_disk_image.sh "$test_image" "test_output" > /dev/null 2>&1
+    
+    # Verify outputs created
+    if [ ! -f "test_output/ANALYSIS_REPORT.txt" ]; then
+        echo "[FAIL] Report not generated"
+        exit 1
+    fi
+    
+    if [ ! -f "test_output/hashes/original_image.sha256" ]; then
+        echo "[FAIL] Hash not generated"
+        exit 1
+    fi
+    
+    echo "[PASS] Analysis completed successfully"
+    rm -rf test_output
+else
+    echo "[SKIP] Test image not found"
+fi
+
+echo "[*] All tests passed"
+```
+
+**Peer Review Checklist:**
+
+Documentation for review process:
+
+```markdown
+# Forensic Analysis Peer Review Checklist
+
+## Evidence Handling
+- [ ] Evidence hash documented and verified
+- [ ] Chain of custody maintained
+- [ ] Write-blocking used during acquisition
+- [ ] Original evidence preserved
+
+## Methodology
+- [ ] Analysis environment documented
+- [ ] Tool versions recorded
+- [ ] All commands documented
+- [ ] Analysis reproducible from documentation
+
+## Findings
+- [ ] Each finding has supporting evidence
+- [ ] Screenshots include timestamps and context
+- [ ] File paths and hashes provided
+- [ ] Confidence levels indicated
+
+## Technical Accuracy
+- [ ] Commands syntactically correct
+- [ ] Tool output interpretation accurate
+- [ ] No unsupported claims [Unverified]
+- [ ] Speculation clearly marked [Speculation]
+
+## Report Quality
+- [ ] Executive summary clear for non-technical audience
+- [ ] Technical details sufficient for experts
+- [ ] Timeline accurate and complete
+- [ ] Recommendations actionable
+
+## Reproducibility
+- [ ] Analysis steps can be followed
+- [ ] Required tools and versions listed
+- [ ] Configuration files included
+- [ ] Test data or examples provided
+
+Reviewer: _______________
+Date: _______________
+Result: [ ] APPROVED  [ ] NEEDS REVISION
+```
+
+**Continuous Analysis Documentation:**
+
+Real-time documentation using comments:
+
+```bash
+#!/bin/bash
+# Live analysis with inline documentation
+
+# =================================================================
+# FINDING: Suspicious SUID binary discovered
+# DATE: 2025-10-25 14:45:00 UTC
+# SEVERITY: HIGH
+# =================================================================
+
+echo "[*] Searching for SUID binaries..."
+find / -type f -perm -4000 -ls 2>/dev/null | tee findings/suid_binaries.txt
+
+# RESULT: Found unusual SUID binary at /usr/local/bin/backup
+# HASH: sha256sum /usr/local/bin/backup
+# OUTPUT: 7f8a9b3c... (saved to findings/backup_binary.sha256)
+
+# =================================================================
+# ANALYSIS: Binary appears to have shell command injection vulnerability
+# EXPLOITATION: Confirmed privilege escalation to root
+# EVIDENCE: Screenshot saved to evidence/002_privesc_suid.png
+# =================================================================
+
+echo "[*] Extracting binary for further analysis..."
+cp /usr/local/bin/backup evidence/artifacts/
+sha256sum evidence/artifacts/backup > evidence/artifacts/backup.sha256
+
+# Continue analysis...
+```
+
+**Metadata Preservation:**
+
+Extended attributes and metadata:
+
+```bash
+# Preserve all file metadata
+getfattr -d -m ".*" suspicious_file > suspicious_file.xattr
+stat suspicious_file > suspicious_file.stat
+
+# Create forensic package with metadata
+tar --xattrs --acls -czf evidence_package.tar.gz evidence/
+```
+
+**Report Templates Repository:**
+
+Maintain template library:
+
+```
+templates/
+├── executive_summary.md
+├── technical_finding.md
+├── timeline_template.csv
+├── evidence_log_template.json
+└── report_full_template.md
+```
+
+Use templates:
+
+```bash
+# Generate new report from template
+cp templates/report_full_template.md reports/analysis_$(date +%Y%m%d).md
+
+# Populate with findings
+sed -i "s/\[CASE_ID\]/CTF-2025-001/g" reports/analysis_*.md
+sed -i "s/\[DATE\]/$(date -u '+%Y-%m-%d')/g" reports/analysis_*.md
+```
+
+**Automated Report Compilation:**
+
+Combine multiple sources into final report:
+
+```python
+#!/usr/bin/env python3
+# compile_report.py - Aggregate findings into final report
+
+import glob
+import json
+from datetime import datetime
+
+class ReportCompiler:
+    def __init__(self, output_file="FINAL_REPORT.md"):
+        self.output_file = output_file
+        self.sections = []
+        
+    def add_header(self):
+        header = f"""# Forensic Analysis Final Report
+
+**Case ID**: CTF-2025-001
+**Generated**: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}
+**Analyst**: {os.getenv('USER', 'Unknown')}
+
+---
+
+"""
+        self.sections.append(header)
+    
+    def add_findings(self, findings_dir="findings/"):
+        self.sections.append("## Findings\n\n")
+        
+        # Load all finding files
+        for finding_file in sorted(glob.glob(f"{findings_dir}/*.json")):
+            with open(finding_file, 'r') as f:
+                finding = json.load(f)
+                
+            finding_md = f"""### [{finding['severity']}] {finding['title']}
+
+**ID**: {finding['id']}
+**Date**: {finding['timestamp']}
+
+{finding['description']}
+
+**Evidence**: {finding['evidence']}
+
+---
+
+"""
+            self.sections.append(finding_md)
+    
+    def add_timeline(self, timeline_file="evidence/timeline.csv"):
+        self.sections.append("## Timeline\n\n")
+        
+        with open(timeline_file, 'r') as f:
+            # Include first 50 timeline entries
+            lines = f.readlines()[:50]
+            
+        self.sections.append("```\n")
+        self.sections.append(''.join(lines))
+        self.sections.append("```\n\n")
+        self.sections.append(f"*Complete timeline: {timeline_file}*\n\n")
+    
+    def add_evidence_list(self, evidence_log="evidence/evidence_log.json"):
+        self.sections.append("## Evidence Log\n\n")
+        
+        with open(evidence_log, 'r') as f:
+            evidence = json.load(f)
+        
+        self.sections.append("| ID | Type | File | SHA256 |\n")
+        self.sections.append("|----|------|------|--------|\n")
+        
+        for item in evidence['evidence']:
+            sha_short = item['sha256'][:16] + "..."
+            self.sections.append(f"| {item['id']} | {item['type']} | {item['file']} | {sha_short} |\n")
+        
+        self.sections.append("\n")
+    
+    def compile(self):
+        self.add_header()
+        self.add_findings()
+        self.add_timeline()
+        self.add_evidence_list()
+        
+        with open(self.output_file, 'w') as f:
+            f.write(''.join(self.sections))
+        
+        print(f"Report compiled: {self.output_file}")
+
+# Usage
+compiler = ReportCompiler()
+compiler.compile()
+```
+
+**Archive and Preservation:**
+
+Long-term storage format:
+
+```bash
+#!/bin/bash
+# archive_analysis.sh - Create archival package
+
+CASE_ID="CTF-2025-001"
+ARCHIVE_NAME="${CASE_ID}_archive_$(date +%Y%m%d).tar.gz"
+
+# Create archive structure
+mkdir -p archive/{evidence,reports,scripts,metadata}
+
+# Copy evidence with hashes
+cp -r evidence/* archive/evidence/
+find archive/evidence -type f -exec sha256sum {} \; > archive/metadata/evidence_hashes.txt
+
+# Copy reports
+cp reports/*.md reports/*.pdf archive/reports/ 2>/dev/null || true
+
+# Copy analysis scripts
+cp scripts/*.sh scripts/*.py Makefile archive/scripts/
+
+# Generate metadata
+cat << EOF > archive/metadata/case_metadata.json
+{
+  "case_id": "$CASE_ID",
+  "archived_date": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+  "analyst": "$(whoami)",
+  "archive_format": "tar.gz with SHA256 verification",
+  "contents": {
+    "evidence_items": $(find archive/evidence -type f | wc -l),
+    "reports": $(find archive/reports -type f | wc -l),
+    "scripts": $(find archive/scripts -type f | wc -l)
+  }
+}
+EOF
+
+# Create signed archive
+tar -czf "$ARCHIVE_NAME" archive/
+sha256sum "$ARCHIVE_NAME" > "${ARCHIVE_NAME}.sha256"
+gpg --detach-sign --armor "$ARCHIVE_NAME"
+
+echo "[*] Archive created: $ARCHIVE_NAME"
+echo "[*] Hash: ${ARCHIVE_NAME}.sha256"
+echo "[*] Signature: ${ARCHIVE_NAME}.asc"
+
+# Cleanup
+rm -rf archive/
+```
+
+**Important Subtopics for Further Study:**
+
+- Legal admissibility of digital evidence
+- Expert witness testimony preparation
+- Automated report generation tools (案 Autopsy, GRR)
+- Collaborative forensic platforms (TheHive, MISP)
+- Standards compliance (ISO 27037, NIST SP 800-86)
+- Report redaction for sensitive information
+
+---
+
+# Kali Linux Forensics Tools
+
+Kali Linux includes a comprehensive suite of digital forensics tools for disk analysis, file recovery, and evidence examination. These tools form the foundation of forensic investigations in CTF challenges and real-world scenarios.
+
+## Autopsy Framework
+
+Autopsy is a graphical interface for The Sleuth Kit and other forensic tools, providing case management, timeline analysis, keyword searching, and automated artifact extraction.
+
+### Installation and Setup
+
+```bash
+# Autopsy is pre-installed in Kali, but verify/install:
+sudo apt update
+sudo apt install autopsy
+
+# Start Autopsy service
+autopsy
+
+# Access web interface at: http://localhost:9999/autopsy
+```
+
+### Case Management
+
+**Creating a new case**:
+
+```bash
+# Launch Autopsy
+autopsy
+
+# Web interface workflow:
+# 1. Click "New Case"
+# 2. Enter case name, description, investigator names
+# 3. Create host (system being investigated)
+# 4. Add image file (E01, raw DD, AFF formats supported)
+```
+
+**Command-line case creation** [Inference: Via TSK backend]:
+
+```bash
+# Create case directory structure
+mkdir -p /cases/case_001/{evidence,reports,notes}
+
+# Copy evidence to case directory
+cp disk_image.dd /cases/case_001/evidence/
+
+# Document case metadata
+cat > /cases/case_001/case_info.txt << EOF
+Case ID: CASE_001
+Date Created: $(date)
+Investigator: Analyst Name
+Description: CTF disk analysis challenge
+Evidence Hash: $(sha256sum /cases/case_001/evidence/disk_image.dd | awk '{print $1}')
+EOF
+```
+
+### Image Analysis Workflow
+
+**Adding disk images**:
+
+```bash
+# Supported formats:
+# - Raw (DD, IMG, BIN)
+# - Expert Witness Format (E01, Ex01)
+# - Advanced Forensic Format (AFF, AFD)
+# - Virtual machine formats (VMDK, VHD)
+
+# Generate MD5/SHA256 verification
+md5sum disk_image.dd > disk_image.dd.md5
+sha256sum disk_image.dd > disk_image.dd.sha256
+
+# Mount image read-only for Autopsy analysis
+# Autopsy handles this automatically via TSK
+```
+
+**File system analysis**:
+
+```bash
+# Autopsy automatically detects and analyzes:
+# - Partition tables (MBR, GPT)
+# - File systems (ext2/3/4, NTFS, FAT, HFS+, APFS)
+# - Volume shadow copies (VSS)
+# - Encrypted volumes (with proper keys)
+
+# Access via Autopsy interface:
+# Directory Tree → Navigate file system structure
+# File Views → Deleted files, by type, by extension
+```
+
+### Automated Artifact Extraction
+
+**Ingest modules** - Automated analysis plugins:
+
+```bash
+# Common ingest modules:
+# - Recent Activity: Browser history, downloads, cookies
+# - Hash Lookup: NSRL, custom hash sets
+# - File Type Identification: Signature-based detection
+# - Extension Mismatch: Detect renamed files
+# - Embedded File Extractor: Archives, documents, images
+# - EXIF Parser: Image metadata extraction
+# - Email Parser: PST, MBOX, EML files
+# - Keyword Search: Text string matching
+# - Encryption Detection: Identify encrypted files
+# - Interesting Files: System files, logs, artifacts
+
+# Configuration via Autopsy GUI:
+# Tools → Options → Ingest Modules
+# Select modules for automated processing
+```
+
+**Keyword searching**:
+
+```bash
+# Configure keyword lists in Autopsy:
+# Tools → Options → Keyword Search
+
+# Create custom keyword list file
+cat > /cases/keywords.txt << EOF
+password
+admin
+root
+confidential
+secret
+flag{
+CTF{
+user_credentials
+private_key
+EOF
+
+# Import into Autopsy: Keyword Search → Import List
+# Search types: Literal, Regex, Exact match
+
+# Regex examples for CTF flags:
+# flag\{[A-Za-z0-9_]+\}
+# CTF\{[^\}]+\}
+# [A-Fa-f0-9]{32}  # MD5 hashes
+```
+
+### Timeline Analysis
+
+**Timeline creation**:
+
+```bash
+# Autopsy generates timelines from:
+# - File MAC times (Modified, Accessed, Created)
+# - Registry timestamps
+# - Log file entries
+# - Browser history
+# - Email timestamps
+
+# Access: Tools → Timeline
+
+# Export timeline for external analysis
+# Timeline → Export → CSV/Excel format
+
+# Manual timeline with mactime (TSK)
+fls -r -m / disk_image.dd > bodyfile.txt
+mactime -b bodyfile.txt -d -z UTC > timeline.csv
+
+# Filter timeline by date range
+mactime -b bodyfile.txt -d 2025-10-01..2025-10-25 > filtered_timeline.csv
+```
+
+### Hash Analysis
+
+**Hash set configuration**:
+
+```bash
+# NSRL (National Software Reference Library) - known good files
+# Download from: https://www.nist.gov/itl/ssd/software-quality-group/national-software-reference-library-nsrl
+
+# Import NSRL into Autopsy:
+# Tools → Options → Hash Sets → Import Hash Set
+# Select NSRL database file
+
+# Create custom hash sets for malware/IOCs
+md5sum known_malware/* > malware_hashes.txt
+
+# Format: MD5,Filename,Comment
+# Import: Tools → Options → Hash Sets → New Hash Set
+```
+
+**Hash lookup during analysis**:
+
+```bash
+# Autopsy automatically calculates MD5 for all files
+# Compares against configured hash sets:
+# - Known (NSRL) - filter out OS files
+# - Notable (custom) - flag suspicious files
+
+# Results in: Hash Set Hits node in directory tree
+```
+
+### Reporting
+
+**Generate investigation reports**:
+
+```bash
+# Autopsy report generation:
+# Tools → Generate Report
+
+# Available formats:
+# - HTML (comprehensive, includes images)
+# - Excel (tabular data)
+# - KML (geolocation data for Google Earth)
+# - Text (simple format)
+
+# Report contents selection:
+# - File listings
+# - Timeline
+# - Keyword hits
+# - Hash set hits
+# - Tagged items
+# - Bookmarked results
+
+# Custom report with TSK utilities
+cat > generate_report.sh << 'EOF'
+#!/bin/bash
+IMAGE=$1
+OUTPUT=$2
+
+echo "=== Forensic Analysis Report ===" > $OUTPUT
+echo "Image: $IMAGE" >> $OUTPUT
+echo "Date: $(date)" >> $OUTPUT
+echo "Hash: $(md5sum $IMAGE)" >> $OUTPUT
+echo "" >> $OUTPUT
+
+echo "=== Partition Information ===" >> $OUTPUT
+mmls $IMAGE >> $OUTPUT
+echo "" >> $OUTPUT
+
+echo "=== File System Information ===" >> $OUTPUT
+fsstat -o 2048 $IMAGE >> $OUTPUT
+echo "" >> $OUTPUT
+
+echo "=== Deleted Files ===" >> $OUTPUT
+fls -rd -o 2048 $IMAGE >> $OUTPUT
+
+echo "Report generated: $OUTPUT"
+EOF
+
+chmod +x generate_report.sh
+./generate_report.sh disk_image.dd report.txt
+```
+
+### Advanced Features
+
+**Tagging and bookmarking**:
+
+```bash
+# During analysis, tag significant files:
+# Right-click file → Tag File → Select/Create Tag
+
+# Common tag categories:
+# - Evidence
+# - Suspicious
+# - Malware
+# - User Activity
+# - Exfiltration
+
+# Export tagged items:
+# Tools → Generate Report → Select "Tagged Items"
+```
+
+**Multi-user collaboration** [Unverified on all Autopsy versions]:
+
+```bash
+# Autopsy supports PostgreSQL for multi-user cases
+# Configure: Tools → Options → Multi-user
+
+# Setup PostgreSQL backend
+sudo apt install postgresql
+sudo -u postgres createuser autopsy
+sudo -u postgres createdb -O autopsy autopsy_cases
+
+# Configure Autopsy to use PostgreSQL
+# Multiple analysts can work on same case simultaneously
+```
+
+**Python scripting and automation**:
+
+```bash
+# Autopsy supports custom Python modules
+# Module location: ~/.autopsy/python_modules/
+
+# Example custom ingest module [Unverified example structure]:
+cat > ~/.autopsy/python_modules/custom_module.py << 'EOF'
+import jarray
+import inspect
+from java.lang import System
+from org.sleuthkit.datamodel import SleuthkitCase
+from org.sleuthkit.autopsy.ingest import IngestModule
+from org.sleuthkit.autopsy.ingest import IngestModuleFactoryAdapter
+from org.sleuthkit.autopsy.ingest import IngestMessage
+from org.sleuthkit.autopsy.casemodule import Case
+
+class CustomIngestModuleFactory(IngestModuleFactoryAdapter):
+    def getModuleDisplayName(self):
+        return "Custom Analysis Module"
+    
+    def getModuleDescription(self):
+        return "Performs custom forensic analysis"
+    
+    def createFileIngestModule(self, ingest_options):
+        return CustomIngestModule()
+
+class CustomIngestModule(IngestModule):
+    def process(self, file):
+        # Custom analysis logic
+        if file.getName().endswith('.txt'):
+            # Process text files
+            pass
+        return IngestModule.ProcessResult.OK
+EOF
+```
+
+## Sleuth Kit (TSK) Utilities
+
+The Sleuth Kit is a collection of command-line forensic tools for analyzing disk images and file systems. TSK provides the backend for Autopsy and can be used independently for scriptable analysis.
+
+### Core TSK Commands Overview
+
+|Command|Purpose|
+|---|---|
+|mmls|Display partition table|
+|mmstat|Display partition system details|
+|mmcat|Extract partition content|
+|fsstat|Display file system details|
+|fls|List file and directory names|
+|istat|Display inode/MFT entry details|
+|icat|Extract file content by inode|
+|ifind|Find inode by name or block|
+|blkls|List unallocated blocks|
+|blkcat|Display block content|
+|blkstat|Display block allocation status|
+|img_stat|Display image file details|
+|img_cat|Extract image content|
+
+### Partition Analysis
+
+**Identify partition layout**:
+
+```bash
+# Display partition table
+mmls disk_image.dd
+
+# Sample output:
+# DOS Partition Table
+# Offset Sector: 0
+# Units are in 512-byte sectors
+#
+#      Slot      Start        End          Length       Description
+# 000:  Meta      0000000000   0000000000   0000000001   Primary Table (#0)
+# 001:  -------   0000000000   0000002047   0000002048   Unallocated
+# 002:  000:000   0000002048   0020971519   0020969472   Linux (0x83)
+
+# Extract specific partition
+OFFSET=2048  # From mmls output
+dd if=disk_image.dd of=partition_001.dd bs=512 skip=$OFFSET
+
+# Or use mmcat to extract by slot number
+mmcat disk_image.dd 2 > partition_002.dd
+```
+
+**Partition metadata**:
+
+```bash
+# Display partition system information
+mmstat disk_image.dd
+
+# Advanced partition analysis
+mmls -t dos disk_image.dd  # Explicitly specify DOS partition table
+mmls -t gpt disk_image.dd  # GPT partition table
+mmls -t mac disk_image.dd  # Apple partition map
+mmls -t bsd disk_image.dd  # BSD disk label
+```
+
+### File System Analysis
+
+**File system metadata**:
+
+```bash
+# Display file system details (requires partition offset)
+fsstat -o 2048 disk_image.dd
+
+# Output includes:
+# - File system type (ext4, NTFS, FAT, etc.)
+# - Volume name
+# - Volume serial number
+# - Block size and count
+# - Inode information
+# - Journal information (ext3/4)
+# - Root directory inode
+
+# Example for ext4:
+fsstat -o 2048 disk_image.dd | grep -E "(File System Type|Volume Name|Inode Count|Block Size)"
+
+# Example for NTFS:
+fsstat -o 2048 disk_image.dd | grep -E "(File System Type|Volume Serial|Sector Size|Cluster Size)"
+```
+
+**File system walking**:
+
+```bash
+# List all files and directories
+fls -r -o 2048 disk_image.dd
+
+# Flags:
+# -r : Recursive listing
+# -d : Only deleted files
+# -u : Only unallocated files
+# -p : Display full path
+# -l : Long format (like ls -l)
+# -m : Output in mactime format
+
+# List deleted files only
+fls -rd -o 2048 disk_image.dd
+
+# Full path listing with details
+fls -rp -o 2048 disk_image.dd
+
+# List specific directory by inode
+fls -o 2048 disk_image.dd 12345
+
+# Filter by file type
+fls -r -o 2048 disk_image.dd | grep "\.jpg$"
+fls -r -o 2048 disk_image.dd | grep "\.pdf$"
+```
+
+### Inode/MFT Entry Analysis
+
+**Examine file metadata**:
+
+```bash
+# Display inode information
+istat -o 2048 disk_image.dd 12345
+
+# Output includes:
+# - Inode number
+# - File type and permissions
+# - UID/GID
+# - Size
+# - MAC times (Modified, Accessed, Changed)
+# - Block allocation
+# - Extended attributes
+# - Links count
+
+# Find inode by filename
+ifind -n /path/to/file -o 2048 disk_image.dd
+
+# Find inode by data block
+ifind -d 123456 -o 2048 disk_image.dd
+
+# Examine NTFS MFT entry
+istat -o 2048 ntfs_image.dd 5  # MFT entry 5
+
+# Check for Alternate Data Streams (NTFS)
+istat -o 2048 ntfs_image.dd 12345 | grep "Type: 128"
+```
+
+### File Extraction
+
+**Extract file content**:
+
+```bash
+# Extract by inode number
+icat -o 2048 disk_image.dd 12345 > extracted_file.bin
+
+# Extract deleted file (if inode known)
+icat -r -o 2048 disk_image.dd 12345 > recovered_deleted_file.bin
+
+# Extract all files in directory
+fls -r -o 2048 disk_image.dd | while read line; do
+    inode=$(echo $line | awk '{print $2}' | cut -d: -f1)
+    name=$(echo $line | awk '{$1=$2=""; print $0}' | sed 's/^ *//')
+    
+    if [ -n "$inode" ] && [ "$inode" -gt 0 ]; then
+        output_dir="extracted_files/$(dirname "$name")"
+        mkdir -p "$output_dir"
+        icat -o 2048 disk_image.dd $inode > "extracted_files/$name" 2>/dev/null
+    fi
+done
+
+# Extract specific NTFS Alternate Data Stream
+icat -o 2048 ntfs_image.dd 12345-128-4 > ads_stream.bin
+# Format: inode-attribute_type-attribute_id
+```
+
+**Slack space extraction**:
+
+```bash
+# Extract slack space from specific file
+icat -s -o 2048 disk_image.dd 12345 > slack_space.bin
+
+# Analyze slack space
+strings -a slack_space.bin
+hexdump -C slack_space.bin | head -50
+```
+
+### Block-Level Analysis
+
+**Unallocated space analysis**:
+
+```bash
+# Extract all unallocated blocks
+blkls -o 2048 disk_image.dd > unallocated.raw
+
+# Extract unallocated blocks in specific range
+blkls -o 2048 -s 1000 -e 2000 disk_image.dd > unallocated_range.raw
+
+# Display specific block content
+blkcat -o 2048 disk_image.dd 12345
+
+# Check block allocation status
+blkstat -o 2048 disk_image.dd 12345
+# Output: Allocated/Unallocated
+
+# Extract slack space from all files
+blkls -s -o 2048 disk_image.dd > all_slack_space.raw
+```
+
+**Data carving from unallocated space**:
+
+```bash
+# Extract unallocated space first
+blkls -o 2048 disk_image.dd > unallocated.dd
+
+# Carve files from unallocated space
+foremost -t all -i unallocated.dd -o carved_from_unallocated/
+scalpel unallocated.dd -o scalpel_output/
+
+# Search unallocated space for specific patterns
+strings -a unallocated.dd | grep -i "password"
+binwalk unallocated.dd
+```
+
+### Timeline Generation
+
+**Create comprehensive timeline**:
+
+```bash
+# Generate body file (intermediate format)
+fls -r -m / -o 2048 disk_image.dd > bodyfile.txt
+
+# Body file format: MD5|name|inode|mode_as_string|UID|GID|size|atime|mtime|ctime|crtime
+
+# Convert to human-readable timeline
+mactime -b bodyfile.txt -d > timeline.csv
+
+# Timeline with specific timezone
+mactime -b bodyfile.txt -d -z EST5EDT > timeline_est.csv
+
+# Filter by date range
+mactime -b bodyfile.txt -d 2025-10-01..2025-10-25 > filtered_timeline.csv
+
+# Timeline in specific format
+mactime -b bodyfile.txt -d -y > timeline.txt  # Tab-delimited
+```
+
+**Advanced timeline filtering**:
+
+```bash
+# Filter for specific file types
+grep "\.jpg\|\.png" bodyfile.txt | mactime -b - -d > image_timeline.csv
+
+# Filter for deleted files
+grep "(deleted)" bodyfile.txt | mactime -b - -d > deleted_timeline.csv
+
+# Events within specific hour
+mactime -b bodyfile.txt -d | grep "2025-10-25 14:"
+
+# Sort by activity type
+mactime -b bodyfile.txt -d | awk -F, '{print $2,$0}' | sort | cut -d' ' -f2-
+```
+
+### Journal and Log Analysis
+
+**ext3/ext4 journal analysis**:
+
+```bash
+# Identify journal location
+fsstat -o 2048 disk_image.dd | grep -i journal
+
+# Extract journal
+icat -o 2048 disk_image.dd 8 > journal.bin  # Inode 8 is typically journal
+
+# Analyze journal with jls (journal list)
+jls -o 2048 disk_image.dd
+
+# Extract specific journal entry
+jcat -o 2048 disk_image.dd 123 > journal_entry_123.bin
+```
+
+**NTFS $LogFile analysis**:
+
+```bash
+# $LogFile is MFT entry 2
+icat -o 2048 ntfs_image.dd 2 > logfile.bin
+
+# Parse NTFS journal [Inference: Requires specialized tools]
+# Tools: LogFileParser, NTFS Log Tracker
+
+# Basic examination
+xxd logfile.bin | head -100
+strings -a logfile.bin | head -50
+```
+
+### Scripting and Automation
+
+**Automated analysis script**:
+
+```bash
+#!/bin/bash
+# comprehensive_tsk_analysis.sh
+
+IMAGE=$1
+OUTPUT_DIR="tsk_analysis_$(date +%Y%m%d_%H%M%S)"
+
+if [ -z "$IMAGE" ]; then
+    echo "Usage: $0 <disk_image>"
+    exit 1
+fi
+
+mkdir -p "$OUTPUT_DIR"
+
+echo "[*] Analyzing $IMAGE..."
+echo "[*] Output directory: $OUTPUT_DIR"
+
+# Image info
+echo "[*] Gathering image information..."
+img_stat "$IMAGE" > "$OUTPUT_DIR/image_info.txt"
+
+# Partition analysis
+echo "[*] Analyzing partition table..."
+mmls "$IMAGE" > "$OUTPUT_DIR/partitions.txt"
+
+# Extract partition offsets
+OFFSETS=$(mmls "$IMAGE" | grep -E "^[0-9]{3}:" | awk '{print $3}')
+
+for OFFSET in $OFFSETS; do
+    PART_DIR="$OUTPUT_DIR/partition_$OFFSET"
+    mkdir -p "$PART_DIR"
+    
+    echo "[*] Analyzing partition at offset $OFFSET..."
+    
+    # File system stats
+    fsstat -o $OFFSET "$IMAGE" > "$PART_DIR/filesystem_info.txt" 2>/dev/null
+    
+    # File listing
+    fls -r -p -o $OFFSET "$IMAGE" > "$PART_DIR/file_list.txt" 2>/dev/null
+    
+    # Deleted files
+    fls -rd -p -o $OFFSET "$IMAGE" > "$PART_DIR/deleted_files.txt" 2>/dev/null
+    
+    # Timeline
+    fls -r -m / -o $OFFSET "$IMAGE" > "$PART_DIR/bodyfile.txt" 2>/dev/null
+    mactime -b "$PART_DIR/bodyfile.txt" -d > "$PART_DIR/timeline.csv" 2>/dev/null
+    
+    # Unallocated space
+    blkls -o $OFFSET "$IMAGE" > "$PART_DIR/unallocated.raw" 2>/dev/null
+    
+    echo "[*] Carving unallocated space for partition $OFFSET..."
+    foremost -t all -i "$PART_DIR/unallocated.raw" -o "$PART_DIR/carved" 2>/dev/null
+done
+
+echo "[*] Analysis complete!"
+echo "[*] Results saved to: $OUTPUT_DIR"
+```
+
+**Batch file extraction script**:
+
+```bash
+#!/bin/bash
+# extract_files_by_extension.sh
+
+IMAGE=$1
+OFFSET=$2
+EXTENSION=$3
+OUTPUT_DIR=$4
+
+if [ -z "$IMAGE" ] || [ -z "$OFFSET" ] || [ -z "$EXTENSION" ] || [ -z "$OUTPUT_DIR" ]; then
+    echo "Usage: $0 <image> <offset> <extension> <output_dir>"
+    echo "Example: $0 disk.dd 2048 jpg extracted_images"
+    exit 1
+fi
+
+mkdir -p "$OUTPUT_DIR"
+
+echo "[*] Extracting .$EXTENSION files from $IMAGE (offset: $OFFSET)"
+
+fls -r -p -o $OFFSET "$IMAGE" | grep "\.$EXTENSION$" | while read line; do
+    inode=$(echo "$line" | awk '{print $2}' | cut -d: -f1)
+    path=$(echo "$line" | awk '{$1=$2=""; print $0}' | sed 's/^ *//' | tr '/' '_')
+    
+    if [ -n "$inode" ] && [ "$inode" -gt 0 ]; then
+        output_file="$OUTPUT_DIR/${inode}_${path}"
+        echo "[*] Extracting: $path (inode: $inode)"
+        icat -o $OFFSET "$IMAGE" $inode > "$output_file" 2>/dev/null
+        
+        if [ $? -eq 0 ]; then
+            file "$output_file"
+        else
+            echo "[!] Failed to extract inode $inode"
+            rm -f "$output_file"
+        fi
+    fi
+done
+
+echo "[*] Extraction complete!"
+```
+
+## Foremost File Carving
+
+Foremost is a data recovery tool that uses header/footer signatures to carve files from disk images or raw data, independent of file system metadata.
+
+### Basic Usage
+
+```bash
+# Standard file carving
+foremost -i disk_image.dd -o output_directory
+
+# Specify file types
+foremost -t jpg,png,pdf -i disk_image.dd -o carved_images
+
+# Available file types:
+# jpg, gif, png, bmp, avi, exe, mpg, wav, riff, wmv, mov, pdf, ole, doc, 
+# zip, rar, htm, cpp, all
+
+# Carve all supported types
+foremost -t all -i disk_image.dd -o carved_all
+
+# Verbose output
+foremost -v -i disk_image.dd -o carved_verbose
+
+# Quick mode (less thorough but faster)
+foremost -q -i disk_image.dd -o carved_quick
+```
+
+### Configuration
+
+**Foremost configuration file**:
+
+```bash
+# Default config: /etc/foremost.conf
+# Create custom configuration
+cp /etc/foremost.conf ~/custom_foremost.conf
+
+# Edit configuration
+nano ~/custom_foremost.conf
+
+# Example configuration entries:
+# Format: type  casesensitive  max_size  header  footer
+
+# Standard JPEG
+jpg     y       5000000         \xff\xd8\xff\xe0\x00\x10        \xff\xd9
+
+# PNG with IEND chunk
+png     y       5000000         \x89PNG\x0d\x0a\x1a\x0a         IEND\xae\x42\x60\x82
+
+# PDF files
+pdf     y       10000000        %PDF                             %%EOF
+
+# ZIP archives (includes DOCX, XLSX, etc.)
+zip     y       100000000       PK\x03\x04                       PK\x05\x06
+
+# GIF images
+gif     y       5000000         GIF8                             \x00\x3b
+
+# Microsoft Office documents
+doc     y       10000000        \xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1
+
+# Use custom config
+foremost -c ~/custom_foremost.conf -i disk_image.dd -o output
+```
+
+**Custom signature examples**:
+
+```bash
+# Create custom signatures for CTF-specific files
+cat > ~/ctf_foremost.conf << 'EOF'
+# CTF Flag files
+flag    y       1000000         flag{                            }
+ctf     y       1000000         CTF{                             }
+
+# SQLite databases
+sqlite  y       100000000       SQLite format 3\x00
+
+# ELF binaries
+elf     y       50000000        \x7f\x45\x4c\x46                
+
+# PE executables
+exe     y       50000000        MZ
+
+# PCAP files
+pcap    y       100000000       \xd4\xc3\xb2\xa1
+
+# Bitcoin wallet
+wallet  y       10000000        \x01\x03\x6b\x65\x79              
+EOF
+
+# Use CTF-specific config
+foremost -c ~/ctf_foremost.conf -i challenge.dd -o ctf_carved
+```
+
+### Advanced Options
+
+```bash
+# Specify block size (default 512)
+foremost -b 4096 -i disk_image.dd -o output
+
+# Write audit file with detailed results
+foremost -w -i disk_image.dd -o output
+# Creates audit.txt with carved file details
+
+# Disable indirect block detection (faster)
+foremost -d -i disk_image.dd -o output
+
+# Carve only first N bytes of image
+foremost -i disk_image.dd -o output -s 1000000
+
+# Continue previous run
+foremost -i disk_image.dd -o output -c config.conf -w
+```
+
+### Output Analysis
+
+**Examine carved results**:
+
+```bash
+# Foremost creates subdirectories by type
+ls -lh output/
+# Directories: jpg/, png/, pdf/, zip/, etc.
+
+# Check audit file
+cat output/audit.txt
+# Contains: filename, start offset, carved length
+
+# Validate carved files
+for dir in output/*/; do
+    echo "=== $(basename $dir) ==="
+    for file in "$dir"*; do
+        if [ -f "$file" ]; then
+            echo "  $(basename $file): $(file -b "$file")"
+        fi
+    done
+done
+
+# Count recovered files by type
+for dir in output/*/; do
+    count=$(ls "$dir" 2>/dev/null | wc -l)
+    echo "$(basename $dir): $count files"
+done
+```
+
+**False positive filtering**:
+
+```bash
+# Many carved files may be corrupted or false positives
+# Verify file integrity
+
+# For images
+find output/jpg -type f -exec identify {} \; 2>&1 | grep -v "identify:"
+
+# For PDFs
+find output/pdf -type f -exec pdfinfo {} \; 2>&1 | grep -i "pages:"
+
+# For ZIP files
+find output/zip -type f -exec unzip -t {} \; 2>&1 | grep "OK"
+
+# Remove zero-byte files
+find output/ -type f -size 0 -delete
+
+# Remove files smaller than threshold
+find output/ -type f -size -1k -delete  # Delete files < 1KB
+```
+
+### Specialized Carving Scenarios
+
+**Carving from memory dumps**:
+
+```bash
+# Memory dumps often contain fragmented data
+foremost -t jpg,png,pdf,doc -i memory.dump -o carved_memory
+
+# Extract strings first for context
+strings -a memory.dump > memory_strings.txt
+grep -E "(http|ftp|password)" memory_strings.txt
+```
+
+**Carving from network captures**:
+
+```bash
+# Extract HTTP objects first
+tcpflow -r capture.pcap -o tcpflow_output
+
+# Carve from extracted streams
+for file in tcpflow_output/*; do
+    foremost -i "$file" -o "carved_$(basename $file)"
+done
+
+# Alternative: carve directly from PCAP
+foremost -t jpg,png,pdf,exe -i capture.pcap -o carved_pcap
+```
+
+**Carving encrypted containers** [Inference: Limited effectiveness]:
+
+```bash
+# Foremost can identify encrypted container headers
+# but cannot carve encrypted content
+
+# TrueCrypt/VeraCrypt headers
+echo "truecrypt y 10000000 TRUE" >> custom.conf
+
+# LUKS headers
+echo "luks y 1000000 LUKS\xba\xbe" >> custom.conf
+
+foremost -c custom.conf -i disk.dd -o encrypted_headers
+```
+
+### Performance Optimization
+
+```bash
+# Process specific sectors only
+dd if=disk_image.dd of=section.dd bs=512 skip=1000 count=10000
+foremost -i section.dd -o carved_section
+
+# Parallel processing with GNU parallel
+SECTORS=$(blockdev --getsz disk_image.dd 2>/dev/null || echo "20971520")
+CHUNK_SIZE=1000000
+
+seq 0 $CHUNK_SIZE $SECTORS | parallel -j 4 "
+    dd if=disk_image.dd of=chunk_{}.dd bs=512 skip={} count=$CHUNK_SIZE 2>/dev/null
+    foremost -q -i chunk_{}.dd -o carved_chunk_{}
+    rm chunk_{}.dd
+"
+
+# Merge results
+mkdir -p carved_merged
+for dir in carved_chunk_*/*/; do
+    type=$(basename $(dirname "$dir"))
+    mkdir -p "carved_merged/$type"
+    cp "$dir"* "carved_merged/$type/" 2>/dev/null
+done
+```
+
+## Scalpel Recovery Tool
+
+Scalpel is an enhanced file carving tool based on Foremost, offering better performance and more flexible configuration. It's optimized for large disk images and supports multithreading.
+
+### Installation and Setup
+
+```bash
+# Install Scalpel
+sudo apt update
+sudo apt install scalpel
+
+# Verify installation
+scalpel -V
+
+# Default configuration
+ls -l /etc/scalpel/scalpel.conf
+```
+
+### Basic Operation
+
+```bash
+# Basic file carving
+scalpel disk_image.dd -o output_directory
+
+# Scalpel requires configuration file
+# Enable file types in /etc/scalpel/scalpel.conf
+
+# Use custom configuration
+scalpel -c custom_scalpel.conf disk_image.dd -o output
+
+# Verbose output
+scalpel -v disk_image.dd -o output
+
+# Preview mode (don't write files, just log)
+scalpel -p disk_image.dd -o output
+
+# Quick mode
+scalpel -q disk_image.dd -o output
+```
+
+### Configuration
+
+**Scalpel configuration syntax**:
+
+```bash
+# Format: extension  case  maxsize  header  footer  [header_offset]
+
+# Copy default config
+cp /etc/scalpel/scalpel.conf ~/my_scalpel.conf
+
+# Edit configuration
+nano ~/my_scalpel.conf
+
+# Enable file types by uncommenting lines
+# Example enabled types:
+```
+
+**Example configuration file**:
+
+```bash
+cat > ~/scalpel_ctf.conf << 'EOF'
+# Scalpel configuration for CTF challenges
+# Format: extension  case_sensitive  max_size  header  footer
+
+# Images
+jpg     y       10000000        \xff\xd8\xff\xe0\x00\x10 \xff\xd9 jpg y 10000000 \xff\xd8\xff\xe1 \xff\xd9 png y 10000000 \x89\x50\x4e\x47\x0d\x0a\x1a\x0a \x49\x45\x4e\x44\xae\x42\x60\x82 gif y 10000000 \x47\x49\x46\x38\x37\x61 \x00\x3b gif y 10000000 \x47\x49\x46\x38\x39\x61 \x00\x3b bmp y 10000000 \x42\x4d
+
+# Documents
+
+pdf y 50000000 \x25\x50\x44\x46 \x25\x25\x45\x4f\x46 doc y 50000000 \xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1 docx y 50000000 \x50\x4b\x03\x04 \x50\x4b\x05\x06
+
+# Archives
+
+zip y 100000000 \x50\x4b\x03\x04 \x50\x4b\x05\x06 rar y 100000000 \x52\x61\x72\x21\x1a\x07\x00 rar y 100000000 \x52\x61\x72\x21\x1a\x07\x01\x00 gz y 50000000 \x1f\x8b\x08 tar y 100000000 \x75\x73\x74\x61\x72 7z y 100000000 \x37\x7a\xbc\xaf\x27\x1c
+
+# Executables
+
+exe y 50000000 \x4d\x5a elf y 50000000 \x7f\x45\x4c\x46
+
+# Multimedia
+
+mp3 y 50000000 \xff\xfb mp3 y 50000000 \x49\x44\x33 avi y 100000000 \x52\x49\x46\x46 mov y 100000000 \x00\x00\x00\x14\x66\x74\x79\x70 mp4 y 100000000 \x00\x00\x00\x18\x66\x74\x79\x70 wav y 50000000 \x52\x49\x46\x46 \x57\x41\x56\x45
+
+# Network captures
+
+pcap y 100000000 \xd4\xc3\xb2\xa1 pcap y 100000000 \xa1\xb2\xc3\xd4 pcapng y 100000000 \x0a\x0d\x0d\x0a
+
+# Databases
+
+sqlite y 100000000 \x53\x51\x4c\x69\x74\x65\x20\x66\x6f\x72\x6d\x61\x74\x20\x33\x00
+
+# CTF-specific
+
+flag y 1000000 flag{ } flag y 1000000 CTF{ } flag y 1000000 FLAG{ }
+
+# Encrypted containers
+
+luks y 10000000 \x4c\x55\x4b\x53\xba\xbe EOF
+
+````
+
+**Header offset configuration**:
+```bash
+# Some file types have variable header locations
+# Specify offset to improve accuracy
+
+cat >> ~/scalpel_advanced.conf << 'EOF'
+# Format: extension  case  maxsize  header  footer  header_offset
+
+# JPEG with EXIF offset consideration
+jpg     y       10000000        \xff\xd8\xff\xe1                \xff\xd9        0
+
+# ZIP local file header (may be preceded by data)
+zip     y       100000000       \x50\x4b\x03\x04                \x50\x4b\x05\x06        0
+
+# ELF with specific architecture markers
+elf     y       50000000        \x7f\x45\x4c\x46\x02\x01\x01    # 64-bit LSB
+elf     y       50000000        \x7f\x45\x4c\x46\x01\x01\x01    # 32-bit LSB
+EOF
+````
+
+### Advanced Usage
+
+**Specify carving range**:
+
+```bash
+# Carve specific byte range
+scalpel -b -o output disk_image.dd
+
+# Start at specific offset (bytes)
+scalpel -o output -s 1048576 disk_image.dd  # Start at 1MB
+
+# Process only N bytes
+scalpel -o output -i 10485760 disk_image.dd  # Process 10MB
+
+# Combine offset and length
+scalpel -o output -s 1048576 -i 10485760 disk_image.dd
+```
+
+**Organize output**:
+
+```bash
+# Organize by type (default behavior)
+scalpel -c config.conf disk_image.dd -o organized_output
+# Creates: jpg-0-0, jpg-1-0, png-0-0, etc.
+
+# Generate detailed audit log
+scalpel -v -c config.conf disk_image.dd -o output
+# Creates: audit.txt with offset, file type, size
+
+# Preview without extraction
+scalpel -p -c config.conf disk_image.dd -o preview_output
+# Only generates audit.txt, no carved files
+
+# Specify block size for reading
+scalpel -b -c config.conf disk_image.dd -o output
+# Default: 1MB blocks
+```
+
+### Performance Features
+
+**Multithreading** [Unverified: Check Scalpel version support]:
+
+```bash
+# Scalpel may support threading on some builds
+# Check with:
+scalpel -h | grep -i thread
+
+# If supported:
+scalpel -t 4 -c config.conf disk_image.dd -o output
+```
+
+**Memory management**:
+
+```bash
+# Scalpel is more memory-efficient than Foremost
+# Processes image in chunks
+
+# For very large images (>100GB)
+# Split image and process separately
+split -b 10G disk_image.dd chunk_
+for chunk in chunk_*; do
+    scalpel -c config.conf "$chunk" -o "output_${chunk}"
+done
+
+# Merge results
+mkdir -p merged_output
+for dir in output_chunk_*/; do
+    cp -r "$dir"/* merged_output/ 2>/dev/null
+done
+```
+
+### Output Analysis and Validation
+
+**Examine carved files**:
+
+```bash
+# Scalpel output structure
+ls -lh output_dir/
+# audit.txt: Detailed carving log
+# jpg-X-Y/: Carved JPEG files (X=type instance, Y=file number)
+# png-X-Y/: Carved PNG files
+# etc.
+
+# Read audit log
+cat output_dir/audit.txt
+# Format: filename  filestart  carved_length  header_offset
+
+# Example audit.txt entry:
+# jpg-0-0.jpg    512000    125643    0
+
+# Extract statistics from audit
+echo "=== Carving Statistics ==="
+for type in output_dir/*/ ; do
+    if [ -d "$type" ]; then
+        filetype=$(basename "$type" | cut -d'-' -f1)
+        count=$(ls "$type" 2>/dev/null | wc -l)
+        size=$(du -sh "$type" 2>/dev/null | cut -f1)
+        echo "$filetype: $count files ($size)"
+    fi
+done
+```
+
+**Validate carved files**:
+
+```bash
+#!/bin/bash
+# validate_carved.sh - Validate Scalpel output
+
+OUTPUT_DIR=$1
+
+if [ -z "$OUTPUT_DIR" ]; then
+    echo "Usage: $0 <scalpel_output_directory>"
+    exit 1
+fi
+
+echo "[*] Validating carved files in $OUTPUT_DIR"
+
+# Validate images
+if [ -d "$OUTPUT_DIR/jpg-"* ]; then
+    echo "[*] Validating JPEG files..."
+    for jpg in "$OUTPUT_DIR"/jpg-*/*.jpg; do
+        if [ -f "$jpg" ]; then
+            identify "$jpg" >/dev/null 2>&1
+            if [ $? -eq 0 ]; then
+                echo "  [OK] $(basename $jpg)"
+            else
+                echo "  [FAIL] $(basename $jpg)"
+                rm "$jpg"  # Remove corrupted files
+            fi
+        fi
+    done
+fi
+
+# Validate PDFs
+if [ -d "$OUTPUT_DIR/pdf-"* ]; then
+    echo "[*] Validating PDF files..."
+    for pdf in "$OUTPUT_DIR"/pdf-*/*.pdf; do
+        if [ -f "$pdf" ]; then
+            pdfinfo "$pdf" >/dev/null 2>&1
+            if [ $? -eq 0 ]; then
+                pages=$(pdfinfo "$pdf" | grep "Pages:" | awk '{print $2}')
+                echo "  [OK] $(basename $pdf) - $pages pages"
+            else
+                echo "  [FAIL] $(basename $pdf)"
+                rm "$pdf"
+            fi
+        fi
+    done
+fi
+
+# Validate ZIP files
+if [ -d "$OUTPUT_DIR/zip-"* ]; then
+    echo "[*] Validating ZIP files..."
+    for zip in "$OUTPUT_DIR"/zip-*/*.zip; do
+        if [ -f "$zip" ]; then
+            unzip -t "$zip" >/dev/null 2>&1
+            if [ $? -eq 0 ]; then
+                files=$(unzip -l "$zip" | tail -1 | awk '{print $2}')
+                echo "  [OK] $(basename $zip) - $files files"
+            else
+                echo "  [FAIL] $(basename $zip)"
+                rm "$zip"
+            fi
+        fi
+    done
+fi
+
+# Check for duplicate files (same hash)
+echo "[*] Checking for duplicates..."
+find "$OUTPUT_DIR" -type f -exec md5sum {} \; | \
+    sort | uniq -d -w32 | \
+    while read hash file; do
+        echo "  [DUPLICATE] $file"
+    done
+
+echo "[*] Validation complete"
+```
+
+### Comparison: Scalpel vs Foremost
+
+**Performance comparison** [Inference: Based on tool design]:
+
+|Feature|Scalpel|Foremost|
+|---|---|---|
+|Speed|Faster (optimized I/O)|Slower|
+|Memory usage|Lower|Higher|
+|Configuration|More flexible|Standard|
+|Accuracy|Similar|Similar|
+|Threading|Version-dependent|No|
+|Development|Less active|Less active|
+
+**When to use each**:
+
+```bash
+# Use Foremost when:
+# - Simple, quick carving needed
+# - Default signatures sufficient
+# - Small to medium images (<50GB)
+
+# Use Scalpel when:
+# - Large images (>50GB)
+# - Custom signatures needed
+# - Lower memory footprint required
+# - More detailed audit logs needed
+```
+
+### Specialized Carving Techniques
+
+**Fragmented file recovery** [Inference: Limited automated support]:
+
+```bash
+# Neither Scalpel nor Foremost handles fragmentation well
+# Requires manual analysis
+
+# 1. Carve headers
+scalpel -c headers_only.conf disk_image.dd -o headers_output
+
+# 2. Locate footers separately
+grep -abo "\xff\xd9" disk_image.dd > jpeg_footers.txt  # JPEG footer
+
+# 3. Manual reconstruction using hex editor
+# [Unverified: Requires significant manual effort]
+```
+
+**Embedded file extraction**:
+
+```bash
+# Carve from already-carved files (nested extraction)
+for dir in output_dir/*/; do
+    for file in "$dir"*; do
+        if [ -f "$file" ]; then
+            echo "[*] Scanning $file for embedded files..."
+            scalpel -c config.conf "$file" -o "nested_$(basename $file)"
+        fi
+    done
+done
+
+# Common scenarios:
+# - ZIP within ZIP
+# - Image files with appended data
+# - Steganography (data after EOF markers)
+
+# Extract data after EOF markers
+for jpg in output_dir/jpg-*/*.jpg; do
+    # Find JPEG footer position
+    footer_pos=$(grep -abo "\xff\xd9" "$jpg" | tail -1 | cut -d: -f1)
+    file_size=$(stat -c %s "$jpg")
+    
+    if [ $((file_size - footer_pos)) -gt 100 ]; then
+        echo "[!] Extra data found in $jpg"
+        dd if="$jpg" of="${jpg}.extra" bs=1 skip=$((footer_pos + 2))
+        file "${jpg}.extra"
+    fi
+done
+```
+
+**Carving from compressed streams**:
+
+```bash
+# Decompress first, then carve
+gunzip -c compressed.gz | scalpel -c config.conf - -o carved_from_gz
+
+# For encrypted/compressed containers
+# [Unverified: Requires decryption first]
+# Example with LUKS:
+# cryptsetup luksOpen encrypted.img decrypted_vol
+# scalpel -c config.conf /dev/mapper/decrypted_vol -o carved_output
+```
+
+### Integration with Other Tools
+
+**Combining with TSK for comprehensive recovery**:
+
+```bash
+#!/bin/bash
+# comprehensive_recovery.sh - TSK + Scalpel combined analysis
+
+IMAGE=$1
+OFFSET=$2
+OUTPUT="recovery_$(date +%Y%m%d_%H%M%S)"
+
+mkdir -p "$OUTPUT"/{tsk,scalpel,combined}
+
+echo "[*] Phase 1: TSK file system recovery..."
+fls -r -p -o $OFFSET "$IMAGE" > "$OUTPUT/tsk/file_list.txt"
+
+# Extract allocated files
+fls -r -o $OFFSET "$IMAGE" | grep -v "(deleted)" | while read line; do
+    inode=$(echo "$line" | awk '{print $2}' | cut -d: -f1)
+    name=$(echo "$line" | awk '{$1=$2=""; print $0}' | sed 's/^ *//' | tr '/' '_')
+    
+    if [ -n "$inode" ] && [ "$inode" -gt 0 ]; then
+        icat -o $OFFSET "$IMAGE" $inode > "$OUTPUT/tsk/$name" 2>/dev/null
+    fi
+done
+
+echo "[*] Phase 2: Scalpel unallocated space carving..."
+blkls -o $OFFSET "$IMAGE" > "$OUTPUT/unallocated.dd"
+scalpel -c /etc/scalpel/scalpel.conf "$OUTPUT/unallocated.dd" -o "$OUTPUT/scalpel"
+
+echo "[*] Phase 3: Combining results and deduplication..."
+find "$OUTPUT/tsk" -type f -exec md5sum {} \; > "$OUTPUT/tsk_hashes.txt"
+find "$OUTPUT/scalpel" -type f -exec md5sum {} \; > "$OUTPUT/scalpel_hashes.txt"
+
+# Copy unique carved files
+while read hash file; do
+    if ! grep -q "$hash" "$OUTPUT/tsk_hashes.txt"; then
+        cp "$file" "$OUTPUT/combined/"
+    fi
+done < "$OUTPUT/scalpel_hashes.txt"
+
+# Copy all TSK recovered files
+cp -r "$OUTPUT/tsk"/* "$OUTPUT/combined/" 2>/dev/null
+
+echo "[*] Recovery complete: $OUTPUT/combined/"
+rm "$OUTPUT/unallocated.dd"  # Clean up large temp file
+```
+
+**Post-carving analysis pipeline**:
+
+```bash
+#!/bin/bash
+# analyze_carved.sh - Comprehensive carved file analysis
+
+CARVED_DIR=$1
+ANALYSIS_DIR="${CARVED_DIR}_analysis"
+
+mkdir -p "$ANALYSIS_DIR"/{metadata,strings,signatures}
+
+echo "[*] Extracting metadata from carved files..."
+
+# Image EXIF data
+find "$CARVED_DIR" -type f \( -name "*.jpg" -o -name "*.png" \) -exec exiftool {} \; > "$ANALYSIS_DIR/metadata/images_exif.txt"
+
+# PDF metadata
+find "$CARVED_DIR" -type f -name "*.pdf" -exec pdfinfo {} \; 2>/dev/null > "$ANALYSIS_DIR/metadata/pdfs_info.txt"
+
+# Document properties
+find "$CARVED_DIR" -type f \( -name "*.doc" -o -name "*.docx" \) -exec file {} \; > "$ANALYSIS_DIR/metadata/documents.txt"
+
+echo "[*] Extracting strings..."
+find "$CARVED_DIR" -type f -exec strings -a {} \; > "$ANALYSIS_DIR/strings/all_strings.txt"
+
+# Filter interesting strings
+grep -iE "(password|user|admin|key|token|flag|ctf)" "$ANALYSIS_DIR/strings/all_strings.txt" > "$ANALYSIS_DIR/strings/interesting.txt"
+grep -E "https?://" "$ANALYSIS_DIR/strings/all_strings.txt" > "$ANALYSIS_DIR/strings/urls.txt"
+grep -E '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b' "$ANALYSIS_DIR/strings/all_strings.txt" > "$ANALYSIS_DIR/strings/emails.txt"
+
+echo "[*] Running signature analysis..."
+find "$CARVED_DIR" -type f -exec file {} \; > "$ANALYSIS_DIR/signatures/file_types.txt"
+
+# Identify mismatched extensions
+find "$CARVED_DIR" -type f | while read f; do
+    ext="${f##*.}"
+    sig=$(file -b "$f" | cut -d',' -f1)
+    
+    # Check for common mismatches [Inference: Heuristic approach]
+    case "$ext" in
+        jpg|jpeg)
+            echo "$sig" | grep -qi "jpeg" || echo "[MISMATCH] $f: $sig"
+            ;;
+        png)
+            echo "$sig" | grep -qi "png" || echo "[MISMATCH] $f: $sig"
+            ;;
+        pdf)
+            echo "$sig" | grep -qi "pdf" || echo "[MISMATCH] $f: $sig"
+            ;;
+    esac
+done > "$ANALYSIS_DIR/signatures/extension_mismatches.txt"
+
+echo "[*] Generating summary report..."
+cat > "$ANALYSIS_DIR/summary_report.txt" << EOF
+=== Carved Files Analysis Report ===
+Generated: $(date)
+Source: $CARVED_DIR
+
+== File Counts ==
+$(find "$CARVED_DIR" -type f | wc -l) total files
+$(find "$CARVED_DIR" -name "*.jpg" | wc -l) JPEG images
+$(find "$CARVED_DIR" -name "*.png" | wc -l) PNG images
+$(find "$CARVED_DIR" -name "*.pdf" | wc -l) PDF documents
+$(find "$CARVED_DIR" -name "*.zip" | wc -l) ZIP archives
+
+== Total Size ==
+$(du -sh "$CARVED_DIR" | cut -f1)
+
+== Interesting Strings Found ==
+$(wc -l < "$ANALYSIS_DIR/strings/interesting.txt") lines
+
+== Extension Mismatches ==
+$(wc -l < "$ANALYSIS_DIR/signatures/extension_mismatches.txt") files
+
+EOF
+
+cat "$ANALYSIS_DIR/summary_report.txt"
+echo "[*] Full analysis saved to: $ANALYSIS_DIR"
+```
+
+---
+
+**Critical related topics for comprehensive Kali forensics tool usage**:
+
+- **Memory forensics with Volatility** - Process analysis, malware detection, credential extraction
+- **Registry analysis** - Windows registry hive parsing, timeline creation, user activity reconstruction
+- **Network forensics** - Wireshark, tcpdump, flow analysis, protocol reconstruction
+- **Mobile device forensics** - Android/iOS data extraction, SQLite database analysis
+- **Anti-forensics detection** - Timestamp manipulation, secure deletion, encryption identification
+
+---
+
+## Binwalk Firmware Analysis
+
+Binwalk analyzes, extracts, and reverse engineers firmware images by identifying embedded files, filesystems, and executable code through signature matching and entropy analysis.
+
+### Basic Usage
+
+```bash
+# Install binwalk with all dependencies
+apt-get install binwalk
+
+# Full installation with extraction utilities
+apt-get install binwalk python3-binwalk firmware-mod-kit squashfs-tools cramfsswap cramfsprogs mtd-utils sleuthkit liblzma-dev liblzo2-dev zlib1g-dev
+
+# Basic signature scan
+binwalk firmware.bin
+
+# Verbose output with detailed information
+binwalk -v firmware.bin
+
+# Display extracted file information
+binwalk -B firmware.bin
+```
+
+### Signature Detection
+
+```bash
+# Scan with specific signatures
+binwalk --signature firmware.bin
+
+# Search for specific file types
+binwalk -y "filesystem" firmware.bin
+binwalk -y "compressed" firmware.bin
+
+# Display opcodes (CPU architecture detection)
+binwalk -A firmware.bin
+
+# Scan for executable code/CPU architectures
+binwalk -E firmware.bin
+
+# Custom signature file
+binwalk --signature-file custom.sig firmware.bin
+```
+
+### File Extraction
+
+```bash
+# Extract all identified files (default extraction)
+binwalk -e firmware.bin
+# Creates _firmware.bin.extracted/ directory
+
+# Extract to specific directory
+binwalk -e firmware.bin -C /path/to/output
+
+# Manually extract at specific offset
+binwalk -D 'filesystem' firmware.bin
+# -D: extract specified file type
+
+# Extract all file types with matryoshka mode (recursive extraction)
+binwalk -Me firmware.bin
+# -M: matryoshka/recursive scan
+# -e: extract
+
+# Preserve original filenames where possible
+binwalk --preserve-symlinks -e firmware.bin
+
+# Extract with dd rules (more control)
+binwalk --dd='.*' firmware.bin
+# Extracts everything found
+
+# Extract specific signature types
+binwalk --dd='png image:png,jpeg image:jpg,zip archive:zip' firmware.bin
+```
+
+### Entropy Analysis
+
+Entropy analysis identifies compressed or encrypted sections.
+
+```bash
+# Generate entropy graph
+binwalk -E firmware.bin
+
+# Save entropy data
+binwalk -E firmware.bin --save
+
+# Entropy with signature overlay
+binwalk -E -B firmware.bin
+
+# High entropy regions often indicate:
+# - Compressed data (0.7-0.9 entropy)
+# - Encrypted data (0.9-1.0 entropy)
+# - Random data or images (high entropy)
+# - Low entropy indicates text, padding, or simple data
+```
+
+### Raw Data Extraction
+
+```bash
+# Extract raw data at specific offset
+binwalk --dd='raw:0x10000:0x20000' firmware.bin
+# Extracts bytes from offset 0x10000 to 0x20000
+
+# Extract using hexadecimal offset and size
+dd if=firmware.bin of=extracted.bin bs=1 skip=$((0x10000)) count=$((0x10000))
+
+# Manual extraction based on binwalk output
+# If binwalk shows: 0x10000 ... Squashfs filesystem
+dd if=firmware.bin of=filesystem.sqsh bs=1 skip=$((0x10000))
+```
+
+### Filesystem Analysis
+
+```bash
+# After extraction, examine filesystems
+cd _firmware.bin.extracted/
+
+# List extracted files
+ls -la
+
+# Squashfs filesystem extraction (if not auto-extracted)
+unsquashfs filesystem.sqsh
+cd squashfs-root/
+
+# JFFS2 filesystem
+jefferson jffs2.img -d jffs2-output/
+
+# CRAMFS filesystem
+cramfsck -x cramfs-output/ cramfs.img
+
+# UBIFS filesystem
+ubireader_extract_images ubifs.img
+
+# Yaffs2 filesystem
+unyaffs yaffs2.img -d yaffs2-output/
+```
+
+### Firmware Analysis Workflow
+
+```bash
+# Complete firmware analysis script
+#!/bin/bash
+
+FIRMWARE="$1"
+OUTPUT_DIR="firmware-analysis-$(date +%Y%m%d-%H%M%S)"
+
+mkdir -p "$OUTPUT_DIR"/{signatures,entropy,extracted,analysis}
+
+echo "[+] Analyzing firmware: $FIRMWARE"
+
+# 1. Signature scan
+binwalk "$FIRMWARE" > "$OUTPUT_DIR/signatures/scan.txt"
+binwalk -B "$FIRMWARE" > "$OUTPUT_DIR/signatures/detailed.txt"
+
+# 2. Architecture detection
+binwalk -A "$FIRMWARE" > "$OUTPUT_DIR/signatures/architecture.txt"
+
+# 3. Entropy analysis
+binwalk -E "$FIRMWARE" --save
+mv firmware.bin.entropy.png "$OUTPUT_DIR/entropy/" 2>/dev/null
+
+# 4. Extract everything
+binwalk -Me "$FIRMWARE" -C "$OUTPUT_DIR/extracted/"
+
+# 5. Analyze extracted contents
+cd "$OUTPUT_DIR/extracted"
+
+# Find interesting files
+find . -type f -name "*.conf" -o -name "*.cfg" -o -name "*.ini" > ../analysis/config-files.txt
+find . -type f -name "passwd" -o -name "shadow" -o -name "*key*" > ../analysis/sensitive-files.txt
+find . -type f \( -iname "*.sh" -o -iname "*.py" -o -iname "*.pl" \) > ../analysis/scripts.txt
+
+# Search for credentials and secrets
+grep -r -i "password\|secret\|key\|token\|flag" . 2>/dev/null > ../analysis/potential-secrets.txt
+
+# Find SUID binaries
+find . -type f -perm -4000 2>/dev/null > ../analysis/suid-files.txt
+
+# List web server content
+find . -path "*/www/*" -o -path "*/html/*" > ../analysis/web-content.txt
+
+# Extract strings from binaries
+find . -type f -executable -exec strings {} \; | grep -i "admin\|root\|password" > ../analysis/binary-strings.txt
+
+echo "[+] Analysis complete: $OUTPUT_DIR"
+```
+
+### Common Firmware Signatures
+
+**File Systems:**
+
+- Squashfs filesystem (common in routers)
+- JFFS2 filesystem (embedded devices)
+- CRAMFS filesystem (older embedded systems)
+- YAFFS2 filesystem (NAND flash)
+- UBIFS filesystem (modern flash devices)
+
+**Compression:**
+
+- LZMA compressed data
+- Gzip compressed data
+- Bzip2 compressed data
+- XZ compressed data
+
+**Bootloaders:**
+
+- U-Boot uImage header
+- RedBoot header
+- LZMA compressed kernel
+
+**Archives:**
+
+- ZIP archive
+- RAR archive
+- TAR archive
+- CPIO archive
+
+### Advanced Techniques
+
+**Carving Unknown Data:**
+
+```bash
+# Use foremost for additional carving
+foremost -v -i firmware.bin -o foremost-output/
+
+# Use scalpel with custom config
+scalpel firmware.bin -o scalpel-output/
+
+# PhotoRec for comprehensive file carving
+photorec firmware.bin
+```
+
+**Custom Signature Creation:**
+
+```bash
+# Create custom signature file
+cat > custom.sig << 'EOF'
+# Custom signature format:
+# offset    signature    description
+
+0         \x7FELF      ELF executable
+0         PK\x03\x04   ZIP archive
+0         \x1F\x8B     Gzip compressed
+EOF
+
+# Use custom signatures
+binwalk --signature-file custom.sig firmware.bin
+```
+
+**Binary Diffing:**
+
+```bash
+# Compare two firmware versions
+binwalk firmware-v1.bin > v1-scan.txt
+binwalk firmware-v2.bin > v2-scan.txt
+diff v1-scan.txt v2-scan.txt
+
+# Visual diff of extracted filesystems
+diff -r _firmware-v1.bin.extracted/ _firmware-v2.bin.extracted/
+```
+
+## ExifTool Usage
+
+ExifTool reads, writes, and manipulates metadata in images, documents, audio, and video files. It supports hundreds of file formats and metadata standards.
+
+### Basic Metadata Extraction
+
+```bash
+# Install exiftool
+apt-get install libimage-exiftool-perl
+
+# Extract all metadata
+exiftool image.jpg
+
+# Multiple files
+exiftool *.jpg
+
+# Recursive directory scan
+exiftool -r /path/to/directory/
+
+# Output to text file
+exiftool image.jpg > metadata.txt
+
+# JSON output
+exiftool -json image.jpg > metadata.json
+
+# CSV output for multiple files
+exiftool -csv *.jpg > metadata.csv
+```
+
+### Selective Metadata Extraction
+
+```bash
+# Display specific tags
+exiftool -Make -Model -DateTimeOriginal image.jpg
+
+# All EXIF tags
+exiftool -EXIF:all image.jpg
+
+# All GPS data
+exiftool -gps:all image.jpg
+
+# GPS in decimal format
+exiftool -c "%.6f" -GPSPosition image.jpg
+
+# XMP metadata
+exiftool -XMP:all image.jpg
+
+# IPTC metadata
+exiftool -IPTC:all image.jpg
+
+# Display tag groups
+exiftool -G image.jpg
+# Output shows: [Group] TagName : Value
+
+# Display tag groups with numbers
+exiftool -G1 image.jpg
+```
+
+### Search and Filter
+
+```bash
+# Search for specific metadata values
+exiftool -if '$Make eq "Canon"' *.jpg
+
+# Find images with GPS coordinates
+exiftool -if '$GPSLatitude' -filename *.jpg
+
+# Find images from date range
+exiftool -if '$DateTimeOriginal ge "2025:01:01"' *.jpg
+
+# Search metadata content
+exiftool -a -G1 image.jpg | grep -i "flag\|password\|secret"
+
+# Find files with comments
+exiftool -if '$Comment' -filename -Comment *.jpg
+
+# Case-insensitive search
+exiftool -Comment image.jpg | grep -i "flag"
+```
+
+### Hidden Data Detection
+
+```bash
+# Display all tags including duplicates
+exiftool -a image.jpg
+
+# Show unknown tags
+exiftool -u image.jpg
+
+# Binary data display
+exiftool -b -ThumbnailImage image.jpg > thumbnail.jpg
+exiftool -b -PreviewImage image.jpg > preview.jpg
+
+# Extract embedded files
+exiftool -b -EmbeddedImage image.jpg > embedded.jpg
+
+# Check for trailing data after image
+exiftool -TrailerSignature image.jpg
+
+# Verbose output with hex values
+exiftool -v3 image.jpg
+
+# Display binary metadata fields
+exiftool -b -UserComment image.jpg | xxd
+exiftool -b -ImageDescription image.jpg
+```
+
+### Document Metadata
+
+**PDF Analysis:**
+
+```bash
+# Extract PDF metadata
+exiftool document.pdf
+
+# PDF specific tags
+exiftool -PDF:all document.pdf
+
+# Author, title, subject
+exiftool -Author -Title -Subject -Keywords document.pdf
+
+# Creation and modification dates
+exiftool -CreateDate -ModifyDate document.pdf
+
+# PDF version and creator software
+exiftool -PDFVersion -Creator -Producer document.pdf
+
+# Extract embedded files from PDF
+exiftool -b -EmbeddedFile document.pdf > embedded-file
+```
+
+**Office Documents:**
+
+```bash
+# Word/Excel/PowerPoint metadata
+exiftool document.docx
+exiftool spreadsheet.xlsx
+exiftool presentation.pptx
+
+# Author and company information
+exiftool -Author -Company -LastModifiedBy document.docx
+
+# Revision history
+exiftool -RevisionNumber -TotalEditTime document.docx
+
+# Hidden metadata in Office files
+exiftool -a -G1 document.docx | grep -i "hidden\|comment\|author"
+
+# Extract embedded objects (Office files are ZIP archives)
+unzip -l document.docx
+unzip document.docx -d docx-contents/
+```
+
+### Metadata Manipulation
+
+```bash
+# Remove all metadata (create cleaned copy)
+exiftool -all= image.jpg
+
+# Remove specific tags
+exiftool -Author= -Comment= document.pdf
+
+# Add metadata
+exiftool -Comment="This is a comment" image.jpg
+
+# Modify GPS coordinates
+exiftool -GPSLatitude="12.345" -GPSLongitude="67.890" image.jpg
+
+# Set custom tags
+exiftool -XMP:CustomField="value" image.jpg
+
+# Batch processing
+exiftool -Comment="Batch processed" *.jpg
+
+# Restore original (when -overwrite_original not used)
+exiftool -restore_original image.jpg
+```
+
+### CTF-Specific Techniques
+
+```bash
+# Check for steganography indicators in metadata
+exiftool -UserComment -ImageDescription -Comment -Subject -Keywords image.jpg
+
+# Extract thumbnail (sometimes different from main image)
+exiftool -b -ThumbnailImage image.jpg > thumb.jpg
+
+# Compare metadata between similar files
+exiftool -csv image1.jpg image2.jpg > comparison.csv
+
+# Timeline creation from photos
+exiftool -T -DateTimeOriginal -FileName *.jpg | sort
+
+# Find images with modified timestamps
+exiftool -if '$FileModifyDate ne $DateTimeOriginal' -filename *.jpg
+
+# Extract all text-based metadata fields
+exiftool -s -a image.jpg | grep -v "Binary data"
+
+# Check for metadata in alpha channel (PNG)
+exiftool -a image.png | grep -i "alpha\|transparency"
+
+# Examine color space anomalies
+exiftool -ColorSpace -ICCProfile image.jpg
+```
+
+### Comprehensive Metadata Analysis Script
+
+```bash
+#!/bin/bash
+
+FILE="$1"
+OUTPUT_DIR="metadata-analysis-$(basename "$FILE")-$(date +%Y%m%d-%H%M%S)"
+
+mkdir -p "$OUTPUT_DIR"
+
+echo "[+] Analyzing metadata for: $FILE"
+
+# 1. Full metadata dump
+exiftool -a -G1 -s "$FILE" > "$OUTPUT_DIR/full-metadata.txt"
+exiftool -json "$FILE" > "$OUTPUT_DIR/metadata.json"
+
+# 2. Extract binary fields
+exiftool -b -ThumbnailImage "$FILE" > "$OUTPUT_DIR/thumbnail.jpg" 2>/dev/null
+exiftool -b -PreviewImage "$FILE" > "$OUTPUT_DIR/preview.jpg" 2>/dev/null
+exiftool -b -UserComment "$FILE" > "$OUTPUT_DIR/usercomment.bin" 2>/dev/null
+
+# 3. Search for suspicious content
+grep -i "flag\|password\|secret\|key\|hidden" "$OUTPUT_DIR/full-metadata.txt" > "$OUTPUT_DIR/suspicious-metadata.txt"
+
+# 4. GPS data extraction
+exiftool -c "%.6f" -GPSPosition -GPSAltitude "$FILE" > "$OUTPUT_DIR/gps-data.txt" 2>/dev/null
+
+# 5. Timeline information
+exiftool -time:all "$FILE" > "$OUTPUT_DIR/timestamps.txt"
+
+# 6. Software/creator information
+exiftool -Creator -Producer -Software -Make -Model "$FILE" > "$OUTPUT_DIR/creator-info.txt"
+
+# 7. Verbose binary analysis
+exiftool -v3 "$FILE" > "$OUTPUT_DIR/verbose-analysis.txt" 2>&1
+
+echo "[+] Analysis complete: $OUTPUT_DIR"
+
+# Display summary
+echo -e "\n=== METADATA SUMMARY ==="
+wc -l "$OUTPUT_DIR/full-metadata.txt"
+if [ -s "$OUTPUT_DIR/suspicious-metadata.txt" ]; then
+  echo "[!] Suspicious metadata found:"
+  cat "$OUTPUT_DIR/suspicious-metadata.txt"
+fi
+```
+
+## Volatility Commands
+
+Volatility is a memory forensics framework for analyzing RAM dumps from Windows, Linux, and macOS systems. Volatility 2 and Volatility 3 have different command structures.
+
+### Installation
+
+```bash
+# Volatility 2 (legacy but still widely used in CTFs)
+apt-get install volatility
+
+# Or from GitHub
+git clone https://github.com/volatilityfoundation/volatility.git
+cd volatility
+python2 setup.py install
+
+# Volatility 3 (recommended for newer systems)
+pip3 install volatility3
+
+# Or from GitHub
+git clone https://github.com/volatilityfoundation/volatility3.git
+cd volatility3
+python3 setup.py install
+```
+
+### Volatility 2 Basic Usage
+
+**Image Information:**
+
+```bash
+# Identify image profile (critical first step)
+volatility -f memory.dmp imageinfo
+
+# Suggested profiles will be listed, use most specific match
+# Example output: Suggested Profile(s) : Win7SP1x64, Win7SP0x64
+
+# Verify profile
+volatility -f memory.dmp --profile=Win7SP1x64 pslist
+
+# Alternative profile detection
+volatility -f memory.dmp kdbgscan
+
+# For Linux memory dumps
+volatility -f memory.dmp --profile=LinuxUbuntu2004x64 linux_banner
+```
+
+**Process Analysis:**
+
+```bash
+# List running processes
+volatility -f memory.dmp --profile=Win7SP1x64 pslist
+
+# Process tree (parent-child relationships)
+volatility -f memory.dmp --profile=Win7SP1x64 pstree
+
+# Show hidden processes (rootkit detection)
+volatility -f memory.dmp --profile=Win7SP1x64 psscan
+
+# Process with command line arguments
+volatility -f memory.dmp --profile=Win7SP1x64 cmdline
+
+# DLLs loaded by process
+volatility -f memory.dmp --profile=Win7SP1x64 dlllist -p 1234
+
+# Process memory dump
+volatility -f memory.dmp --profile=Win7SP1x64 memdump -p 1234 -D output/
+
+# Process executable dump
+volatility -f memory.dmp --profile=Win7SP1x64 procdump -p 1234 -D output/
+```
+
+**Network Analysis:**
+
+```bash
+# Network connections (Windows XP/2003)
+volatility -f memory.dmp --profile=WinXPSP2x86 connections
+
+# Network connections (Windows 7+)
+volatility -f memory.dmp --profile=Win7SP1x64 netscan
+
+# Socket information
+volatility -f memory.dmp --profile=Win7SP1x64 sockets
+
+# Show listening ports and connections
+volatility -f memory.dmp --profile=Win7SP1x64 netscan | grep -i "listen\|established"
+
+# Extract specific connection details
+volatility -f memory.dmp --profile=Win7SP1x64 netscan | awk '{print $1, $3, $5}'
+```
+
+**File System Analysis:**
+
+```bash
+# Scan for file objects
+volatility -f memory.dmp --profile=Win7SP1x64 filescan
+
+# Search for specific files
+volatility -f memory.dmp --profile=Win7SP1x64 filescan | grep -i "flag\|password\|secret"
+
+# Dump specific file by physical offset
+volatility -f memory.dmp --profile=Win7SP1x64 dumpfiles -Q 0x000000007e410890 -D output/
+
+# Dump file by name pattern
+volatility -f memory.dmp --profile=Win7SP1x64 dumpfiles -r "flag\.txt" -D output/
+
+# Dump all accessible files
+volatility -f memory.dmp --profile=Win7SP1x64 dumpfiles -D output/
+```
+
+**Registry Analysis:**
+
+```bash
+# List registry hives
+volatility -f memory.dmp --profile=Win7SP1x64 hivelist
+
+# Print registry key
+volatility -f memory.dmp --profile=Win7SP1x64 printkey -K "Software\Microsoft\Windows\CurrentVersion\Run"
+
+# Dump registry hive
+volatility -f memory.dmp --profile=Win7SP1x64 dumpregistry -D output/
+
+# User assist (tracks program execution)
+volatility -f memory.dmp --profile=Win7SP1x64 userassist
+
+# Shell bags (folder access)
+volatility -f memory.dmp --profile=Win7SP1x64 shellbags
+
+# Shimcache (application compatibility cache)
+volatility -f memory.dmp --profile=Win7SP1x64 shimcache
+```
+
+**Password and Credential Extraction:**
+
+```bash
+# Dump password hashes (Windows)
+volatility -f memory.dmp --profile=Win7SP1x64 hashdump
+
+# LSA secrets
+volatility -f memory.dmp --profile=Win7SP1x64 lsadump
+
+# Cached domain credentials
+volatility -f memory.dmp --profile=Win7SP1x64 cachedump
+
+# Mimikatz detection and credential extraction
+volatility -f memory.dmp --profile=Win7SP1x64 mimikatz
+```
+
+**Malware Detection:**
+
+```bash
+# Detect code injection
+volatility -f memory.dmp --profile=Win7SP1x64 malfind
+
+# Suspicious services
+volatility -f memory.dmp --profile=Win7SP1x64 svcscan
+
+# Driver modules
+volatility -f memory.dmp --profile=Win7SP1x64 modules
+volatility -f memory.dmp --profile=Win7SP1x64 modscan
+
+# Kernel hooks
+volatility -f memory.dmp --profile=Win7SP1x64 ssdt
+
+# API hooks
+volatility -f memory.dmp --profile=Win7SP1x64 apihooks
+
+# Mutant objects (mutex names used by malware)
+volatility -f memory.dmp --profile=Win7SP1x64 mutantscan
+```
+
+**User Activity:**
+
+```bash
+# Clipboard contents
+volatility -f memory.dmp --profile=Win7SP1x64 clipboard
+
+# Console history (cmd.exe output)
+volatility -f memory.dmp --profile=Win7SP1x64 consoles
+
+# Notepad contents
+volatility -f memory.dmp --profile=Win7SP1x64 notepad
+
+# Screenshot (if GUI was active)
+volatility -f memory.dmp --profile=Win7SP1x64 screenshot -D output/
+
+# Internet Explorer history
+volatility -f memory.dmp --profile=Win7SP1x64 iehistory
+```
+
+### Volatility 3 Basic Usage
+
+Volatility 3 uses different syntax and plugin names.
+
+**Basic Commands:**
+
+```bash
+# List available plugins
+vol3 -f memory.dmp --help
+
+# Windows information
+vol3 -f memory.dmp windows.info
+
+# Process list
+vol3 -f memory.dmp windows.pslist
+vol3 -f memory.dmp windows.pstree
+vol3 -f memory.dmp windows.psscan
+
+# Network connections
+vol3 -f memory.dmp windows.netscan
+vol3 -f memory.dmp windows.netstat
+
+# Command line arguments
+vol3 -f memory.dmp windows.cmdline
+
+# File scan
+vol3 -f memory.dmp windows.filescan
+
+# Registry hives
+vol3 -f memory.dmp windows.registry.hivelist
+vol3 -f memory.dmp windows.registry.printkey --key "Software\Microsoft\Windows\CurrentVersion\Run"
+
+# Dump process
+vol3 -f memory.dmp -o /tmp/output windows.pslist --pid 1234 --dump
+
+# Dump files
+vol3 -f memory.dmp -o /tmp/output windows.dumpfiles --pid 1234
+```
+
+**Linux Memory Analysis:**
+
+```bash
+# Linux banner (verify profile)
+vol3 -f memory.dmp linux.banner
+
+# Process list
+vol3 -f memory.dmp linux.pslist
+vol3 -f memory.dmp linux.pstree
+
+# Bash history
+vol3 -f memory.dmp linux.bash
+
+# Network information
+vol3 -f memory.dmp linux.ifconfig
+vol3 -f memory.dmp linux.netstat
+
+# Loaded kernel modules
+vol3 -f memory.dmp linux.lsmod
+
+# Process memory maps
+vol3 -f memory.dmp linux.proc.maps --pid 1234
+
+# Environment variables
+vol3 -f memory.dmp linux.envars --pid 1234
+```
+
+### CTF-Specific Volatility Workflow
+
+```bash
+#!/bin/bash
+
+MEMORY="$1"
+OUTPUT_DIR="volatility-analysis-$(date +%Y%m%d-%H%M%S)"
+
+mkdir -p "$OUTPUT_DIR"/{processes,network,files,registry,strings}
+
+echo "[+] Starting memory analysis: $MEMORY"
+
+# 1. Identify profile
+echo "[+] Identifying memory image profile..."
+volatility -f "$MEMORY" imageinfo > "$OUTPUT_DIR/imageinfo.txt"
+PROFILE=$(grep "Suggested Profile" "$OUTPUT_DIR/imageinfo.txt" | head -1 | cut -d: -f2 | cut -d, -f1 | tr -d ' ')
+
+echo "[+] Using profile: $PROFILE"
+
+# 2. Process analysis
+echo "[+] Analyzing processes..."
+volatility -f "$MEMORY" --profile=$PROFILE pslist > "$OUTPUT_DIR/processes/pslist.txt"
+volatility -f "$MEMORY" --profile=$PROFILE pstree > "$OUTPUT_DIR/processes/pstree.txt"
+volatility -f "$MEMORY" --profile=$PROFILE cmdline > "$OUTPUT_DIR/processes/cmdline.txt"
+
+# 3. Network connections
+echo "[+] Analyzing network connections..."
+volatility -f "$MEMORY" --profile=$PROFILE netscan > "$OUTPUT_DIR/network/netscan.txt" 2>/dev/null
+
+# 4. File system
+echo "[+] Scanning for files..."
+volatility -f "$MEMORY" --profile=$PROFILE filescan > "$OUTPUT_DIR/files/filescan.txt"
+grep -i "flag\|password\|secret\|key" "$OUTPUT_DIR/files/filescan.txt" > "$OUTPUT_DIR/files/interesting-files.txt"
+
+# 5. User activity
+echo "[+] Extracting user activity..."
+volatility -f "$MEMORY" --profile=$PROFILE clipboard > "$OUTPUT_DIR/clipboard.txt" 2>/dev/null
+volatility -f "$MEMORY" --profile=$PROFILE consoles > "$OUTPUT_DIR/consoles.txt" 2>/dev/null
+
+# 6. Registry analysis
+echo "[+] Analyzing registry..."
+volatility -f "$MEMORY" --profile=$PROFILE printkey -K "Software\Microsoft\Windows\CurrentVersion\Run" > "$OUTPUT_DIR/registry/autorun.txt" 2>/dev/null
+
+# 7. Extract strings
+echo "[+] Extracting strings..."
+strings -a -t d "$MEMORY" | grep -i "flag{\|password\|secret" > "$OUTPUT_DIR/strings/interesting-strings.txt"
+
+echo "[+] Analysis complete: $OUTPUT_DIR"
+
+# Generate summary
+cat > "$OUTPUT_DIR/SUMMARY.txt" << EOF
+Memory Forensics Analysis Summary
+==================================
+Memory Image: $MEMORY
+Profile: $PROFILE
+Analysis Date: $(date)
+
+Quick Findings:
+- Total Processes: $(wc -l < "$OUTPUT_DIR/processes/pslist.txt")
+- Network Connections: $(wc -l < "$OUTPUT_DIR/network/netscan.txt")
+- Files Scanned: $(wc -l < "$OUTPUT_DIR/files/filescan.txt")
+- Interesting Files: $(wc -l < "$OUTPUT_DIR/files/interesting-files.txt")
+
+Check individual directories for detailed analysis.
+EOF
+
+cat "$OUTPUT_DIR/SUMMARY.txt"
+```
+
+## Wireshark Filters
+
+Wireshark is a network protocol analyzer for capturing and examining network traffic. Display filters enable precise traffic analysis.
+
+### Basic Display Filters
+
+```bash
+# Launch Wireshark
+wireshark
+
+# Or open capture file
+wireshark capture.pcap
+
+# Command-line packet analysis with tshark
+tshark -r capture.pcap
+```
+
+**Protocol Filters:**
+
+```
+# Filter by protocol
+http
+https
+dns
+ftp
+ssh
+telnet
+smtp
+pop3
+imap
+icmp
+arp
+dhcp
+```
+
+**IP Address Filters:**
+
+```
+# Source IP
+ip.src == 192.168.1.100
+
+# Destination IP
+ip.dst == 192.168.1.1
+
+# Either source or destination
+ip.addr == 192.168.1.100
+
+# Subnet filtering
+ip.addr == 192.168.1.0/24
+
+# Multiple IPs
+ip.addr == 192.168.1.100 or ip.addr == 192.168.1.101
+
+# Exclude IP
+!(ip.addr == 192.168.1.100)
+```
+
+**Port Filters:**
+
+```
+# TCP port
+tcp.port == 80
+tcp.srcport == 80
+tcp.dstport == 443
+
+# UDP port
+udp.port == 53
+
+# Port range
+tcp.port >= 1024 and tcp.port <= 65535
+
+# Multiple ports
+tcp.port == 80 or tcp.port == 443 or tcp.port == 8080
+```
+
+### HTTP Analysis
+
+```
+# All HTTP traffic
+http
+
+# HTTP requests only
+http.request
+
+# HTTP responses only
+http.response
+
+# Specific HTTP method
+http.request.method == "GET"
+http.request.method == "POST"
+http.request.method == "PUT"
+
+# HTTP status codes
+http.response.code == 200
+http.response.code == 404
+http.response.code == 500
+http.response.code >= 400
+
+# Filter by URI
+http.request.uri contains "admin"
+http.request.uri contains "flag"
+http.request.uri matches "\.php$"
+
+# Filter by host
+http.host == "example.com"
+http.host contains "target"
+
+# User-Agent
+http.user_agent contains "curl"
+http.user_agent contains "python"
+
+# HTTP headers
+http.authorization
+http.cookie contains "session"
+http.set_cookie
+
+# Content-Type
+http.content_type contains "json"
+http.content_type contains "xml"
+
+# POST data
+http.request.method == "POST" && http.file_data contains "password"
+```
+
+### HTTPS/TLS Analysis
+
+```
+# TLS/SSL traffic
+tls
+ssl  # Legacy filter name
+
+# TLS handshake
+tls.handshake
+
+# TLS certificates
+tls.handshake.certificate
+
+# Specific TLS version
+tls.record.version == 0x0303  # TLS 1.2
+tls.record.version == 0x0304  # TLS 1.3
+
+# Server Name Indication (SNI)
+tls.handshake.extensions_server_name contains "example.com"
+
+# Cipher suites
+tls.handshake.ciphersuite
+
+# TLS alerts
+tls.alert_message
+```
+
+### DNS Analysis
+
+```
+# All DNS traffic
+dns
+
+# DNS queries
+dns.flags.response == 0
+
+# DNS responses
+dns.flags.response == 1
+
+# Query for specific domain
+dns.qry.name == "example.com"
+dns.qry.name contains "flag"
+dns.qry.name matches ".*\.suspicious\.com"
+
+# Query type
+dns.qry.type == 1   # A record
+dns.qry.type == 28  # AAAA record
+dns.qry.type == 15  # MX record
+dns.qry.type == 16  # TXT record
+
+# DNS answers
+dns.a == 192.168.1.100
+dns.txt
+
+# Failed DNS queries
+dns.flags.rcode != 0
+
+# DNS tunneling detection (long queries/responses)
+dns.qry.name.len > 50
+dns.resp.len > 512
+```
+
+### TCP Analysis
+
+```
+# TCP flags
+tcp.flags.syn == 1
+tcp.flags.ack == 1
+tcp.flags.reset == 1
+tcp.flags.fin == 1
+tcp.flags.push == 1
+
+# Three-way handshake
+tcp.flags.syn == 1 && tcp.flags.ack == 0  # SYN
+tcp.flags.syn == 1 && tcp.flags.ack == 1  # SYN-ACK
+tcp.flags.syn == 0 && tcp.flags.ack == 1  # ACK
+
+# TCP retransmissions
+tcp.analysis.retransmission
+
+# TCP duplicate ACKs
+tcp.analysis.duplicate_ack
+
+# TCP window size
+tcp.window_size_value < 1024
+
+# TCP streams
+tcp.stream == 0  # Follow specific TCP stream
+
+# Data-carrying packets
+tcp.len > 0
+```
+
+### FTP Analysis
+
+```
+# FTP commands
+ftp
+
+# FTP requests (commands)
+ftp.request.command
+
+# Specific FTP commands
+ftp.request.command == "USER"
+ftp.request.command == "PASS"
+ftp.request.command == "RETR"
+ftp.request.command == "STOR" 
+ftp.request.command == "LIST"
+
+# FTP responses
+
+ftp.response.code
+
+# FTP login success
+
+ftp.response.code == 230
+
+# FTP data transfers
+
+ftp-data
+
+# Filter by username
+
+ftp.request.arg contains "admin"
+
+# Combined filter for credentials
+
+ftp.request.command == "USER" or ftp.request.command == "PASS"
+```
+
+### Email Protocol Analysis
+
+**SMTP:**
+
+```
+# SMTP traffic
+
+smtp
+
+# SMTP commands
+
+smtp.req.command == "MAIL" smtp.req.command == "RCPT" smtp.req.command == "DATA"
+
+# Email addresses
+
+smtp.req.parameter contains "@domain.com"
+
+# SMTP authentication
+
+smtp.req.command == "AUTH"
+
+# Email content
+
+smtp.data.fragment
+```
+
+**POP3:**
+```
+# POP3 traffic
+
+pop
+
+# POP3 commands
+
+pop.request.command == "USER" pop.request.command == "PASS" pop.request.command == "RETR"
+
+# POP3 responses
+
+pop.response.indicator == "+OK"
+```
+
+**IMAP:**
+
+```
+# IMAP traffic
+
+imap
+
+# IMAP commands
+
+imap.request contains "LOGIN" imap.request contains "SELECT" imap.request contains "FETCH"
+
+# IMAP responses
+
+imap.response contains "OK"
+```
+
+### Telnet and SSH Analysis
+```
+# Telnet traffic
+
+telnet
+
+# Telnet data
+
+telnet.data
+
+# SSH traffic
+
+ssh
+
+# SSH version
+
+ssh.protocol contains "2.0"
+
+# SSH key exchange
+
+ssh.message_code == 20 # SSH_MSG_KEXINIT
+
+# SSH encrypted packets
+
+ssh.encrypted_packet
+```
+
+### File Transfer and Data Extraction
+
+```
+# HTTP file downloads
+
+http.request.uri contains ".exe" http.request.uri contains ".zip" http.request.uri contains ".pdf"
+
+# HTTP content with specific MIME types
+
+http.content_type == "application/pdf" http.content_type == "application/zip" http.content_type == "image/jpeg"
+
+# Large HTTP transfers
+
+http.content_length > 1000000
+
+# FTP data transfers
+
+ftp-data
+
+# SMB file transfers
+
+smb2 smb2.cmd == 8 # SMB2_CREATE smb2.cmd == 3 # SMB2_READ smb2.cmd == 9 # SMB2_WRITE
+
+# Filter by filename in SMB
+
+smb2.filename contains "document"
+```
+
+### Advanced Filter Combinations
+
+**Suspicious Activity Detection:**
+
+```
+# Port scanning detection
+
+tcp.flags.syn == 1 && tcp.flags.ack == 0 && tcp.window_size_value == 1024
+
+# Potential brute force
+
+http.response.code == 401 or http.response.code == 403
+
+# Multiple failed logins
+
+ftp.response.code == 530
+
+# SQL injection attempts
+
+http.request.uri contains "union" or http.request.uri contains "select" http.request.uri contains "'" or http.request.uri contains "--"
+
+# XSS attempts
+
+http.request.uri contains "<script" http.request.uri contains "alert("
+
+# Command injection
+
+http.request.uri contains ";" or http.request.uri contains "|" http.request.uri contains "&&" or http.request.uri contains "../"
+
+# Unusual user agents
+
+http.user_agent contains "sqlmap" http.user_agent contains "nikto" http.user_agent contains "nmap"
+
+# Beacon-like traffic (regular intervals)
+
+# Use Statistics > Conversations and I/O graphs for this
+```
+
+
+**Data Exfiltration Detection:**
+
+```
+# Large outbound transfers
+
+ip.src == 192.168.1.100 && tcp.len > 1000
+
+# DNS tunneling indicators
+
+dns.qry.name.len > 50 dns.qry.type == 16 # TXT records used for tunneling
+
+# ICMP tunneling
+
+icmp && icmp.data.len > 64
+
+# Unusual protocol on standard ports
+
+not http && tcp.port == 80 not ssl && tcp.port == 443
+
+# Outbound connections to uncommon ports
+
+tcp.dstport > 10000 && ip.src == 192.168.1.0/24
+```
+
+### Protocol-Specific CTF Filters
+
+**IRC (Internet Relay Chat):**
+
+```
+# IRC traffic
+
+irc
+
+# IRC commands
+
+irc.request.command == "PRIVMSG" irc.request.command == "JOIN" irc.request.command == "NICK"
+
+# IRC channel activity
+
+irc.request.trailer contains "#channel"
+```
+
+**ICMP Analysis:**
+
+```
+# All ICMP traffic
+
+icmp
+
+# ICMP echo requests (ping)
+
+icmp.type == 8
+
+# ICMP echo replies
+
+icmp.type == 0
+
+# ICMP with data payload
+
+icmp.data
+
+# Large ICMP packets (potential covert channel)
+
+icmp.data.len > 64
+
+# ICMP destination unreachable
+
+icmp.type == 3
+```
+
+**ARP Analysis:**
+
+```
+# ARP traffic
+
+arp
+
+# ARP requests
+
+arp.opcode == 1
+
+# ARP replies
+
+arp.opcode == 2
+
+# ARP for specific IP
+
+arp.dst.proto_ipv4 == 192.168.1.1
+
+# Duplicate IP detection
+
+arp.duplicate-address-detected
+
+# ARP spoofing detection (same IP, different MAC)
+
+arp.src.proto_ipv4 == 192.168.1.1
+```
+
+**USB Traffic (if captured):**
+
+```
+# USB traffic
+
+usb
+
+# USB control transfers
+
+usb.transfer_type == 0x02
+
+# USB bulk transfers
+
+usb.transfer_type == 0x03
+
+# USB interrupt transfers
+
+usb.transfer_type == 0x01
+
+# USB HID (keyboard) data
+
+usb.capdata usbhid.data
+````
+
+### Tshark Command-Line Analysis
+
+Tshark is Wireshark's command-line interface, useful for automated analysis and scripting.
+
+**Basic Tshark Usage:**
+
+```bash
+# Read capture file
+tshark -r capture.pcap
+
+# Apply display filter
+tshark -r capture.pcap -Y "http"
+
+# Show only specific fields
+tshark -r capture.pcap -T fields -e frame.number -e ip.src -e ip.dst -e tcp.port
+
+# HTTP requests
+tshark -r capture.pcap -Y "http.request" -T fields -e http.request.method -e http.host -e http.request.uri
+
+# Export specific protocol data
+tshark -r capture.pcap -Y "http" --export-objects http,output_dir/
+
+# Statistics
+tshark -r capture.pcap -q -z io,phs  # Protocol hierarchy
+tshark -r capture.pcap -q -z conv,tcp  # TCP conversations
+tshark -r capture.pcap -q -z endpoints,ip  # IP endpoints
+
+# DNS queries
+tshark -r capture.pcap -Y "dns.flags.response == 0" -T fields -e dns.qry.name
+
+# HTTP POST data
+tshark -r capture.pcap -Y "http.request.method == POST" -T fields -e http.file_data
+
+# Count packets by protocol
+tshark -r capture.pcap -q -z io,phs | grep -v "^="
+````
+
+**Extract Data with Tshark:**
+
+```bash
+# Extract HTTP objects (files)
+tshark -r capture.pcap --export-objects http,http_objects/
+
+# Extract SMB objects
+tshark -r capture.pcap --export-objects smb,smb_objects/
+
+# Extract DICOM objects
+tshark -r capture.pcap --export-objects dicom,dicom_objects/
+
+# Extract IMF (email) objects
+tshark -r capture.pcap --export-objects imf,imf_objects/
+
+# Follow TCP stream and save to file
+tshark -r capture.pcap -q -z follow,tcp,ascii,0 > stream0.txt
+
+# Extract all TCP streams
+#!/bin/bash
+PCAP="capture.pcap"
+STREAMS=$(tshark -r "$PCAP" -T fields -e tcp.stream | sort -n | uniq)
+for stream in $STREAMS; do
+  tshark -r "$PCAP" -q -z follow,tcp,ascii,$stream > stream_${stream}.txt
+done
+```
+
+**Credential Extraction:**
+
+```bash
+# Extract FTP credentials
+tshark -r capture.pcap -Y "ftp.request.command == USER || ftp.request.command == PASS" -T fields -e ftp.request.command -e ftp.request.arg
+
+# Extract HTTP Basic Authentication
+tshark -r capture.pcap -Y "http.authorization" -T fields -e http.authorization
+
+# Extract HTTP cookies
+tshark -r capture.pcap -Y "http.cookie" -T fields -e http.cookie
+
+# Extract Telnet data
+tshark -r capture.pcap -Y "telnet.data" -T fields -e telnet.data
+
+# Decode base64 HTTP authorization
+tshark -r capture.pcap -Y "http.authorization" -T fields -e http.authorization | cut -d' ' -f2 | base64 -d
+```
+
+### Comprehensive Wireshark Analysis Script
+
+```bash
+#!/bin/bash
+
+PCAP="$1"
+OUTPUT_DIR="pcap-analysis-$(basename "$PCAP")-$(date +%Y%m%d-%H%M%S)"
+
+mkdir -p "$OUTPUT_DIR"/{protocols,credentials,objects,streams,suspicious}
+
+echo "[+] Analyzing PCAP: $PCAP"
+
+# 1. Protocol hierarchy
+echo "[+] Extracting protocol hierarchy..."
+tshark -r "$PCAP" -q -z io,phs > "$OUTPUT_DIR/protocols/hierarchy.txt"
+
+# 2. Conversations
+echo "[+] Analyzing conversations..."
+tshark -r "$PCAP" -q -z conv,tcp > "$OUTPUT_DIR/protocols/tcp-conversations.txt"
+tshark -r "$PCAP" -q -z conv,udp > "$OUTPUT_DIR/protocols/udp-conversations.txt"
+
+# 3. Endpoints
+echo "[+] Identifying endpoints..."
+tshark -r "$PCAP" -q -z endpoints,ip > "$OUTPUT_DIR/protocols/ip-endpoints.txt"
+tshark -r "$PCAP" -q -z endpoints,tcp > "$OUTPUT_DIR/protocols/tcp-endpoints.txt"
+
+# 4. HTTP analysis
+echo "[+] Analyzing HTTP traffic..."
+tshark -r "$PCAP" -Y "http.request" -T fields -e frame.number -e http.request.method -e http.host -e http.request.uri > "$OUTPUT_DIR/protocols/http-requests.txt"
+tshark -r "$PCAP" -Y "http.response" -T fields -e frame.number -e http.response.code -e http.content_type > "$OUTPUT_DIR/protocols/http-responses.txt"
+
+# 5. DNS analysis
+echo "[+] Analyzing DNS queries..."
+tshark -r "$PCAP" -Y "dns.flags.response == 0" -T fields -e dns.qry.name -e dns.qry.type | sort -u > "$OUTPUT_DIR/protocols/dns-queries.txt"
+
+# 6. Extract credentials
+echo "[+] Extracting credentials..."
+tshark -r "$PCAP" -Y "ftp.request.command == USER || ftp.request.command == PASS" -T fields -e ip.src -e ftp.request.command -e ftp.request.arg > "$OUTPUT_DIR/credentials/ftp.txt" 2>/dev/null
+
+tshark -r "$PCAP" -Y "http.authorization" -T fields -e ip.src -e http.authorization > "$OUTPUT_DIR/credentials/http-auth.txt" 2>/dev/null
+
+tshark -r "$PCAP" -Y "http.request.method == POST" -T fields -e ip.src -e http.host -e http.request.uri -e http.file_data | grep -i "password\|username\|login" > "$OUTPUT_DIR/credentials/http-post.txt" 2>/dev/null
+
+# 7. Extract objects
+echo "[+] Extracting HTTP objects..."
+tshark -r "$PCAP" --export-objects http,"$OUTPUT_DIR/objects/http/" 2>/dev/null
+
+echo "[+] Extracting SMB objects..."
+tshark -r "$PCAP" --export-objects smb,"$OUTPUT_DIR/objects/smb/" 2>/dev/null
+
+# 8. Extract TCP streams
+echo "[+] Extracting TCP streams..."
+STREAMS=$(tshark -r "$PCAP" -T fields -e tcp.stream 2>/dev/null | sort -n | uniq)
+for stream in $STREAMS; do
+  tshark -r "$PCAP" -q -z follow,tcp,ascii,$stream > "$OUTPUT_DIR/streams/tcp_stream_${stream}.txt" 2>/dev/null
+done
+
+# 9. Search for flags
+echo "[+] Searching for CTF flags..."
+strings "$PCAP" | grep -i "flag{" > "$OUTPUT_DIR/suspicious/flags.txt"
+tshark -r "$PCAP" -T fields -e data.data 2>/dev/null | xxd -r -p | strings | grep -i "flag{" >> "$OUTPUT_DIR/suspicious/flags.txt"
+
+# 10. Suspicious activity
+echo "[+] Checking for suspicious activity..."
+tshark -r "$PCAP" -Y "http.request.uri contains \"union\" or http.request.uri contains \"select\"" -T fields -e frame.number -e ip.src -e http.request.uri > "$OUTPUT_DIR/suspicious/sql-injection.txt" 2>/dev/null
+
+tshark -r "$PCAP" -Y "http.request.uri contains \"<script\"" -T fields -e frame.number -e ip.src -e http.request.uri > "$OUTPUT_DIR/suspicious/xss.txt" 2>/dev/null
+
+tshark -r "$PCAP" -Y "dns.qry.name.len > 50" -T fields -e dns.qry.name > "$OUTPUT_DIR/suspicious/dns-tunneling.txt" 2>/dev/null
+
+# 11. Statistics
+echo "[+] Generating statistics..."
+cat > "$OUTPUT_DIR/SUMMARY.txt" << EOF
+PCAP Analysis Summary
+=====================
+File: $PCAP
+Analysis Date: $(date)
+
+Packet Statistics:
+- Total Packets: $(tshark -r "$PCAP" | wc -l)
+- HTTP Requests: $(tshark -r "$PCAP" -Y "http.request" 2>/dev/null | wc -l)
+- DNS Queries: $(tshark -r "$PCAP" -Y "dns.flags.response == 0" 2>/dev/null | wc -l)
+- TCP Streams: $(echo "$STREAMS" | wc -w)
+
+Extracted Data:
+- HTTP Objects: $(find "$OUTPUT_DIR/objects/http/" -type f 2>/dev/null | wc -l)
+- SMB Objects: $(find "$OUTPUT_DIR/objects/smb/" -type f 2>/dev/null | wc -l)
+
+Credentials Found:
+- FTP: $(wc -l < "$OUTPUT_DIR/credentials/ftp.txt" 2>/dev/null || echo 0)
+- HTTP Auth: $(wc -l < "$OUTPUT_DIR/credentials/http-auth.txt" 2>/dev/null || echo 0)
+
+Suspicious Activity:
+- SQL Injection Attempts: $(wc -l < "$OUTPUT_DIR/suspicious/sql-injection.txt" 2>/dev/null || echo 0)
+- XSS Attempts: $(wc -l < "$OUTPUT_DIR/suspicious/xss.txt" 2>/dev/null || echo 0)
+- DNS Tunneling Indicators: $(wc -l < "$OUTPUT_DIR/suspicious/dns-tunneling.txt" 2>/dev/null || echo 0)
+
+Check individual directories for detailed analysis.
+EOF
+
+echo "[+] Analysis complete: $OUTPUT_DIR"
+cat "$OUTPUT_DIR/SUMMARY.txt"
+```
+
+### Wireshark Display Filter Operators
+
+**Comparison Operators:**
+
+```
+==  # Equal
+!=  # Not equal
+>   # Greater than
+<   # Less than
+>=  # Greater than or equal
+<=  # Less than or equal
+```
+
+**Logical Operators:**
+
+```
+and  # Logical AND (also: &&)
+or   # Logical OR (also: ||)
+not  # Logical NOT (also: !)
+xor  # Logical XOR
+
+# Parentheses for grouping
+(http.request.method == "GET" or http.request.method == "POST") and ip.src == 192.168.1.100
+```
+
+**String Matching:**
+
+```
+contains    # Contains substring
+matches     # Regex match (Perl-compatible)
+~           # Same as matches
+
+# Examples:
+http.request.uri contains "admin"
+http.host matches ".*\.example\.com"
+dns.qry.name ~ "^flag.*"
+```
+
+**Membership Operators:**
+
+```
+in          # Value in set
+
+# Example:
+tcp.port in {80 443 8080 8443}
+http.response.code in {200 201 204}
+```
+
+### Wireshark Coloring Rules for CTF
+
+Custom coloring rules help identify important traffic visually:
+
+```
+# View > Coloring Rules
+
+# HTTP POST requests (yellow)
+http.request.method == "POST"
+
+# Failed HTTP responses (red)
+http.response.code >= 400
+
+# DNS queries (light blue)
+dns.flags.response == 0
+
+# Large packets (orange)
+frame.len > 1500
+
+# Suspicious strings in HTTP (pink)
+http.request.uri contains "flag" or http.request.uri contains "password"
+
+# Encrypted traffic (gray)
+tls or ssh
+
+# FTP credentials (bright red)
+ftp.request.command == "USER" or ftp.request.command == "PASS"
+```
+
+### Advanced Wireshark Features
+
+**Follow Streams:**
+
+```
+# Right-click packet > Follow > TCP Stream
+# Or use filter:
+tcp.stream eq 0
+
+# Follow UDP stream
+udp.stream eq 0
+
+# Follow HTTP stream
+http.stream eq 0
+
+# Follow TLS stream
+tls.stream eq 0
+
+# Save stream data
+# Follow Stream window > Save As
+```
+
+**Expert Information:**
+
+```
+# Analyze > Expert Information
+
+# Shows:
+# - Errors (red)
+# - Warnings (yellow)
+# - Notes (cyan)
+# - Chats (blue)
+
+# Filter by expert info
+expert.severity == error
+expert.group == malformed
+expert.message contains "retransmission"
+```
+
+**IO Graphs:**
+
+```
+# Statistics > I/O Graphs
+
+# Create timeline of traffic patterns
+# Useful for:
+# - Identifying communication patterns
+# - Detecting beaconing
+# - Finding traffic spikes
+
+# Filter by protocol in graph
+# Graph 1: http
+# Graph 2: dns
+# Graph 3: tls
+```
+
+**Protocol Dissection:**
+
+```
+# Right-click packet > Decode As...
+
+# Change how Wireshark interprets data
+# Useful for:
+# - Non-standard ports
+# - Custom protocols
+# - Encrypted data inspection
+
+# Example: Decode port 8080 as HTTP
+tcp.port == 8080, decode as HTTP
+```
+
+### Common CTF PCAP Analysis Techniques
+
+**1. Quick Win Searches:**
+
+```bash
+# Search for common flag formats in packet data
+strings capture.pcap | grep -E "flag\{|CTF\{|FLAG\{|[A-Z0-9]{32}"
+
+# Search in hex dump
+xxd capture.pcap | grep -i "666c6167"  # "flag" in hex
+
+# Extract all text-based data
+tshark -r capture.pcap -T fields -e data.text -Y "data.text" | sort -u
+```
+
+**2. Reconstruct Files:**
+
+```bash
+# Export all HTTP objects
+tshark -r capture.pcap --export-objects http,output/
+
+# Examine exported files
+cd output/
+file *
+strings * | grep -i flag
+exiftool *
+binwalk *
+```
+
+**3. Analyze Encrypted Traffic:**
+
+```bash
+# Even encrypted traffic leaks information:
+
+# Server Name Indication (SNI) in TLS
+tshark -r capture.pcap -Y "tls.handshake.extensions_server_name" -T fields -e tls.handshake.extensions_server_name
+
+# Certificate details
+tshark -r capture.pcap -Y "tls.handshake.certificate" -V
+
+# DNS before HTTPS connection
+tshark -r capture.pcap -Y "dns" -T fields -e dns.qry.name | sort -u
+```
+
+**4. USB Keyboard Traffic Analysis:**
+
+```bash
+# Extract USB HID data (keyboard captures)
+tshark -r usb-capture.pcap -Y "usb.capdata" -T fields -e usb.capdata
+
+# USB HID keycode mapping script
+#!/usr/bin/env python3
+# USB keycode to character mapping
+usb_codes = {
+    0x04:"aA", 0x05:"bB", 0x06:"cC", 0x07:"dD", 0x08:"eE", 0x09:"fF",
+    0x0A:"gG", 0x0B:"hH", 0x0C:"iI", 0x0D:"jJ", 0x0E:"kK", 0x0F:"lL",
+    0x10:"mM", 0x11:"nN", 0x12:"oO", 0x13:"pP", 0x14:"qQ", 0x15:"rR",
+    0x16:"sS", 0x17:"tT", 0x18:"uU", 0x19:"vV", 0x1A:"wW", 0x1B:"xX",
+    0x1C:"yY", 0x1D:"zZ", 0x1E:"1!", 0x1F:"2@", 0x20:"3#", 0x21:"4$",
+    0x22:"5%", 0x23:"6^", 0x24:"7&", 0x25:"8*", 0x26:"9(", 0x27:"0)",
+    0x2C:"  ", 0x2D:"-_", 0x2E:"=+", 0x2F:"[{", 0x30:"]}",
+}
+
+data = open("usb_data.txt").read().strip().split('\n')
+result = ""
+for line in data:
+    bytes_array = bytes.fromhex(line.replace(':', ''))
+    if len(bytes_array) >= 3:
+        shift = bytes_array[0]  # Modifier byte
+        key = bytes_array[2]    # Keycode
+        if key in usb_codes:
+            result += usb_codes[key][shift & 0x02 != 0]
+print(result)
+```
+
+**5. Wireless Traffic (if 802.11):**
+
+```
+# 802.11 management frames
+wlan.fc.type == 0
+
+# Beacon frames
+wlan.fc.type_subtype == 0x08
+
+# Probe requests
+wlan.fc.type_subtype == 0x04
+
+# WPA handshake
+eapol
+
+# Extract SSID
+wlan.ssid
+```
+
+---
+
+**Key CTF Strategy**: For binwalk, always use recursive extraction (`-Me`) and examine entropy graphs for hidden encrypted/compressed data. For ExifTool, check binary fields and custom metadata with `-a -G1 -u` flags. For Volatility, start with profile detection, then focus on filescan, cmdline, and netscan - many flags hide in process memory or command history. For Wireshark, begin with protocol hierarchy statistics, export all objects, extract credentials from cleartext protocols (FTP, HTTP, Telnet), and follow TCP streams for sequential data reconstruction. [Inference] CTF challenges often layer multiple techniques - a PCAP might contain HTTP traffic with base64-encoded data extracted from a memory dump analyzed with Volatility.
+
+**Related Important Tools**:
+
+- Foremost/Scalpel for additional file carving beyond binwalk
+- Autopsy/Sleuthkit for filesystem timeline analysis of extracted firmware
+- Rekall as Volatility alternative for memory analysis
+- Networkminer for automated PCAP analysis and object extraction
+- Capinfos for PCAP file statistics
+- Editcap for PCAP file manipulation and splitting
+
+---
+
+## John the Ripper
+
+John the Ripper (JtR) is a password cracking tool supporting numerous hash formats and attack modes. Essential for CTF password recovery challenges.
+
+### Installation and Setup
+
+```bash
+# Pre-installed on Kali, verify version
+john --version
+
+# Install jumbo version (community-enhanced) if needed
+sudo apt update
+sudo apt install john
+
+# Verify formats supported
+john --list=formats | head -20
+
+# Check available modes
+john --list=modes
+```
+
+### Basic Usage
+
+**Hash identification**:
+
+```bash
+# Identify hash type using hash-identifier
+hash-identifier
+# Paste hash when prompted
+
+# Or use hashid
+hashid 'hash_string_here'
+hashid -m 'hash_string_here'  # Show hashcat mode numbers
+
+# John can auto-detect many formats
+john --format=auto hashes.txt
+```
+
+### Attack Modes
+
+**1. Wordlist Attack**
+
+```bash
+# Basic wordlist attack
+john --wordlist=/usr/share/wordlists/rockyou.txt hashes.txt
+
+# Specify hash format explicitly
+john --format=raw-md5 --wordlist=/usr/share/wordlists/rockyou.txt hashes.txt
+
+# Show cracked passwords
+john --show hashes.txt
+
+# With format specification
+john --show --format=raw-md5 hashes.txt
+
+# Restore interrupted session
+john --restore
+
+# Use custom wordlist
+john --wordlist=custom_passwords.txt hashes.txt
+```
+
+**Common wordlists**:
+
+```bash
+# RockYou (most common)
+/usr/share/wordlists/rockyou.txt
+
+# Decompress if needed
+sudo gunzip /usr/share/wordlists/rockyou.txt.gz
+
+# Additional wordlists
+/usr/share/wordlists/fasttrack.txt
+/usr/share/wordlists/metasploit/
+/usr/share/seclists/Passwords/
+
+# Download SecLists if not present
+sudo apt install seclists
+```
+
+**2. Incremental Mode (Brute Force)**
+
+```bash
+# Default incremental mode (ASCII)
+john --incremental hashes.txt
+
+# Incremental with specific charset
+john --incremental=Digits hashes.txt  # Numbers only
+john --incremental=Alpha hashes.txt   # Letters only
+john --incremental=Alnum hashes.txt   # Alphanumeric
+
+# Define custom charset in john.conf
+# [Incremental:Custom]
+# File = $JOHN/custom.chr
+# MinLen = 4
+# MaxLen = 8
+# CharCount = 95
+
+# Use custom incremental mode
+john --incremental=Custom hashes.txt
+
+# Limit password length
+john --incremental --min-length=6 --max-length=8 hashes.txt
+```
+
+**3. Single Crack Mode**
+
+Uses username/GECOS fields to generate password candidates.
+
+```bash
+# Format: username:hash
+# Example file (passwords.txt):
+# john:5f4dcc3b5aa765d61d8327deb882cf99
+# admin:e10adc3949ba59abbe56e057f20f883e
+
+john --single passwords.txt
+
+# With format specification
+john --single --format=raw-md5 passwords.txt
+
+# Single mode uses username variations:
+# john, John, JOHN, john123, john2023, etc.
+```
+
+**4. Rule-Based Attacks**
+
+Rules modify wordlist entries (append numbers, capitalize, etc.).
+
+```bash
+# Apply default rules
+john --wordlist=wordlist.txt --rules hashes.txt
+
+# Specify rule set
+john --wordlist=wordlist.txt --rules=Jumbo hashes.txt
+
+# Available rule sets (john.conf):
+# - Single: For single crack mode
+# - Wordlist: Basic wordlist mangling
+# - Jumbo: Extended rule set
+# - KoreLogic: Complex corporate password rules
+
+# Create custom rules in john.conf:
+# [List.Rules:Custom]
+# $[0-9]         # Append digit
+# ^[0-9]         # Prepend digit
+# c              # Capitalize first letter
+# u              # Uppercase all
+# l              # Lowercase all
+
+# Use custom rules
+john --wordlist=wordlist.txt --rules=Custom hashes.txt
+```
+
+**Rule syntax examples**:
+
+```
+# Rule: Action
+c       # Capitalize: password -> Password
+u       # Uppercase: password -> PASSWORD
+l       # Lowercase: PASSWORD -> password
+$1      # Append '1': password -> password1
+^1      # Prepend '1': password -> 1password
+$!$1    # Append '!1': password -> password!1
+d       # Duplicate: password -> passwordpassword
+r       # Reverse: password -> drowssap
+```
+
+### Hash Format Support
+
+**Common formats**:
+
+```bash
+# List all supported formats
+john --list=formats
+
+# Common formats:
+# - raw-md5: Plain MD5
+# - raw-sha1: Plain SHA1
+# - raw-sha256: Plain SHA256
+# - bcrypt: bcrypt hashes
+# - descrypt: Traditional DES crypt
+# - md5crypt: MD5-based crypt ($1$)
+# - sha256crypt: SHA256-based crypt ($5$)
+# - sha512crypt: SHA512-based crypt ($6$)
+# - nt: Windows NTLM
+# - lm: Windows LM
+# - krb5: Kerberos 5
+```
+
+**Format-specific examples**:
+
+```bash
+# MD5
+echo -n "password" | md5sum
+# 5f4dcc3b5aa765d61d8327deb882cf99
+john --format=raw-md5 --wordlist=rockyou.txt md5hash.txt
+
+# SHA256
+echo -n "password" | sha256sum
+john --format=raw-sha256 sha256hash.txt
+
+# NTLM (Windows)
+# Hash format: username:RID:LM_hash:NTLM_hash:::
+john --format=nt ntlm_hashes.txt
+
+# Linux /etc/shadow
+john --format=sha512crypt shadow_file.txt
+```
+
+### Password File Extraction
+
+John includes utilities to extract hashes from various file types.
+
+**SSH private keys**:
+
+```bash
+# Extract hash from encrypted SSH key
+ssh2john id_rsa > id_rsa.hash
+
+# Crack the passphrase
+john --wordlist=/usr/share/wordlists/rockyou.txt id_rsa.hash
+
+# Show cracked passphrase
+john --show id_rsa.hash
+```
+
+**ZIP files**:
+
+```bash
+# Extract hash from password-protected ZIP
+zip2john encrypted.zip > zip.hash
+
+# Crack
+john --wordlist=/usr/share/wordlists/rockyou.txt zip.hash
+
+# Alternative: fcrackzip (faster for ZIP)
+fcrackzip -u -D -p /usr/share/wordlists/rockyou.txt encrypted.zip
+```
+
+**RAR files**:
+
+```bash
+# Extract RAR hash
+rar2john encrypted.rar > rar.hash
+
+# Crack
+john --wordlist=/usr/share/wordlists/rockyou.txt rar.hash
+```
+
+**PDF files**:
+
+```bash
+# Extract PDF hash
+pdf2john encrypted.pdf > pdf.hash
+
+# Crack
+john --wordlist=/usr/share/wordlists/rockyou.txt pdf.hash
+```
+
+**Microsoft Office documents**:
+
+```bash
+# Office 2007+ (OOXML)
+office2john document.docx > office.hash
+
+# Old Office format
+office2john document.doc > office.hash
+
+# Crack
+john --wordlist=/usr/share/wordlists/rockyou.txt office.hash
+```
+
+**Other file types**:
+
+```bash
+# 7-Zip archives
+7z2john encrypted.7z > 7z.hash
+
+# KeePass databases
+keepass2john database.kdbx > keepass.hash
+
+# TrueCrypt/VeraCrypt volumes
+truecrypt2john encrypted.tc > tc.hash
+
+# BitLocker encrypted drives
+bitlocker2john -i encrypted.vhd > bitlocker.hash
+
+# GPG/PGP encrypted files
+gpg2john encrypted.gpg > gpg.hash
+
+# WPA/WPA2 handshakes (from .cap file)
+wpapcap2john capture.cap > wpa.hash
+```
+
+### Advanced Options
+
+**Performance tuning**:
+
+```bash
+# Use multiple CPU cores (fork)
+john --wordlist=rockyou.txt --fork=4 hashes.txt
+
+# Show progress
+john --wordlist=rockyou.txt --progress-every=10 hashes.txt
+
+# Set session name (for resume)
+john --session=my_session --wordlist=rockyou.txt hashes.txt
+
+# Resume named session
+john --restore=my_session
+
+# Benchmark speed
+john --test
+
+# Benchmark specific format
+john --test --format=raw-md5
+```
+
+**Output control**:
+
+```bash
+# Write cracked passwords to file
+john --wordlist=rockyou.txt hashes.txt --pot=custom.pot
+
+# Default pot file location
+~/.john/john.pot
+
+# Show statistics
+john --show --format=raw-md5 hashes.txt
+
+# Export to different format
+john --show --format=raw-md5 hashes.txt > cracked.txt
+
+# Show only passwords (no usernames)
+john --show --format=raw-md5 hashes.txt | cut -d: -f2
+```
+
+**Stdin mode** (pipe input):
+
+```bash
+# Generate candidates with crunch, pipe to john
+crunch 6 6 -t pass%% | john --stdin --format=raw-md5 hashes.txt
+
+# Use with other tools
+cewl http://example.com | john --stdin hashes.txt
+
+# Combine multiple wordlists
+cat wordlist1.txt wordlist2.txt | john --stdin hashes.txt
+```
+
+### Practical CTF Examples
+
+**Example 1: MD5 hash cracking**
+
+```bash
+# Hash file: md5.txt
+# 5f4dcc3b5aa765d61d8327deb882cf99
+
+john --format=raw-md5 --wordlist=/usr/share/wordlists/rockyou.txt md5.txt
+john --show --format=raw-md5 md5.txt
+# Output: ?:password
+```
+
+**Example 2: Linux shadow file**
+
+```bash
+# /etc/shadow entry:
+# user:$6$salt$hash...:18000:0:99999:7:::
+
+# Copy relevant line to shadow.txt
+john --wordlist=/usr/share/wordlists/rockyou.txt shadow.txt
+john --show shadow.txt
+```
+
+**Example 3: SSH key passphrase**
+
+```bash
+# Protected SSH key
+ssh2john id_rsa > ssh.hash
+
+# Try common passphrases first
+john --wordlist=common_passphrases.txt ssh.hash
+
+# If unsuccessful, try rockyou
+john --wordlist=/usr/share/wordlists/rockyou.txt ssh.hash
+
+# Show result
+john --show ssh.hash
+```
+
+**Example 4: Custom wordlist with rules**
+
+```bash
+# Create wordlist from website
+cewl -d 2 -m 5 http://target.com -w custom.txt
+
+# Add custom rules to john.conf:
+# [List.Rules:CTF]
+# c$[0-9]$[0-9]
+# $[!@#]$[0-9]
+
+# Attack with custom rules
+john --wordlist=custom.txt --rules=CTF hashes.txt
+```
+
+### John the Ripper Configuration
+
+**Configuration file**: `/etc/john/john.conf` or `~/.john/john.conf`
+
+**Custom wordlist mode**:
+
+```ini
+[List.External:Filter_Custom]
+void filter()
+{
+    // Only accept passwords 6-12 characters
+    if (length(word) < 6 || length(word) > 12) {
+        word = 0;
+    }
+}
+```
+
+**Custom incremental charset**:
+
+```bash
+# Generate custom charset
+john --make-charset=custom.chr
+
+# Edit john.conf:
+[Incremental:Custom]
+File = $JOHN/custom.chr
+MinLen = 6
+MaxLen = 8
+CharCount = 95
+
+# Use it
+john --incremental=Custom hashes.txt
+```
+
+## Hashcat Basics
+
+Hashcat is a high-performance password recovery tool supporting GPU acceleration. Often faster than John for large-scale cracking.
+
+### Installation and Setup
+
+```bash
+# Install hashcat
+sudo apt update
+sudo apt install hashcat
+
+# Verify installation
+hashcat --version
+
+# Check GPU support
+hashcat -I
+
+# Benchmark (test speed)
+hashcat -b
+```
+
+### Hash Modes
+
+Hashcat uses numeric mode identifiers.
+
+```bash
+# List all hash modes
+hashcat --help | grep -i "hash modes" -A 100
+
+# Common modes:
+# 0     = MD5
+# 100   = SHA1
+# 1000  = NTLM
+# 1400  = SHA256
+# 1700  = SHA512
+# 1800  = sha512crypt (Linux)
+# 3200  = bcrypt
+# 5600  = NetNTLMv2
+# 13100 = Kerberos 5 TGS-REP
+# 22000 = WPA-PBKDF2-PMKID+EAPOL (WPA3)
+
+# Get mode info
+hashcat --example-hashes | grep -A5 "MODE: 0"
+```
+
+### Attack Modes
+
+**Attack mode numbers**:
+
+- 0 = Straight (wordlist)
+- 1 = Combination (combine two wordlists)
+- 3 = Brute-force (mask attack)
+- 6 = Hybrid wordlist + mask
+- 7 = Hybrid mask + wordlist
+
+**1. Straight/Dictionary Attack (Mode 0)**
+
+```bash
+# Basic wordlist attack
+hashcat -m 0 -a 0 hash.txt /usr/share/wordlists/rockyou.txt
+
+# With rule file
+hashcat -m 0 -a 0 hash.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/best64.rule
+
+# Multiple rules
+hashcat -m 0 -a 0 hash.txt wordlist.txt -r rule1.rule -r rule2.rule
+
+# Built-in rule files (in /usr/share/hashcat/rules/):
+# - best64.rule: Best 64 rules (recommended starting point)
+# - InsidePro-PasswordsPro.rule: Large comprehensive ruleset
+# - T0XlC.rule: Advanced mutations
+# - dive.rule: Deep mutations
+# - rockyou-30000.rule: Top 30k rockyou rules
+```
+
+**2. Combination Attack (Mode 1)**
+
+Combines words from two wordlists.
+
+```bash
+# Combine words from two lists
+hashcat -m 0 -a 1 hash.txt wordlist1.txt wordlist2.txt
+
+# Example: "pass" from list1 + "word" from list2 = "password"
+
+# With separator
+hashcat -m 0 -a 1 hash.txt wordlist1.txt wordlist2.txt -j '$-'
+# Result: pass-word
+```
+
+**3. Mask Attack (Mode 3) - Brute Force**
+
+Uses character sets and patterns.
+
+```bash
+# Mask syntax:
+# ?l = lowercase letters (a-z)
+# ?u = uppercase letters (A-Z)
+# ?d = digits (0-9)
+# ?s = special characters
+# ?a = all printable ASCII
+# ?b = all bytes (0x00-0xFF)
+
+# 8-character lowercase password
+hashcat -m 0 -a 3 hash.txt ?l?l?l?l?l?l?l?l
+
+# 6 digits (PIN)
+hashcat -m 0 -a 3 hash.txt ?d?d?d?d?d?d
+
+# Pattern: 4 lowercase + 2 digits
+hashcat -m 0 -a 3 hash.txt ?l?l?l?l?d?d
+
+# Known prefix "pass" + 4 unknown
+hashcat -m 0 -a 3 hash.txt pass?l?l?l?l
+
+# Custom charset
+hashcat -m 0 -a 3 hash.txt -1 ?l?u ?1?1?1?1?1?1
+# -1 defines custom charset 1 as lowercase+uppercase
+
+# Multiple custom charsets
+hashcat -m 0 -a 3 hash.txt -1 ?l?u -2 ?d?s ?1?1?1?1?2?2
+# Charset 1: letters, Charset 2: digits+special
+
+# Increment mode (try all lengths)
+hashcat -m 0 -a 3 hash.txt --increment --increment-min 4 --increment-max 8 ?a?a?a?a?a?a?a?a
+```
+
+**4. Hybrid Attacks**
+
+**Mode 6: Wordlist + Mask**
+
+```bash
+# Append mask to wordlist words
+hashcat -m 0 -a 6 hash.txt wordlist.txt ?d?d
+
+# Example: "password" + 12 = "password12"
+
+# Append special + 2 digits
+hashcat -m 0 -a 6 hash.txt wordlist.txt ?s?d?d
+```
+
+**Mode 7: Mask + Wordlist**
+
+```bash
+# Prepend mask to wordlist words
+hashcat -m 0 -a 7 hash.txt ?d?d?d wordlist.txt
+
+# Example: 123 + "password" = "123password"
+```
+
+### Rule-Based Attacks
+
+**Built-in rules**:
+
+```bash
+# Apply best64 rules
+hashcat -m 0 -a 0 hash.txt rockyou.txt -r /usr/share/hashcat/rules/best64.rule
+
+# Generate rules (debug mode - shows what rules do)
+hashcat -a 0 --stdout wordlist.txt -r rule_file.rule | head -20
+
+# Common rule files ranking [Inference: based on typical effectiveness]:
+# 1. best64.rule - Fast, efficient
+# 2. d3ad0ne.rule - Balanced
+# 3. T0XlC.rule - Comprehensive
+# 4. InsidePro-PasswordsPro.rule - Very large
+```
+
+**Custom rules**:
+
+```bash
+# Create custom.rule file:
+# :      # Do nothing (password as-is)
+# c      # Capitalize
+# u      # Uppercase all
+# l      # Lowercase all
+# $1     # Append '1'
+# ^1     # Prepend '1'
+# $!     # Append '!'
+# c $1 $2 $3  # Capitalize + append 123
+
+# Use custom rules
+hashcat -m 0 -a 0 hash.txt wordlist.txt -r custom.rule
+```
+
+### Hash Format
+
+**Format requirements**:
+
+```bash
+# MD5 (mode 0): Plain hash
+# hash.txt:
+5f4dcc3b5aa765d61d8327deb882cf99
+
+# NTLM (mode 1000): Plain hash
+8846f7eaee8fb117ad06bdd830b7586c
+
+# sha512crypt (mode 1800): Full hash with salt
+$6$rounds=5000$salt$hash...
+
+# Multiple hashes (one per line)
+hash1
+hash2
+hash3
+
+# With usernames (username:hash)
+user1:hash1
+user2:hash2
+```
+
+### Performance Options
+
+```bash
+# Use specific device
+hashcat -m 0 -a 0 hash.txt wordlist.txt -d 1
+
+# List devices
+hashcat -I
+
+# Workload profile (1-4)
+hashcat -m 0 -a 0 hash.txt wordlist.txt -w 3
+# 1 = Low (minimal system impact)
+# 2 = Default
+# 3 = High (recommended for dedicated cracking)
+# 4 = Nightmare (may cause system instability)
+
+# Optimize for single hash
+hashcat -m 0 -a 0 hash.txt wordlist.txt -O
+
+# Set kernel threads and vector width
+hashcat -m 0 -a 0 hash.txt wordlist.txt -n 64 -u 1024
+```
+
+### Session Management
+
+```bash
+# Create named session
+hashcat -m 0 -a 0 hash.txt wordlist.txt --session mysession
+
+# Restore session (auto-checkpoint)
+hashcat --restore --session mysession
+
+# Remove session
+hashcat --session mysession --remove
+
+# Show session status
+hashcat --status --session mysession
+```
+
+### Output Options
+
+```bash
+# Show cracked passwords
+hashcat -m 0 hash.txt --show
+
+# Write to outfile
+hashcat -m 0 -a 0 hash.txt wordlist.txt -o cracked.txt
+
+# Outfile format
+hashcat -m 0 hash.txt --show --outfile-format 2
+# Formats:
+# 1 = hash
+# 2 = plain
+# 3 = hex_plain
+# 4 = plain:hex_plain
+
+# Quiet mode (less output)
+hashcat -m 0 -a 0 hash.txt wordlist.txt --quiet
+
+# Status timer
+hashcat -m 0 -a 0 hash.txt wordlist.txt --status --status-timer 10
+```
+
+### Practical CTF Examples
+
+**Example 1: MD5 hash cracking**
+
+```bash
+# Hash: 5f4dcc3b5aa765d61d8327deb882cf99
+
+# Quick attempt with best rules
+hashcat -m 0 -a 0 -w 3 hash.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/best64.rule
+
+# Show result
+hashcat -m 0 hash.txt --show
+# 5f4dcc3b5aa765d61d8327deb882cf99:password
+```
+
+**Example 2: NTLM hash**
+
+```bash
+# Windows NTLM hash
+hashcat -m 1000 -a 0 ntlm.txt /usr/share/wordlists/rockyou.txt
+
+# With rules for common patterns (Password1!, etc.)
+hashcat -m 1000 -a 0 ntlm.txt rockyou.txt -r best64.rule
+```
+
+**Example 3: ZIP password**
+
+```bash
+# Extract hash first
+zip2john encrypted.zip > zip.hash
+
+# Format hash for hashcat (remove "file.zip:" prefix if needed)
+# Mode 13600 = WinZip, Mode 17200 = PKZIP
+
+hashcat -m 17200 -a 0 zip.hash rockyou.txt
+```
+
+**Example 4: WPA/WPA2 handshake**
+
+```bash
+# Convert .cap to hc22000 format
+hcxpcapngtool -o capture.hc22000 capture.cap
+
+# Crack WPA2 (mode 22000)
+hashcat -m 22000 -a 0 -w 3 capture.hc22000 /usr/share/wordlists/rockyou.txt
+
+# Show cracked
+hashcat -m 22000 capture.hc22000 --show
+```
+
+**Example 5: Mask attack for pattern**
+
+```bash
+# Password pattern: Word + Year (password2024)
+# Generate word candidates first
+hashcat -a 0 --stdout wordlist.txt > candidates.txt
+
+# Hybrid attack: candidates + 4 digits
+hashcat -m 0 -a 6 hash.txt candidates.txt ?d?d?d?d
+
+# Or directly with known pattern
+hashcat -m 0 -a 3 hash.txt -1 ?l?u ?1?1?1?1?1?1?1?1?d?d?d?d
+```
+
+### Hashcat vs John the Ripper
+
+**Use Hashcat when**:
+
+- GPU available (much faster)
+- Simple hash types (MD5, SHA, NTLM)
+- Large hash lists
+- Mask/brute-force attacks needed
+
+**Use John when**:
+
+- No GPU available
+- Complex formats (SSH keys, encrypted files)
+- Single crack mode (username-based)
+- Better file format support (zip2john, etc.)
+
+## Steghide Operations
+
+Steghide embeds and extracts data hidden in images (JPEG, BMP) and audio files (WAV, AU). Common in CTF steganography challenges.
+
+### Installation
+
+```bash
+# Install steghide
+sudo apt install steghide
+
+# Verify
+steghide --version
+```
+
+### Basic Operations
+
+**1. Embedding Data**
+
+```bash
+# Embed file in image
+steghide embed -cf cover_image.jpg -ef secret.txt
+
+# With custom passphrase
+steghide embed -cf cover_image.jpg -ef secret.txt -p "mypassword"
+
+# Without password prompt
+steghide embed -cf cover_image.jpg -ef secret.txt -p ""
+
+# Specify output file
+steghide embed -cf cover_image.jpg -ef secret.txt -sf stego_image.jpg
+
+# Set compression level (1-9, default 9)
+steghide embed -cf cover_image.jpg -ef secret.txt -z 5
+
+# Set encryption algorithm
+steghide embed -cf cover_image.jpg -ef secret.txt -e rijndael-128
+# Options: rijndael-128 (AES), rijndael-192, rijndael-256, etc.
+```
+
+**2. Extracting Data**
+
+```bash
+# Extract embedded data
+steghide extract -sf stego_image.jpg
+
+# With known passphrase
+steghide extract -sf stego_image.jpg -p "mypassword"
+
+# Specify output filename
+steghide extract -sf stego_image.jpg -xf extracted_secret.txt
+
+# Force overwrite
+steghide extract -sf stego_image.jpg -xf output.txt -f
+```
+
+**3. Getting Information**
+
+```bash
+# Check if file contains embedded data
+steghide info cover_image.jpg
+
+# Without password prompt
+steghide info cover_image.jpg -p ""
+
+# Example output:
+# "cover_image.jpg":
+#   format: jpeg
+#   capacity: 3.2 KB
+# Try to get information about embedded data ? (y/n) y
+# Enter passphrase:
+#   embedded file "secret.txt":
+#     size: 156.0 Byte
+#     encrypted: rijndael-128, cbc
+#     compressed: yes
+```
+
+### Steghide Password Cracking
+
+When password is unknown:
+
+**Using stegseek (fastest)**:
+
+```bash
+# Install stegseek
+sudo apt install stegseek
+
+# Crack with wordlist
+stegseek stego_image.jpg /usr/share/wordlists/rockyou.txt
+
+# Output to specific file
+stegseek stego_image.jpg wordlist.txt -xf output.txt
+
+# stegseek is significantly faster than brute-forcing with steghide [Unverified: performance comparison]
+```
+
+**Using stegcracker** (Python-based):
+
+```bash
+# Install
+sudo apt install stegcracker
+
+# Or via pip
+pip3 install stegcracker
+
+# Crack password
+stegcracker stego_image.jpg /usr/share/wordlists/rockyou.txt
+
+# Specify output
+stegcracker stego_image.jpg wordlist.txt -o output.txt
+```
+
+**Manual brute force script**:
+
+```python
+#!/usr/bin/env python3
+# steghide_bruteforce.py
+
+import subprocess
+import sys
+
+def try_password(image_file, password, output_file="output.txt"):
+    """Try extracting with given password"""
+    try:
+        cmd = [
+            'steghide', 'extract',
+            '-sf', image_file,
+            '-p', password,
+            '-xf', output_file,
+            '-f'
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5
+        )
+        
+        if result.returncode == 0:
+            return True
+        return False
+        
+    except subprocess.TimeoutExpired:
+        return False
+    except Exception as e:
+        return False
+
+def brute_force(image_file, wordlist_file):
+    """Brute force steghide password"""
+    print(f"[*] Attempting to crack: {image_file}")
+    print(f"[*] Using wordlist: {wordlist_file}")
+    
+    try:
+        with open(wordlist_file, 'r', encoding='utf-8', errors='ignore') as f:
+            for line_num, password in enumerate(f, 1):
+                password = password.strip()
+                
+                if line_num % 1000 == 0:
+                    print(f"[*] Tried {line_num} passwords...")
+                
+                if try_password(image_file, password):
+                    print(f"\n[+] Success! Password found: {password}")
+                    print(f"[+] Data extracted to output.txt")
+                    return password
+                    
+    except FileNotFoundError:
+        print(f"[-] Wordlist file not found: {wordlist_file}")
+        return None
+    
+    print("\n[-] Password not found in wordlist")
+    return None
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print(f"Usage: {sys.argv[0]} <stego_image> <wordlist>")
+        sys.exit(1)
+    
+    brute_force(sys.argv[1], sys.argv[2])
+```
+
+### Supported Formats
+
+```bash
+# JPEG images
+steghide embed -cf image.jpg -ef secret.txt
+
+# BMP images
+steghide embed -cf image.bmp -ef secret.txt
+
+# WAV audio
+steghide embed -cf audio.wav -ef secret.txt
+
+# AU audio
+steghide embed -cf audio.au -ef secret.txt
+
+# Note: PNG is NOT supported by steghide
+# For PNG, use other tools (zsteg, openstego, etc.)
+```
+
+### Practical CTF Examples
+
+**Example 1: Basic extraction**
+
+```bash
+# Given: stego.jpg
+# Try without password
+steghide extract -sf stego.jpg -p ""
+
+# If protected, check info
+steghide info stego.jpg
+```
+
+**Example 2: Password cracking**
+
+```bash
+# Quick crack with stegseek
+stegseek stego.jpg /usr/share/wordlists/rockyou.txt
+
+# Or with stegcracker
+stegcracker stego.jpg /usr/share/wordlists/rockyou.txt
+```
+
+**Example 3: Multiple images**
+
+```bash
+# Batch check multiple images
+for img in *.jpg; do
+    echo "[*] Checking: $img"
+    steghide info "$img" -p "" 2>/dev/null
+done
+
+# Batch extract with known password
+for img in *.jpg; do
+    echo "[*] Extracting from: $img"
+    steghide extract -sf "$img" -p "password" -xf "${img%.jpg}.txt" -f
+done
+```
+
+**Example 4: Creating test stego file**
+
+```bash
+# Create secret message
+echo "flag{hidden_data_here}" > secret.txt
+
+# Embed in image
+steghide embed -cf original.jpg -ef secret.txt -p "ctfpassword" -sf stego.jpg
+
+# Verify
+steghide info stego.jpg
+```
+
+### Limitations
+
+- Only supports JPEG, BMP, WAV, AU formats
+- Password protection uses relatively weak encryption [Inference: based on ease of cracking]
+- File size increases may be noticeable
+- Does not work with PNG images
+- Compressed formats (JPEG) may lose quality
+
+## outguess Usage
+
+outguess is another steganography tool that hides data in images, particularly JPEG and PNM formats. It uses a different algorithm than steghide.
+
+### Installation
+
+```bash
+# Install outguess
+sudo apt install outguess
+
+# Verify installation
+outguess -h
+```
+
+### Basic Operations
+
+**1. Hiding Data**
+
+```bash
+# Basic embedding
+outguess -d secret.txt cover.jpg stego.jpg
+
+# With key/password
+outguess -k "mypassword" -d secret.txt cover.jpg stego.jpg
+
+# Specify random seed (for deterministic results)
+outguess -s 12345 -d secret.txt cover.jpg stego.jpg
+
+# Verbose output
+outguess -v -d secret.txt cover.jpg stego.jpg
+
+# Maximum embedding rate
+outguess -p 100 -d secret.txt cover.jpg stego.jpg
+
+# Parameter explanation:
+# -d: Data file to hide
+# -k: Passphrase/key for encryption
+# -s: Random seed
+# -p: Percentage of available bits to use (default: auto)
+# -v: Verbose mode
+```
+
+**2. Extracting Data**
+
+```bash
+# Basic extraction
+outguess -r stego.jpg output.txt
+
+# With key/password
+outguess -k "mypassword" -r stego.jpg output.txt
+
+# Specify random seed (must match embedding seed)
+outguess -s 12345 -r stego.jpg output.txt
+
+# Extract to stdout
+outguess -r stego.jpg -
+
+# Verbose extraction
+outguess -v -r stego.jpg output.txt
+```
+
+**3. Statistical Analysis**
+
+```bash
+# Check if image contains hidden data
+outguess -r stego.jpg /dev/null
+
+# Output shows statistics:
+# - Number of bits available
+# - Number of bits used
+# - Data extraction status
+
+# Compare original vs stego image
+# [Inference: Visual inspection or hash comparison]
+md5sum original.jpg stego.jpg
+```
+
+### Supported Formats
+
+```bash
+# JPEG images (most common)
+outguess -d secret.txt input.jpg output.jpg
+
+# PNM (Portable Any Map) formats
+# - PBM (Portable Bitmap)
+# - PGM (Portable Graymap)
+# - PPM (Portable Pixmap)
+
+outguess -d secret.txt input.ppm output.ppm
+
+# Convert other formats to PPM if needed
+convert image.png image.ppm
+outguess -d secret.txt image.ppm stego.ppm
+convert stego.ppm stego.png
+```
+
+### Advanced Options
+
+**Quality and capacity control**:
+
+```bash
+# Check embedding capacity
+outguess -d secret.txt cover.jpg stego.jpg -v
+
+# Output shows:
+# Available bits for embedding: XXXX
+# Bits required: YYYY
+
+# If data too large, error occurs
+# Solution: Use larger image or compress data
+
+# Compress data before embedding
+gzip secret.txt
+outguess -d secret.txt.gz cover.jpg stego.jpg
+```
+
+**Encryption and security**:
+
+```bash
+# Use strong passphrase
+outguess -k "$(head -c 32 /dev/urandom | base64)" -d secret.txt cover.jpg stego.jpg
+
+# Multiple layer encryption
+# 1. Encrypt file first
+openssl enc -aes-256-cbc -salt -in secret.txt -out secret.enc -k "password1"
+
+# 2. Embed encrypted file
+outguess -k "password2" -d secret.enc cover.jpg stego.jpg
+
+# 3. To extract:
+outguess -k "password2" -r stego.jpg secret.enc
+openssl enc -aes-256-cbc -d -in secret.enc -out secret.txt -k "password1"
+```
+
+**Steganography detection resistance**:
+
+```bash
+# Use different random seeds to vary embedding pattern
+outguess -s $(date +%s) -d secret.txt cover.jpg stego.jpg
+
+# Lower embedding rate (more subtle)
+outguess -p 50 -d secret.txt cover.jpg stego.jpg
+
+# Higher rates more detectable but use capacity better
+```
+
+### Password Cracking
+
+**outguess password recovery**:
+
+```bash
+# Unlike steghide, outguess has no built-in info command
+# Must attempt extraction to verify password
+
+# Brute force script
+```
+
+```python
+#!/usr/bin/env python3
+# outguess_bruteforce.py
+
+import subprocess
+import sys
+import os
+
+def try_password(image_file, password):
+    """Try extracting with given password"""
+    try:
+        cmd = [
+            'outguess',
+            '-k', password,
+            '-r', image_file,
+            '/tmp/outguess_test_output.tmp'
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5
+        )
+        
+        # Check if extraction succeeded
+        if result.returncode == 0:
+            # Verify output file was created and has content
+            if os.path.exists('/tmp/outguess_test_output.tmp'):
+                size = os.path.getsize('/tmp/outguess_test_output.tmp')
+                os.remove('/tmp/outguess_test_output.tmp')
+                if size > 0:
+                    return True
+        
+        return False
+        
+    except subprocess.TimeoutExpired:
+        return False
+    except Exception:
+        return False
+
+def brute_force(image_file, wordlist_file, output_file="extracted.txt"):
+    """Brute force outguess password"""
+    print(f"[*] Target image: {image_file}")
+    print(f"[*] Wordlist: {wordlist_file}")
+    
+    count = 0
+    
+    try:
+        with open(wordlist_file, 'r', encoding='utf-8', errors='ignore') as f:
+            for password in f:
+                password = password.strip()
+                count += 1
+                
+                if count % 100 == 0:
+                    print(f"[*] Tried {count} passwords...", end='\r')
+                
+                if try_password(image_file, password):
+                    print(f"\n[+] Password found: {password}")
+                    
+                    # Extract with correct password
+                    subprocess.run([
+                        'outguess', '-k', password,
+                        '-r', image_file, output_file
+                    ])
+                    
+                    print(f"[+] Data extracted to: {output_file}")
+                    return password
+                    
+    except FileNotFoundError:
+        print(f"[-] Wordlist not found: {wordlist_file}")
+        return None
+    except KeyboardInterrupt:
+        print(f"\n[!] Interrupted after {count} attempts")
+        return None
+    
+    print(f"\n[-] Password not found ({count} attempts)")
+    return None
+
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print(f"Usage: {sys.argv[0]} <image_file> <wordlist>")
+        sys.exit(1)
+    
+    output = sys.argv[3] if len(sys.argv) > 3 else "extracted.txt"
+    brute_force(sys.argv[1], sys.argv[2], output)
+```
+
+### Practical CTF Examples
+
+**Example 1: Basic extraction**
+
+```bash
+# Given: stego.jpg
+# Try without password
+outguess -r stego.jpg output.txt
+
+# Check if extraction succeeded
+cat output.txt
+
+# If empty or error, password required
+```
+
+**Example 2: With password**
+
+```bash
+# Known password
+outguess -k "ctfpassword" -r stego.jpg flag.txt
+
+# Display extracted content
+cat flag.txt
+```
+
+**Example 3: Multiple images batch processing**
+
+```bash
+# Check all JPEG images for hidden data
+for img in *.jpg; do
+    echo "[*] Checking: $img"
+    outguess -r "$img" "/tmp/${img%.jpg}.txt" 2>&1
+    
+    if [ -s "/tmp/${img%.jpg}.txt" ]; then
+        echo "[+] Data found in $img:"
+        cat "/tmp/${img%.jpg}.txt"
+        echo ""
+    fi
+done
+
+# Cleanup
+rm -f /tmp/*.txt
+```
+
+**Example 4: Creating stego image**
+
+```bash
+# Create hidden message
+echo "flag{outguess_hidden_message}" > secret.txt
+
+# Embed with password
+outguess -k "secretpass" -d secret.txt original.jpg stego.jpg
+
+# Verify embedding
+outguess -v -k "secretpass" -r stego.jpg test.txt
+cat test.txt
+```
+
+**Example 5: Password cracking workflow**
+
+```bash
+# 1. Verify image contains data (try no password)
+outguess -r stego.jpg test.txt
+
+# 2. If protected, try common passwords
+for pass in "password" "123456" "admin" "ctf"; do
+    echo "[*] Trying: $pass"
+    if outguess -k "$pass" -r stego.jpg output.txt 2>/dev/null; then
+        if [ -s output.txt ]; then
+            echo "[+] Success with password: $pass"
+            cat output.txt
+            break
+        fi
+    fi
+done
+
+# 3. If unsuccessful, use wordlist
+python3 outguess_bruteforce.py stego.jpg /usr/share/wordlists/rockyou.txt
+```
+
+### Detection and Analysis
+
+**Check for outguess signatures**:
+
+```bash
+# outguess modifies DCT coefficients in JPEG
+# Statistical analysis can detect anomalies
+
+# Use stegdetect (if available)
+stegdetect stego.jpg
+
+# Sample output:
+# stego.jpg : outguess(***) 
+
+# Install stegdetect
+sudo apt install stegdetect
+
+# Batch analysis
+stegdetect *.jpg
+```
+
+**Compare original vs stego**:
+
+```bash
+# Visual comparison (should be imperceptible)
+feh original.jpg stego.jpg
+
+# File size comparison
+ls -lh original.jpg stego.jpg
+
+# Hash comparison (will differ)
+md5sum original.jpg stego.jpg
+
+# EXIF metadata comparison
+exiftool original.jpg > original_exif.txt
+exiftool stego.jpg > stego_exif.txt
+diff original_exif.txt stego_exif.txt
+```
+
+**Statistical analysis**:
+
+```bash
+# Use stegbreak to crack outguess (part of stegdetect)
+stegbreak -t o -f /usr/share/wordlists/rockyou.txt stego.jpg
+
+# Options:
+# -t o: outguess detection
+# -f: wordlist file
+```
+
+### outguess vs steghide
+
+**Comparison**:
+
+|Feature|outguess|steghide|
+|---|---|---|
+|**Formats**|JPEG, PNM|JPEG, BMP, WAV, AU|
+|**Algorithm**|Modified DCT coefficients|LSB replacement with statistical compensation|
+|**Detection resistance**|Better [Inference]|Moderate|
+|**Password**|Optional|Optional|
+|**Info command**|No|Yes (steghide info)|
+|**Capacity**|Lower|Higher|
+|**Tools available**|stegdetect, stegbreak|stegseek, stegcracker|
+|**Compression**|Manual (pre-compress)|Built-in|
+
+**When to use outguess**:
+
+- JPEG images only
+- Higher security against detection needed
+- CTF challenge specifically mentions outguess
+
+**When to use steghide**:
+
+- Need audio file support
+- Higher capacity required
+- Want built-in compression
+- Need to check file info before extraction
+
+### Additional Steganography Tools
+
+**For PNG images** (outguess/steghide don't support):
+
+```bash
+# zsteg - PNG/BMP analysis
+sudo gem install zsteg
+
+# Check for hidden data
+zsteg image.png
+
+# Extract LSB data
+zsteg -a image.png
+
+# Specific bit plane
+zsteg -b 1 image.png
+```
+
+**OpenStego**:
+
+```bash
+# Install (Java-based)
+sudo apt install openstego
+
+# GUI-based, can also use command line
+# Supports PNG and other formats
+```
+
+**Stegsolve** (Java):
+
+```bash
+# Download Stegsolve.jar
+wget http://www.caesum.com/handbook/Stegsolve.jar -O stegsolve.jar
+
+# Run
+java -jar stegsolve.jar
+
+# Features:
+# - Image analysis (different bit planes)
+# - Frame browser (animated images)
+# - Data extract
+# - Stereogram solver
+```
+
+**LSB extraction tools**:
+
+```bash
+# stegpy - Python-based LSB steganography
+pip3 install stegpy
+
+# Hide data
+stegpy hide image.png secret.txt
+
+# Extract data
+stegpy extract stego.png
+
+# Other LSB tools
+# - stegolsb
+# - LSBSteg
+# - stegoVeritas
+```
+
+**Audio steganography**:
+
+```bash
+# DeepSound (Windows, use Wine)
+# Sonic Visualiser for audio analysis
+sudo apt install sonic-visualiser
+
+# Audacity for spectrogram analysis
+sudo apt install audacity
+
+# Check audio spectrogram for hidden images/text
+audacity audio.wav
+# Analyze > Plot Spectrum
+```
+
+### CTF Workflow for Steganography
+
+**Standard approach**:
+
+```bash
+# 1. Identify file type
+file suspicious_image.jpg
+exiftool suspicious_image.jpg
+
+# 2. Check for obvious steganography
+strings suspicious_image.jpg | grep -i "flag\|ctf\|password"
+
+# 3. Try common tools without password
+steghide extract -sf suspicious_image.jpg -p ""
+outguess -r suspicious_image.jpg output.txt
+zsteg suspicious_image.png  # if PNG
+
+# 4. Get info (if supported)
+steghide info suspicious_image.jpg
+
+# 5. If password protected, crack it
+stegseek suspicious_image.jpg /usr/share/wordlists/rockyou.txt
+
+# 6. Analyze with multiple tools
+binwalk suspicious_image.jpg
+foremost suspicious_image.jpg
+exiftool suspicious_image.jpg
+
+# 7. LSB analysis
+zsteg -a suspicious_image.png  # for PNG
+stegsolve.jar  # visual analysis
+
+# 8. Check for hidden partitions/files
+binwalk -e suspicious_image.jpg
+dd if=suspicious_image.jpg of=extracted.zip skip=OFFSET bs=1
+```
+
+**Quick CTF script**:
+
+```bash
+#!/bin/bash
+# steg_analyzer.sh - Quick steganography analysis
+
+IMAGE="$1"
+
+if [ -z "$IMAGE" ]; then
+    echo "Usage: $0 <image_file>"
+    exit 1
+fi
+
+echo "[*] Analyzing: $IMAGE"
+echo ""
+
+echo "[*] File type:"
+file "$IMAGE"
+echo ""
+
+echo "[*] Trying steghide (no password):"
+steghide extract -sf "$IMAGE" -p "" -xf "steghide_output.txt" -f 2>/dev/null
+if [ -s "steghide_output.txt" ]; then
+    echo "[+] Steghide extraction successful!"
+    cat "steghide_output.txt"
+else
+    echo "[-] No data or password required"
+fi
+echo ""
+
+echo "[*] Trying outguess (no password):"
+outguess -r "$IMAGE" "outguess_output.txt" 2>/dev/null
+if [ -s "outguess_output.txt" ]; then
+    echo "[+] Outguess extraction successful!"
+    cat "outguess_output.txt"
+else
+    echo "[-] No data or password required"
+fi
+echo ""
+
+echo "[*] Running binwalk:"
+binwalk "$IMAGE"
+echo ""
+
+echo "[*] Checking strings:"
+strings "$IMAGE" | grep -iE "flag|ctf|password" | head -10
+echo ""
+
+echo "[*] EXIF data:"
+exiftool "$IMAGE" | grep -iE "comment|description|copyright|author"
+echo ""
+
+# Cleanup
+rm -f steghide_output.txt outguess_output.txt
+```
+
+### Key Takeaways
+
+**John the Ripper**:
+
+- Best for: File hash extraction (ssh2john, zip2john, etc.)
+- Modes: Wordlist, incremental (brute force), single, rules
+- Supports many hash formats
+- Good for CPU-based cracking
+
+**Hashcat**:
+
+- Best for: GPU-accelerated cracking, large hash lists
+- Faster than John for simple hashes
+- Mask attacks for pattern-based passwords
+- Rich rule engine
+
+**Steghide**:
+
+- Formats: JPEG, BMP, WAV, AU
+- Has info command to check before extraction
+- Password cracking: stegseek (fastest), stegcracker
+- Built-in compression
+
+**outguess**:
+
+- Formats: JPEG, PNM
+- No info command (must attempt extraction)
+- Better detection resistance [Inference]
+- Manual compression needed
+
+**General CTF tips**:
+
+1. Always try extraction without password first
+2. Use multiple tools (steghide, outguess, zsteg)
+3. Check strings and EXIF data
+4. For password cracking, start with small wordlists
+5. Use binwalk/foremost for embedded files
+6. Visual analysis with stegsolve for bit plane inspection
+
+---
+
+## strings Command
+
+The `strings` command extracts printable character sequences from binary files, essential for finding embedded text, URLs, credentials, and hidden flags in CTF challenges.
+
+### Basic Usage
+
+```bash
+# Default extraction (minimum 4 characters)
+strings binary_file
+
+# Specify minimum string length
+strings -n 8 suspicious.bin
+
+# Show offset positions (decimal)
+strings -t d binary_file
+
+# Show offset positions (hexadecimal)
+strings -t x binary_file
+
+# Show offset positions (octal)
+strings -t o binary_file
+```
+
+### Encoding Options
+
+```bash
+# Default: single-byte characters (ASCII)
+strings file.bin
+
+# 16-bit little-endian (Windows Unicode)
+strings -e l file.exe
+
+# 16-bit big-endian
+strings -e b file.bin
+
+# All encoding types
+strings -e s -e S -e b -e l file.bin
+# s = single-7-bit-byte (ASCII)
+# S = single-8-bit-byte
+# b = 16-bit big-endian
+# l = 16-bit little-endian
+```
+
+### Advanced Filtering and Analysis
+
+**Extract Specific Patterns**
+
+```bash
+# Find URLs
+strings file.bin | grep -E 'https?://[^\s]+'
+
+# Find email addresses
+strings file.bin | grep -E '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}'
+
+# Find IP addresses
+strings file.bin | grep -E '([0-9]{1,3}\.){3}[0-9]{1,3}'
+
+# Find base64 encoded data (minimum 20 chars)
+strings -n 20 file.bin | grep -E '^[A-Za-z0-9+/]+={0,2}$'
+
+# Find potential flags
+strings file.bin | grep -iE '(flag|ctf|key)\{[^\}]+\}'
+
+# Find file paths
+strings file.bin | grep -E '^(/[^/\s]+)+/?$'  # Unix paths
+strings file.bin | grep -E '^[A-Za-z]:\\' # Windows paths
+```
+
+**Case-Sensitive and Length-Based Extraction**
+
+```bash
+# Extract only uppercase strings
+strings file.bin | grep '^[A-Z]*$'
+
+# Extract mixed-case strings (potential passwords)
+strings file.bin | grep '[a-z]' | grep '[A-Z]'
+
+# Extract strings with specific length
+strings file.bin | awk 'length($0) == 32'
+
+# Extract strings between length range
+strings file.bin | awk 'length($0) >= 16 && length($0) <= 64'
+```
+
+### Output Management
+
+```bash
+# Save to file with offsets
+strings -t x file.bin > strings_output.txt
+
+# Sort and remove duplicates
+strings file.bin | sort -u > unique_strings.txt
+
+# Count string occurrences
+strings file.bin | sort | uniq -c | sort -rn
+
+# Extract only printable ASCII
+strings file.bin | LC_ALL=C grep -P '^[\x20-\x7E]+$'
+```
+
+### Targeted Binary Analysis
+
+**Executable Analysis**
+
+```bash
+# Find function names and symbols
+strings binary | grep -E '^[_a-zA-Z][_a-zA-Z0-9]*$'
+
+# Find hardcoded credentials
+strings binary | grep -iE '(password|passwd|pwd|key|secret|token)'
+
+# Find debug strings
+strings binary | grep -iE '(debug|error|warning|printf|fprintf)'
+
+# Find system commands
+strings binary | grep -E '(system|exec|popen|bash|sh|cmd)'
+```
+
+**Memory Dump Analysis**
+
+```bash
+# Extract from memory dump with specific encoding
+strings -e l memory.dmp | grep -i "password"
+
+# Find consecutive strings in memory regions
+strings -t x memory.dmp | awk '{print $1, $2}' | sort
+
+# Extract strings from specific offset range (using dd first)
+dd if=memory.dmp skip=1000 count=5000 bs=1 | strings
+```
+
+**Image/Document Forensics**
+
+```bash
+# Extract metadata strings from images
+strings image.jpg | grep -iE '(exif|photoshop|camera|gps)'
+
+# Find embedded text in PDFs
+strings document.pdf | grep -v '^[^a-zA-Z0-9]'
+
+# Extract from Office documents (actually ZIP archives)
+unzip -p document.docx word/document.xml | strings
+```
+
+### CTF-Specific Techniques
+
+**Multi-Layer Analysis**
+
+```bash
+# Extract, decode base64, extract again
+strings file.bin | grep -E '^[A-Za-z0-9+/]+={0,2}$' | while read line; do
+    echo "$line" | base64 -d 2>/dev/null | strings
+done
+
+# Check for ROT13 encoded strings
+strings file.bin | tr 'A-Za-z' 'N-ZA-Mn-za-m'
+
+# Look for hex-encoded strings
+strings file.bin | grep -E '^([0-9A-Fa-f]{2})+$' | while read hex; do
+    echo "$hex" | xxd -r -p 2>/dev/null
+done
+```
+
+**Automated Flag Extraction**
+
+```bash
+cat > extract_flags.sh << 'EOF'
+#!/bin/bash
+FILE="$1"
+
+echo "[+] Extracting strings..."
+strings -a -t x "$FILE" > /tmp/strings_all.txt
+
+echo "[+] Searching for flag patterns..."
+grep -iE '(flag|ctf|key)\{[^\}]+\}' /tmp/strings_all.txt
+
+echo "[+] Searching for base64 patterns..."
+grep -E '^[A-Za-z0-9+/]{20,}={0,2}$' /tmp/strings_all.txt | while read b64; do
+    decoded=$(echo "$b64" | base64 -d 2>/dev/null)
+    if echo "$decoded" | grep -qE '(flag|ctf|key)'; then
+        echo "Found in base64: $b64 -> $decoded"
+    fi
+done
+
+echo "[+] Checking for hidden URLs..."
+grep -oE 'https?://[^\s]+' /tmp/strings_all.txt | sort -u
+
+echo "[+] Looking for suspicious patterns..."
+grep -E '[A-Za-z0-9]{32}' /tmp/strings_all.txt | head -n 10
+
+rm /tmp/strings_all.txt
+EOF
+
+chmod +x extract_flags.sh
+./extract_flags.sh suspicious_binary
+```
+
+### Performance Optimization
+
+```bash
+# Process large files efficiently
+strings -n 6 large_file.bin | grep -F "specific_pattern"
+
+# Parallel processing for multiple files
+find . -type f -exec strings {} \; | grep "flag" &
+
+# Memory-efficient processing
+strings -n 10 huge_file.img | head -n 1000000 > sample_strings.txt
+
+# Use with limited resources
+nice -n 19 strings -n 8 large_dump.bin > output.txt
+```
+
+### Integration with Other Tools
+
+```bash
+# Strings + grep + binwalk
+strings firmware.bin | grep -i "password"
+binwalk -e firmware.bin
+
+# Strings + radare2
+strings -t x binary > strings.txt
+r2 -A binary
+# In r2: iz (list strings with addresses)
+
+# Strings + volatility (memory forensics)
+volatility -f memory.dmp imageinfo
+volatility -f memory.dmp strings | grep "keyword"
+
+# Strings + foremost (file carving)
+strings image.dd | grep -i "jpg\|png\|pdf"
+foremost -i image.dd -o carved_files/
+```
+
+## xxd Hex Editor
+
+The `xxd` command creates hex dumps and performs hex-to-binary conversions, crucial for analyzing and modifying binary data at the byte level.
+
+### Basic Hex Dump Operations
+
+```bash
+# Standard hex dump (16 bytes per line)
+xxd file.bin
+
+# Output format: 
+# 00000000: 7f45 4c46 0201 0100 0000 0000 0000 0000  .ELF............
+
+# Limit output lines
+xxd -l 256 file.bin  # First 256 bytes
+
+# Start from specific offset
+xxd -s 0x100 file.bin  # Start at byte 256
+
+# Combine offset and length
+xxd -s 0x100 -l 64 file.bin  # 64 bytes starting at offset 256
+
+# Skip to offset from end of file
+xxd -s -512 file.bin  # Last 512 bytes
+```
+
+### Output Format Options
+
+```bash
+# Plain hex output (no line numbers or ASCII)
+xxd -p file.bin
+
+# Continuous hex (one long line)
+xxd -p -c 0 file.bin
+
+# Binary dump (bits instead of hex)
+xxd -b file.bin
+# Output: 00000000: 01111111 01000101 01001100 01000110  .ELF
+
+# Uppercase hex
+xxd -u file.bin
+
+# Column width (bytes per line)
+xxd -c 32 file.bin  # 32 bytes per line
+xxd -c 8 file.bin   # 8 bytes per line (more readable)
+
+# Include character display
+xxd -e file.bin  # Little-endian hex dump
+```
+
+### Hex to Binary Conversion
+
+```bash
+# Reverse hex dump to binary
+xxd -r hexdump.txt output.bin
+
+# Plain hex string to binary
+echo "48656c6c6f" | xxd -r -p
+
+# Multi-line hex to binary
+cat > hex_input.txt << 'EOF'
+7f45 4c46 0201 0100
+0000 0000 0000 0000
+EOF
+
+xxd -r -p hex_input.txt output.bin
+
+# Inline hex conversion
+echo "4d5a" | xxd -r -p | file -
+# Output: /dev/stdin: DOS executable (MZ)
+```
+
+### Patching Binary Files
+
+**Simple Byte Modification**
+
+```bash
+# Create hex dump
+xxd file.bin > file.hex
+
+# Edit file.hex in text editor
+# Example: Change byte at 0x00000010 from 41 to 42
+
+# Apply changes
+xxd -r file.hex > file_patched.bin
+
+# Verify
+xxd -l 32 file_patched.bin
+```
+
+**Automated Patching**
+
+```bash
+# Replace specific byte pattern
+cat > patch_binary.sh << 'EOF'
+#!/bin/bash
+INFILE="$1"
+OFFSET="$2"    # Decimal offset
+NEW_BYTE="$3"  # Hex value (e.g., "41" for 'A')
+
+# Create hex dump
+xxd -p "$INFILE" > /tmp/hex_dump.txt
+
+# Calculate position in hex string (2 chars per byte)
+POS=$((OFFSET * 2))
+
+# Replace bytes
+HEAD=$(head -c $POS /tmp/hex_dump.txt)
+TAIL=$(tail -c +$((POS + 3)) /tmp/hex_dump.txt)
+echo -n "${HEAD}${NEW_BYTE}${TAIL}" | xxd -r -p > "${INFILE}.patched"
+
+echo "[+] Patched byte at offset $OFFSET to 0x$NEW_BYTE"
+rm /tmp/hex_dump.txt
+EOF
+
+chmod +x patch_binary.sh
+./patch_binary.sh binary.exe 100 90  # NOP instruction at offset 100
+```
+
+**Multiple Byte Replacement**
+
+```bash
+# Replace sequence of bytes
+python3 << 'EOF'
+import sys
+
+infile = sys.argv[1]
+offset = int(sys.argv[2], 16)  # Hex offset
+new_bytes = bytes.fromhex(sys.argv[3])
+
+with open(infile, 'rb') as f:
+    data = bytearray(f.read())
+
+# Replace bytes
+for i, byte in enumerate(new_bytes):
+    data[offset + i] = byte
+
+with open(infile + '.patched', 'wb') as f:
+    f.write(data)
+
+print(f"[+] Replaced {len(new_bytes)} bytes at offset 0x{offset:x}")
+EOF
+
+python3 patch_multi.py file.bin 0x100 "909090909090"  # Six NOP instructions
+```
+
+### Data Extraction and Analysis
+
+**Extract Specific Byte Ranges**
+
+```bash
+# Extract bytes from offset to offset
+xxd -s 0x100 -l 0x50 file.bin -p | xxd -r -p > extracted.bin
+
+# Extract magic bytes (file signature)
+xxd -l 8 -p file.bin
+# Common signatures:
+# 504b0304 = ZIP
+# 7f454c46 = ELF
+# 4d5a9000 = PE/MZ
+# 89504e47 = PNG
+# ffd8ffe0 = JPEG
+```
+
+**Compare Binary Files**
+
+```bash
+# Create side-by-side hex comparison
+xxd file1.bin > file1.hex
+xxd file2.bin > file2.hex
+diff -y file1.hex file2.hex | less
+
+# Show only differences
+diff file1.hex file2.hex | grep -E "^<|^>"
+
+# Byte-level difference count
+cmp -l file1.bin file2.bin | wc -l
+```
+
+**Analyze Byte Patterns**
+
+```bash
+# Find repeating patterns
+xxd file.bin | grep "0000 0000 0000 0000"
+
+# Identify entropy (detect encryption/compression)
+xxd -p -c 1 file.bin | sort | uniq -c | sort -rn | head -n 10
+
+# Look for null bytes (potential padding)
+xxd file.bin | grep "0000 0000"
+
+# Find ASCII strings in hex
+xxd file.bin | grep "[2-7][0-9a-f] "  # Printable ASCII range 0x20-0x7e
+```
+
+### Steganography and Hidden Data
+
+**Embed Data in Files**
+
+```bash
+# Append hidden data to image
+cat image.jpg hidden.txt > stego_image.jpg
+xxd -l 50 stego_image.jpg  # Check file header intact
+
+# Extract hidden data (after JPEG EOF marker FFD9)
+xxd -p stego_image.jpg | tr -d '\n' | sed 's/ffd9/\nffd9\n/' | tail -n +2 | xxd -r -p > extracted.txt
+```
+
+**XOR Analysis**
+
+```bash
+# XOR two files byte-by-byte
+python3 << 'EOF'
+import sys
+
+with open(sys.argv[1], 'rb') as f1, open(sys.argv[2], 'rb') as f2:
+    data1 = f1.read()
+    data2 = f2.read()
+    
+    result = bytes([b1 ^ b2 for b1, b2 in zip(data1, data2)])
+    
+    with open('xor_result.bin', 'wb') as out:
+        out.write(result)
+
+print("[+] XOR result saved to xor_result.bin")
+EOF
+
+python3 xor_files.py file1.bin file2.bin
+xxd xor_result.bin
+```
+
+**LSB Extraction (Least Significant Bit)**
+
+```bash
+# Extract LSBs from image data
+python3 << 'EOF'
+import sys
+
+with open(sys.argv[1], 'rb') as f:
+    data = f.read()
+
+lsbs = ''.join([str(byte & 1) for byte in data])
+
+# Convert bits to bytes
+bytes_data = bytearray()
+for i in range(0, len(lsbs), 8):
+    if i + 8 <= len(lsbs):
+        byte = int(lsbs[i:i+8], 2)
+        bytes_data.append(byte)
+
+with open('lsb_extracted.bin', 'wb') as out:
+    out.write(bytes_data)
+
+print(f"[+] Extracted {len(bytes_data)} bytes from LSBs")
+EOF
+
+python3 extract_lsb.py image.png
+xxd lsb_extracted.bin | less
+```
+
+### Format-Specific Analysis
+
+**ELF Binary Analysis**
+
+```bash
+# Check ELF header
+xxd -l 64 binary
+
+# ELF header structure (first 16 bytes):
+# 0x00: 7f 45 4c 46 - Magic number (.ELF)
+# 0x04: 01/02 - 32/64 bit
+# 0x05: 01/02 - Little/Big endian
+# 0x06: 01 - ELF version
+# 0x07: OS/ABI
+
+# Find entry point address
+xxd -s 24 -l 8 -e binary
+```
+
+**PE Executable Analysis**
+
+```bash
+# Check PE header
+xxd -l 128 program.exe
+
+# DOS header: 4d5a (MZ)
+# PE signature offset at 0x3c
+xxd -s 0x3c -l 4 program.exe
+
+# Extract PE signature location
+OFFSET=$(xxd -s 0x3c -l 4 -e program.exe | awk '{print $2}' | xxd -r -p | od -An -td4)
+xxd -s $OFFSET -l 4 program.exe  # Should show "50450000" (PE\0\0)
+```
+
+**ZIP Archive Analysis**
+
+```bash
+# ZIP local file header signature
+xxd -l 4 archive.zip  # Should be: 504b0304
+
+# Find all file headers in ZIP
+xxd -p archive.zip | tr -d '\n' | grep -ob "504b0304" | cut -d: -f1
+
+# Extract central directory offset
+xxd -s -22 -l 22 archive.zip
+
+# Look for encrypted entries (general purpose flag bit 0)
+xxd archive.zip | grep "504b 0304"  # Check byte at +6 offset
+```
+
+### Advanced Techniques
+
+**Byte Frequency Analysis**
+
+```bash
+# Count byte occurrences
+python3 << 'EOF'
+from collections import Counter
+import sys
+
+with open(sys.argv[1], 'rb') as f:
+    data = f.read()
+
+freq = Counter(data)
+print("Byte | Hex | Count | Percentage")
+print("-" * 40)
+for byte, count in freq.most_common(20):
+    percentage = (count / len(data)) * 100
+    print(f"{byte:3d} | {byte:02x}  | {count:5d} | {percentage:6.2f}%")
+EOF
+
+python3 byte_frequency.py file.bin
+```
+
+**Find Binary Patterns**
+
+```bash
+# Search for specific hex pattern
+xxd -p file.bin | tr -d '\n' | grep -ob "deadbeef"
+
+# Find repeating sequences
+xxd file.bin | grep -E "(.{4})\1\1"  # Find patterns repeated 3+ times
+
+# Locate potential embedded files
+xxd file.bin | grep -E "(504b0304|7f454c46|89504e47|ffd8ffe0)"
+```
+
+**Memory Alignment Analysis**
+
+```bash
+# Check if data is aligned to specific boundaries
+xxd -g 16 file.bin  # Group by 16-byte boundaries
+
+# Find unaligned pointers (not divisible by 4/8)
+xxd -c 4 file.bin | awk '{print $1, $2}'
+```
+
+### CTF Challenge Techniques
+
+**Hidden Flags in Hex**
+
+```bash
+# Convert potential hex-encoded flags
+xxd -p file.bin | tr -d '\n' | fold -w 2 | while read byte; do
+    char=$(printf "\\x$byte")
+    echo -n "$char"
+done | grep -ao "flag{[^}]*}"
+```
+
+**Recover Corrupted File Headers**
+
+```bash
+# Fix PNG header
+echo "89504e470d0a1a0a" | xxd -r -p > header.bin
+cat header.bin corrupted.png > fixed.png
+
+# Fix JPEG header
+echo "ffd8ffe000104a46494600" | xxd -r -p > jpeg_header.bin
+cat jpeg_header.bin corrupted.jpg > fixed.jpg
+
+# Fix ZIP header
+echo "504b0304" | xxd -r -p > zip_header.bin
+cat zip_header.bin corrupted.zip > fixed.zip
+```
+
+**Incremental Hex Analysis**
+
+```bash
+cat > analyze_hex.sh << 'EOF'
+#!/bin/bash
+FILE="$1"
+SIZE=$(stat -f%z "$FILE" 2>/dev/null || stat -c%s "$FILE")
+
+echo "[+] File: $FILE ($SIZE bytes)"
+echo "[+] Magic bytes:"
+xxd -l 16 -p "$FILE"
+
+echo -e "\n[+] Searching for embedded files..."
+xxd -p "$FILE" | tr -d '\n' | grep -ob "504b0304\|7f454c46\|89504e47\|ffd8ff"
+
+echo -e "\n[+] Entropy check (high entropy = encrypted/compressed):"
+xxd -p "$FILE" | tr -d '\n' | fold -w 2 | sort | uniq -c | wc -l
+
+echo -e "\n[+] Strings in hex that decode to ASCII:"
+xxd -p "$FILE" | fold -w 2 | while read byte; do
+    printf "\\x$byte"
+done | strings -n 8
+EOF
+
+chmod +x analyze_hex.sh
+./analyze_hex.sh suspicious_file.bin
+```
+
+## file Command
+
+The `file` command identifies file types by examining file contents and magic numbers, bypassing reliance on file extensions.
+
+### Basic File Identification
+
+```bash
+# Identify single file
+file document.bin
+
+# Identify multiple files
+file *
+
+# Recursive identification
+find . -type f -exec file {} \;
+
+# Brief output (no filename)
+file -b file.bin
+
+# MIME type output
+file -i file.bin
+file --mime-type file.bin  # Type only
+
+# Follow symlinks
+file -L symlink
+```
+
+### Deep Content Analysis
+
+```bash
+# Detailed examination
+file -z compressed.gz  # Look inside compressed files
+
+# No buffer limit (check entire file if needed)
+file -P bytes=1048576 largefile.bin  # Check first 1MB
+
+# Keep going after first match
+file -k multiformat.bin
+
+# Special files analysis
+file -s /dev/sda1  # Filesystem type on device
+
+# Don't translate unprintable characters
+file -r rawfile.bin
+```
+
+### Magic Database and Custom Signatures
+
+```bash
+# Show which magic file pattern matched
+file -m /usr/share/misc/magic suspicious.bin
+
+# Use custom magic file
+cat > custom.magic << 'EOF'
+0    string    CTF{        CTF Flag file
+0    string    FLAG{       CTF Flag file
+0    belong    0xdeadbeef  Custom binary format
+EOF
+
+file -m custom.magic file.bin
+
+# Compile custom magic for faster access
+file -C -m custom.magic
+file -m custom.magic.mgc file.bin
+```
+
+### Format-Specific Detection
+
+**Executable Formats**
+
+```bash
+# Detect executable type
+file binary
+# ELF 64-bit LSB executable, x86-64, version 1 (SYSV), dynamically linked...
+
+# Check architecture
+file -b binary | grep -o "x86-64\|ARM\|MIPS\|i386"
+
+# Check if stripped
+file binary | grep -i "stripped\|not stripped"
+
+# Detect packing/obfuscation
+file binary | grep -iE "packed|upx|compress"
+```
+
+**Archive Formats**
+
+```bash
+# Detect archive type regardless of extension
+file archive.bin
+# Possible outputs:
+# - POSIX tar archive
+# - gzip compressed data
+# - XZ compressed data
+# - Zip archive data
+# - RAR archive data
+# - 7-zip archive data
+
+# Check compression method
+file -z archive.tar.gz
+```
+
+**Image Formats**
+
+```bash
+# Detailed image information
+file image.bin
+# JPEG image data, JFIF standard 1.01, resolution (DPI), density 72x72...
+
+# Detect corrupted images
+file broken_image.jpg | grep -i "data"
+
+# Check image dimensions
+file -b image.png | grep -oP '\d+ x \d+'
+```
+
+**Document Formats**
+
+```bash
+# Microsoft Office (old and new formats)
+file document.doc
+# Microsoft Word 2007+
+
+file old_document.doc
+# Microsoft Office Document
+
+# PDF version detection
+file document.pdf | grep -oP 'PDF-\d+\.\d+'
+
+# Detect encrypted PDFs
+file document.pdf | grep -i "encrypt"
+```
+
+### CTF-Specific File Analysis
+
+**Polyglot File Detection**
+
+```bash
+# File that appears as multiple formats
+file -k polyglot.bin  # Shows all matching signatures
+
+# Check different offsets
+file -b polyglot.bin
+xxd -l 16 polyglot.bin  # Check header
+xxd -s -16 -l 16 polyglot.bin  # Check footer
+
+# Manually check for multiple signatures
+xxd -p polyglot.bin | tr -d '\n' | grep -o "504b0304\|ffd8ff\|89504e47"
+```
+
+**Misnamed File Recovery**
+
+```bash
+# Find actual file type
+cat > identify_and_fix.sh << 'EOF'
+#!/bin/bash
+
+for file in *; do
+    [ -f "$file" ] || continue
+    
+    ACTUAL_TYPE=$(file -b --mime-type "$file")
+    EXTENSION="${file##*.}"
+    
+    case "$ACTUAL_TYPE" in
+        "image/png")
+            NEW_EXT="png" ;;
+        "image/jpeg")
+            NEW_EXT="jpg" ;;
+        "application/zip")
+            NEW_EXT="zip" ;;
+        "application/pdf")
+            NEW_EXT="pdf" ;;
+        "application/x-executable")
+            NEW_EXT="elf" ;;
+        *)
+            continue ;;
+    esac
+    
+    if [ "$EXTENSION" != "$NEW_EXT" ]; then
+        echo "[+] $file is actually $ACTUAL_TYPE, renaming to ${file%.*}.$NEW_EXT"
+        mv "$file" "${file%.*}.$NEW_EXT"
+    fi
+done
+EOF
+
+chmod +x identify_and_fix.sh
+./identify_and_fix.sh
+```
+
+**Embedded File Detection**
+
+```bash
+# Scan for embedded files within file
+cat > find_embedded.sh << 'EOF'
+#!/bin/bash
+FILE="$1"
+
+echo "[+] Scanning $FILE for embedded files..."
+
+# Known magic numbers
+declare -A SIGNATURES
+SIGNATURES=(
+    ["504b0304"]="ZIP"
+    ["7f454c46"]="ELF"
+    ["89504e47"]="PNG"
+    ["ffd8ffe0"]="JPEG"
+    ["ffd8ffe1"]="JPEG (EXIF)"
+    ["25504446"]="PDF"
+    ["504b0506"]="ZIP (end)"
+    ["d0cf11e0"]="MS Office"
+    ["52617221"]="RAR"
+)
+
+HEX_DUMP=$(xxd -p "$FILE" | tr -d '\n')
+
+for sig in "${!SIGNATURES[@]}"; do
+    POSITIONS=$(echo "$HEX_DUMP" | grep -ob "$sig" | cut -d: -f1)
+    if [ ! -z "$POSITIONS" ]; then
+        echo "[+] Found ${SIGNATURES[$sig]} signature at byte offset(s):"
+        for pos in $POSITIONS; do
+            BYTE_OFFSET=$((pos / 2))
+            echo "    0x$(printf '%x' $BYTE_OFFSET) ($BYTE_OFFSET)"
+            
+            # Extract embedded file
+            dd if="$FILE" of="embedded_${SIGNATURES[$sig]}_${BYTE_OFFSET}.bin" \
+                bs=1 skip=$BYTE_OFFSET 2>/dev/null
+        done
+    fi
+done
+EOF
+
+chmod +x find_embedded.sh
+./find_embedded.sh suspicious_file.bin
+```
+
+### Batch File Analysis
+
+```bash
+# Identify all files in directory with summary
+find . -type f -exec file -b {} \; | sort | uniq -c | sort -rn
+
+# Find specific file types
+find . -type f -exec file {} \; | grep -i "jpeg\|png"
+
+# Find executable files
+find . -type f -exec file {} \; | grep -i "executable\|elf"
+
+# Find compressed files
+find . -type f -exec file {} \; | grep -iE "compress|gzip|bzip|xz"
+
+# Find encrypted/high-entropy files
+find . -type f -exec file {} \; | grep -i "encrypt\|data"
+```
+
+### Integration with Forensics Workflow
+
+```bash
+# Complete file triage script
+cat > file_triage.sh << 'EOF'
+#!/bin/bash
+TARGET="$1"
+
+echo "=== File Triage Report ==="
+echo "File: $TARGET"
+echo "Size: $(stat -f%z "$TARGET" 2>/dev/null || stat -c%s "$TARGET") bytes"
+echo
+
+echo "--- File Type ---"
+file -b "$TARGET"
+echo
+
+echo "--- MIME Type ---"
+file -b --mime-type "$TARGET"
+echo
+
+echo "--- Magic Bytes (first 16) ---"
+xxd -l 16 -g 1 "$TARGET"
+echo
+
+echo "--- Strings Sample ---"
+strings -n 8 "$TARGET" | head -n 10
+echo
+
+echo "--- Entropy Check ---"
+ENT_OUTPUT=$(ent "$TARGET" 2>/dev/null || echo "ent not installed")
+echo "$ENT_OUTPUT" | head -n 3
+echo
+
+echo "--- Potential Embedded Files ---"
+xxd -p "$TARGET" | tr -d '\n' | \
+    grep -o "504b0304\|7f454c46\|89504e47\|ffd8ff" | \
+    uniq -c
+echo
+
+echo "--- MD5/SHA256 ---"
+md5sum "$TARGET" 2>/dev/null || md5 "$TARGET"
+sha256sum "$TARGET" 2>/dev/null || shasum -a 256 "$TARGET"
+EOF
+
+chmod +x file_triage.sh
+./file_triage.sh unknown_file.bin
+```
+
+## dd Imaging
+
+The `dd` command performs low-level data copying and conversion, essential for creating forensic disk images, extracting data at specific offsets, and data recovery.
+
+### Basic Disk Imaging
+
+```bash
+# Create full disk image
+sudo dd if=/dev/sda of=disk_image.dd bs=4M status=progress
+
+# Parameters:
+# if = input file (source)
+# of = output file (destination)
+# bs = block size (4M is efficient for large disks)
+# status=progress = show transfer progress
+
+# Create compressed image
+sudo dd if=/dev/sda bs=4M status=progress | gzip -c > disk_image.dd.gz
+
+# Verify image integrity
+sudo dd if=/dev/sda bs=4M | md5sum
+md5sum disk_image.dd
+```
+
+### Partition Imaging
+
+```bash
+# List partitions first
+sudo fdisk -l /dev/sda
+# or
+lsblk
+
+# Image specific partition
+sudo dd if=/dev/sda1 of=partition1.dd bs=4M status=progress
+
+# Image MBR (Master Boot Record - first 512 bytes)
+sudo dd if=/dev/sda of=mbr_backup.dd bs=512 count=1
+
+# Image extended boot record
+sudo dd if=/dev/sda of=boot_sector.dd bs=512 count=63 skip=1
+```
+
+### USB/Removable Media Imaging
+
+```bash
+# Identify USB device
+lsblk
+dmesg | tail
+# Usually /dev/sdb or /dev/sdc
+
+# Create image
+sudo dd if=/dev/sdb of=usb_image.dd bs=4M status=progress conv=noerror,sync
+
+# conv=noerror = continue on read errors
+# conv=sync = pad failed reads with zeros
+
+# Mount image for analysis
+mkdir /tmp/usb_mount
+sudo mount -o loop,ro usb_image.dd /tmp/usb_mount
+```
+
+### Memory Imaging
+
+```bash
+# Capture RAM (requires root)
+sudo dd if=/dev/mem of=memory.dd bs=1M count=4096
+
+# Capture specific memory region
+
+sudo dd if=/dev/mem of=memory_region.dd bs=1M skip=1024 count=512
+
+# skip=1024 starts at 1GB offset
+
+# count=512 captures 512MB
+
+# Alternative: Use /dev/crash if available
+
+sudo dd if=/dev/crash of=crash_dump.dd bs=1M status=progress
+````
+
+### Forensic Imaging Best Practices
+
+```bash
+# Create forensically sound image with hash verification
+sudo dd if=/dev/sda of=evidence.dd bs=4M conv=noerror,sync status=progress
+sha256sum evidence.dd > evidence.dd.sha256
+md5sum evidence.dd > evidence.dd.md5
+
+# Split large images into manageable chunks
+sudo dd if=/dev/sda bs=4M status=progress | split -b 2G - disk_image.dd.
+# Creates: disk_image.dd.aa, disk_image.dd.ab, disk_image.dd.ac...
+
+# Reassemble split images
+cat disk_image.dd.* > disk_image_full.dd
+
+# Verify split image integrity
+cat disk_image.dd.* | sha256sum
+````
+
+**Write-Protection Verification**
+
+```bash
+# Enable write-protection (if hardware supports)
+echo 1 | sudo tee /sys/block/sdb/device/write_protect
+
+# Verify no writes occurred
+blockdev --getro /dev/sdb
+# Output: 1 = read-only, 0 = read-write
+
+# Document imaging process
+cat > imaging_log.txt << EOF
+Date: $(date)
+Examiner: [Name]
+Source Device: /dev/sda
+Model: $(sudo hdparm -I /dev/sda 2>/dev/null | grep "Model Number")
+Serial: $(sudo hdparm -I /dev/sda 2>/dev/null | grep "Serial Number")
+Capacity: $(sudo blockdev --getsize64 /dev/sda)
+Image File: evidence.dd
+SHA256: $(sha256sum evidence.dd | cut -d' ' -f1)
+EOF
+```
+
+### Data Extraction at Specific Offsets
+
+**Extract Specific Byte Ranges**
+
+```bash
+# Extract 1MB starting at byte 4096
+dd if=disk_image.dd of=extracted.bin bs=1 skip=4096 count=1048576
+
+# More efficient with larger block size
+dd if=disk_image.dd of=extracted.bin bs=4096 skip=1 count=256
+# skip=1 means skip 1 block (4096 bytes)
+# count=256 means read 256 blocks (1MB total)
+
+# Extract from specific sector (512 bytes per sector)
+dd if=disk_image.dd of=sector100.bin bs=512 skip=100 count=1
+
+# Extract multiple non-contiguous ranges
+dd if=disk_image.dd of=range1.bin bs=1M skip=10 count=5
+dd if=disk_image.dd of=range2.bin bs=1M skip=100 count=5
+```
+
+**Carve Embedded Files**
+
+```bash
+# Find file offset first
+OFFSET=$(xxd -p disk_image.dd | tr -d '\n' | grep -ob "89504e47" | head -1 | cut -d: -f1)
+OFFSET=$((OFFSET / 2))  # Convert from hex string position to byte offset
+
+# Extract from offset to end
+dd if=disk_image.dd of=carved_image.png bs=1 skip=$OFFSET
+
+# Extract known-size file
+dd if=disk_image.dd of=carved_file.bin bs=1 skip=$OFFSET count=10240
+
+# Automated file carving script
+cat > carve_files.sh << 'EOF'
+#!/bin/bash
+IMAGE="$1"
+
+declare -A SIGNATURES
+SIGNATURES=(
+    ["89504e47"]="PNG"
+    ["ffd8ffe0"]="JPG"
+    ["504b0304"]="ZIP"
+    ["25504446"]="PDF"
+)
+
+HEX_DUMP=$(xxd -p "$IMAGE" | tr -d '\n')
+
+for sig in "${!SIGNATURES[@]}"; do
+    echo "[+] Searching for ${SIGNATURES[$sig]} files..."
+    
+    POSITIONS=$(echo "$HEX_DUMP" | grep -ob "$sig" | cut -d: -f1)
+    COUNT=0
+    
+    for pos in $POSITIONS; do
+        OFFSET=$((pos / 2))
+        dd if="$IMAGE" of="carved_${SIGNATURES[$sig]}_${COUNT}.bin" \
+            bs=1 skip=$OFFSET 2>/dev/null
+        
+        # Verify carved file
+        FILE_TYPE=$(file -b "carved_${SIGNATURES[$sig]}_${COUNT}.bin")
+        echo "    Offset $OFFSET: $FILE_TYPE"
+        
+        ((COUNT++))
+    done
+done
+EOF
+
+chmod +x carve_files.sh
+./carve_files.sh disk_image.dd
+```
+
+### Data Wiping and Sanitization
+
+```bash
+# Secure wipe with zeros
+sudo dd if=/dev/zero of=/dev/sdb bs=4M status=progress
+
+# Wipe with random data
+sudo dd if=/dev/urandom of=/dev/sdb bs=4M status=progress
+
+# DoD 5220.22-M standard (3-pass wipe)
+sudo dd if=/dev/zero of=/dev/sdb bs=4M status=progress
+sudo dd if=/dev/urandom of=/dev/sdb bs=4M status=progress
+sudo dd if=/dev/zero of=/dev/sdb bs=4M status=progress
+
+# Wipe specific partition
+sudo dd if=/dev/zero of=/dev/sdb1 bs=4M status=progress
+
+# Wipe MBR only (first 512 bytes)
+sudo dd if=/dev/zero of=/dev/sdb bs=512 count=1
+```
+
+### Conversion and Transformation
+
+**Convert Raw Image to Other Formats**
+
+```bash
+# Convert to VirtualBox VDI
+VBoxManage convertfromraw disk_image.dd disk_image.vdi --format VDI
+
+# Convert to VMware VMDK
+qemu-img convert -f raw -O vmdk disk_image.dd disk_image.vmdk
+
+# Convert to QCOW2 (QEMU format)
+qemu-img convert -f raw -O qcow2 disk_image.dd disk_image.qcow2
+```
+
+**Case Conversion and Encoding**
+
+```bash
+# Convert lowercase to uppercase
+dd if=input.txt of=output.txt conv=ucase
+
+# Convert uppercase to lowercase
+dd if=input.txt of=output.txt conv=lcase
+
+# ASCII to EBCDIC
+dd if=ascii.txt of=ebcdic.txt conv=ebcdic
+
+# EBCDIC to ASCII
+dd if=ebcdic.txt of=ascii.txt conv=ascii
+
+# Swap byte order (endianness)
+dd if=input.bin of=output.bin conv=swab
+```
+
+### Performance Optimization
+
+```bash
+# Benchmark different block sizes
+for bs in 512 1K 2K 4K 8K 16K 32K 64K 128K 256K 512K 1M 2M 4M; do
+    echo -n "Block size $bs: "
+    dd if=/dev/zero of=/tmp/test bs=$bs count=10000 2>&1 | grep copied
+done
+rm /tmp/test
+
+# Optimal block size for most systems: 4M or 64K
+
+# Use direct I/O (bypass cache)
+sudo dd if=/dev/sda of=disk_image.dd bs=4M oflag=direct status=progress
+
+# Use synchronous I/O
+sudo dd if=/dev/sda of=disk_image.dd bs=4M oflag=sync status=progress
+
+# Parallel imaging with GNU parallel
+sudo dd if=/dev/sda bs=4M | tee >(sha256sum > hash.txt) > disk_image.dd
+```
+
+### Error Handling and Recovery
+
+```bash
+# Continue on read errors
+sudo dd if=/dev/sda of=disk_image.dd bs=4M conv=noerror,sync status=progress
+
+# Log errors to file
+sudo dd if=/dev/sda of=disk_image.dd bs=512 conv=noerror,sync 2> dd_errors.log
+
+# Skip bad sectors (using ddrescue instead for better recovery)
+sudo ddrescue -f -n /dev/sda disk_image.dd ddrescue.log
+# -f = force (overwrite output)
+# -n = no-scrape (skip failed blocks on first pass)
+
+# Resume interrupted ddrescue operation
+sudo ddrescue -f -r3 /dev/sda disk_image.dd ddrescue.log
+# -r3 = retry bad sectors 3 times
+```
+
+**Compare ddrescue vs dd for Recovery**
+
+```bash
+# Install ddrescue
+sudo apt install gddrescue
+
+# Basic ddrescue (superior to dd for damaged media)
+sudo ddrescue -d -r3 /dev/sda disk_image.dd recovery.log
+# -d = use direct disk access
+# -r3 = retry 3 times
+
+# View recovery log
+cat recovery.log
+
+# Resume after interruption
+sudo ddrescue -d -r3 /dev/sda disk_image.dd recovery.log
+# Automatically resumes from log file
+```
+
+### Advanced Forensic Techniques
+
+**Create Sparse Images (Save Space)**
+
+```bash
+# Create sparse image (skips empty blocks)
+sudo dd if=/dev/sda of=sparse_image.dd bs=4M conv=sparse status=progress
+
+# Check actual vs apparent size
+ls -lh sparse_image.dd  # Apparent size
+du -h sparse_image.dd   # Actual disk usage
+
+# Mount sparse image
+sudo mount -o loop sparse_image.dd /mnt/analysis
+```
+
+**Stream Processing and Analysis**
+
+```bash
+# Image and analyze simultaneously
+sudo dd if=/dev/sda bs=4M status=progress | \
+    tee disk_image.dd | \
+    strings | \
+    grep -i "password\|key\|flag" > interesting_strings.txt
+
+# Image and hash calculation
+sudo dd if=/dev/sda bs=4M status=progress | \
+    tee disk_image.dd | \
+    sha256sum > disk_hash.txt
+
+# Image and search for patterns
+sudo dd if=/dev/sda bs=4M | \
+    tee disk_image.dd | \
+    xxd -p | \
+    tr -d '\n' | \
+    grep -ob "504b0304" > zip_locations.txt
+```
+
+**Network Imaging (Remote Acquisition)**
+
+```bash
+# Send image over network (source machine)
+sudo dd if=/dev/sda bs=4M | nc -l -p 9000
+
+# Receive image over network (destination machine)
+nc source_ip 9000 | dd of=remote_disk_image.dd bs=4M status=progress
+
+# Secure transfer with SSH
+sudo dd if=/dev/sda bs=4M | ssh user@destination "dd of=/path/to/image.dd bs=4M"
+
+# Compressed network transfer
+sudo dd if=/dev/sda bs=4M | gzip -c | ssh user@destination "gunzip -c | dd of=/path/to/image.dd bs=4M"
+```
+
+### Partition Table Recovery
+
+```bash
+# Backup partition table
+sudo dd if=/dev/sda of=partition_table.dd bs=512 count=1
+
+# Backup extended partition information
+sudo sfdisk -d /dev/sda > partition_layout.txt
+
+# Restore partition table
+sudo dd if=partition_table.dd of=/dev/sda bs=512 count=1
+
+# Restore using sfdisk
+sudo sfdisk /dev/sda < partition_layout.txt
+```
+
+### CTF-Specific dd Usage
+
+**Extract Hidden Data from Images**
+
+```bash
+# Image files may have data appended after EOF marker
+
+# Check file size vs expected size
+identify image.jpg  # Shows image dimensions
+du -b image.jpg     # Shows file size
+
+# Extract data after JPEG EOF (FFD9)
+OFFSET=$(xxd -p image.jpg | tr -d '\n' | grep -ob "ffd9" | tail -1 | cut -d: -f1)
+OFFSET=$((OFFSET / 2 + 2))  # After FFD9 marker
+dd if=image.jpg of=hidden_data.bin bs=1 skip=$OFFSET
+
+# Check extracted data
+file hidden_data.bin
+strings hidden_data.bin
+```
+
+**Slack Space Analysis**
+
+```bash
+# Extract slack space from partition
+PART_SIZE=$(sudo blockdev --getsize64 /dev/sda1)
+FS_SIZE=$(df -B1 /dev/sda1 | tail -1 | awk '{print $3}')
+SLACK_START=$FS_SIZE
+SLACK_SIZE=$((PART_SIZE - FS_SIZE))
+
+sudo dd if=/dev/sda1 of=slack_space.dd bs=1 skip=$SLACK_START count=$SLACK_SIZE
+
+# Analyze slack space
+strings slack_space.dd | grep -i "flag\|password"
+```
+
+**Create Test Images for Analysis**
+
+```bash
+# Create empty disk image (1GB)
+dd if=/dev/zero of=test_disk.img bs=1M count=1024
+
+# Format as ext4
+mkfs.ext4 test_disk.img
+
+# Mount and populate
+mkdir /tmp/test_mount
+sudo mount -o loop test_disk.img /tmp/test_mount
+echo "hidden flag{test123}" | sudo tee /tmp/test_mount/secret.txt
+sudo umount /tmp/test_mount
+
+# "Delete" file and test recovery
+sudo mount -o loop test_disk.img /tmp/test_mount
+sudo rm /tmp/test_mount/secret.txt
+sudo umount /tmp/test_mount
+
+# Recover deleted data
+strings test_disk.img | grep "flag"
+```
+
+### Verification and Documentation
+
+```bash
+# Complete imaging workflow with verification
+cat > forensic_image.sh << 'EOF'
+#!/bin/bash
+
+SOURCE="$1"
+OUTPUT="$2"
+
+if [ -z "$SOURCE" ] || [ -z "$OUTPUT" ]; then
+    echo "Usage: $0 <source_device> <output_image>"
+    exit 1
+fi
+
+echo "[+] Starting forensic imaging: $SOURCE -> $OUTPUT"
+echo "[+] Start time: $(date)"
+
+# Pre-imaging hash (if possible)
+echo "[+] Calculating source hash..."
+SOURCE_HASH=$(sudo dd if="$SOURCE" bs=4M 2>/dev/null | sha256sum | cut -d' ' -f1)
+echo "    Source SHA256: $SOURCE_HASH"
+
+# Create image
+echo "[+] Creating image..."
+sudo dd if="$SOURCE" of="$OUTPUT" bs=4M conv=noerror,sync status=progress 2> "${OUTPUT}.log"
+
+# Post-imaging hash
+echo "[+] Verifying image..."
+IMAGE_HASH=$(sha256sum "$OUTPUT" | cut -d' ' -f1)
+echo "    Image SHA256: $IMAGE_HASH"
+
+# Compare hashes
+if [ "$SOURCE_HASH" = "$IMAGE_HASH" ]; then
+    echo "[+] Verification: PASS"
+else
+    echo "[-] Verification: FAIL - Hashes do not match!"
+fi
+
+# Generate report
+cat > "${OUTPUT}.report" << REPORT
+Forensic Imaging Report
+=======================
+Date: $(date)
+Source: $SOURCE
+Output: $OUTPUT
+Size: $(stat -f%z "$OUTPUT" 2>/dev/null || stat -c%s "$OUTPUT") bytes
+
+Source SHA256: $SOURCE_HASH
+Image SHA256:  $IMAGE_HASH
+Verification: $([ "$SOURCE_HASH" = "$IMAGE_HASH" ] && echo "PASS" || echo "FAIL")
+
+Imaging Command:
+dd if=$SOURCE of=$OUTPUT bs=4M conv=noerror,sync status=progress
+
+Errors (if any):
+$(cat "${OUTPUT}.log")
+REPORT
+
+echo "[+] Report saved to ${OUTPUT}.report"
+echo "[+] End time: $(date)"
+EOF
+
+chmod +x forensic_image.sh
+sudo ./forensic_image.sh /dev/sdb evidence_disk.dd
+```
+
+### Integration with Other Forensic Tools
+
+```bash
+# dd + binwalk (firmware analysis)
+dd if=firmware.bin of=extracted_section.bin bs=1 skip=4096 count=1048576
+binwalk -e extracted_section.bin
+
+# dd + volatility (memory forensics)
+sudo dd if=/dev/mem of=memory.dump bs=1M count=4096
+volatility -f memory.dump imageinfo
+
+# dd + sleuthkit (filesystem analysis)
+dd if=/dev/sda1 of=partition.dd bs=4M
+fls -r partition.dd
+
+# dd + photorec (file carving)
+dd if=/dev/sdb of=usb_image.dd bs=4M conv=noerror,sync
+photorec usb_image.dd
+
+# dd + testdisk (partition recovery)
+dd if=/dev/sda of=disk.dd bs=4M
+testdisk disk.dd
+```
+
+---
+
+**Important Related Topics for Complete Coverage:**
+
+- **binwalk**: Firmware analysis and embedded file extraction
+- **foremost/scalpel**: Advanced file carving techniques
+- **Autopsy/Sleuth Kit**: Complete filesystem timeline analysis
+- **volatility**: Memory forensics framework
+- **exiftool**: Metadata extraction and analysis
+- **steghide/stegsolve**: Steganography detection and extraction
+
+---
+
+## ewf-tools for E01
+
+### EWF (Expert Witness Format) Overview
+
+E01 files are forensic disk image containers that include:
+
+- Compressed disk data
+- Case metadata (examiner, evidence number, description)
+- MD5/SHA-1 hash verification
+- Error granularity tracking
+- Split file support (.E01, .E02, etc.)
+
+**ewf-tools** (also called libewf-tools) provides command-line utilities for working with E01 images.
+
+### Installation and Verification
+
+```bash
+# Install ewf-tools
+apt-get update
+apt-get install ewf-tools
+
+# Verify installation
+ewfinfo --version
+ewfacquire --version
+
+# Available tools
+which ewfacquire ewfacquirestream ewfexport ewfinfo ewfmount ewfverify
+```
+
+### Creating E01 Images
+
+**ewfacquire - Interactive Acquisition:**
+
+```bash
+# Basic acquisition from physical device
+ewfacquire /dev/sdb
+
+# Interactive prompts will ask for:
+# - Case number
+# - Evidence number  
+# - Examiner name
+# - Notes/Description
+# - Compression level (none, fast, best)
+# - Output format (ewf, smart, encase6, linen6, etc.)
+# - Segment file size
+
+# Non-interactive with parameters
+ewfacquire -t evidence.E01 \
+  -C "CASE-2024-001" \
+  -D "Suspect laptop hard drive" \
+  -E "Smith, J." \
+  -e "John Doe" \
+  -N "2024-001-HDD" \
+  -m removable \
+  -M logical \
+  -c best \
+  -f encase6 \
+  -S 1.5GiB \
+  -u \
+  /dev/sdb
+```
+
+**Parameter Explanation:**
+
+- `-t` - Target output filename
+- `-C` - Case number
+- `-D` - Description
+- `-E` - Examiner name
+- `-e` - Evidence number
+- `-N` - Notes
+- `-m` - Media type (fixed, removable, optical, memory)
+- `-M` - Media flags (logical, physical)
+- `-c` - Compression (none, fast, best)
+- `-f` - Format (ewf, encase6, encase7, linen6, linen7)
+- `-S` - Segment file size (splits output)
+- `-u` - Unattended mode (no user interaction)
+
+**ewfacquirestream - Pipe Acquisition:**
+
+```bash
+# Acquire from stdin (useful for remote acquisition)
+dd if=/dev/sdb bs=64K | ewfacquirestream -t remote_evidence.E01 -u
+
+# Over SSH
+ssh root@remote-host "dd if=/dev/sda bs=64K" | \
+  ewfacquirestream -t remote_disk.E01 -C "REMOTE-001" -u
+
+# With progress monitoring
+dd if=/dev/sdb bs=64K status=progress | \
+  pv | \
+  ewfacquirestream -t evidence.E01 -u
+```
+
+**Logical Acquisition (File System Only):**
+
+```bash
+# Mount source
+mount -o ro /dev/sdb1 /mnt/source
+
+# Create tar stream and acquire
+tar -C /mnt/source -cf - . | \
+  ewfacquirestream -t logical_image.E01 -M logical -u
+```
+
+### Examining E01 Images
+
+**ewfinfo - Display Image Metadata:**
+
+```bash
+# Basic information
+ewfinfo evidence.E01
+
+# Sample output:
+# Acquiry information
+#   Case number:        CASE-2024-001
+#   Evidence number:    2024-001-HDD
+#   Examiner name:      Smith, J.
+#   Notes:              Suspect laptop
+#   Acquisition date:   Fri Oct 25 14:30:22 2024
+#   System date:        Fri Oct 25 14:30:22 2024
+#   Operating system:   Linux
+#   Software version:   20140608
+# 
+# EWF information
+#   File format:        EnCase 6
+#   Compression method: deflate
+#   Compression level:  best
+#   Sectors per chunk:  64
+#   Bytes per sector:   512
+#   Number of sectors:  1953525168
+#   Media size:         1000204886016 (931 GiB)
+#
+# Digest hash information
+#   MD5:                a1b2c3d4e5f6...
+#   SHA1:               1a2b3c4d5e6f...
+
+# Verbose output
+ewfinfo -v evidence.E01
+
+# Export metadata to file
+ewfinfo evidence.E01 > evidence_metadata.txt
+```
+
+**ewfverify - Hash Verification:**
+
+```bash
+# Verify integrity (checks stored vs calculated hash)
+ewfverify evidence.E01
+
+# Output:
+# ewfverify 20140608
+# 
+# Opening file(s).
+# File(s) verified successfully.
+# 
+# MD5 hash calculated over data:     a1b2c3d4e5f6...
+# MD5 hash stored in file:            a1b2c3d4e5f6...
+# SHA1 hash calculated over data:    1a2b3c4d5e6f...
+# SHA1 hash stored in file:           1a2b3c4d5e6f...
+
+# Verify with progress
+ewfverify -v evidence.E01
+
+# Verify split segments (automatically finds .E01, .E02, etc.)
+ewfverify evidence.E01
+
+# [Inference] Returns exit code 0 if successful, non-zero if hash mismatch
+echo $?  # Check exit status
+```
+
+### Extracting and Converting E01
+
+**ewfexport - Convert to Other Formats:**
+
+```bash
+# Convert E01 to raw DD
+ewfexport -t evidence.dd evidence.E01
+
+# Convert with specific format
+ewfexport -f raw -t output.dd evidence.E01
+
+# Convert to another EWF variant
+ewfexport -f encase7 -t evidence_v7.E01 evidence_v6.E01
+
+# Split into specific size during conversion
+ewfexport -t output.dd -S 2GiB evidence.E01
+
+# Resume interrupted export (if supported)
+ewfexport -t evidence.dd -r evidence.E01
+
+# Verify during export
+ewfexport -t evidence.dd -d sha256 evidence.E01
+```
+
+**Extract Specific Byte Range:**
+
+```bash
+# Extract specific offset and size
+ewfexport -o 1048576 -s 104857600 -t extracted_portion.dd evidence.E01
+# -o: offset in bytes (1MB)
+# -s: size in bytes (100MB)
+
+# Use with analysis tools that don't support E01
+ewfexport -o 2097152 -s 512000 -t mbr_area.dd evidence.E01
+xxd mbr_area.dd | head -50
+```
+
+### Mounting E01 Images
+
+**ewfmount - FUSE Mount:**
+
+```bash
+# Mount E01 as raw device
+mkdir /mnt/ewf
+ewfmount evidence.E01 /mnt/ewf
+
+# Access raw image
+ls -lh /mnt/ewf/
+# ewf1  (raw device representation)
+
+# Mount the file system within
+mount -o ro,loop,noexec /mnt/ewf/ewf1 /mnt/evidence
+
+# Now browse files
+ls -la /mnt/evidence/
+
+# Alternative: Direct mount with offset (if single partition)
+OFFSET=$(fdisk -l /mnt/ewf/ewf1 | grep "^/mnt" | awk '{print $2}')
+OFFSET_BYTES=$((OFFSET * 512))
+mount -o ro,loop,offset=$OFFSET_BYTES /mnt/ewf/ewf1 /mnt/evidence
+
+# Unmount when done
+umount /mnt/evidence
+fusermount -u /mnt/ewf
+```
+
+**Multi-Segment E01 Mounting:**
+
+```bash
+# ewfmount automatically handles split files
+# Just specify the first segment
+ewfmount evidence.E01 /mnt/ewf
+
+# All segments (evidence.E01, evidence.E02, etc.) are automatically loaded
+# [Inference] Segments must be in same directory with sequential naming
+```
+
+### Working with Split Segments
+
+**Automatic Segment Handling:**
+
+```bash
+# Tools automatically find segments
+ewfinfo evidence.E01
+# Will read evidence.E01, evidence.E02, evidence.E03, etc.
+
+ewfverify evidence.E01
+# Verifies all segments
+
+ewfexport -t output.dd evidence.E01
+# Exports complete image from all segments
+```
+
+**Manual Segment Management:**
+
+```bash
+# List segment files
+ls -lh evidence.E*
+
+# Verify all segments present
+for i in evidence.E{01..99}; do
+  [ -f "$i" ] && echo "Found: $i" || break
+done
+
+# Combine segments manually (not recommended - use ewfexport)
+# cat evidence.E* > combined.dd  # DON'T DO THIS - corrupts format
+```
+
+### Integration with Other Tools
+
+**Autopsy Integration:**
+
+```bash
+# Autopsy natively supports E01
+# In Autopsy GUI:
+# Case -> Add Data Source -> Disk Image -> Select evidence.E01
+
+# Command-line (TSK tools work with E01 via ewfmount)
+ewfmount evidence.E01 /mnt/ewf
+fls -r /mnt/ewf/ewf1 > file_list.txt
+icat /mnt/ewf/ewf1 12345 > extracted_file
+```
+
+**The Sleuth Kit with E01:**
+
+```bash
+# Mount first
+ewfmount evidence.E01 /mnt/ewf
+
+# Use TSK tools
+mmls /mnt/ewf/ewf1
+fsstat -o 2048 /mnt/ewf/ewf1
+fls -o 2048 -r /mnt/ewf/ewf1
+
+# Or use ewftools directly (if TSK compiled with libewf support)
+mmls evidence.E01
+fls -r evidence.E01
+```
+
+**Volatility with E01:**
+
+```bash
+# Convert to raw for memory analysis
+ewfexport -t memory.raw memory_dump.E01
+
+# Analyze with Volatility
+vol.py -f memory.raw --profile=Win10x64 pslist
+```
+
+**PhotoRec/TestDisk with E01:**
+
+```bash
+# Mount and use mounted device
+ewfmount evidence.E01 /mnt/ewf
+photorec /mnt/ewf/ewf1
+testdisk /mnt/ewf/ewf1
+```
+
+### Scripted Batch Processing
+
+**Process Multiple E01 Images:**
+
+```bash
+#!/bin/bash
+# Batch E01 processing script
+
+E01_DIR=$1
+OUTPUT_DIR=$2
+
+mkdir -p "$OUTPUT_DIR/metadata" "$OUTPUT_DIR/verification" "$OUTPUT_DIR/converted"
+
+for e01 in "$E01_DIR"/*.E01; do
+    basename=$(basename "$e01" .E01)
+    echo "[*] Processing $basename..."
+    
+    # Extract metadata
+    ewfinfo "$e01" > "$OUTPUT_DIR/metadata/${basename}_info.txt"
+    
+    # Verify integrity
+    ewfverify "$e01" > "$OUTPUT_DIR/verification/${basename}_verify.txt" 2>&1
+    
+    if [ $? -eq 0 ]; then
+        echo "  [✓] Verification passed"
+        
+        # Convert to raw DD
+        ewfexport -t "$OUTPUT_DIR/converted/${basename}.dd" "$e01"
+        
+        # Calculate hash of converted image
+        sha256sum "$OUTPUT_DIR/converted/${basename}.dd" > "$OUTPUT_DIR/converted/${basename}.dd.sha256"
+        
+        echo "  [✓] Conversion complete"
+    else
+        echo "  [✗] Verification FAILED"
+    fi
+done
+
+echo "[*] Batch processing complete"
+```
+
+### Advanced E01 Techniques
+
+**Extract Case Information Programmatically:**
+
+```python
+#!/usr/bin/env python3
+import subprocess
+import re
+
+def extract_e01_metadata(e01_path):
+    """
+    Parse ewfinfo output to extract metadata.
+    """
+    result = subprocess.run(
+        ['ewfinfo', e01_path],
+        capture_output=True,
+        text=True
+    )
+    
+    metadata = {}
+    
+    # Parse key fields
+    patterns = {
+        'case_number': r'Case number:\s+(.+)',
+        'evidence_number': r'Evidence number:\s+(.+)',
+        'examiner': r'Examiner name:\s+(.+)',
+        'acquisition_date': r'Acquisition date:\s+(.+)',
+        'md5': r'MD5:\s+([a-fA-F0-9]+)',
+        'sha1': r'SHA1:\s+([a-fA-F0-9]+)',
+        'media_size': r'Media size:\s+(\d+)',
+    }
+    
+    for key, pattern in patterns.items():
+        match = re.search(pattern, result.stdout)
+        if match:
+            metadata[key] = match.group(1).strip()
+    
+    return metadata
+
+if __name__ == "__main__":
+    import sys
+    import json
+    
+    metadata = extract_e01_metadata(sys.argv[1])
+    print(json.dumps(metadata, indent=2))
+```
+
+**Compare E01 Hash with Known Good:**
+
+```bash
+#!/bin/bash
+# Verify E01 against known hash
+
+E01_FILE=$1
+KNOWN_MD5=$2
+
+echo "Verifying $E01_FILE against known MD5: $KNOWN_MD5"
+
+# Extract MD5 from E01 metadata
+STORED_MD5=$(ewfinfo "$E01_FILE" | grep "MD5:" | awk '{print $2}')
+
+echo "MD5 stored in E01: $STORED_MD5"
+
+if [ "$STORED_MD5" == "$KNOWN_MD5" ]; then
+    echo "[✓] Hash MATCH - Image is authentic"
+    exit 0
+else
+    echo "[✗] Hash MISMATCH - Image may be corrupted or tampered"
+    exit 1
+fi
+```
+
+**Forensic Mount Script:**
+
+```bash
+#!/bin/bash
+# Safely mount E01 with all partitions
+
+E01_FILE=$1
+MOUNT_BASE="/mnt/forensic_$(date +%s)"
+
+mkdir -p "$MOUNT_BASE/ewf"
+mkdir -p "$MOUNT_BASE/partitions"
+
+echo "[*] Mounting E01..."
+ewfmount "$E01_FILE" "$MOUNT_BASE/ewf"
+
+if [ $? -ne 0 ]; then
+    echo "[✗] Failed to mount E01"
+    exit 1
+fi
+
+echo "[*] Detecting partitions..."
+mmls "$MOUNT_BASE/ewf/ewf1" | grep -E "^[0-9]+" | while read line; do
+    partition=$(echo "$line" | awk '{print $1}')
+    start=$(echo "$line" | awk '{print $3}')
+    offset=$((start * 512))
+    
+    mkdir -p "$MOUNT_BASE/partitions/part_${partition}"
+    
+    echo "  [*] Mounting partition $partition at offset $offset"
+    mount -o ro,loop,offset=$offset,noexec,nodev \
+        "$MOUNT_BASE/ewf/ewf1" \
+        "$MOUNT_BASE/partitions/part_${partition}" 2>/dev/null
+    
+    if [ $? -eq 0 ]; then
+        echo "    [✓] Mounted at $MOUNT_BASE/partitions/part_${partition}"
+    fi
+done
+
+echo "[*] Mount complete. To unmount:"
+echo "    umount $MOUNT_BASE/partitions/part_*"
+echo "    fusermount -u $MOUNT_BASE/ewf"
+```
+
+### Troubleshooting E01 Issues
+
+**Corrupted Segment Detection:**
+
+```bash
+# Verify each segment individually
+for seg in evidence.E*; do
+    echo "Checking $seg..."
+    ewfverify "$seg" 2>&1 | grep -i "error\|corrupt"
+done
+
+# Attempt recovery with ewfrecover (if available)
+ewfrecover evidence.E01 recovered.E01
+```
+
+**Incomplete Acquisition:**
+
+```bash
+# Check if acquisition completed
+ewfinfo evidence.E01 | grep "sectors"
+
+# Compare with source device
+SOURCE_SIZE=$(blockdev --getsize64 /dev/sdb)
+E01_SIZE=$(ewfinfo evidence.E01 | grep "Media size" | awk '{print $3}')
+
+echo "Source: $SOURCE_SIZE bytes"
+echo "E01: $E01_SIZE bytes"
+```
+
+**Performance Optimization:**
+
+```bash
+# Use uncompressed format for faster acquisition
+ewfacquire -c none -t fast_acquire.E01 /dev/sdb
+
+# Adjust segment size for network storage
+ewfacquire -S 4GiB -t network_friendly.E01 /dev/sdb
+
+# Multi-threaded export (if supported)
+ewfexport -t output.dd -j 4 evidence.E01
+```
+
+## bulk_extractor
+
+### Overview
+
+bulk_extractor is a high-performance stream-based forensic tool that scans disk images, memory dumps, and network captures to extract:
+
+- Email addresses
+- URLs
+- Credit card numbers
+- Phone numbers
+- Social security numbers
+- Encryption keys
+- EXIF data
+- JSON/XML structures
+- Domain names
+
+**Key Features:**
+
+- No file system parsing needed (works on raw data)
+- Recursive decompression (ZIP, GZIP, PDF, etc.)
+- Multi-threaded processing
+- Minimal false positives [Inference - based on design, though some false positives are inevitable]
+
+### Installation and Basic Usage
+
+```bash
+# Install
+apt-get update
+apt-get install bulk-extractor
+
+# Verify installation
+bulk_extractor -h
+bulk_extractor -V
+
+# Basic scan
+bulk_extractor -o output_directory evidence.dd
+
+# Scan E01 image
+bulk_extractor -o output_directory evidence.E01
+
+# Scan memory dump
+bulk_extractor -o ram_output memory.raw
+
+# Scan directory of files
+bulk_extractor -o file_output /path/to/files
+```
+
+### Scanner Configuration
+
+**List Available Scanners:**
+
+```bash
+bulk_extractor -H
+
+# Common scanners:
+# accts   - Account numbers (credit cards, SSN)
+# aes     - AES keys
+# base64  - Base64 encoded data
+# elf     - ELF headers
+# email   - Email addresses
+# exif    - EXIF data from images
+# gps     - GPS coordinates
+# httplogs - HTTP logs
+# json    - JSON structures
+# kml     - KML files
+# net     - Network artifacts (IPs, URLs, domains)
+# pdf     - PDF metadata
+# sqlite  - SQLite databases
+# winprefetch - Windows prefetch
+# zip     - Compressed archives
+```
+
+**Enable/Disable Scanners:**
+
+```bash
+# Enable specific scanners only
+bulk_extractor -o output -e email -e net -e exif evidence.dd
+
+# Disable specific scanners
+bulk_extractor -o output -x zip -x winpe evidence.dd
+
+# Disable all, then enable specific
+bulk_extractor -o output -E email evidence.dd
+
+# Common targeted scan (emails, URLs, cards)
+bulk_extractor -o output -E email -E net -E accts evidence.dd
+```
+
+### Performance Tuning
+
+**Thread Control:**
+
+```bash
+# Use specific number of threads (default: number of CPUs)
+bulk_extractor -o output -j 8 evidence.dd
+
+# Single-threaded (deterministic output)
+bulk_extractor -o output -j 1 evidence.dd
+```
+
+**Page Size and Margin:**
+
+```bash
+# Adjust page size (default: 16MB)
+bulk_extractor -o output -G 32M evidence.dd
+
+# Set context window/margin (default: 16MB)
+bulk_extractor -o output -M 4M evidence.dd
+
+# For memory-constrained systems
+bulk_extractor -o output -G 8M -M 2M evidence.dd
+```
+
+**Resume Interrupted Scan:**
+
+```bash
+# bulk_extractor automatically resumes if output directory exists
+bulk_extractor -o output evidence.dd
+# ^C (interrupt)
+
+# Resume
+bulk_extractor -o output evidence.dd
+# Will continue from last checkpoint
+```
+
+### Output Analysis
+
+**Understanding Output Files:**
+
+```bash
+# Navigate to output directory
+cd output_directory/
+
+# Key files generated:
+# report.xml           - XML report with statistics
+# telephone.txt        - Phone numbers
+# email.txt            - Email addresses
+# url.txt              - URLs
+# domain.txt           - Domain names
+# ccn.txt              - Credit card numbers
+# ssn.txt              - Social Security Numbers
+# ether.txt            - Ethernet MAC addresses
+# ip.txt               - IP addresses
+# json.txt             - JSON structures
+# exif.txt             - EXIF metadata
+# gps.txt              - GPS coordinates
+# aes_keys.txt         - AES encryption keys
+# rfc822.txt           - Email messages
+# httplogs.txt         - HTTP request/response logs
+```
+
+**Analyzing Results:**
+
+```bash
+# Count findings
+wc -l email.txt url.txt ccn.txt
+
+# View emails with context
+cat email.txt | less
+
+# Extract unique domains
+awk '{print $2}' domain.txt | sort -u > unique_domains.txt
+
+# Find specific pattern
+grep -i "suspicious.com" domain.txt
+grep -i "192.168" ip.txt
+
+# Most frequent emails
+awk '{print $2}' email.txt | sort | uniq -c | sort -rn | head -20
+
+# URLs from specific domain
+grep "malware.com" url.txt
+```
+
+**Feature File Format:**
+
+```
+# Each line: offset<TAB>feature<TAB>context
+
+# Example from email.txt:
+1048576 user@example.com    GET /path HTTP/1.1\nHost: example.com\nUser-Agent...
+2097152 admin@test.org      Subject: Test\nFrom: admin@test.org\nTo: recipient...
+
+# Fields:
+# 1: Byte offset in image where found
+# 2: Extracted feature (email, URL, etc.)
+# 3: Context (surrounding data)
+```
+
+### Advanced Feature Extraction
+
+**Histogram Analysis:**
+
+```bash
+# View report summary
+less report.xml
+
+# Extract histogram data
+grep -A 50 "<histogram>" report.xml
+
+# Top email addresses (from histogram in report.xml)
+xmllint --xpath '//histogram[@config="email"]/top' report.xml
+
+# Most common domains
+awk '{print $2}' domain.txt | sort | uniq -c | sort -rn | head -50 > top_domains.txt
+```
+
+**Carved Files:**
+
+```bash
+# Some scanners extract complete files
+ls -lh carved_*
+
+# Example: carved JPEG files
+file carved_jpeg_*
+
+# Examine carved data
+exiftool carved_jpeg_001
+```
+
+**Stop List (Whitelist Filtering):**
+
+```bash
+# Create stop list of known-good patterns
+cat > stoplist.txt << 'EOF'
+example.com
+knownclean.org
+192.168.1.1
+EOF
+
+# Run with stop list
+bulk_extractor -o output -w stoplist.txt evidence.dd
+
+# Results will exclude whitelisted patterns
+```
+
+**Alert List (Pattern of Interest):**
+
+```bash
+# Create alert list for targeted search
+cat > alertlist.txt << 'EOF'
+malicious.com
+attacker@evil.org
+suspicious-keyword
+EOF
+
+# Scan with alert list
+bulk_extractor -o output -a alertlist.txt evidence.dd
+
+# Check alerts.txt for matches
+cat output/alerts.txt
+```
+
+### Targeted Extraction Examples
+
+**Extract Credit Card Information:**
+
+```bash
+# Scan for financial data only
+bulk_extractor -o financial -E accts evidence.dd
+
+# Analyze results
+cat financial/ccn.txt
+
+# Validate CCNs (Luhn algorithm check)
+python3 << 'EOF'
+def luhn_check(card_number):
+    digits = [int(d) for d in str(card_number)]
+    checksum = 0
+    for i, digit in enumerate(reversed(digits)):
+        if i % 2 == 1:
+            digit *= 2
+            if digit > 9:
+                digit -= 9
+        checksum += digit
+    return checksum % 10 == 0
+
+with open('financial/ccn.txt') as f:
+    for line in f:
+        if line.startswith('#'):
+            continue
+        parts = line.strip().split('\t')
+        if len(parts) >= 2:
+            ccn = parts[1].replace('-', '').replace(' ', '')
+            if ccn.isdigit() and luhn_check(ccn):
+                print(f"Valid CCN: {parts[1]} at offset {parts[0]}")
+EOF
+```
+
+**Extract Email Communications:**
+
+```bash
+# Scan for email artifacts
+bulk_extractor -o email_scan -e email -e rfc822 evidence.dd
+
+# Extract complete email messages
+cat email_scan/rfc822.txt | less
+
+# Parse email headers
+grep -i "^From:\|^To:\|^Subject:" email_scan/rfc822.txt
+```
+
+**Network Artifacts:**
+
+```bash
+# Network-focused scan
+bulk_extractor -o network -e net -e httplogs -e domain evidence.dd
+
+# Analyze HTTP traffic
+cat network/httplogs.txt | grep -i "POST\|GET"
+
+# Extract User-Agent strings
+grep -i "User-Agent:" network/httplogs.txt | sort -u
+
+# Find C2 (Command and Control) indicators
+cat network/domain.txt network/ip.txt | sort -u > network_indicators.txt
+```
+
+**GPS and EXIF Metadata:**
+
+```bash
+# Extract image metadata
+bulk_extractor -o exif_scan -e exif -e gps evidence.dd
+
+# View GPS coordinates
+cat exif_scan/gps.txt
+
+# Parse EXIF for device info
+grep -i "Make\|Model\|Software" exif_scan/exif.txt
+
+# Extract timestamps
+grep -i "DateTime" exif_scan/exif.txt
+```
+
+### Scripted Bulk Processing
+
+**Process Multiple Images:**
+
+```bash
+#!/bin/bash
+# Batch bulk_extractor processing
+
+IMAGE_DIR=$1
+OUTPUT_BASE=$2
+
+mkdir -p "$OUTPUT_BASE"
+
+for image in "$IMAGE_DIR"/*.{dd,E01,raw}; do
+    [ -f "$image" ] || continue
+    
+    basename=$(basename "$image")
+    output_dir="$OUTPUT_BASE/${basename}_bulk"
+    
+    echo "[*] Processing $basename..."
+    
+    bulk_extractor -o "$output_dir" -q "$image"
+    
+    if [ $? -eq 0 ]; then
+        echo "  [✓] Complete. Findings:"
+        echo "    Emails: $(wc -l < "$output_dir/email.txt" 2>/dev/null || echo 0)"
+        echo "    URLs: $(wc -l < "$output_dir/url.txt" 2>/dev/null || echo 0)"
+        echo "    IPs: $(wc -l < "$output_dir/ip.txt" 2>/dev/null || echo 0)"
+    else
+        echo "  [✗] Failed"
+    fi
+done
+```
+
+**Generate Summary Report:**
+
+```python
+#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+def summarize_bulk_output(output_dir):
+    """
+    Generate summary statistics from bulk_extractor output.
+    """
+    features = {
+        'email.txt': 'Emails',
+        'url.txt': 'URLs',
+        'domain.txt': 'Domains',
+        'ip.txt': 'IP Addresses',
+        'telephone.txt': 'Phone Numbers',
+        'ccn.txt': 'Credit Cards',
+        'ssn.txt': 'Social Security Numbers',
+        'ether.txt': 'MAC Addresses',
+        'json.txt': 'JSON Objects',
+        'exif.txt': 'EXIF Metadata',
+        'gps.txt': 'GPS Coordinates',
+    }
+    
+    print(f"Bulk Extractor Summary: {output_dir}\n")
+    print(f"{'Feature':<25} {'Count':<10} {'Unique':<10}")
+    print("=" * 50)
+    
+    for filename, description in features.items():
+        filepath = Path(output_dir) / filename
+        
+        if filepath.exists():
+            with open(filepath) as f:
+                lines = [l for l in f if not l.startswith('#')]
+                count = len(lines)
+                
+                # Extract unique values (second column)
+                values = set()
+                for line in lines:
+                    parts = line.strip().split('\t')
+                    if len(parts) >= 2:
+                        values.add(parts[1])
+                
+                unique = len(values)
+                print(f"{description:<25} {count:<10} {unique:<10}")
+        else:
+            print(f"{description:<25} {'N/A':<10} {'N/A':<10}")
+
+if __name__ == "__main__":
+    summarize_bulk_output(sys.argv[1])
+```
+
+### Integration with Other Tools
+
+**Import into Autopsy:**
+
+```bash
+# bulk_extractor can be run within Autopsy as an ingest module
+# Or import results manually:
+
+# 1. Run bulk_extractor
+bulk_extractor -o be_output evidence.dd
+
+# 2. In Autopsy: Tools -> Run Ingest Modules -> Keyword Search
+# 3. Import email.txt, url.txt as keyword lists
+```
+
+**Feed into Timeline:**
+
+```python
+#!/usr/bin/env python3
+import csv
+
+def bulk_to_timeline(bulk_dir, output_csv):
+    """
+    Convert bulk_extractor offsets to timeline format.
+    [Unverified - offset-to-timestamp conversion requires additional context]
+    """
+    # This is a simplified example
+    # In practice, need to correlate offsets with file system metadata
+    
+    with open(f"{bulk_dir}/email.txt") as f:
+        emails = [l.strip().split('\t') for l in f if not l.startswith('#')]
+    
+    with open(output_csv, 'w', newline='') as out:
+        writer = csv.writer(out)
+        writer.writerow(['Offset', 'Type', 'Value', 'Context'])
+        
+        for parts in emails:
+            if len(parts) >= 3:
+                writer.writerow([parts[0], 'EMAIL', parts[1], parts[2][:100]])
+
+# Usage requires additional file system context for accurate timeline placement
+```
+
+**Combine with YARA Scanning:**
+
+```bash
+# Extract strings and scan with YARA
+bulk_extractor -o bulk_out evidence.dd
+
+# Scan extracted features
+yara -r malware_rules.yar bulk_out/
+
+# Or extract specific data for YARA
+cat bulk_out/url.txt | awk '{print $2}' | while read url; do
+    echo "$url" | yara url_rules.yar -
+done
+```
+
+### Memory Forensics with bulk_extractor
+
+**Extract from Memory Dump:**
+
+```bash
+# Scan memory dump
+bulk_extractor -o memory_bulk memory.raw
+
+# Look for credentials
+cat memory_bulk/email.txt | grep -i "password\|login"
+
+# Extract potential encryption keys
+cat memory_bulk/aes_keys.txt
+
+# Find running processes via strings
+cat memory_bulk/winprefetch.txt  # Windows process artifacts
+```
+
+**Network Capture Analysis:**
+
+```bash
+# Extract from PCAP
+bulk_extractor -o pcap_analysis capture.pcap
+
+# Extracted HTTP traffic
+cat pcap_analysis/httplogs.txt
+
+# Email from network traffic
+cat pcap_analysis/email.txt
+
+# DNS queries
+cat pcap_analysis/domain.txt
+```
+
+### Performance Benchmarks and Tips
+
+**Optimization Strategies:**
+
+```bash
+# Fast scan (fewer scanners)
+time bulk_extractor -o fast -E email -E net -j $(nproc) evidence.dd
+
+# Thorough scan (all scanners)
+time bulk_extractor -o thorough -j $(nproc) evidence.dd
+
+# Memory-limited environment
+bulk_extractor -o output -G 4M -M 1M -j 2 evidence.dd
+
+# SSD optimization (more threads)
+bulk_extractor -o output -j 16 evidence.dd
+
+# Network storage (larger chunks, fewer threads)
+
+bulk_extractor -o output -G 64M -j 4 /mnt/network/evidence.dd
+````
+
+**Monitoring Progress:**
+```bash
+# Run in verbose mode
+bulk_extractor -o output -d 1 evidence.dd
+
+# Monitor in separate terminal
+watch -n 5 'tail -20 output/report.xml'
+
+# Check completion percentage
+tail output/report.xml | grep -i "percent"
+````
+
+### Specialized Use Cases
+
+**Steganography Detection:**
+
+```bash
+# Extract base64 encoded data that might hide steganography
+bulk_extractor -o stego_check -E base64 evidence.dd
+
+# Examine suspicious base64 strings
+cat stego_check/base64.txt | while read line; do
+    offset=$(echo "$line" | awk '{print $1}')
+    data=$(echo "$line" | awk '{print $2}')
+    
+    # Decode and check
+    echo "$data" | base64 -d > "/tmp/decoded_$offset" 2>/dev/null
+    file "/tmp/decoded_$offset"
+done
+```
+
+**Encryption Key Recovery:**
+
+```bash
+# Scan for encryption keys
+bulk_extractor -o crypto -E aes -E rsa evidence.dd
+
+# Extract AES keys
+cat crypto/aes_keys.txt
+
+# Format for testing with cryptographic tools
+awk '{print $2}' crypto/aes_keys.txt | while read key; do
+    echo "Testing key: $key"
+    # Test key against encrypted volumes/files
+done
+```
+
+**SQLite Database Extraction:**
+
+```bash
+# Extract SQLite database headers
+bulk_extractor -o sqlite_scan -e sqlite evidence.dd
+
+# Carve complete databases
+cat sqlite_scan/sqlite.txt
+
+# Extract carved databases for analysis
+# [Inference] Carved databases may be fragmented or incomplete
+```
+
+**JSON/XML Data Mining:**
+
+```bash
+# Extract structured data
+bulk_extractor -o data_structures -e json -e xml evidence.dd
+
+# Parse JSON findings
+cat data_structures/json.txt | while IFS=$'\t' read offset json context; do
+    echo "$json" | python3 -m json.tool 2>/dev/null
+done
+
+# Extract API keys from JSON
+grep -i "api\|key\|token\|secret" data_structures/json.txt
+```
+
+## Photorec Recovery
+
+### Overview
+
+PhotoRec is a file carving tool that recovers deleted files by ignoring the file system and searching for known file signatures. It can recover data even when:
+
+- File system is damaged or formatted
+- Partitions are deleted
+- MBR/GPT is corrupted
+
+**Supported File Types:** 480+ formats including images, documents, archives, databases, executables.
+
+### Installation and Basic Usage
+
+```bash
+# Install (usually comes with TestDisk)
+apt-get update
+apt-get install testdisk
+
+# Verify installation
+photorec -version
+
+# Launch interactive mode
+photorec /dev/sdb
+
+# Or specify output directory
+photorec /d /output/directory /dev/sdb
+
+# Recover from image file
+photorec evidence.dd
+
+# E01 support (mount first with ewfmount)
+ewfmount evidence.E01 /mnt/ewf
+photorec /mnt/ewf/ewf1
+```
+
+### Interactive Mode Walkthrough
+
+**Step-by-Step Recovery Process:**
+
+```bash
+photorec /dev/sdb
+
+# Screen 1: Select disk
+# > /dev/sdb - 1000GB / 931 GiB
+# Use arrow keys to select, press Enter
+
+# Screen 2: Select partition
+# Partition                  Start        End    Size in sectors
+# >P ext4                    2048   1953525134   1953523087
+# [Whole Disk]              Search entire disk
+# [File Opt]                File options
+# 
+# Select partition to recover from or [Whole Disk]
+# Press Enter
+
+# Screen 3: File system type
+# [ext2/ext3]  ext2/ext3/ext4 filesystem
+# [Other]      FAT/NTFS/HFS+/ReiserFS/...
+# 
+# Select appropriate type, press Enter
+
+# Screen 4: Free/Whole partition
+# [Free]       Scan only unallocated space (faster, deleted files only)
+# [Whole]      Scan entire partition (slower, finds more)
+# 
+# Choose based on scenario
+
+# Screen 5: Select destination
+# Navigate to output directory
+# Press C when ready
+
+# Recovery begins...
+# Pass 0 - Reading sector 1048576/1953523087
+# 42 files recovered
+```
+
+### Command-Line (Non-Interactive) Mode
+
+**Automated Recovery:**
+
+```bash
+# Basic non-interactive recovery
+photorec /d /output/recovery /cmd /dev/sdb partition_list
+
+# Specific partition recovery
+photorec /d /output/recovery /cmd /dev/sdb,1 fileopt,everything,search
+
+# From image file
+photorec /d /output/recovery /cmd evidence.dd,whole fileopt,everything,search
+
+# Recover specific file types only
+photorec /d /output/recovery /cmd /dev/sdb,1 fileopt,doc,pdf,jpg,search
+```
+
+**Command Parameters:**
+
+- `/d` - Destination directory
+- `/cmd` - Non-interactive mode
+- `partition_list` - Show partitions
+- `fileopt` - File type selection
+- `search` - Start recovery
+- `whole` - Scan entire partition
+- `free` - Scan unallocated space only
+
+### File Type Selection
+
+**Custom File Type Configuration:**
+
+```bash
+# Launch file options menu
+photorec /dev/sdb
+# Select partition -> [File Opt]
+
+# Interactive selection:
+# [X] jpg  - JPEG images
+# [X] pdf  - PDF documents
+# [ ] exe  - Executables (uncheck unwanted types)
+# 
+# Space to toggle, Enter to confirm
+
+# Reset to defaults: press 'b'
+# Enable all: press 's'
+```
+
+**Configuration File Method:**
+
+```bash
+# Create custom config
+cat > ~/.photorec.cfg << 'EOF'
+# Custom PhotoRec configuration
+fileopt,doc,docx,pdf,jpg,jpeg,png,zip,rar,sqlite
+EOF
+
+# Use configuration
+photorec /d /output /cmd evidence.dd,whole @~/.photorec.cfg,search
+
+# Or edit global config
+nano /etc/photorec.cfg
+```
+
+**Common File Type Extensions:**
+
+```
+Documents: doc, docx, xls, xlsx, ppt, pptx, pdf, odt, rtf
+Images: jpg, png, gif, bmp, tiff, raw, cr2, nef
+Video: mp4, avi, mov, mkv, flv, wmv
+Audio: mp3, wav, flac, m4a, ogg
+Archives: zip, rar, 7z, tar, gz
+Databases: sqlite, db, mdb, accdb
+Email: pst, ost, eml, mbox
+```
+
+### Advanced Recovery Techniques
+
+**Deep Scan for Fragmented Files:**
+
+```bash
+# Whole partition scan (finds more fragmented files)
+photorec /d /output /cmd /dev/sdb,whole fileopt,everything,search
+
+# Multiple passes for better recovery
+for i in {1..3}; do
+    echo "Pass $i..."
+    photorec /d /output/pass_$i /cmd /dev/sdb,whole fileopt,everything,search
+done
+```
+
+**Recover from Specific Offset:**
+
+```bash
+# If you know approximate location of deleted files
+# Create a loop device at specific offset
+
+OFFSET=1048576  # 1MB into disk
+SIZE=104857600  # 100MB region
+
+dd if=/dev/sdb bs=1 skip=$OFFSET count=$SIZE of=/tmp/region.dd
+photorec /d /output /tmp/region.dd
+```
+
+**Recover Deleted Partition:**
+
+```bash
+# First, find partition boundaries with TestDisk
+testdisk /dev/sdb
+
+# Analyze disk -> Quick Search
+# Note partition start/end sectors
+
+# Create image of deleted partition area
+START_SECTOR=2048
+END_SECTOR=1048576
+dd if=/dev/sdb bs=512 skip=$START_SECTOR count=$((END_SECTOR-START_SECTOR)) of=deleted_part.dd
+
+# Recover from partition image
+photorec /d /output deleted_part.dd
+```
+
+**RAW Image Recovery:**
+
+```bash
+# For RAW camera images (CR2, NEF, DNG, etc.)
+photorec /d /output /cmd evidence.dd fileopt,cr2,nef,dng,arw,search
+
+# Enable paranoid mode for better RAW recovery
+photorec /d /output /cmd evidence.dd,paranoid fileopt,cr2,nef,search
+```
+
+### Organizing Recovered Files
+
+**Default Output Structure:**
+
+```bash
+/output/
+├── recup_dir.1/
+│   ├── f0000001.jpg
+│   ├── f0000002.pdf
+│   ├── f0000003.docx
+│   └── report.xml
+├── recup_dir.2/
+│   ├── f0000501.jpg
+│   └── ...
+└── ...
+
+# Each directory contains ~500 files
+```
+
+**Sort by File Type:**
+
+```bash
+#!/bin/bash
+# Organize recovered files by extension
+
+SOURCE_DIR=$1
+DEST_DIR=$2
+
+mkdir -p "$DEST_DIR"
+
+find "$SOURCE_DIR" -type f | while read file; do
+    ext="${file##*.}"
+    ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+    
+    mkdir -p "$DEST_DIR/$ext_lower"
+    cp "$file" "$DEST_DIR/$ext_lower/"
+done
+
+# Generate summary
+for dir in "$DEST_DIR"/*; do
+    if [ -d "$dir" ]; then
+        ext=$(basename "$dir")
+        count=$(find "$dir" -type f | wc -l)
+        echo "$ext: $count files"
+    fi
+done
+```
+
+**Sort by Date (from EXIF/metadata):**
+
+```bash
+#!/bin/bash
+# Sort images by date taken
+
+SOURCE_DIR=$1
+DEST_DIR=$2
+
+mkdir -p "$DEST_DIR"
+
+find "$SOURCE_DIR" -type f -iname "*.jpg" -o -iname "*.jpeg" | while read img; do
+    # Extract date from EXIF
+    date=$(exiftool -DateTimeOriginal -d "%Y-%m-%d" "$img" 2>/dev/null | awk -F': ' '{print $2}')
+    
+    if [ -n "$date" ]; then
+        mkdir -p "$DEST_DIR/$date"
+        cp "$img" "$DEST_DIR/$date/"
+    else
+        mkdir -p "$DEST_DIR/no_date"
+        cp "$img" "$DEST_DIR/no_date/"
+    fi
+done
+```
+
+**Deduplication:**
+
+```bash
+# Remove duplicate recovered files
+apt-get install fdupes
+
+# Find and remove duplicates (interactive)
+fdupes -r /output/recovery
+
+# Auto-delete duplicates (keep first occurrence)
+fdupes -rdN /output/recovery
+
+# Or use MD5 hashing
+find /output/recovery -type f -exec md5sum {} + | \
+    sort | \
+    awk 'BEGIN{lasthash=""} 
+         $1==lasthash {print $2} 
+         $1!=lasthash {lasthash=$1}' | \
+    xargs rm -f
+```
+
+### Integration with Analysis Workflow
+
+**Recover and Analyze in Pipeline:**
+
+```bash
+#!/bin/bash
+# Complete recovery and analysis pipeline
+
+IMAGE=$1
+OUTPUT_BASE=$2
+
+RECOVERY_DIR="$OUTPUT_BASE/recovered"
+SORTED_DIR="$OUTPUT_BASE/sorted"
+ANALYSIS_DIR="$OUTPUT_BASE/analysis"
+
+mkdir -p "$RECOVERY_DIR" "$SORTED_DIR" "$ANALYSIS_DIR"
+
+echo "[*] Step 1: PhotoRec recovery..."
+photorec /d "$RECOVERY_DIR" /cmd "$IMAGE",whole fileopt,everything,search
+
+echo "[*] Step 2: Organizing by type..."
+find "$RECOVERY_DIR" -type f | while read file; do
+    ext="${file##*.}"
+    mkdir -p "$SORTED_DIR/$ext"
+    mv "$file" "$SORTED_DIR/$ext/"
+done
+
+echo "[*] Step 3: Extracting metadata..."
+if [ -d "$SORTED_DIR/jpg" ]; then
+    exiftool -csv -r "$SORTED_DIR/jpg" > "$ANALYSIS_DIR/image_metadata.csv"
+fi
+
+echo "[*] Step 4: Document analysis..."
+if [ -d "$SORTED_DIR/pdf" ]; then
+    find "$SORTED_DIR/pdf" -name "*.pdf" -exec pdfinfo {} \; > "$ANALYSIS_DIR/pdf_info.txt"
+fi
+
+echo "[*] Step 5: String extraction..."
+find "$SORTED_DIR" -type f -exec strings {} \; > "$ANALYSIS_DIR/all_strings.txt"
+
+echo "[*] Recovery complete. Summary:"
+for dir in "$SORTED_DIR"/*; do
+    if [ -d "$dir" ]; then
+        echo "  $(basename $dir): $(find $dir -type f | wc -l) files"
+    fi
+done
+```
+
+**Search Recovered Files:**
+
+```bash
+# Search for specific content
+grep -r "password" /output/recovery/
+
+# Search by filename pattern
+find /output/recovery -iname "*confidential*"
+
+# Search by file size (large files)
+find /output/recovery -type f -size +100M
+
+# Find recently modified files (by recovery time)
+find /output/recovery -type f -mtime -1
+```
+
+### Troubleshooting and Optimization
+
+**Handle Large Recoveries:**
+
+```bash
+# Split recovery into chunks
+DISK_SIZE=$(blockdev --getsize64 /dev/sdb)
+CHUNK_SIZE=$((100 * 1024 * 1024 * 1024))  # 100GB chunks
+
+for start in $(seq 0 $CHUNK_SIZE $DISK_SIZE); do
+    echo "Recovering chunk starting at $start..."
+    
+    dd if=/dev/sdb bs=1M skip=$((start/1048576)) count=$((CHUNK_SIZE/1048576)) of=/tmp/chunk.dd
+    photorec /d /output/chunk_$start /tmp/chunk.dd
+    
+    rm /tmp/chunk.dd
+done
+```
+
+**Improve Performance:**
+
+```bash
+# Use SSD for output
+photorec /d /mnt/ssd_output /cmd /dev/sdb,whole fileopt,everything,search
+
+# Limit file types to speed up
+photorec /d /output /cmd /dev/sdb fileopt,jpg,pdf,doc,search
+
+# Process in RAM (if sufficient memory)
+mkdir /tmp/ramdisk
+mount -t tmpfs -o size=8G tmpfs /tmp/ramdisk
+photorec /d /tmp/ramdisk /cmd /dev/sdb
+# Then copy results to permanent storage
+```
+
+**Resume Interrupted Recovery:**
+
+```bash
+# PhotoRec automatically resumes if you restart with same parameters
+# It creates photorec.ses session file
+
+# Check session file
+cat /output/photorec.ses
+
+# Resume manually
+photorec /d /output /cmd /dev/sdb,whole fileopt,everything,search
+# Will continue from last processed sector
+```
+
+### Quality Assessment
+
+**Validate Recovered Files:**
+
+```bash
+#!/bin/bash
+# Check recovered file integrity
+
+RECOVERY_DIR=$1
+
+echo "Validating recovered files..."
+
+# Check images
+find "$RECOVERY_DIR" -iname "*.jpg" -o -iname "*.png" | while read img; do
+    if ! identify "$img" &>/dev/null; then
+        echo "Corrupt image: $img"
+        mv "$img" "$RECOVERY_DIR/corrupt/"
+    fi
+done
+
+# Check PDFs
+find "$RECOVERY_DIR" -iname "*.pdf" | while read pdf; do
+    if ! pdfinfo "$pdf" &>/dev/null; then
+        echo "Corrupt PDF: $pdf"
+        mv "$pdf" "$RECOVERY_DIR/corrupt/"
+    fi
+done
+
+# Check archives
+find "$RECOVERY_DIR" -iname "*.zip" | while read zip; do
+    if ! unzip -t "$zip" &>/dev/null; then
+        echo "Corrupt ZIP: $zip"
+        mv "$zip" "$RECOVERY_DIR/corrupt/"
+    fi
+done
+
+echo "Validation complete."
+```
+
+**Success Rate Analysis:**
+
+```python
+#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+from collections import defaultdict
+
+def analyze_recovery(recovery_dir):
+    """
+    Analyze PhotoRec recovery results.
+    """
+    stats = defaultdict(lambda: {'count': 0, 'size': 0, 'corrupt': 0})
+    
+    for root, dirs, files in os.walk(recovery_dir):
+        for filename in files:
+            filepath = Path(root) / filename
+            
+            # Skip report files
+            if filename in ['report.xml', 'photorec.ses']:
+                continue
+            
+            ext = filepath.suffix.lower().lstrip('.')
+            
+            try:
+                size = filepath.stat().st_size
+                stats[ext]['count'] += 1
+                stats[ext]['size'] += size
+                
+                # Basic corruption check
+                if size == 0:
+                    stats[ext]['corrupt'] += 1
+                    
+            except Exception as e:
+                print(f"Error processing {filepath}: {e}")
+    
+    # Print summary
+    print(f"{'Extension':<15} {'Count':<10} {'Size (MB)':<15} {'Corrupt':<10}")
+    print("=" * 55)
+    
+    for ext in sorted(stats.keys()):
+        count = stats[ext]['count']
+        size_mb = stats[ext]['size'] / (1024 * 1024)
+        corrupt = stats[ext]['corrupt']
+        
+        print(f"{ext:<15} {count:<10} {size_mb:<15.2f} {corrupt:<10}")
+    
+    total_files = sum(s['count'] for s in stats.values())
+    total_size = sum(s['size'] for s in stats.values()) / (1024 * 1024 * 1024)
+    
+    print("\n" + "=" * 55)
+    print(f"Total: {total_files} files, {total_size:.2f} GB recovered")
+
+if __name__ == "__main__":
+    analyze_recovery(sys.argv[1])
+```
+
+## Testdisk Partition Recovery
+
+### Overview
+
+TestDisk is a companion tool to PhotoRec that focuses on:
+
+- Partition table recovery
+- Boot sector repair
+- MBR/GPT reconstruction
+- File system undelete
+- FAT/NTFS/ext2 file recovery
+
+**Key Capabilities:**
+
+- Recover deleted partitions
+- Rebuild partition tables
+- Fix boot sectors
+- Undelete files from ext2/NTFS/FAT
+- Copy files from damaged partitions
+
+### Installation and Basic Usage
+
+```bash
+# Install (included with PhotoRec package)
+apt-get install testdisk
+
+# Verify
+testdisk --version
+
+# Launch interactive mode
+testdisk /dev/sdb
+
+# Analyze disk image
+testdisk evidence.dd
+
+# Non-interactive list
+testdisk /list
+
+# Create log file
+testdisk /log /dev/sdb
+```
+
+### Interactive Partition Recovery
+
+**Step-by-Step Partition Recovery:**
+
+```bash
+testdisk /dev/sdb
+
+# Screen 1: Select disk
+# Disk /dev/sdb - 1000 GB / 931 GiB - Western Digital WD10EZEX
+# 
+# >[ Proceed ]  Continue with this disk
+#  [ Quit ]     Exit
+# 
+# Select [Proceed]
+
+# Screen 2: Partition table type
+# >Intel  Intel/PC partition
+#  EFI GPT
+#  Mac    Apple partition map
+#  None   Non partitioned media
+# 
+# Usually auto-detected, press Enter
+
+# Screen 3: Main menu
+# >[ Analyse  ]  Analyze current partition structure
+#  [ Advanced ]  Filesystem Utils
+#  [ Geometry ]  Change disk geometry
+#  [ Options ]   Modify options
+#  [ Quit ]      Return to disk selection
+# 
+# Select [Analyse]
+
+# Screen 4: Quick Search results
+# Disk /dev/sdb - 1000 GB
+#      Partition               Start        End    Size in sectors
+# > P  HPFS - NTFS          0  32 33  121600 254 62  1953520002 [Windows]
+# 
+# D = Deleted partition shown with D instead of P
+# 
+# If deleted partition found:
+# Press P to list files
+# Press Enter to continue
+# Then [Write] to save partition table
+
+# Screen 5: Deeper Search (if Quick Search insufficient)
+# [ Quick Search ] (already done)
+# >[ Deeper Search ]  Search for more partitions
+# 
+# This scans entire disk for partition signatures
+```
+
+### Partition Table Recovery
+
+**Rebuild Corrupted Partition Table:**
+
+```bash
+testdisk /dev/sdb
+
+# Analyse -> Quick Search
+# If partitions found, they appear in list
+# Use arrow keys to select correct partitions
+# Press Enter on each to change type (Primary, Logical, Deleted)
+
+# After selecting correct partitions:
+# Press Enter to continue
+# Select [Write] to save partition table
+# Confirm with Y
+# Reboot for changes to take effect
+```
+
+**Manual Partition Addition:**
+
+```bash
+# In partition list screen:
+# Press [T] to change partition type
+# Press [L] to load backup partition table
+# Press [D] to delete a partition entry  
+# Press [N] to add a new partition
+
+# Adding partition manually:
+# Start: Enter starting cylinder/head/sector
+# End: Enter ending cylinder/head/sector
+# 
+# Or use [Geometry] from main menu to specify sectors
+```
+
+**Backup and Restore Partition Tables:**
+
+```bash
+# Backup current partition table
+testdisk /dev/sdb
+# Analyse -> Backup
+# Saves to testdisk.log and backup files
+
+# Manual backup with sfdisk (MBR)
+sfdisk -d /dev/sdb > partition_backup.txt
+
+# Restore
+sfdisk /dev/sdb < partition_backup.txt
+
+# Backup GPT
+sgdisk --backup=gpt_backup.bin /dev/sdb
+
+# Restore GPT
+sgdisk --load-backup=gpt_backup.bin /dev/sdb
+```
+
+### Advanced Filesystem Operations
+
+**Undelete Files (ext2/ext3/ext4):**
+
+```bash
+testdisk /dev/sdb
+
+# Select disk and partition table type
+# [Advanced] -> Select partition
+# [Undelete] 
+
+# File list appears:
+# . Directory
+# X Deleted file
+# D Deleted directory
+# 
+# Use arrow keys to select file
+# Press 'c' to copy file
+# Specify destination directory
+# Press C to confirm copy
+```
+
+**NTFS Undelete:**
+
+```bash
+testdisk /dev/sdb
+
+# [Advanced] -> Select NTFS partition
+# [Undelete]
+
+# Shows deleted NTFS files with recovery status:
+# Excellent - Fully recoverable
+# Good - Mostly recoverable
+# Poor - Partially recoverable
+# Bad - Not recoverable
+# 
+# Select file and press 'c' to copy
+```
+
+**Copy Files from Damaged Partition:**
+
+```bash
+testdisk /dev/sdb
+
+# [Advanced] -> Select partition
+# [List] to browse files
+
+# Navigate with arrow keys
+# Press ':' to select/unselect files
+# Press 'a' to select all
+# Press 'C' (capital) to copy selected files
+
+# Specify destination
+# TestDisk copies files preserving directory structure
+```
+
+**Boot Sector Repair:**
+
+```bash
+testdisk /dev/sdb
+
+# [Advanced] -> Select partition
+# [Boot] 
+
+# Options:
+# [ Rebuild BS ]  Rebuild boot sector
+# [ Dump ]        Display boot sector hex
+# [ List ]        List files  (validates boot sector)
+# [ Backup BS ]   Backup boot sector
+# [ Repair FAT ]  Repair FAT (FAT partitions only)
+# [ Repair MFT ]  Repair MFT (NTFS partitions only)
+
+# Select [Rebuild BS] to recreate from backup
+# Or [Backup BS] first, then [Rebuild BS]
+```
+
+**MFT Recovery (NTFS):**
+
+```bash
+testdisk /dev/sdb
+
+# [Advanced] -> NTFS partition
+# [Boot]
+# [Backup BS]  # Backup boot sector first
+# [Repair MFT]
+
+# TestDisk attempts to repair Master File Table
+# Uses backup MFT if primary is damaged
+```
+
+### Automated Partition Recovery Scripts
+
+**Batch Partition Analysis:**
+
+```bash
+#!/bin/bash
+# Analyze all disks for partition issues
+
+LOG_DIR="testdisk_analysis_$(date +%Y%m%d)"
+mkdir -p "$LOG_DIR"
+
+# Find all block devices
+lsblk -d -n -o NAME,SIZE | while read device size; do
+    echo "[*] Analyzing /dev/$device ($size)..."
+    
+    # Run TestDisk in automated mode
+    echo -e "analyse\nquick\nquit" | testdisk /dev/$device > "$LOG_DIR/${device}_analysis.txt" 2>&1
+    
+    # Parse results
+    if grep -q "No partition is bootable" "$LOG_DIR/${device}_analysis.txt"; then
+        echo "  [!] No bootable partition on $device"
+    fi
+    
+    if grep -q "Deleted" "$LOG_DIR/${device}_analysis.txt"; then
+        echo "  [!] Deleted partitions found on $device"
+        grep "Deleted" "$LOG_DIR/${device}_analysis.txt" >> "$LOG_DIR/deleted_partitions.txt"
+    fi
+done
+
+echo "[*] Analysis complete. Results in $LOG_DIR/"
+```
+
+**Extract Partition Information:**
+
+```python
+#!/usr/bin/env python3
+import subprocess
+import re
+
+def get_partition_info(device):
+    """
+    Extract partition information using TestDisk.
+    [Unverified - parsing may vary with TestDisk versions]
+    """
+    # Run testdisk in list mode
+    result = subprocess.run(
+        ['testdisk', '/list', device],
+        capture_output=True,
+        text=True
+    )
+    
+    partitions = []
+    
+    # Parse output for partition information
+    for line in result.stdout.split('\n'):
+        # Look for partition entries
+        if re.match(r'^\s+\d+', line):
+            parts = line.split()
+            if len(parts) >= 5:
+                partition = {
+                    'number': parts[0],
+                    'type': ' '.join(parts[1:-3]),
+                    'start': parts[-3],
+                    'end': parts[-2],
+                    'size': parts[-1]
+                }
+                partitions.append(partition)
+    
+    return partitions
+
+if __name__ == "__main__":
+    import sys
+    import json
+    
+    partitions = get_partition_info(sys.argv[1])
+    print(json.dumps(partitions, indent=2))
+```
+
+### Integration with Other Tools
+
+**TestDisk + PhotoRec Workflow:**
+
+```bash
+#!/bin/bash
+# Complete disk recovery workflow
+
+DEVICE=$1
+OUTPUT_BASE=$2
+
+mkdir -p "$OUTPUT_BASE"/{testdisk,photorec}
+
+echo "[*] Step 1: Partition analysis with TestDisk..."
+testdisk /log "$OUTPUT_BASE/testdisk/testdisk.log" "$DEVICE"
+
+echo "[*] Step 2: Attempt partition recovery..."
+# Interactive mode required for actual recovery
+# Or use scripted commands if partitions detected:
+# testdisk /dev/sdb <<< "analyse\nquick\nwrite\nquit"
+
+echo "[*] Step 3: File carving with PhotoRec..."
+photorec /d "$OUTPUT_BASE/photorec" /cmd "$DEVICE",whole fileopt,everything,search
+
+echo "[*] Step 4: Generate recovery report..."
+cat > "$OUTPUT_BASE/RECOVERY_REPORT.txt" << EOF
+Disk Recovery Report
+====================
+Device: $DEVICE
+Date: $(date)
+
+TestDisk Analysis:
+$(cat "$OUTPUT_BASE/testdisk/testdisk.log")
+
+PhotoRec Recovery:
+Files recovered: $(find "$OUTPUT_BASE/photorec" -type f | wc -l)
+
+EOF
+
+echo "[*] Recovery complete. Results in $OUTPUT_BASE/"
+```
+
+**Pre-Recovery Disk Imaging:**
+
+```bash
+# ALWAYS image before recovery attempts
+echo "[*] Creating forensic image before recovery..."
+dcfldd if=/dev/sdb of=pre_recovery_image.dd hash=sha256 hashlog=pre_recovery.hash
+
+# Verify image
+dcfldd if=pre_recovery_image.dd hash=sha256 hashlog=verify.hash vf=pre_recovery.hash
+
+# Work on image copy
+cp pre_recovery_image.dd working_copy.dd
+
+# Attempt recovery on working copy
+testdisk working_copy.dd
+```
+
+### Case Studies and Practical Scenarios
+
+**Scenario 1: Accidental Format Recovery**
+
+```bash
+# User accidentally formatted drive
+
+# 1. Create image
+ddrescue /dev/sdb formatted_drive.dd formatted_drive.log
+
+# 2. Analyze with TestDisk
+testdisk formatted_drive.dd
+# Analyse -> Deeper Search
+# Select found partitions
+# Write partition table
+
+# 3. Mount recovered partition
+OFFSET=$(fdisk -l formatted_drive.dd | grep "^formatted" | awk '{print $2}')
+mount -o ro,loop,offset=$((OFFSET*512)) formatted_drive.dd /mnt/recovered
+
+# 4. Copy files
+rsync -av /mnt/recovered/ /output/recovered_files/
+```
+
+**Scenario 2: Corrupted Boot Sector**
+
+```bash
+# System won't boot, partition table intact but boot sector damaged
+
+testdisk /dev/sda
+
+# Advanced -> Select boot partition
+# Boot -> Backup BS (backup current boot sector)
+# Rebuild BS (reconstruct boot sector)
+# Write changes
+
+# Test boot
+reboot
+```
+
+**Scenario 3: Deleted Partition Recovery**
+
+```bash
+# Partition accidentally deleted
+
+testdisk /dev/sdb
+
+# Analyse -> Quick Search
+# Deleted partition shows as "D" instead of "P"
+# Select deleted partition, press Enter to change to Primary
+# Continue -> Write
+# Reboot
+
+# Partition should reappear
+# Mount and verify data intact
+mount /dev/sdb1 /mnt/recovered
+ls -la /mnt/recovered
+```
+
+---
+
+## Forensic Best Practices with Kali Tools
+
+### Chain of Custody
+
+**Document All Actions:**
+
+```bash
+# Create case directory structure
+CASE_ID="CASE-2024-001"
+mkdir -p "/cases/$CASE_ID"/{images,analysis,reports,logs}
+
+# Log all commands
+script -a "/cases/$CASE_ID/logs/session_$(date +%Y%m%d_%H%M%S).log"
+
+# Document acquisition
+cat > "/cases/$CASE_ID/ACQUISITION_LOG.txt" << EOF
+Case ID: $CASE_ID
+Evidence Item: Suspect Laptop HDD
+Acquisition Date: $(date)
+Examiner: Analyst Name
+Tool: ewfacquire $(ewfacquire --version | head -1)
+Source Device: /dev/sdb
+Serial Number: $(hdparm -I /dev/sdb | grep "Serial Number")
+Model: $(hdparm -I /dev/sdb | grep "Model Number")
+
+Pre-Acquisition Hash:
+$(dcfldd if=/dev/sdb bs=64K count=100 | sha256sum)
+
+EOF
+
+# All subsequent operations logged automatically
+```
+
+### Verification Workflow
+
+**Multi-Hash Verification:**
+
+```bash
+#!/bin/bash
+# Comprehensive hash verification
+
+IMAGE=$1
+HASH_FILE="${IMAGE}.hashes"
+
+echo "Generating hashes for $IMAGE..."
+
+md5sum "$IMAGE" | tee -a "$HASH_FILE"
+sha1sum "$IMAGE" | tee -a "$HASH_FILE"
+sha256sum "$IMAGE" | tee -a "$HASH_FILE"
+
+# E01 internal hash
+if [[ "$IMAGE" == *.E01 ]]; then
+    ewfverify "$IMAGE" | tee -a "$HASH_FILE"
+fi
+
+echo "Hashes saved to $HASH_FILE"
+```
+
+### Tool Validation
+
+**Verify Tool Integrity:**
+
+```bash
+# Check tool hashes against known-good values
+apt-get install debsums -y
+
+# Verify installed packages
+debsums ewf-tools testdisk bulk-extractor
+
+# Re-install if verification fails
+apt-get install --reinstall ewf-tools -y
+
+# Create tool validation report
+cat > tool_validation.txt << 'EOF'
+Tool Validation Report
+
+Date: $(date)
+
+ewf-tools:
+  Version: $(ewfinfo --version 2>&1 | head -1)
+  Package Hash: $(dpkg -s ewf-tools | grep MD5sum)
+  Binary Hashes: $(md5sum $(which ewfacquire ewfinfo ewfverify ewfexport))
+
+bulk_extractor:
+  Version: $(bulk_extractor -V 2>&1 | head -1)
+  Package Hash: $(dpkg -s bulk-extractor | grep MD5sum)
+  Binary Hash: $(md5sum $(which bulk_extractor))
+
+testdisk/photorec:
+  Version: $(testdisk --version 2>&1 | head -1)
+  Package Hash: $(dpkg -s testdisk | grep MD5sum)
+  Binary Hashes: $(md5sum $(which testdisk photorec))
+
+All tools verified against distribution repository.
+EOF
+
+````
+
+### Evidence Preservation
+
+**Write-Blocking Best Practices:**
+```bash
+# Software write-blocking
+blockdev --setro /dev/sdb
+
+# Verify read-only status
+blockdev --getro /dev/sdb
+# Output: 1 (read-only enabled)
+
+# Additional protection with mount options
+mount -o ro,noexec,noload /dev/sdb1 /mnt/evidence
+
+# For loop devices
+losetup -r /dev/loop0 evidence.dd
+````
+
+**Forensic Image Creation Workflow:**
+
+```bash
+#!/bin/bash
+# Complete forensic acquisition workflow with verification
+
+DEVICE=$1
+CASE_ID=$2
+EVIDENCE_NUM=$3
+OUTPUT_DIR="/cases/$CASE_ID/images"
+
+mkdir -p "$OUTPUT_DIR"
+
+LOG_FILE="$OUTPUT_DIR/acquisition_${EVIDENCE_NUM}.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+echo "=========================================="
+echo "FORENSIC ACQUISITION LOG"
+echo "=========================================="
+echo "Case ID: $CASE_ID"
+echo "Evidence Number: $EVIDENCE_NUM"
+echo "Date/Time: $(date)"
+echo "Examiner: $(whoami)"
+echo "System: $(uname -a)"
+echo "Source Device: $DEVICE"
+echo ""
+
+echo "[*] Device Information:"
+hdparm -I "$DEVICE" | grep -E "Model Number|Serial Number|Firmware Revision"
+blockdev --getsize64 "$DEVICE" | awk '{printf "Size: %.2f GB\n", $1/1024/1024/1024}'
+
+echo ""
+echo "[*] Setting device to read-only..."
+blockdev --setro "$DEVICE"
+
+echo "[*] Pre-acquisition verification..."
+SECTORS=$(blockdev --getsz "$DEVICE")
+PRE_HASH=$(dd if="$DEVICE" bs=512 count=100 status=none | sha256sum | awk '{print $1}')
+echo "Pre-acquisition hash (first 100 sectors): $PRE_HASH"
+
+echo ""
+echo "[*] Beginning acquisition with ewfacquire..."
+ewfacquire \
+    -t "$OUTPUT_DIR/${EVIDENCE_NUM}.E01" \
+    -C "$CASE_ID" \
+    -D "Evidence item $EVIDENCE_NUM" \
+    -E "$(whoami)" \
+    -e "$EVIDENCE_NUM" \
+    -N "Acquired on $(date)" \
+    -m fixed \
+    -M physical \
+    -c best \
+    -f encase6 \
+    -S 1.5GiB \
+    -u \
+    "$DEVICE"
+
+if [ $? -eq 0 ]; then
+    echo "[✓] Acquisition completed successfully"
+else
+    echo "[✗] Acquisition FAILED"
+    exit 1
+fi
+
+echo ""
+echo "[*] Verifying image integrity..."
+ewfverify "$OUTPUT_DIR/${EVIDENCE_NUM}.E01"
+
+if [ $? -eq 0 ]; then
+    echo "[✓] Verification PASSED"
+else
+    echo "[✗] Verification FAILED"
+    exit 1
+fi
+
+echo ""
+echo "[*] Extracting image metadata..."
+ewfinfo "$OUTPUT_DIR/${EVIDENCE_NUM}.E01" > "$OUTPUT_DIR/${EVIDENCE_NUM}_metadata.txt"
+
+echo ""
+echo "[*] Creating working copy for analysis..."
+ewfexport -t "$OUTPUT_DIR/${EVIDENCE_NUM}_working.dd" "$OUTPUT_DIR/${EVIDENCE_NUM}.E01"
+
+echo ""
+echo "[*] Post-acquisition verification..."
+POST_HASH=$(dd if="$DEVICE" bs=512 count=100 status=none | sha256sum | awk '{print $1}')
+echo "Post-acquisition hash (first 100 sectors): $POST_HASH"
+
+if [ "$PRE_HASH" == "$POST_HASH" ]; then
+    echo "[✓] Source device unchanged during acquisition"
+else
+    echo "[✗] WARNING: Source device hash mismatch"
+fi
+
+echo ""
+echo "=========================================="
+echo "ACQUISITION COMPLETE"
+echo "=========================================="
+echo "Original image: $OUTPUT_DIR/${EVIDENCE_NUM}.E01"
+echo "Working copy: $OUTPUT_DIR/${EVIDENCE_NUM}_working.dd"
+echo "Log file: $LOG_FILE"
+echo "Metadata: $OUTPUT_DIR/${EVIDENCE_NUM}_metadata.txt"
+```
+
+### Analysis Workflow Integration
+
+**Complete Evidence Processing Pipeline:**
+
+```bash
+#!/bin/bash
+# End-to-end forensic analysis using Kali tools
+
+CASE_ID=$1
+EVIDENCE_IMAGE=$2
+OUTPUT_BASE="/cases/$CASE_ID/analysis"
+
+mkdir -p "$OUTPUT_BASE"/{timeline,bulk_extractor,recovery,filesystem,reports}
+
+LOG="$OUTPUT_BASE/analysis_$(date +%Y%m%d_%H%M%S).log"
+exec > >(tee -a "$LOG") 2>&1
+
+echo "=========================================="
+echo "FORENSIC ANALYSIS WORKFLOW"
+echo "=========================================="
+echo "Case: $CASE_ID"
+echo "Evidence: $EVIDENCE_IMAGE"
+echo "Started: $(date)"
+echo ""
+
+# Step 1: Verify image integrity
+echo "[1/7] Verifying image integrity..."
+if [[ "$EVIDENCE_IMAGE" == *.E01 ]]; then
+    ewfverify "$EVIDENCE_IMAGE"
+    if [ $? -ne 0 ]; then
+        echo "[✗] Image verification failed. Aborting."
+        exit 1
+    fi
+else
+    ORIGINAL_HASH=$(cat "${EVIDENCE_IMAGE}.sha256" | awk '{print $1}')
+    CURRENT_HASH=$(sha256sum "$EVIDENCE_IMAGE" | awk '{print $1}')
+    
+    if [ "$ORIGINAL_HASH" == "$CURRENT_HASH" ]; then
+        echo "[✓] Hash verification passed"
+    else
+        echo "[✗] Hash mismatch. Aborting."
+        exit 1
+    fi
+fi
+
+# Step 2: File system mounting and analysis
+echo ""
+echo "[2/7] Mounting file system..."
+MOUNT_DIR="$OUTPUT_BASE/filesystem/mounted"
+mkdir -p "$MOUNT_DIR"
+
+if [[ "$EVIDENCE_IMAGE" == *.E01 ]]; then
+    EWF_MOUNT="$OUTPUT_BASE/filesystem/ewf"
+    mkdir -p "$EWF_MOUNT"
+    ewfmount "$EVIDENCE_IMAGE" "$EWF_MOUNT"
+    IMAGE_PATH="$EWF_MOUNT/ewf1"
+else
+    IMAGE_PATH="$EVIDENCE_IMAGE"
+fi
+
+# Detect partitions
+echo "  Detecting partitions..."
+mmls "$IMAGE_PATH" > "$OUTPUT_BASE/filesystem/partitions.txt"
+
+# Mount each partition
+mmls "$IMAGE_PATH" | grep -E "^[0-9]+" | while read line; do
+    PART_NUM=$(echo "$line" | awk '{print $1}')
+    START=$(echo "$line" | awk '{print $3}')
+    OFFSET=$((START * 512))
+    
+    PART_MOUNT="$MOUNT_DIR/part_$PART_NUM"
+    mkdir -p "$PART_MOUNT"
+    
+    echo "  Mounting partition $PART_NUM at offset $OFFSET..."
+    mount -o ro,loop,offset=$OFFSET,noexec,nodev "$IMAGE_PATH" "$PART_MOUNT" 2>/dev/null
+    
+    if [ $? -eq 0 ]; then
+        echo "    [✓] Mounted to $PART_MOUNT"
+        
+        # Generate file listing
+        find "$PART_MOUNT" -ls > "$OUTPUT_BASE/filesystem/partition_${PART_NUM}_files.txt"
+    fi
+done
+
+# Step 3: Timeline creation
+echo ""
+echo "[3/7] Creating super timeline..."
+log2timeline.py \
+    --storage-file "$OUTPUT_BASE/timeline/timeline.plaso" \
+    -z "$(cat /etc/timezone)" \
+    "$IMAGE_PATH"
+
+echo "  Exporting timeline to CSV..."
+psort.py \
+    -o l2tcsv \
+    -w "$OUTPUT_BASE/timeline/full_timeline.csv" \
+    "$OUTPUT_BASE/timeline/timeline.plaso"
+
+echo "  Generating timeline statistics..."
+python3 << 'PYTHON'
+import pandas as pd
+import sys
+
+df = pd.read_csv("$OUTPUT_BASE/timeline/full_timeline.csv")
+df['datetime'] = pd.to_datetime(df['date'])
+
+with open("$OUTPUT_BASE/timeline/statistics.txt", 'w') as f:
+    f.write("Timeline Statistics\n")
+    f.write("===================\n\n")
+    f.write(f"Total events: {len(df)}\n")
+    f.write(f"Date range: {df['datetime'].min()} to {df['datetime'].max()}\n\n")
+    f.write("Events by source:\n")
+    f.write(df['parser'].value_counts().to_string())
+    f.write("\n\nEvents by hour:\n")
+    f.write(df.groupby(df['datetime'].dt.hour).size().to_string())
+PYTHON
+
+# Step 4: bulk_extractor analysis
+echo ""
+echo "[4/7] Running bulk_extractor..."
+bulk_extractor \
+    -o "$OUTPUT_BASE/bulk_extractor" \
+    -E email -E net -E accts -E exif \
+    -j $(nproc) \
+    "$IMAGE_PATH"
+
+echo "  Generating bulk_extractor summary..."
+python3 << 'PYTHON'
+import os
+from pathlib import Path
+
+be_dir = Path("$OUTPUT_BASE/bulk_extractor")
+summary = []
+
+features = {
+    'email.txt': 'Email addresses',
+    'url.txt': 'URLs',
+    'domain.txt': 'Domains',
+    'ip.txt': 'IP addresses',
+    'telephone.txt': 'Phone numbers',
+    'ccn.txt': 'Credit cards',
+    'exif.txt': 'EXIF metadata'
+}
+
+for filename, description in features.items():
+    filepath = be_dir / filename
+    if filepath.exists():
+        with open(filepath) as f:
+            count = len([l for l in f if not l.startswith('#')])
+        summary.append(f"{description}: {count}")
+
+with open(be_dir / 'SUMMARY.txt', 'w') as f:
+    f.write('\n'.join(summary))
+    
+print('\n'.join(summary))
+PYTHON
+
+# Step 5: File recovery with PhotoRec
+echo ""
+echo "[5/7] Recovering deleted files with PhotoRec..."
+photorec \
+    /d "$OUTPUT_BASE/recovery" \
+    /cmd "$IMAGE_PATH",whole fileopt,everything,search
+
+echo "  Organizing recovered files by type..."
+mkdir -p "$OUTPUT_BASE/recovery/organized"
+
+find "$OUTPUT_BASE/recovery" -type f | while read file; do
+    ext="${file##*.}"
+    ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+    
+    mkdir -p "$OUTPUT_BASE/recovery/organized/$ext_lower"
+    cp "$file" "$OUTPUT_BASE/recovery/organized/$ext_lower/" 2>/dev/null
+done
+
+# Count recovered files
+for dir in "$OUTPUT_BASE/recovery/organized"/*; do
+    if [ -d "$dir" ]; then
+        ext=$(basename "$dir")
+        count=$(find "$dir" -type f | wc -l)
+        echo "  Recovered $ext: $count files"
+    fi
+done > "$OUTPUT_BASE/recovery/recovery_summary.txt"
+
+# Step 6: Extract and analyze key artifacts
+echo ""
+echo "[6/7] Extracting key artifacts..."
+
+# MFT extraction and analysis
+if find "$MOUNT_DIR" -name '$MFT' 2>/dev/null | grep -q .; then
+    echo "  Extracting MFT..."
+    MFT_FILE=$(find "$MOUNT_DIR" -name '$MFT' 2>/dev/null | head -1)
+    cp "$MFT_FILE" "$OUTPUT_BASE/filesystem/MFT.raw"
+    
+    echo "  Parsing MFT..."
+    analyzeMFT.py -f "$OUTPUT_BASE/filesystem/MFT.raw" -o "$OUTPUT_BASE/filesystem/mft_timeline.csv"
+fi
+
+# Registry extraction (Windows)
+if [ -d "$MOUNT_DIR/part_*/Windows/System32/config" ]; then
+    echo "  Extracting Windows Registry..."
+    REGISTRY_DIR="$OUTPUT_BASE/filesystem/registry"
+    mkdir -p "$REGISTRY_DIR"
+    
+    find "$MOUNT_DIR" -path "*/Windows/System32/config/*" -name "S*M" -o -name "SYSTEM" -o -name "SOFTWARE" 2>/dev/null | \
+    while read reg; do
+        cp "$reg" "$REGISTRY_DIR/" 2>/dev/null
+    done
+fi
+
+# Browser artifacts
+echo "  Extracting browser artifacts..."
+BROWSER_DIR="$OUTPUT_BASE/filesystem/browser"
+mkdir -p "$BROWSER_DIR"
+
+find "$MOUNT_DIR" -name "History" -o -name "Cookies" -o -name "places.sqlite" 2>/dev/null | \
+while read artifact; do
+    cp "$artifact" "$BROWSER_DIR/" 2>/dev/null
+done
+
+# Step 7: Generate final report
+echo ""
+echo "[7/7] Generating analysis report..."
+
+cat > "$OUTPUT_BASE/reports/ANALYSIS_REPORT.md" << EOF
+# Forensic Analysis Report
+
+**Case ID:** $CASE_ID  
+**Evidence:** $(basename $EVIDENCE_IMAGE)  
+**Analysis Date:** $(date)  
+**Examiner:** $(whoami)
+
+---
+
+## Executive Summary
+
+Comprehensive forensic analysis performed on evidence item using Kali Linux forensic tools.
+
+## Analysis Steps Performed
+
+1. **Image Verification**
+   - Tool: ewf-tools/sha256sum
+   - Result: ✓ Integrity verified
+
+2. **File System Analysis**
+   - Partitions detected: $(grep -c "^[0-9]" "$OUTPUT_BASE/filesystem/partitions.txt")
+   - File systems mounted: $(find "$MOUNT_DIR" -maxdepth 1 -type d | wc -l)
+   - Total files indexed: $(cat "$OUTPUT_BASE/filesystem/partition_"*"_files.txt" | wc -l)
+
+3. **Timeline Analysis**
+   - Tool: Plaso/log2timeline
+   - Total events: $(wc -l < "$OUTPUT_BASE/timeline/full_timeline.csv")
+   - Date range: See timeline/statistics.txt
+
+4. **Data Extraction (bulk_extractor)**
+   $(cat "$OUTPUT_BASE/bulk_extractor/SUMMARY.txt")
+
+5. **File Recovery (PhotoRec)**
+   $(cat "$OUTPUT_BASE/recovery/recovery_summary.txt")
+
+6. **Key Artifacts**
+   - MFT: $([ -f "$OUTPUT_BASE/filesystem/MFT.raw" ] && echo "✓ Extracted" || echo "✗ Not found")
+   - Registry: $([ -d "$OUTPUT_BASE/filesystem/registry" ] && echo "✓ Extracted" || echo "✗ Not found")
+   - Browser Data: $(find "$BROWSER_DIR" -type f 2>/dev/null | wc -l) artifacts
+
+---
+
+## Evidence Location
+
+All analysis artifacts stored in:
+\`$OUTPUT_BASE\`
+
+### Directory Structure
+
+- \`timeline/\` - Super timeline and temporal analysis
+- \`bulk_extractor/\` - Extracted features (emails, URLs, etc.)
+- \`recovery/\` - Recovered deleted files
+- \`filesystem/\` - File system artifacts and listings
+- \`reports/\` - This report and supplementary documentation
+
+---
+
+## Next Steps
+
+1. Review timeline for suspicious activity patterns
+2. Analyze bulk_extractor findings for IOCs
+3. Examine recovered files for relevant evidence
+4. Cross-reference findings with case details
+
+---
+
+## Tools Used
+
+- ewf-tools $(ewfinfo --version 2>&1 | head -1)
+- bulk_extractor $(bulk_extractor -V 2>&1 | head -1)
+- PhotoRec/TestDisk $(photorec /version 2>&1 | head -1)
+- Plaso/log2timeline $(log2timeline.py --version 2>&1 | head -1)
+- The Sleuth Kit $(mmls -V 2>&1 | head -1)
+
+---
+
+**Report Generated:** $(date)  
+**Analysis Log:** $LOG
+EOF
+
+# Convert markdown to HTML for easier viewing
+if command -v pandoc &> /dev/null; then
+    pandoc "$OUTPUT_BASE/reports/ANALYSIS_REPORT.md" \
+        -o "$OUTPUT_BASE/reports/ANALYSIS_REPORT.html" \
+        --standalone --metadata title="Forensic Analysis Report"
+fi
+
+# Cleanup
+echo ""
+echo "Unmounting file systems..."
+umount "$MOUNT_DIR"/part_* 2>/dev/null
+if [[ "$EVIDENCE_IMAGE" == *.E01 ]]; then
+    fusermount -u "$EWF_MOUNT" 2>/dev/null
+fi
+
+echo ""
+echo "=========================================="
+echo "ANALYSIS COMPLETE"
+echo "=========================================="
+echo "Report: $OUTPUT_BASE/reports/ANALYSIS_REPORT.md"
+echo "Log: $LOG"
+echo ""
+echo "Completed: $(date)"
+```
+
+### Quality Assurance Checklist
+
+**Pre-Analysis Checklist:**
+
+```bash
+cat > pre_analysis_checklist.txt << 'EOF'
+PRE-ANALYSIS CHECKLIST
+======================
+
+□ Evidence properly documented in chain of custody
+□ Original media write-protected (hardware or software)
+□ Forensic image created and verified
+□ Working copy created from forensic image
+□ All tools verified and validated
+□ Analysis environment documented
+□ Case directory structure created
+□ Logging enabled for all operations
+
+Examiner: ________________  Date: __________
+EOF
+```
+
+**Post-Analysis Checklist:**
+
+```bash
+cat > post_analysis_checklist.txt << 'EOF'
+POST-ANALYSIS CHECKLIST
+=======================
+
+□ All analysis steps logged
+□ Image integrity re-verified
+□ Findings documented in report
+□ Evidence properly stored
+□ Working copies securely deleted or archived
+□ Timeline exported and analyzed
+□ Key artifacts extracted and catalogued
+□ Report reviewed and finalized
+□ Peer review completed (if applicable)
+
+Examiner: ________________  Date: __________
+Reviewer: ________________  Date: __________
+EOF
+```
+
+### Reporting Templates
+
+**Technical Findings Template:**
+
+```markdown
+# Technical Findings Report
+
+## Case Information
+- Case Number: [CASE-ID]
+- Evidence Item: [ITEM-ID]
+- Examiner: [NAME]
+- Date: [DATE]
+
+## Methodology
+
+### Tools Used
+1. ewf-tools v[VERSION] - Forensic imaging and E01 handling
+2. bulk_extractor v[VERSION] - Feature extraction
+3. PhotoRec v[VERSION] - File carving
+4. TestDisk v[VERSION] - Partition recovery
+5. Plaso v[VERSION] - Timeline analysis
+
+### Analysis Steps
+1. Image verification
+2. File system mounting
+3. Timeline creation
+4. Feature extraction
+5. File recovery
+6. Artifact analysis
+
+## Findings
+
+### 1. Timeline Analysis
+[Summary of temporal findings]
+
+### 2. Extracted Features
+- Email addresses: [COUNT]
+- URLs: [COUNT]
+- Credit cards: [COUNT]
+- [Other features]
+
+### 3. Recovered Files
+- Total recovered: [COUNT]
+- By type: [BREAKDOWN]
+
+### 4. Key Artifacts
+[List significant findings]
+
+## Conclusions
+
+[Summary of analysis results]
+
+## Appendices
+
+A. Complete file listings
+B. Timeline exports
+C. Hash verification logs
+D. Tool validation reports
+```
+
+### Performance Monitoring
+
+**Track Analysis Performance:**
+
+```bash
+#!/bin/bash
+# Monitor resource usage during analysis
+
+ANALYSIS_PID=$1
+LOG_FILE="performance_$(date +%Y%m%d_%H%M%S).log"
+
+echo "Monitoring process $ANALYSIS_PID..." | tee "$LOG_FILE"
+echo "Time,CPU%,MEM%,Disk_Read_MB,Disk_Write_MB" | tee -a "$LOG_FILE"
+
+while kill -0 $ANALYSIS_PID 2>/dev/null; do
+    CPU=$(ps -p $ANALYSIS_PID -o %cpu= | tr -d ' ')
+    MEM=$(ps -p $ANALYSIS_PID -o %mem= | tr -d ' ')
+    
+    DISK_READ=$(cat /proc/$ANALYSIS_PID/io 2>/dev/null | grep read_bytes | awk '{print $2/1024/1024}')
+    DISK_WRITE=$(cat /proc/$ANALYSIS_PID/io 2>/dev/null | grep write_bytes | awk '{print $2/1024/1024}')
+    
+    echo "$(date +%H:%M:%S),$CPU,$MEM,$DISK_READ,$DISK_WRITE" | tee -a "$LOG_FILE"
+    
+    sleep 5
+done
+
+echo "Analysis complete. Performance log: $LOG_FILE"
+```
+
+### Automated Report Generation
+
+**Generate Summary Statistics:**
+
+```python
+#!/usr/bin/env python3
+import os
+import json
+from pathlib import Path
+from datetime import datetime
+
+def generate_case_summary(case_dir):
+    """
+    Generate comprehensive case summary from analysis artifacts.
+    """
+    summary = {
+        'case_info': {},
+        'timeline': {},
+        'bulk_extractor': {},
+        'recovery': {},
+        'artifacts': {}
+    }
+    
+    # Timeline statistics
+    timeline_csv = Path(case_dir) / 'analysis/timeline/full_timeline.csv'
+    if timeline_csv.exists():
+        import pandas as pd
+        df = pd.read_csv(timeline_csv)
+        summary['timeline'] = {
+            'total_events': len(df),
+            'date_range': f"{df['date'].min()} to {df['date'].max()}",
+            'sources': df['parser'].value_counts().to_dict()
+        }
+    
+    # bulk_extractor findings
+    be_dir = Path(case_dir) / 'analysis/bulk_extractor'
+    if be_dir.exists():
+        features = ['email', 'url', 'domain', 'ip', 'telephone', 'ccn']
+        summary['bulk_extractor'] = {}
+        
+        for feature in features:
+            feature_file = be_dir / f'{feature}.txt'
+            if feature_file.exists():
+                with open(feature_file) as f:
+                    count = len([l for l in f if not l.startswith('#')])
+                summary['bulk_extractor'][feature] = count
+    
+    # Recovery statistics
+    recovery_dir = Path(case_dir) / 'analysis/recovery/organized'
+    if recovery_dir.exists():
+        summary['recovery'] = {}
+        for ext_dir in recovery_dir.iterdir():
+            if ext_dir.is_dir():
+                count = len(list(ext_dir.glob('*')))
+                summary['recovery'][ext_dir.name] = count
+    
+    # Save summary
+    summary_file = Path(case_dir) / 'analysis/reports/case_summary.json'
+    with open(summary_file, 'w') as f:
+        json.dump(summary, f, indent=2)
+    
+    print(f"Case summary generated: {summary_file}")
+    return summary
+
+if __name__ == "__main__":
+    import sys
+    summary = generate_case_summary(sys.argv[1])
+    print(json.dumps(summary, indent=2))
+```
+
+---
+
+## Related Advanced Topics
+
+For comprehensive Kali Linux forensics mastery:
+
+- **Advanced Memory Forensics** - Volatility framework for RAM analysis and malware detection
+- **Network Forensics** - Wireshark, tcpdump, and NetworkMiner for packet analysis
+- **Anti-Forensics Detection** - Identifying timestamp manipulation, data hiding, and evidence destruction
+- **Automated Triage** - Scripting rapid initial assessments for large-scale investigations
+- **Cloud Forensics** - Analyzing cloud storage and SaaS application artifacts

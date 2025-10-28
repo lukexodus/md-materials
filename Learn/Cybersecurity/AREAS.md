@@ -1,0 +1,30 @@
+- Web Exploitation
+- Cryptography
+- Reverse Engineering
+- Forensics
+- Binary Exploitation (Pwn)
+- Steganography
+- OSINT (Open Source Intelligence)
+- Networking
+- Programming
+- Exploit Development
+- Malware Analysis
+- Mobile Security
+- Cloud Security
+- Hardware Hacking
+- RFID/NFC
+- IoT Security
+- Blockchain
+- Miscellaneous
+- Social Engineering
+- Incident Response
+- Traffic Analysis
+- Log Analysis
+- Memory Forensics
+- Password Cracking
+- Wireless Security
+- Container Security
+- ICS/SCADA
+- AI/ML Security
+- Threat Hunting
+- Digital Forensics and Incident Response (DFIR)
