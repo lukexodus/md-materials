@@ -1188,4 +1188,204 @@ Frequency-domain is like a **musical score of the sound** — you see which note
 
 ---
 
+## **Core Audio Concepts**
+
+---
+
+### **1. Sound Wave**
+
+**Definition:**
+Sound is a mechanical wave — vibrations in air (or another medium) that our ears perceive as pressure changes.
+
+**Characteristics:**
+
+* **Amplitude:** Determines loudness.
+* **Frequency:** Determines pitch.
+* **Phase:** Position of the wave relative to time zero.
+
+**Analogy:**
+Sound waves are like **ripples in a pond**; bigger ripples are louder, closer ripples oscillate faster (higher pitch).
+
+---
+
+### **2. Time-Domain Representation**
+
+**Definition:**
+Audio shown as amplitude vs. time.
+
+**Characteristics:**
+
+* Shows **waveform** directly.
+* Useful for editing: trimming, fades, amplitude adjustments.
+
+---
+
+### **3. Frequency-Domain Representation**
+
+**Definition:**
+Audio represented by **frequencies and amplitudes**, using Fourier Transform.
+
+**Characteristics:**
+
+* Shows **pitch and harmonic content**.
+* Used for EQ, compression, filtering, spectral analysis.
+
+**Analogy:**
+Frequency-domain is like a **musical score**, revealing notes and harmonics.
+
+---
+
+### **4. Sampling**
+
+**Definition:**
+Process of converting continuous audio into discrete **digital samples**.
+
+**Key Parameters:**
+
+* **Sampling rate (Hz):** Number of samples per second (CD: 44.1 kHz).
+* **Bit depth:** Number of bits per sample (CD: 16-bit) — affects dynamic range.
+
+**Analogy:**
+Sampling is like **taking snapshots** of a moving car at regular intervals.
+
+---
+
+### **5. Quantization**
+
+**Definition:**
+Mapping sampled amplitudes to the nearest digital value according to bit depth.
+
+**Effect:**
+
+* Introduces **quantization noise** if bit depth is low.
+* Higher bit depth → more precise amplitude representation.
+
+---
+
+### **6. Dynamic Range**
+
+**Definition:**
+Difference between the **loudest and softest sounds** a system can reproduce.
+
+**Formula:**
+$$
+\text{Dynamic Range (dB)} = 6.02 \times \text{Bit Depth}
+$$
+
+**Analogy:**
+Dynamic range is like a **camera’s exposure range** — capturing both shadows and highlights.
+
+---
+
+### **7. Channels**
+
+**Definition:**
+Separate streams of audio.
+
+* **Mono:** 1 channel.
+* **Stereo:** 2 channels (left and right).
+* **Surround:** 5.1, 7.1 channels for spatial sound.
+
+**Analogy:**
+Channels are like **separate instruments in an orchestra**, each contributing to the final sound.
+
+---
+
+### **8. Sampling Theorems**
+
+* **Nyquist Theorem:** Sampling rate must be at least **twice the maximum frequency** to avoid aliasing.
+* **Aliasing:** High-frequency content folding into lower frequencies due to undersampling.
+
+---
+
+### **9. Time-Frequency Analysis**
+
+* **STFT (Short-Time Fourier Transform):** Captures frequency content over short time windows.
+* **Wavelets:** Alternative transform for multi-resolution analysis.
+
+**Use:** Audio analysis, noise reduction, spectrogram visualization.
+
+---
+
+### **10. Audio Compression**
+
+* **Lossless:** FLAC, ALAC — exact reconstruction.
+* **Lossy:** MP3, AAC — discards imperceptible frequencies.
+* **Frequency-domain compression:** Uses psychoacoustic models to remove sounds humans can’t hear.
+
+---
+
+### **11. Filtering**
+
+* **Low-pass:** Removes high frequencies.
+* **High-pass:** Removes low frequencies.
+* **Band-pass:** Keeps a range of frequencies.
+
+**Analogy:** Filters are like **sieves for sound** — letting certain pitches pass and blocking others.
+
+---
+
+### **12. Reverberation and Echo**
+
+* **Reverb:** Multiple reflections that blend together → sense of space.
+* **Echo:** Distinct reflection with perceptible delay.
+
+**Analogy:**
+Reverb is like being in a cathedral; echo is like shouting in a canyon.
+
+---
+
+### **13. Modulation Effects**
+
+* **Tremolo:** Amplitude modulation.
+* **Vibrato:** Frequency modulation.
+* **Chorus / Flanger / Phaser:** Slight pitch/delay shifts for richness.
+
+---
+
+### **14. Envelope**
+
+Describes how amplitude changes over time, usually **ADSR**:
+
+* **Attack:** Time to reach max amplitude.
+* **Decay:** Time to fall to sustain level.
+* **Sustain:** Steady amplitude while held.
+* **Release:** Time to fade after note ends.
+
+---
+
+### **15. Spectrogram**
+
+Visual representation of **frequency vs time** with amplitude as intensity/color.
+
+**Use:**
+
+* Audio analysis, speech recognition, noise detection.
+
+---
+
+### **16. Audio File Formats**
+
+* **Uncompressed:** WAV, AIFF
+* **Lossless compressed:** FLAC, ALAC
+* **Lossy compressed:** MP3, AAC, OGG, Opus
+
+---
+
+### **17. Psychoacoustics**
+
+* Human hearing characteristics used for compression and mixing.
+* Masking effect: louder sounds hide quieter ones at nearby frequencies.
+
+---
+
+**Summary**
+
+* Audio can be understood in **time domain (waveform)** and **frequency domain (spectrum)**.
+* **Sampling, quantization, and bit depth** define digital representation.
+* **Channels, dynamic range, filtering, and effects** shape the listening experience.
+* **Compression and psychoacoustics** allow efficient storage without perceptible loss.
+* Time-frequency analysis and spectrograms reveal both temporal and spectral structure for processing or analysis.
+
+
 
