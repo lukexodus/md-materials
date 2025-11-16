@@ -16,6 +16,24 @@
 
 **1 attosecond** is when light travels 0.3 nanometers - approximately the diameter of a few atoms, or the scale where electrons orbit atomic nuclei.
 
+### Length Scales
+
+**Imagine 1 meter as a long journey:**
+
+**1 millimeter (mm)** is about the thickness of a credit card or a small grain of sand.
+
+**1 micrometer (µm)** is roughly the size of a bacterium, or about 1/100th the width of a human hair.
+
+**1 nanometer (nm)** is approximately the width of a DNA double helix (about 2 nm), or 10 hydrogen atoms lined up side by side.
+
+**1 picometer (pm)** is close to the diameter of a single hydrogen atom (about 100-120 pm), or the typical length of a chemical bond.
+
+**1 femtometer (fm)** is the scale of atomic nuclei - a proton has a diameter of about 1.7 fm. This scale is also called a "fermi."
+
+**1 attometer (am)** is smaller than a proton by a factor of about 1,000 - approaching the theoretical scale of quarks and fundamental particles, though at these scales our classical notions of "size" become less meaningful.
+
+**Note:** [Inference] The exact sizes given for subatomic particles like quarks are somewhat uncertain, as quantum mechanics makes precise "size" measurements challenging at these scales.
+
 ---
 
 # CPU
