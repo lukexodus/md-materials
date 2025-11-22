@@ -1,0 +1,309 @@
+# Syllabus
+### **Module 1: Software Engineering & Development Processes**
+- **Software Lifecycle Models**
+    - Waterfall Model
+    - Spiral Model
+    - Prototyping Model
+    - V-Model
+    - Incremental Model
+- **Agile Methodologies**
+    - Scrum (Roles, Ceremonies, Artifacts)
+    - Extreme Programming (XP)
+    - Kanban
+    - Lean Software Development
+- **DevOps & CI/CD**
+    - Continuous Integration/Deployment pipelines
+    - Version Control Workflows (Gitflow, Trunk-based)
+    - Containerization basics (Docker)
+- **Requirements Engineering**
+    - Elicitation techniques
+    - Functional vs. Non-functional requirements
+    - Traceability Matrix
+    - SRS (Software Requirements Specification) creation
+- **Software Maintenance**
+    - Corrective maintenance
+    - Adaptive maintenance
+    - Perfective maintenance
+    - Preventive maintenance
+### **Module 2: Data Structures & Algorithms**
+- **Linear Data Structures**
+    - Arrays
+    - Linked Lists (Singly, Doubly, Circular)
+    - Stacks (LIFO)
+    - Queues (FIFO, Priority)
+- **Non-Linear Data Structures**
+    - Binary Trees
+    - Binary Search Trees (BST)
+    - AVL Trees
+    - Heaps (Min/Max)
+    - Graphs (Adjacency Matrix vs. List)
+- **Sorting Algorithms**
+    - Quick Sort
+    - Merge Sort
+    - Heap Sort
+    - Bubble Sort
+    - Insertion Sort
+    - Selection Sort
+    - Time/Space Complexity analysis
+- **Search Algorithms**
+    - Binary Search
+    - Linear Search
+    - Depth-First Search (DFS)
+    - Breadth-First Search (BFS)
+    - Hashing & Collision Resolution
+- **Algorithm Analysis**
+    - Big O Notation
+    - Time vs. Space trade-offs
+    - Recursion vs. Iteration
+### **Module 3: Software Analysis & Design Architecture**
+- **Object-Oriented Analysis (OOA)**
+    - Classes and Objects
+    - Inheritance
+    - Polymorphism
+    - Encapsulation
+    - Abstraction
+- **Design Principles**
+    - SOLID Principles
+    - Cohesion (Functional, Sequential, etc.)
+    - Coupling (Data, Stamp, Control, etc.)
+- **UML Modeling**
+    - Class Diagrams (Multiplicity, Aggregation, Composition)
+    - Sequence Diagrams
+    - Use Case Diagrams
+    - Activity Diagrams
+    - State Machine Diagrams
+- **Architectural Patterns**
+    - MVC (Model-View-Controller)
+    - Microservices vs. Monolithic
+    - Client-Server
+    - Layered / Hierarchical
+    - Repository
+    - Event-Driven
+- **Design Patterns (GoF)**
+    - Singleton
+    - Factory Method
+    - Abstract Factory
+    - Observer
+    - Strategy
+    - Adapter
+    - Façade
+    - Decorator
+    - Proxy
+### **Module 4: Software Implementation & Testing**
+- **Programming Fundamentals**
+    - Pointer logic (C/C++)
+    - Memory Management
+    - Exception Handling
+    - Standard I/O (stdin/stdout)
+- **Code Refactoring**
+    - Techniques to improve structure without altering behavior
+    - Extract Method
+    - Rename Variable
+- **Testing Methodologies**
+    - Black-box Testing (Equivalence Partitioning, Boundary Value Analysis)
+    - White-box Testing (Statement Coverage, Branch Coverage, Path Coverage)
+- **Testing Levels**
+    - Unit Testing
+    - Integration Testing (Top-down, Bottom-up)
+    - System Testing
+    - Acceptance Testing (UAT)
+    - Regression Testing
+- **Static Analysis**
+    - Code review processes
+    - Coding standards
+    - Linting tools
+### **Module 5: Data Management & Database Systems**
+- **Relational Database Theory**
+    - Keys (Primary, Foreign, Candidate, Composite)
+    - Referential Integrity constraints
+- **Data Modeling**
+    - Entity-Relationship Diagrams (ERD)
+    - Mapping M:N relationships to Associative Entities
+    - Crow's Foot notation
+- **Normalization**
+    - 1NF (Atomicity)
+    - 2NF (Partial Dependencies)
+    - 3NF (Transitive Dependencies)
+    - BCNF (Boyce-Codd Normal Form)
+- **SQL Programming (DML/DDL)**
+    - Complex JOINs (Inner, Left, Right, Full)
+    - Subqueries (Correlated vs. Nested)
+    - GROUP BY & HAVING clauses
+    - Views
+    - Indexes (B-Tree, Clustered)
+- **Transaction Management**
+    - ACID Properties (Atomicity, Consistency, Isolation, Durability)
+    - Concurrency Control
+    - Locking protocols
+    - Deadlocks
+### **Module 6: Systems Architecture & Operating Systems**
+- **Computer Architecture**
+    - CPU Components (ALU, CU, Registers)
+    - Cache Memory (L1/L2/L3)
+    - Instruction Cycles
+    - Interrupts
+- **Process Management**
+    - Processes vs. Threads
+    - Context Switching
+    - PCB (Process Control Block)
+    - CPU Scheduling Algorithms (FCFS, SJF, Round Robin, Priority)
+- **Memory Management**
+    - Virtual Memory
+    - Paging
+    - Segmentation
+    - Page Replacement Algorithms (FIFO, LRU, LFU)
+    - Thrashing
+- **Concurrency & Synchronization**
+    - Race Conditions
+    - Critical Sections
+    - Semaphores
+    - Mutexes
+    - Deadlock Prevention/Avoidance (Banker’s Algorithm)
+- **File Systems**
+    - Disk Scheduling
+    - File Allocation Methods
+    - Directory Structures
+### **Module 7: Network Technology & Infrastructure**
+- **Network Models**
+    - OSI 7-Layer Model (Functions & Protocols of each layer)
+    - TCP/IP Protocol Suite
+- **Addressing & Routing**
+    - IPv4 vs. IPv6
+    - Subnetting (CIDR)
+    - Routing Protocols (OSPF, BGP)
+    - NAT/PAT
+    - DHCP
+- **Transport Protocols**
+    - TCP (Three-way handshake, Flow control, Congestion control)
+    - UDP (Datagrams)
+- **Application Layer**
+    - HTTP/HTTPS (Methods, Status Codes)
+    - DNS resolution process
+    - FTP
+    - SMTP, POP3, IMAP
+- **Network Devices**
+    - Routers
+    - Switches (L2 vs L3)
+    - Hubs
+    - Gateways
+    - Load Balancers
+### **Module 8: Information Security**
+- **Security Fundamentals**
+    - CIA Triad (Confidentiality, Integrity, Availability)
+    - Authentication (MFA) vs. Authorization (RBAC, ABAC)
+    - Non-repudiation
+- **Cryptography**
+    - Symmetric Encryption (AES, DES)
+    - Asymmetric Encryption (RSA, ECC)
+    - Hashing Algorithms (SHA-256, MD5)
+    - Digital Signatures
+    - PKI (Public Key Infrastructure)
+- **Network Security**
+    - Firewalls (Packet filtering, Stateful)
+    - IDS vs. IPS
+    - VPN technologies (IPSec, SSL)
+    - DMZ configuration
+- **Web & Software Security**
+    - OWASP Top 10
+    - SQL Injection
+    - XSS (Cross-Site Scripting)
+    - CSRF
+    - Broken Access Control
+    - Secure Coding Practices
+    - Buffer Overflows
+- **Security Management**
+    - Risk Management
+    - Security Policies
+    - Incident Response
+    - Social Engineering defenses
+### **Module 9: IT Business & Strategy**
+- **Strategic Analysis Frameworks**
+    - SWOT Analysis
+    - PEST/PESTEL Analysis
+    - Porter’s Five Forces
+    - Value Chain Analysis
+- **Business Modeling**
+    - Business Model Canvas (9 building blocks)
+    - Feasibility Studies (Economic, Technical, Operational)
+- **IT Service Management**
+    - ITIL Framework basics (Service Strategy, Design, Transition, Operation)
+    - SLA (Service Level Agreements)
+- **Marketing in IT**
+    - The 4Ps (Product, Price, Place, Promotion)
+    - STP (Segmentation, Targeting, Positioning)
+    - Tech Adoption Lifecycle (Crossing the Chasm)
+- **Digital Transformation**
+    - Cloud Economics (CapEx vs. OpEx)
+    - SaaS/PaaS/IaaS business impacts
+    - Big Data monetization
+### **Module 10: Project Management & Technical Communication**
+- **Project Management Basics (PMBOK)**
+    - Triple Constraint (Scope, Time, Cost)
+    - WBS (Work Breakdown Structure)
+    - Critical Path Method (CPM)
+- **Cost & Schedule Management**
+    - Earned Value Management (EVM) formulas (CPI, SPI, CV, SV)
+    - Estimation techniques (PERT, Function Points)
+- **Agile Project Management**
+    - User Stories
+    - Backlog Grooming
+    - Burndown/Burnup Charts
+    - Velocity
+    - Retrospectives
+- **Technical Communication**
+    - Writing SRS (Software Requirements Specifications)
+    - RFP (Request for Proposal) responses
+    - User Manuals
+    - API Documentation standards
+- **Ethics & Law**
+    - Intellectual Property (Copyright, Patent, Trademark)
+    - Open Source Licensing (GPL, MIT, Apache)
+    - GDPR & Data Privacy principles
+### **Module 11: Emerging Technologies**
+- **Cloud Computing**
+    - Service Models (IaaS, PaaS, SaaS)
+    - Deployment Models (Public, Private, Hybrid)
+    - Serverless Computing (FaaS)
+- **Artificial Intelligence**
+    - Machine Learning types (Supervised, Unsupervised, Reinforcement)
+    - Neural Networks basics
+    - AI Ethics & Bias
+- **Internet of Things (IoT)**
+    - IoT Architectures (Edge/Fog Computing)
+    - Protocols (MQTT, CoAP, Zigbee)
+    - Sensor networks
+- **Blockchain & FinTech**
+    - Distributed Ledger Technology
+    - Smart Contracts
+    - Consensus Mechanisms (PoW, PoS)
+    - Cryptocurrency basics
+- **Big Data**
+    - Hadoop Ecosystem
+    - NoSQL Databases (Key-Value, Document, Column-family)
+    - MapReduce concept
+### **Module 12: Integrated & Critical Thinking (Practicum)**
+- **Scenario-Based Problem Solving**
+    - Analyzing complex business cases
+    - Proposing full-stack technical solutions (e.g., Legacy to Cloud Migration)
+- **Integrated Diagramming**
+    - Designing comprehensive architecture diagrams
+    - Combining Network, Software, and Database layers
+- **Practical Coding Tasks**
+    - Writing clean, compilable code
+    - Solving algorithmic problems
+    - Implementing specific API logic under constraints
+- **Technical Proposal Writing**
+    - Drafting structured executive summaries
+    - Writing technical approaches for hypothetical client requests
+- **Troubleshooting Scenarios**
+    - Identifying root causes in system logs
+    - Debugging provided code snippets
+
+---
+
+
+
+
+
+
+
