@@ -6007,3 +6007,120 @@ ws.onclose = (event) => console.log('Connection closed:', event.code, event.reas
 8. Verify proper error handling and messages
 
 **Conclusion** Effective HTTP testing and debugging requires a systematic approach, appropriate tools, and deep understanding of the protocol. By applying the techniques outlined above, developers can identify and resolve issues more efficiently, leading to more reliable and performant web applications and APIs.
+
+---
+
+# Misc
+
+## Server Push in HTTP/2
+
+Server push is an HTTP/2 feature that allows a server to proactively send resources to the client **before the client explicitly requests them**.
+
+### How It Works
+
+#### Traditional HTTP/1.1 Flow
+1. Client requests `index.html`
+2. Server sends `index.html`
+3. Client parses HTML, discovers it needs `style.css` and `script.js`
+4. Client makes **separate requests** for `style.css` and `script.js`
+5. Server responds with those resources
+
+#### HTTP/2 Server Push Flow
+1. Client requests `index.html`
+2. Server sends `index.html` **and simultaneously pushes** `style.css` and `script.js`
+3. Client receives all resources without making additional requests
+
+### Technical Details
+
+#### Push Promise Frame
+- Server sends a `PUSH_PROMISE` frame indicating what resource it will push
+- Contains the request headers for the pushed resource
+- Client can reject the push if it already has the resource cached
+
+#### Stream Management
+- Each pushed resource uses a separate HTTP/2 stream
+- Server-initiated streams use even-numbered stream IDs
+- Client-initiated streams use odd-numbered stream IDs
+
+### Example Scenario
+
+```
+Client → Server: GET /index.html
+
+Server → Client:
+  - PUSH_PROMISE: "I'm going to send /style.css"
+  - PUSH_PROMISE: "I'm going to send /app.js"
+  - Response: index.html content
+  - Response: style.css content (pushed)
+  - Response: app.js content (pushed)
+```
+
+### Benefits
+
+- **Reduced Latency**: Eliminates round-trip time for dependent resources
+- **Better Performance**: Resources arrive before parser discovers them
+- **Efficient**: Leverages single connection for multiple resources
+
+### Limitations & Challenges
+
+#### 1. Cache Awareness
+- Server doesn't know what client has cached
+- May push resources client already has
+- Wastes bandwidth if not implemented carefully
+
+#### 2. Client Control
+- Client can send `RST_STREAM` to reject unwanted pushes
+- Client can disable push entirely with `SETTINGS_ENABLE_PUSH=0`
+
+#### 3. Complexity
+- Server must predict what resources client will need
+- Incorrect predictions waste bandwidth and processing
+
+#### 4. Limited Adoption
+- Many CDNs and servers don't implement it well
+- Difficult to configure correctly
+- **Chrome/Chromium removed support in 2022** due to complexity and underuse
+
+### Current Status
+
+[Unverified] Major browsers have deprecated or removed server push support:
+- Chrome/Edge removed support in version 106 (2022)
+- Firefox support status varies by version
+
+**Why deprecated:**
+- Complex to implement correctly
+- Cache invalidation problems
+- Alternative solutions (preload headers, HTTP/103 Early Hints) emerged
+- Low adoption and measurable performance issues in practice
+
+### Alternatives
+
+#### HTTP 103 Early Hints
+```
+HTTP/1.1 103 Early Hints
+Link: </style.css>; rel=preload; as=style
+Link: </script.js>; rel=preload; as=script
+
+HTTP/1.1 200 OK
+Content-Type: text/html
+...
+```
+- Server sends hints before final response
+- Client can start fetching resources early
+- Simpler than server push, better cache awareness
+
+#### Resource Hints in HTML
+```html
+<link rel="preload" href="/style.css" as="style">
+<link rel="prefetch" href="/next-page.html">
+<link rel="dns-prefetch" href="//cdn.example.com">
+```
+
+### Relationship to gRPC
+
+While gRPC uses HTTP/2 as its transport protocol, it **does not typically use server push** in the HTTP/2 sense. Instead, gRPC implements streaming through:
+- Multiple DATA frames on the same stream
+- Application-level streaming (server streaming RPC)
+- Different from HTTP/2's PUSH_PROMISE mechanism
+
+Server push was primarily designed for web assets (HTML, CSS, JS), not for RPC frameworks like gRPC.

@@ -1,0 +1,2 @@
+[[📔 Learn/⌨️ Prompts/Prompts|Prompts]]
+

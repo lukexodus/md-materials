@@ -2223,6 +2223,238 @@ print(tail_factorial(5))  # Output: 120
 
 ---
 
+## Generator Functions
+
+Generator functions are functions that use the `yield` keyword to produce a sequence of values lazily (one at a time, on demand) rather than computing and returning them all at once.
+
+```python
+def simple_generator():
+    yield 1
+    yield 2
+    yield 3
+
+# Using the generator
+gen = simple_generator()
+print(next(gen))  # 1
+print(next(gen))  # 2
+print(next(gen))  # 3
+```
+
+Key characteristics:
+- They maintain their state between calls
+- Memory efficient for large sequences
+- Values are computed only when requested
+- Use `yield` to produce values
+
+Practical example:
+```python
+def fibonacci(n):
+    a, b = 0, 1
+    for _ in range(n):
+        yield a
+        a, b = b, a + b
+
+for num in fibonacci(10):
+    print(num)  # 0, 1, 1, 2, 3, 5, 8, 13, 21, 34
+```
+
+## Coroutine Functions
+
+Coroutines are functions defined with `async def` that can be paused and resumed, allowing for asynchronous programming. They use `await` to suspend execution until an awaited operation completes.
+
+```python
+import asyncio
+
+async def fetch_data():
+    print("Start fetching")
+    await asyncio.sleep(1)  # Simulates async operation
+    print("Done fetching")
+    return "data"
+
+# Running the coroutine
+asyncio.run(fetch_data())
+```
+
+Key characteristics:
+- Defined with `async def`
+- Use `await` for asynchronous operations
+- Enable concurrent execution without threading
+- Must be run in an event loop
+
+Practical example with multiple coroutines:
+```python
+async def task(name, delay):
+    print(f"{name} starting")
+    await asyncio.sleep(delay)
+    print(f"{name} completed")
+    return f"Result from {name}"
+
+async def main():
+    # Run multiple coroutines concurrently
+    results = await asyncio.gather(
+        task("Task 1", 2),
+        task("Task 2", 1),
+        task("Task 3", 1.5)
+    )
+    print(results)
+
+asyncio.run(main())
+```
+
+---
+
+## Decorators in Python
+
+Decorators are a way to modify or enhance functions or classes without changing their source code. They use the `@decorator_name` syntax and are applied above the function or class definition.
+
+### Basic Concept
+
+A decorator is a function that takes another function as input and returns a modified version of it:
+
+```python
+def my_decorator(func):
+    def wrapper():
+        print("Before function call")
+        func()
+        print("After function call")
+    return wrapper
+
+@my_decorator
+def say_hello():
+    print("Hello!")
+
+say_hello()
+# Output:
+# Before function call
+# Hello!
+# After function call
+```
+
+The `@my_decorator` syntax is equivalent to `say_hello = my_decorator(say_hello)`.
+
+### Decorators with Arguments
+
+To handle functions that take arguments, use `*args` and `**kwargs`:
+
+```python
+def my_decorator(func):
+    def wrapper(*args, **kwargs):
+        print(f"Calling {func.__name__}")
+        result = func(*args, **kwargs)
+        print(f"Finished {func.__name__}")
+        return result
+    return wrapper
+
+@my_decorator
+def add(a, b):
+    return a + b
+
+result = add(3, 5)  # prints decorating messages, returns 8
+```
+
+### Common Use Cases
+
+**Timing execution:**
+```python
+import time
+
+def timer(func):
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+        print(f"{func.__name__} took {end - start:.4f} seconds")
+        return result
+    return wrapper
+```
+
+**Caching results:**
+```python
+def memoize(func):
+    cache = {}
+    def wrapper(*args):
+        if args not in cache:
+            cache[args] = func(*args)
+        return cache[args]
+    return wrapper
+```
+
+**Access control:**
+```python
+def require_auth(func):
+    def wrapper(user, *args, **kwargs):
+        if not user.is_authenticated:
+            raise PermissionError("Authentication required")
+        return func(user, *args, **kwargs)
+    return wrapper
+```
+
+### Preserving Function Metadata
+
+Use `functools.wraps` to preserve the original function's name and docstring:
+
+```python
+from functools import wraps
+
+def my_decorator(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    return wrapper
+```
+
+### Decorators with Parameters
+
+To create decorators that accept arguments, add another layer of functions:
+
+```python
+def repeat(times):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for _ in range(times):
+                result = func(*args, **kwargs)
+            return result
+        return wrapper
+    return decorator
+
+@repeat(times=3)
+def greet(name):
+    print(f"Hello {name}")
+
+greet("Alice")  # prints "Hello Alice" three times
+```
+
+### Class Decorators
+
+Decorators can also be applied to classes:
+
+```python
+def singleton(cls):
+    instances = {}
+    @wraps(cls)
+    def get_instance(*args, **kwargs):
+        if cls not in instances:
+            instances[cls] = cls(*args, **kwargs)
+        return instances[cls]
+    return get_instance
+
+@singleton
+class Database:
+    pass
+```
+
+### Built-in Decorators
+
+Python provides several built-in decorators:
+
+- `@staticmethod` - defines a method that doesn't access instance or class data
+- `@classmethod` - defines a method that receives the class as first argument
+- `@property` - makes a method accessible like an attribute
+- `@abstractmethod` - marks methods that must be implemented in subclasses
+
+---
+
 ## Importing Modules and Creating Custom Modules  
 
 Modules in Python allow code reuse by organizing functions, classes, and variables into separate files. Python provides built-in modules, third-party modules, and user-defined custom modules.  
@@ -4193,6 +4425,96 @@ print(doc.save())  # Saving document.
 - **Abstract Methods**: Declared with `@abstractmethod`, must be implemented by subclasses.  
 - **Interfaces**: Can be simulated using abstract classes with only abstract methods.  
 - **Multiple Inheritance**: A class can implement multiple interfaces in Python.
+
+---
+
+## Dynamic Attribute Access in Python
+
+Python provides several ways to access object attributes dynamically at runtime, rather than using hardcoded attribute names.
+
+### The `getattr()` Function
+
+The most common method is `getattr()`, which retrieves an attribute by name:
+
+```python
+class Person:
+    def __init__(self, name, age):
+        self.name = name
+        self.age = age
+
+person = Person("Alice", 30)
+
+# Static access
+print(person.name)  # "Alice"
+
+# Dynamic access
+attr_name = "name"
+print(getattr(person, attr_name))  # "Alice"
+
+# With default value if attribute doesn't exist
+print(getattr(person, "salary", 0))  # 0
+```
+
+### The `__dict__` Attribute
+
+Every Python object has a `__dict__` attribute containing its attributes as a dictionary:
+
+```python
+person = Person("Bob", 25)
+print(person.__dict__)  # {'name': 'Bob', 'age': 25}
+
+# Access dynamically
+attr_name = "age"
+print(person.__dict__[attr_name])  # 25
+```
+
+### The `setattr()` Function
+
+To set attributes dynamically:
+
+```python
+person = Person("Carol", 28)
+setattr(person, "salary", 50000)
+print(person.salary)  # 50000
+
+# Dynamically set multiple attributes
+attributes = {"city": "New York", "title": "Engineer"}
+for key, value in attributes.items():
+    setattr(person, key, value)
+```
+
+### The `hasattr()` Function
+
+Check if an attribute exists before accessing it:
+
+```python
+if hasattr(person, "name"):
+    print(getattr(person, "name"))
+```
+
+### The `delattr()` Function
+
+Remove attributes dynamically:
+
+```python
+delattr(person, "city")
+# or
+del person.city
+```
+
+### Practical Use Cases
+
+Dynamic attribute access is useful for:
+
+- Processing configuration data where attribute names come from external sources
+- Building flexible APIs that handle varying attribute sets
+- Implementing attribute-based routing or dispatching
+- Working with JSON or database records where field names are dynamic
+- Creating generic utility functions that work with multiple object types
+
+### Security Considerations
+
+When using dynamic attribute access with user-provided input, validate the attribute names to prevent unauthorized access to internal attributes or methods.
 
 ---
 
@@ -18247,6 +18569,1262 @@ ConfigParser remains excellent for simple, flat configuration structures and mai
 
 ---
 
+## `typing` Module
+
+The `typing` module provides runtime support for type hints, introduced in Python 3.5 via PEP 484. It allows you to annotate function parameters, return values, and variables with expected types, improving code clarity and enabling static type checking with tools like mypy.
+
+### Basic Type Annotations
+
+You can annotate variables and function signatures with built-in types:
+
+```python
+from typing import List, Dict, Set, Tuple
+
+def greet(name: str) -> str:
+    return f"Hello, {name}"
+
+age: int = 25
+scores: List[int] = [95, 87, 92]
+user_data: Dict[str, int] = {"age": 25, "score": 100}
+```
+
+### Common Generic Types
+
+#### List, Dict, Set, Tuple
+
+These generic types specify the types of elements they contain:
+
+```python
+from typing import List, Dict, Set, Tuple
+
+# List of strings
+names: List[str] = ["Alice", "Bob"]
+
+# Dictionary with string keys and integer values
+ages: Dict[str, int] = {"Alice": 30, "Bob": 25}
+
+# Set of integers
+unique_ids: Set[int] = {1, 2, 3}
+
+# Tuple with specific types (fixed length)
+coordinates: Tuple[float, float] = (10.5, 20.3)
+
+# Tuple with variable length
+numbers: Tuple[int, ...] = (1, 2, 3, 4, 5)
+```
+
+#### Optional and Union
+
+`Optional[X]` is shorthand for `Union[X, None]`, indicating a value can be of type X or None:
+
+```python
+from typing import Optional, Union
+
+def find_user(user_id: int) -> Optional[str]:
+    # Returns username or None if not found
+    return None
+
+# Union allows multiple possible types
+def process_id(id_value: Union[int, str]) -> str:
+    return str(id_value)
+```
+
+#### Any
+
+`Any` is a special type indicating a value can be of any type:
+
+```python
+from typing import Any
+
+def log_value(value: Any) -> None:
+    print(value)
+```
+
+### Callable
+
+`Callable` describes functions and other callables:
+
+```python
+from typing import Callable
+
+# Function that takes two ints and returns an int
+def apply_operation(x: int, y: int, operation: Callable[[int, int], int]) -> int:
+    return operation(x, y)
+
+def add(a: int, b: int) -> int:
+    return a + b
+
+result = apply_operation(5, 3, add)  # Returns 8
+```
+
+### Type Aliases
+
+You can create aliases for complex types:
+
+```python
+from typing import List, Tuple
+
+# Define an alias
+Coordinate = Tuple[float, float]
+Path = List[Coordinate]
+
+def calculate_distance(path: Path) -> float:
+    # Implementation
+    return 0.0
+```
+
+### NewType
+
+`NewType` creates distinct types for type checking purposes:
+
+```python
+from typing import NewType
+
+UserId = NewType('UserId', int)
+OrderId = NewType('OrderId', int)
+
+def get_user(user_id: UserId) -> str:
+    return f"User {user_id}"
+
+# Type checkers will catch mixing these up
+user = UserId(42)
+order = OrderId(100)
+
+get_user(user)    # OK
+# get_user(order)  # Type checker error
+```
+
+### Literal
+
+`Literal` restricts values to specific literals:
+
+```python
+from typing import Literal
+
+def set_mode(mode: Literal["read", "write", "execute"]) -> None:
+    print(f"Mode set to {mode}")
+
+set_mode("read")   # OK
+# set_mode("delete")  # Type checker error
+```
+
+### TypedDict
+
+`TypedDict` defines dictionaries with specific keys and value types:
+
+```python
+from typing import TypedDict
+
+class Person(TypedDict):
+    name: str
+    age: int
+    email: str
+
+person: Person = {
+    "name": "Alice",
+    "age": 30,
+    "email": "alice@example.com"
+}
+```
+
+### Generic Classes
+
+You can create generic classes using `TypeVar`:
+
+```python
+from typing import TypeVar, Generic, List
+
+T = TypeVar('T')
+
+class Stack(Generic[T]):
+    def __init__(self) -> None:
+        self._items: List[T] = []
+    
+    def push(self, item: T) -> None:
+        self._items.append(item)
+    
+    def pop(self) -> T:
+        return self._items.pop()
+
+# Create type-specific stacks
+int_stack: Stack[int] = Stack()
+str_stack: Stack[str] = Stack()
+```
+
+### Protocol (Structural Subtyping)
+
+`Protocol` defines structural types (duck typing with type checking):
+
+```python
+from typing import Protocol
+
+class Drawable(Protocol):
+    def draw(self) -> None:
+        ...
+
+class Circle:
+    def draw(self) -> None:
+        print("Drawing circle")
+
+class Square:
+    def draw(self) -> None:
+        print("Drawing square")
+
+def render(shape: Drawable) -> None:
+    shape.draw()
+
+# Both work without explicit inheritance
+render(Circle())
+render(Square())
+```
+
+### TypeVar Constraints and Bounds
+
+`TypeVar` can be constrained to specific types or bounded:
+
+```python
+from typing import TypeVar
+
+# Constrained to specific types
+AnyStr = TypeVar('AnyStr', str, bytes)
+
+def concat(x: AnyStr, y: AnyStr) -> AnyStr:
+    return x + y
+
+# Bounded (must be subtype of Number)
+from numbers import Number
+NumericType = TypeVar('NumericType', bound=Number)
+
+def add_numbers(x: NumericType, y: NumericType) -> NumericType:
+    return x + y
+```
+
+### Type Guards
+
+Type guards narrow types within conditional blocks:
+
+```python
+from typing import Union
+
+def process_value(value: Union[int, str]) -> None:
+    if isinstance(value, str):
+        # Type checker knows value is str here
+        print(value.upper())
+    else:
+        # Type checker knows value is int here
+        print(value + 1)
+```
+
+### Overload
+
+`@overload` decorator provides multiple type signatures for a function:
+
+```python
+from typing import overload, Union
+
+@overload
+def process(value: int) -> str: ...
+
+@overload
+def process(value: str) -> int: ...
+
+def process(value: Union[int, str]) -> Union[str, int]:
+    if isinstance(value, int):
+        return str(value)
+    return len(value)
+```
+
+### Modern Syntax (Python 3.9+)
+
+Python 3.9+ allows using built-in collection types directly:
+
+```python
+# Python 3.9+
+def process_items(items: list[str]) -> dict[str, int]:
+    return {item: len(item) for item in items}
+
+# Instead of:
+from typing import List, Dict
+def process_items(items: List[str]) -> Dict[str, int]:
+    return {item: len(item) for item in items}
+```
+
+Python 3.10+ introduced the `|` operator for unions:
+
+```python
+# Python 3.10+
+def get_value(key: str) -> int | None:
+    return None
+
+# Instead of:
+from typing import Optional
+def get_value(key: str) -> Optional[int]:
+    return None
+```
+
+### Best Practices
+
+Type hints are optional and don't affect runtime behavior. They serve as documentation and enable static type checking. Use them to clarify complex APIs, catch bugs early with type checkers, and improve IDE autocompletion and refactoring capabilities.
+
+### ParamSpec and Concatenate
+
+`ParamSpec` (Python 3.10+) captures the parameters of a callable, useful for decorators:
+
+```python
+from typing import ParamSpec, TypeVar, Callable
+
+P = ParamSpec('P')
+R = TypeVar('R')
+
+def log_call(func: Callable[P, R]) -> Callable[P, R]:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        print(f"Calling {func.__name__}")
+        return func(*args, **kwargs)
+    return wrapper
+
+@log_call
+def greet(name: str, age: int) -> str:
+    return f"Hello {name}, you are {age}"
+```
+
+`Concatenate` allows adding parameters to a callable's signature:
+
+```python
+from typing import Concatenate, ParamSpec, TypeVar, Callable
+
+P = ParamSpec('P')
+R = TypeVar('R')
+
+class Request:
+    pass
+
+def with_request(func: Callable[Concatenate[Request, P], R]) -> Callable[P, R]:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        request = Request()
+        return func(request, *args, **kwargs)
+    return wrapper
+
+@with_request
+def handle(request: Request, user_id: int) -> str:
+    return f"Handling request for user {user_id}"
+```
+
+### Self Type
+
+`Self` (Python 3.11+) refers to the enclosing class, useful for methods that return instances:
+
+```python
+from typing import Self
+
+class Builder:
+    def __init__(self) -> None:
+        self.value = 0
+    
+    def add(self, x: int) -> Self:
+        self.value += x
+        return self
+    
+    def multiply(self, x: int) -> Self:
+        self.value *= x
+        return self
+
+# Enables method chaining with correct types
+result = Builder().add(5).multiply(2)
+```
+
+### TypeGuard and TypeIs
+
+`TypeGuard` (Python 3.10+) defines user-defined type guards:
+
+```python
+from typing import TypeGuard
+
+def is_string_list(val: list[object]) -> TypeGuard[list[str]]:
+    return all(isinstance(x, str) for x in val)
+
+def process(items: list[object]) -> None:
+    if is_string_list(items):
+        # Type checker knows items is list[str] here
+        print([s.upper() for s in items])
+```
+
+`TypeIs` (Python 3.13+) is a more precise version that narrows types in both branches:
+
+```python
+from typing import TypeIs
+
+def is_str(val: str | int) -> TypeIs[str]:
+    return isinstance(val, str)
+
+def process(val: str | int) -> None:
+    if is_str(val):
+        # val is str
+        print(val.upper())
+    else:
+        # val is int (TypeIs narrows the else branch too)
+        print(val + 1)
+```
+
+### Never and NoReturn
+
+`NoReturn` indicates a function never returns (always raises or loops forever):
+
+```python
+from typing import NoReturn
+
+def raise_error(message: str) -> NoReturn:
+    raise ValueError(message)
+
+def infinite_loop() -> NoReturn:
+    while True:
+        pass
+```
+
+`Never` (Python 3.11+) represents the bottom type (no possible values):
+
+```python
+from typing import Never, assert_never
+
+def handle_value(value: int | str) -> str:
+    if isinstance(value, int):
+        return str(value)
+    elif isinstance(value, str):
+        return value
+    else:
+        # Ensures all cases are handled
+        assert_never(value)
+```
+
+### ClassVar
+
+`ClassVar` indicates a class variable (not an instance variable):
+
+```python
+from typing import ClassVar
+
+class Config:
+    MAX_CONNECTIONS: ClassVar[int] = 100
+    
+    def __init__(self, name: str) -> None:
+        self.name = name  # Instance variable
+```
+
+### Final
+
+`Final` indicates a value that should not be reassigned:
+
+```python
+from typing import Final
+
+MAX_SIZE: Final = 100
+# MAX_SIZE = 200  # Type checker error
+
+class Config:
+    DEFAULT_TIMEOUT: Final[int] = 30
+```
+
+`@final` decorator prevents subclassing or overriding:
+
+```python
+from typing import final
+
+@final
+class FinalClass:
+    pass
+
+# class SubClass(FinalClass):  # Type checker error
+#     pass
+
+class BaseClass:
+    @final
+    def method(self) -> None:
+        pass
+
+class Derived(BaseClass):
+    # def method(self) -> None:  # Type checker error
+    #     pass
+    pass
+```
+
+### Annotated
+
+`Annotated` adds metadata to types:
+
+```python
+from typing import Annotated
+
+# Add validation metadata
+UserId = Annotated[int, "positive", "must be unique"]
+Email = Annotated[str, "valid email format"]
+
+def create_user(user_id: UserId, email: Email) -> None:
+    pass
+```
+
+### Required and NotRequired
+
+`Required` and `NotRequired` (Python 3.11+) mark TypedDict fields:
+
+```python
+from typing import TypedDict, Required, NotRequired
+
+class User(TypedDict):
+    name: Required[str]
+    age: Required[int]
+    email: NotRequired[str]  # Optional field
+
+user1: User = {"name": "Alice", "age": 30}  # OK
+user2: User = {"name": "Bob", "age": 25, "email": "bob@example.com"}  # OK
+```
+
+### Unpack
+
+`Unpack` (Python 3.11+) unpacks TypedDict or tuple types:
+
+```python
+from typing import TypedDict, Unpack
+
+class Person(TypedDict):
+    name: str
+    age: int
+
+def create_person(**kwargs: Unpack[Person]) -> None:
+    print(kwargs)
+
+create_person(name="Alice", age=30)  # OK
+# create_person(name="Bob")  # Type checker error - missing 'age'
+```
+
+### Mapping and Sequence Protocols
+
+Abstract types for read-only collections:
+
+```python
+from typing import Mapping, Sequence
+
+def print_items(items: Sequence[str]) -> None:
+    # Works with lists, tuples, etc.
+    for item in items:
+        print(item)
+
+def print_dict(data: Mapping[str, int]) -> None:
+    # Works with dicts and other mappings
+    for key, value in data.items():
+        print(f"{key}: {value}")
+```
+
+### MutableMapping and MutableSequence
+
+For collections that can be modified:
+
+```python
+from typing import MutableMapping, MutableSequence
+
+def modify_list(items: MutableSequence[int]) -> None:
+    items.append(42)
+    items[0] = 100
+
+def modify_dict(data: MutableMapping[str, int]) -> None:
+    data["new_key"] = 123
+    del data["old_key"]
+```
+
+### Iterable, Iterator, and Generator
+
+Types for iteration protocols:
+
+```python
+from typing import Iterable, Iterator, Generator
+
+def process_items(items: Iterable[int]) -> None:
+    for item in items:
+        print(item)
+
+def count_up() -> Iterator[int]:
+    n = 0
+    while True:
+        yield n
+        n += 1
+
+def fibonacci() -> Generator[int, None, None]:
+    a, b = 0, 1
+    while True:
+        yield a
+        a, b = b, a + b
+```
+
+Generator type has three parameters: `Generator[YieldType, SendType, ReturnType]`
+
+```python
+from typing import Generator
+
+def echo() -> Generator[int, str, bool]:
+    value = yield 42  # Yields int
+    print(f"Received: {value}")  # Receives str
+    return True  # Returns bool
+```
+
+### ContextManager
+
+Type for context manager protocol:
+
+```python
+from typing import ContextManager
+from contextlib import contextmanager
+
+@contextmanager
+def get_resource() -> Generator[str, None, None]:
+    resource = "acquired"
+    try:
+        yield resource
+    finally:
+        print("released")
+
+def use_resource(cm: ContextManager[str]) -> None:
+    with cm as resource:
+        print(resource)
+```
+
+### Type Aliases with TypeAlias
+
+`TypeAlias` (Python 3.10+) explicitly marks type aliases:
+
+```python
+from typing import TypeAlias
+
+# Without TypeAlias (ambiguous)
+Vector = list[float]  # Is this a type alias or a variable?
+
+# With TypeAlias (explicit)
+Vector: TypeAlias = list[float]
+Matrix: TypeAlias = list[Vector]
+
+def add_vectors(v1: Vector, v2: Vector) -> Vector:
+    return [a + b for a, b in zip(v1, v2)]
+```
+
+### Generic Type Aliases
+
+Create generic type aliases with TypeVar:
+
+```python
+from typing import TypeVar, TypeAlias
+
+T = TypeVar('T')
+
+# Generic type alias
+Container: TypeAlias = list[T] | dict[str, T]
+
+def process_container(c: Container[int]) -> None:
+    pass
+```
+
+### Covariant and Contravariant TypeVars
+
+TypeVars can be covariant or contravariant for proper subtyping:
+
+```python
+from typing import TypeVar, Generic
+
+# Covariant (T_co)
+T_co = TypeVar('T_co', covariant=True)
+
+class Producer(Generic[T_co]):
+    def produce(self) -> T_co:
+        ...
+
+# Animal -> Dog subtyping preserved
+# Producer[Dog] is subtype of Producer[Animal]
+
+# Contravariant (T_contra)
+T_contra = TypeVar('T_contra', contravariant=True)
+
+class Consumer(Generic[T_contra]):
+    def consume(self, item: T_contra) -> None:
+        ...
+
+# Animal -> Dog subtyping reversed
+# Consumer[Animal] is subtype of Consumer[Dog]
+```
+
+### Abstract Base Classes with typing
+
+Combine ABC with typing for abstract generic classes:
+
+```python
+from typing import TypeVar, Generic
+from abc import ABC, abstractmethod
+
+T = TypeVar('T')
+
+class Repository(ABC, Generic[T]):
+    @abstractmethod
+    def get(self, id: int) -> T:
+        pass
+    
+    @abstractmethod
+    def save(self, item: T) -> None:
+        pass
+
+class UserRepository(Repository[str]):
+    def get(self, id: int) -> str:
+        return f"User {id}"
+    
+    def save(self, item: str) -> None:
+        print(f"Saving {item}")
+```
+
+### Runtime Type Checking Limitations
+
+Type hints are not enforced at runtime by Python itself:
+
+```python
+def add(x: int, y: int) -> int:
+    return x + y
+
+# This runs without error at runtime
+result = add("hello", "world")  # Returns "helloworld"
+```
+
+For runtime checking, use libraries like `typeguard` or `pydantic`:
+
+```python
+from pydantic import BaseModel, ValidationError
+
+class User(BaseModel):
+    name: str
+    age: int
+
+try:
+    user = User(name="Alice", age="not a number")
+except ValidationError as e:
+    print(e)  # Validation error at runtime
+```
+
+### get_type_hints
+
+`get_type_hints()` retrieves annotations at runtime:
+
+```python
+from typing import get_type_hints
+
+def greet(name: str, age: int) -> str:
+    return f"Hello {name}"
+
+hints = get_type_hints(greet)
+print(hints)  # {'name': <class 'str'>, 'age': <class 'int'>, 'return': <class 'str'>}
+```
+
+### TYPE_CHECKING Constant
+
+`TYPE_CHECKING` is `False` at runtime, `True` during type checking (prevents circular imports):
+
+```python
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only imported during type checking, not at runtime
+    from expensive_module import ExpensiveClass
+
+def process(obj: 'ExpensiveClass') -> None:  # Forward reference as string
+    pass
+```
+
+### Forward References
+
+Use string literals for forward references:
+
+```python
+class Node:
+    def __init__(self, value: int, next: 'Node | None' = None) -> None:
+        self.value = value
+        self.next = next
+```
+
+Python 3.7+ supports `from __future__ import annotations` to make all annotations strings by default:
+
+```python
+from __future__ import annotations
+
+class Node:
+    def __init__(self, value: int, next: Node | None = None) -> None:
+        self.value = value
+        self.next = next
+```
+
+This covers the comprehensive functionality of the `typing` module through Python 3.13.
+
+---
+
+## `inspect` Module
+
+The `inspect` module provides functions for introspecting live Python objects, including modules, classes, methods, functions, tracebacks, frame objects, and code objects.
+
+### Core Purpose
+
+The module helps you examine the source code, signatures, and internal structure of Python objects at runtime. It's particularly useful for debugging, documentation generation, testing frameworks, and building developer tools.
+
+### Getting Object Information
+
+You can retrieve various types of information about Python objects:
+
+**Type Checking**
+- `inspect.ismodule()`, `inspect.isclass()`, `inspect.ismethod()`, `inspect.isfunction()` - Check object types
+- `inspect.isbuiltin()`, `inspect.isroutine()` - Identify built-in and callable objects
+- `inspect.isgeneratorfunction()`, `inspect.iscoroutinefunction()` - Check for special function types
+
+**Source Code Access**
+- `inspect.getsource(object)` - Returns the source code of an object as a string
+- `inspect.getsourcelines(object)` - Returns a tuple of (source lines list, starting line number)
+- `inspect.getfile(object)` - Returns the file path where an object is defined
+- `inspect.getmodule(object)` - Returns the module an object belongs to
+
+### Function Signatures
+
+The module provides detailed signature inspection:
+
+```python
+import inspect
+
+def example(a, b=10, *args, **kwargs):
+    pass
+
+sig = inspect.signature(example)
+# sig contains parameter names, defaults, annotations, etc.
+
+for param_name, param in sig.parameters.items():
+    print(f"{param_name}: {param.kind}, default={param.default}")
+```
+
+The `Signature` object contains `Parameter` objects with attributes like `name`, `default`, `annotation`, and `kind` (POSITIONAL_OR_KEYWORD, VAR_POSITIONAL, KEYWORD_ONLY, etc.).
+
+#### `inspect.signature` vs `get_type_hints`
+
+##### Core Purpose
+
+**`get_type_hints()`** (from `typing` module):
+- Returns a dictionary mapping parameter names to their **resolved type annotations**
+- Evaluates forward references and string annotations
+- Processes `from __future__ import annotations`
+
+**`inspect.signature()`** (from `inspect` module):
+- Returns a `Signature` object with detailed metadata about function parameters
+- Provides **raw annotations** without evaluation
+- Includes parameter kinds (positional, keyword, etc.) and default values
+
+##### Key Differences
+
+###### 1. Return Type
+```python
+from typing import get_type_hints
+import inspect
+
+def example(x: int, y: str = "hello") -> bool:
+    return True
+
+# get_type_hints returns dict
+hints = get_type_hints(example)
+# {'x': <class 'int'>, 'y': <class 'str'>, 'return': <class 'bool'>}
+
+# inspect.signature returns Signature object
+sig = inspect.signature(example)
+# <Signature (x: int, y: str = 'hello') -> bool>
+```
+
+###### 2. Forward Reference Handling
+```python
+def func(x: "MyClass") -> "MyClass":
+    pass
+
+# get_type_hints() evaluates string annotations
+hints = get_type_hints(func)  # Attempts to resolve "MyClass"
+
+# inspect.signature() keeps raw strings
+sig = inspect.signature(func)
+sig.parameters['x'].annotation  # Returns the string "MyClass"
+```
+
+###### 3. Information Provided
+
+`get_type_hints()` only gives you:
+- Type annotations
+- Return type annotation
+
+`inspect.signature()` gives you:
+- Type annotations (raw)
+- Default values
+- Parameter kinds (`POSITIONAL_ONLY`, `POSITIONAL_OR_KEYWORD`, `VAR_POSITIONAL`, `KEYWORD_ONLY`, `VAR_KEYWORD`)
+- Parameter order
+
+###### 4. Usage Example
+```python
+def process(a: int, b: int = 5, *args: str, key: bool = True, **kwargs: float) -> None:
+    pass
+
+# With get_type_hints
+hints = get_type_hints(process)
+# {'a': int, 'b': int, 'args': str, 'key': bool, 'kwargs': float, 'return': None}
+
+# With inspect.signature
+sig = inspect.signature(process)
+for name, param in sig.parameters.items():
+    print(f"{name}: kind={param.kind}, default={param.default}, annotation={param.annotation}")
+```
+
+##### When to Use Each
+
+**Use `get_type_hints()`** when:
+- You need resolved type annotations for type checking
+- Working with forward references
+- Building type validation systems
+- You only care about types, not parameter details
+
+**Use `inspect.signature()`** when:
+- You need parameter metadata (defaults, kinds)
+- Building function wrappers or decorators
+- Generating documentation
+- You need the raw, unevaluated annotations
+- Working with function introspection tools
+
+##### Combined Usage
+They're often used together:
+```python
+sig = inspect.signature(func)
+hints = get_type_hints(func)
+
+for name, param in sig.parameters.items():
+    param_type = hints.get(name)
+    default = param.default
+    # Now you have both resolved type and default value
+```
+
+### Class Inspection
+
+You can examine class hierarchies and members:
+
+- `inspect.getmembers(object)` - Returns all members as (name, value) pairs
+- `inspect.getmro(class)` - Returns the method resolution order tuple
+- `inspect.getclasstree(classes)` - Arranges classes into a hierarchy
+
+### Stack and Frame Inspection
+
+The module allows you to examine the call stack:
+
+- `inspect.currentframe()` - Returns the current stack frame
+- `inspect.stack()` - Returns a list of frame records for the caller's stack
+- `inspect.getframeinfo(frame)` - Extracts information from a frame object
+
+Each frame record contains the frame object, filename, line number, function name, context lines, and context index.
+
+### Practical Use Cases
+
+The inspect module is commonly used in:
+
+- **Testing frameworks** - To discover test methods and examine function signatures
+- **Documentation tools** - To extract docstrings and signatures automatically
+- **Decorators** - To preserve or examine wrapped function metadata
+- **Debugging tools** - To examine the call stack and local variables
+- **Serialization** - To understand object structure before pickling
+- **API introspection** - To validate function calls or generate API documentation
+
+### Important Limitations
+
+[Inference] The module cannot retrieve source code for built-in functions written in C, objects defined in the interactive interpreter without saving to a file, or dynamically generated code that wasn't properly associated with source. [Inference] It also cannot access source for objects whose source files are no longer available or have been modified since the module was imported.
+
+### Frame Objects
+
+Frame objects represent execution frames in Python's call stack. Each time a function is called, Python creates a frame object that contains all the runtime information for that function's execution.
+
+**What a Frame Contains**
+
+A frame object holds:
+- Local variables for the current function (`frame.f_locals`)
+- Global variables accessible to the frame (`frame.f_globals`)
+- Built-in namespace (`frame.f_builtins`)
+- The code object being executed (`frame.f_code`)
+- The previous frame in the stack (`frame.f_back`)
+- Current line number being executed (`frame.f_lineno`)
+- Last instruction executed (`frame.f_lasti`)
+
+**Accessing Frames**
+
+```python
+import inspect
+import sys
+
+def inner():
+    frame = inspect.currentframe()
+    print(f"Function: {frame.f_code.co_name}")
+    print(f"Local vars: {frame.f_locals}")
+    print(f"Line number: {frame.f_lineno}")
+
+def outer():
+    x = 42
+    inner()
+
+outer()
+```
+
+You can also use `sys._getframe(n)` where n is the number of stack levels to go back (0 is current frame, 1 is caller, etc.).
+
+**Frame Lifecycle**
+
+Frames are created when functions are called and typically destroyed when functions return. However, if you keep a reference to a frame object, it can create reference cycles and prevent garbage collection of that frame's local variables.
+
+### Code Objects
+
+Code objects contain the compiled bytecode and metadata for executable Python code blocks (functions, methods, classes, modules, etc.). They're created by Python's compiler and are immutable.
+
+**What a Code Object Contains**
+
+Key attributes include:
+- `co_name` - Name of the function/class/module
+- `co_filename` - File where the code was defined
+- `co_firstlineno` - First line number in the source
+- `co_argcount` - Number of positional arguments
+- `co_kwonlyargcount` - Number of keyword-only arguments
+- `co_nlocals` - Number of local variables
+- `co_varnames` - Tuple of local variable names
+- `co_code` - The actual bytecode as bytes
+- `co_consts` - Tuple of constants used in the bytecode
+- `co_names` - Tuple of names used in the bytecode
+
+**Accessing Code Objects**
+
+```python
+def example(a, b=10):
+    x = a + b
+    return x
+
+code = example.__code__
+print(f"Name: {code.co_name}")
+print(f"Arg count: {code.co_argcount}")
+print(f"Local vars: {code.co_varnames}")
+print(f"Filename: {code.co_filename}")
+```
+
+**Bytecode Inspection**
+
+You can examine the compiled bytecode using the `dis` module:
+
+```python
+import dis
+
+def add(x, y):
+    return x + y
+
+dis.dis(add)
+# Shows the bytecode instructions
+```
+
+### Relationship Between Frame and Code Objects
+
+Every frame object has a code object (`frame.f_code`) that defines what code the frame is executing. Multiple frames can reference the same code object if the same function is called multiple times (recursively or from different places).
+
+Think of it this way:
+- **Code object** = The recipe (static, immutable, shared)
+- **Frame object** = The kitchen workspace with ingredients (dynamic, per-execution, unique)
+
+### Practical Applications
+
+**Debugging and Profiling**
+
+Debuggers like `pdb` use frame objects to inspect local variables and step through code. Profilers use frame information to track function calls and execution time.
+
+**Stack Traces**
+
+When exceptions occur, Python walks the frame stack to build traceback information. Each traceback entry corresponds to a frame.
+
+**Dynamic Code Inspection**
+
+```python
+def get_caller_info():
+    frame = inspect.currentframe().f_back
+    return {
+        'function': frame.f_code.co_name,
+        'filename': frame.f_code.co_filename,
+        'line': frame.f_lineno,
+        'locals': frame.f_locals
+    }
+```
+
+**Code Modification**
+
+[Unverified] While code objects themselves are immutable, tools can create new code objects with modified bytecode for advanced metaprogramming, though this is fragile and version-dependent.
+
+### Memory Considerations
+
+Frame objects can create memory leaks if you're not careful. [Inference] When you store a reference to a frame object, it keeps all its local variables alive, and through `f_back`, it can keep the entire call stack alive. It's good practice to explicitly delete frame references when done:
+
+```python
+frame = inspect.currentframe()
+try:
+    # use frame
+    pass
+finally:
+    del frame
+```
+
+## `abc` Module
+
+The `abc` module in Python provides infrastructure for defining Abstract Base Classes (ABCs). It's part of the standard library and is used to create interfaces and enforce that derived classes implement particular methods.
+
+### What Are Abstract Base Classes?
+
+Abstract Base Classes are classes that contain one or more abstract methods. An abstract method is a method declared but contains no implementation. ABCs cannot be instantiated directly and must be subclassed with concrete implementations of their abstract methods.
+
+### Key Components
+
+**ABC Class**
+The `ABC` class is a helper class that has `ABCMeta` as its metaclass. You can create an abstract base class by inheriting from `ABC`:
+
+```python
+from abc import ABC, abstractmethod
+
+class Shape(ABC):
+    @abstractmethod
+    def area(self):
+        pass
+```
+
+**ABCMeta Metaclass**
+This is the metaclass used for defining Abstract Base Classes. You can use it explicitly:
+
+```python
+from abc import ABCMeta, abstractmethod
+
+class Shape(metaclass=ABCMeta):
+    @abstractmethod
+    def area(self):
+        pass
+```
+
+**@abstractmethod Decorator**
+This decorator marks a method as abstract, requiring subclasses to provide an implementation:
+
+```python
+from abc import ABC, abstractmethod
+
+class Animal(ABC):
+    @abstractmethod
+    def make_sound(self):
+        pass
+
+class Dog(Animal):
+    def make_sound(self):
+        return "Woof!"
+```
+
+### Common Decorators
+
+**@abstractmethod**
+The most basic decorator for defining abstract methods.
+
+**@abstractproperty** (deprecated in Python 3.3+)
+Previously used for abstract properties. Now you combine `@property` with `@abstractmethod`:
+
+```python
+from abc import ABC, abstractmethod
+
+class MyClass(ABC):
+    @property
+    @abstractmethod
+    def my_property(self):
+        pass
+```
+
+**Combining with @staticmethod and @classmethod**
+Abstract methods can also be static or class methods:
+
+```python
+from abc import ABC, abstractmethod
+
+class MyClass(ABC):
+    @classmethod
+    @abstractmethod
+    def my_classmethod(cls):
+        pass
+    
+    @staticmethod
+    @abstractmethod
+    def my_staticmethod():
+        pass
+```
+
+### Virtual Subclasses
+
+The `abc` module allows you to register a class as a "virtual subclass" of an ABC without actually inheriting from it:
+
+```python
+from abc import ABC
+
+class MyABC(ABC):
+    pass
+
+class MyClass:
+    pass
+
+MyABC.register(MyClass)
+
+print(issubclass(MyClass, MyABC))  # True
+print(isinstance(MyClass(), MyABC))  # True
+```
+
+### Practical Example
+
+```python
+from abc import ABC, abstractmethod
+
+class Database(ABC):
+    @abstractmethod
+    def connect(self):
+        pass
+    
+    @abstractmethod
+    def disconnect(self):
+        pass
+    
+    @abstractmethod
+    def execute_query(self, query):
+        pass
+
+class PostgreSQL(Database):
+    def connect(self):
+        print("Connecting to PostgreSQL")
+    
+    def disconnect(self):
+        print("Disconnecting from PostgreSQL")
+    
+    def execute_query(self, query):
+        print(f"Executing: {query}")
+
+# This would work
+db = PostgreSQL()
+
+# This would raise TypeError
+# db = Database()  # Can't instantiate abstract class
+```
+
+### When to Use ABCs
+
+ABCs are useful when you want to:
+- Define a common interface for a group of subclasses
+- Enforce that certain methods are implemented by subclasses
+- Use duck typing with formal interfaces
+- Create plugin systems or frameworks where third-party code needs to follow specific protocols
+
+### Other Useful Functions
+
+**get_cache_token()**
+Returns the current ABC cache token.
+
+**update_abstractmethods(cls, method_names)**
+Recalculates the abstract methods of a class.
+
+The `abc` module is a powerful tool for creating well-structured, maintainable object-oriented code in Python by enforcing interface contracts through abstract base classes.
+
+---
+
 # Multithreading, Multiprocessing, and Asynchronous Programming
 
 ## **Asynchronous Programming Using `asyncio'**
@@ -19379,4 +20957,205 @@ A weak reference avoids that problem.
 * Object can still be garbage-collected.
 * Useful for caches and memory-sensitive structures.
 * Provided by Python’s `weakref` module.
+
+---
+
+I'll explain Python's five parameter kinds that `inspect.signature()` uses to classify function parameters.
+
+## The Five Parameter Kinds
+
+### 1. POSITIONAL_ONLY
+Parameters that can **only** be passed by position, not by keyword.
+
+```python
+def func(a, b, /):  # "/" marks end of positional-only params
+    return a + b
+
+func(1, 2)        # ✓ Valid
+func(a=1, b=2)    # ✗ TypeError: got some positional-only arguments passed as keyword
+```
+
+**Inspection:**
+```python
+import inspect
+
+sig = inspect.signature(func)
+for name, param in sig.parameters.items():
+    print(f"{name}: {param.kind}")
+# a: POSITIONAL_ONLY
+# b: POSITIONAL_ONLY
+```
+
+### 2. POSITIONAL_OR_KEYWORD
+Parameters that can be passed **either** by position or by keyword. This is the default.
+
+```python
+def func(a, b):
+    return a + b
+
+func(1, 2)        # ✓ Valid - positional
+func(a=1, b=2)    # ✓ Valid - keyword
+func(1, b=2)      # ✓ Valid - mixed
+```
+
+**Inspection:**
+```python
+sig = inspect.signature(func)
+for name, param in sig.parameters.items():
+    print(f"{name}: {param.kind}")
+# a: POSITIONAL_OR_KEYWORD
+# b: POSITIONAL_OR_KEYWORD
+```
+
+### 3. VAR_POSITIONAL
+Captures excess positional arguments (the `*args` parameter).
+
+```python
+def func(*args):
+    return args
+
+func(1, 2, 3)     # Returns (1, 2, 3)
+```
+
+**Inspection:**
+```python
+sig = inspect.signature(func)
+for name, param in sig.parameters.items():
+    print(f"{name}: {param.kind}")
+# args: VAR_POSITIONAL
+```
+
+### 4. KEYWORD_ONLY
+Parameters that can **only** be passed by keyword, not by position.
+
+```python
+def func(*, a, b):  # "*" marks start of keyword-only params
+    return a + b
+
+func(a=1, b=2)    # ✓ Valid
+func(1, 2)        # ✗ TypeError: takes 0 positional arguments but 2 were given
+```
+
+**Also applies after `*args`:**
+```python
+def func(*args, key):
+    return args, key
+
+func(1, 2, key=3)   # ✓ Valid: (1, 2), 3
+func(1, 2, 3)       # ✗ TypeError: missing required keyword-only argument
+```
+
+**Inspection:**
+```python
+sig = inspect.signature(func)
+for name, param in sig.parameters.items():
+    print(f"{name}: {param.kind}")
+# a: KEYWORD_ONLY
+# b: KEYWORD_ONLY
+```
+
+### 5. VAR_KEYWORD
+Captures excess keyword arguments (the `**kwargs` parameter).
+
+```python
+def func(**kwargs):
+    return kwargs
+
+func(a=1, b=2, c=3)  # Returns {'a': 1, 'b': 2, 'c': 3}
+```
+
+**Inspection:**
+```python
+sig = inspect.signature(func)
+for name, param in sig.parameters.items():
+    print(f"{name}: {param.kind}")
+# kwargs: VAR_KEYWORD
+```
+
+### Complete Example: All Five Kinds
+
+```python
+def complete(pos_only, /,           # POSITIONAL_ONLY
+             pos_or_kw,             # POSITIONAL_OR_KEYWORD
+             *args,                 # VAR_POSITIONAL
+             kw_only,               # KEYWORD_ONLY
+             **kwargs):             # VAR_KEYWORD
+    pass
+
+# Valid call:
+complete(1, 2, 3, 4, kw_only=5, extra=6)
+```
+
+**Inspection:**
+```python
+import inspect
+
+sig = inspect.signature(complete)
+for name, param in sig.parameters.items():
+    print(f"{name:12} {param.kind}")
+
+# Output:
+# pos_only     Parameter.POSITIONAL_ONLY
+# pos_or_kw    Parameter.POSITIONAL_OR_KEYWORD
+# args         Parameter.VAR_POSITIONAL
+# kw_only      Parameter.KEYWORD_ONLY
+# kwargs       Parameter.VAR_KEYWORD
+```
+
+### Parameter Ordering Rules
+
+Python enforces this strict order:
+1. `POSITIONAL_ONLY` parameters
+2. `POSITIONAL_OR_KEYWORD` parameters
+3. `VAR_POSITIONAL` (`*args`)
+4. `KEYWORD_ONLY` parameters
+5. `VAR_KEYWORD` (`**kwargs`)
+
+```python
+# ✓ Valid ordering
+def valid(a, /, b, *args, c, **kwargs):
+    pass
+
+# ✗ Invalid - keyword-only before positional
+def invalid(*, a, b):  # SyntaxError if you try to add positional params after
+    pass
+```
+
+### Practical Usage: Checking Parameter Kinds
+
+```python
+import inspect
+
+def analyze_function(func):
+    sig = inspect.signature(func)
+    
+    for name, param in sig.parameters.items():
+        kind_name = str(param.kind).split('.')[-1]
+        default = f"= {param.default}" if param.default != inspect.Parameter.empty else ""
+        annotation = f": {param.annotation}" if param.annotation != inspect.Parameter.empty else ""
+        
+        print(f"{name}{annotation} {default} [{kind_name}]")
+
+def example(a, /, b, *args, key=None, **kwargs):
+    pass
+
+analyze_function(example)
+# Output:
+# a [POSITIONAL_ONLY]
+# b [POSITIONAL_OR_KEYWORD]
+# args [VAR_POSITIONAL]
+# key = None [KEYWORD_ONLY]
+# kwargs [VAR_KEYWORD]
+```
+
+### Why This Matters
+
+Understanding parameter kinds is essential for:
+- **Building decorators** that preserve function signatures
+- **Creating function wrappers** that forward arguments correctly
+- **Generating documentation** that accurately describes how to call functions
+- **Implementing dynamic dispatch** systems
+- **Type checking and validation** tools
+
+---
 

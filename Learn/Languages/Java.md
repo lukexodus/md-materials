@@ -2761,6 +2761,8 @@ public class MyClass {
 
 ***
 
+# Language
+
 ## Generics
 
 Generics in Java provide a way to create classes, interfaces, and methods that operate on objects of various types while providing compile-time type safety. Let me break it down for you with an analogy:
@@ -4310,6 +4312,218 @@ List<String> list = new ArrayList<>();
 
 In this example, the `ArrayList` instance `list` is not synchronized by default. If multiple threads access and modify the `list` concurrently, it can lead to data corruption or inconsistent behavior unless proper synchronization mechanisms are applied externally.
 
+---
+
+## Java Decorators
+
+### Overview
+
+Java doesn't have built-in decorator syntax like Python's `@decorator`. However, the term "decorator" in Java can refer to two distinct concepts:
+
+1. **The Decorator Design Pattern** - A structural pattern for adding behavior to objects
+2. **Annotations** - Metadata markers (often called "decorators" colloquially, though technically different)
+
+### The Decorator Design Pattern
+
+The Decorator pattern allows you to add new functionality to objects dynamically by wrapping them in decorator classes.
+
+#### Key Components
+
+- **Component Interface** - Defines the interface for objects that can have responsibilities added
+- **Concrete Component** - The original object being decorated
+- **Decorator** - Abstract class that implements the component interface and contains a reference to a component
+- **Concrete Decorators** - Specific implementations that add behavior
+
+#### Example Implementation
+
+```java
+// Component interface
+interface Coffee {
+    double getCost();
+    String getDescription();
+}
+
+// Concrete component
+class SimpleCoffee implements Coffee {
+    @Override
+    public double getCost() {
+        return 2.0;
+    }
+    
+    @Override
+    public String getDescription() {
+        return "Simple coffee";
+    }
+}
+
+// Decorator base class
+abstract class CoffeeDecorator implements Coffee {
+    protected Coffee decoratedCoffee;
+    
+    public CoffeeDecorator(Coffee coffee) {
+        this.decoratedCoffee = coffee;
+    }
+    
+    @Override
+    public double getCost() {
+        return decoratedCoffee.getCost();
+    }
+    
+    @Override
+    public String getDescription() {
+        return decoratedCoffee.getDescription();
+    }
+}
+
+// Concrete decorators
+class MilkDecorator extends CoffeeDecorator {
+    public MilkDecorator(Coffee coffee) {
+        super(coffee);
+    }
+    
+    @Override
+    public double getCost() {
+        return super.getCost() + 0.5;
+    }
+    
+    @Override
+    public String getDescription() {
+        return super.getDescription() + ", milk";
+    }
+}
+
+class SugarDecorator extends CoffeeDecorator {
+    public SugarDecorator(Coffee coffee) {
+        super(coffee);
+    }
+    
+    @Override
+    public double getCost() {
+        return super.getCost() + 0.2;
+    }
+    
+    @Override
+    public String getDescription() {
+        return super.getDescription() + ", sugar";
+    }
+}
+
+// Usage
+Coffee coffee = new SimpleCoffee();
+coffee = new MilkDecorator(coffee);
+coffee = new SugarDecorator(coffee);
+
+System.out.println(coffee.getDescription()); // "Simple coffee, milk, sugar"
+System.out.println(coffee.getCost());        // 2.7
+```
+
+### Java Annotations
+
+Annotations are metadata tags that provide information about the code. They're sometimes called "decorators" colloquially because they "decorate" code elements.
+
+#### Built-in Annotations
+
+```java
+@Override
+public void method() { }
+
+@Deprecated
+public void oldMethod() { }
+
+@SuppressWarnings("unchecked")
+public void method() { }
+
+@FunctionalInterface
+interface MyFunction {
+    void execute();
+}
+```
+
+#### Custom Annotations
+
+```java
+// Define custom annotation
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+public @interface LogExecutionTime {
+    String value() default "";
+}
+
+// Use the annotation
+public class MyService {
+    @LogExecutionTime("database query")
+    public void performQuery() {
+        // method implementation
+    }
+}
+
+// Process annotation at runtime using reflection
+public class AnnotationProcessor {
+    public static void processAnnotations(Object obj) throws Exception {
+        Method[] methods = obj.getClass().getDeclaredMethods();
+        
+        for (Method method : methods) {
+            if (method.isAnnotationPresent(LogExecutionTime.class)) {
+                LogExecutionTime annotation = method.getAnnotation(LogExecutionTime.class);
+                
+                long startTime = System.currentTimeMillis();
+                method.invoke(obj);
+                long endTime = System.currentTimeMillis();
+                
+                System.out.println(annotation.value() + " took " + 
+                    (endTime - startTime) + "ms");
+            }
+        }
+    }
+}
+```
+
+### Common Use Cases
+
+#### IO Streams (Real-world Decorator Pattern)
+
+Java's IO classes extensively use the decorator pattern:
+
+```java
+InputStream input = new FileInputStream("file.txt");
+input = new BufferedInputStream(input);
+input = new DataInputStream(input);
+```
+
+#### Spring Framework Annotations
+
+```java
+@Component
+@Service
+@Repository
+@Controller
+@RestController
+@Autowired
+@RequestMapping("/api")
+```
+
+#### Validation Annotations (Bean Validation)
+
+```java
+public class User {
+    @NotNull
+    @Size(min = 2, max = 30)
+    private String name;
+    
+    @Email
+    private String email;
+    
+    @Min(18)
+    private int age;
+}
+```
+
+### Comparison with Python Decorators
+
+Unlike Python's `@decorator` syntax which wraps functions at definition time, Java requires either:
+- Explicit wrapping with the Decorator pattern
+- Annotations processed via reflection or compile-time processors
+- Frameworks like Spring that use annotations to generate proxy objects with additional behavior
 
 ***
 # Syllabus
