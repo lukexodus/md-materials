@@ -35,3 +35,50 @@ That `application/rss+xml` is a **MIME type** (media type) that identifies RSS f
 </rss>
 ```
 
+
+### `multipart/form-data`
+
+`multipart/form-data` is one of the values for the `enctype` attribute in HTML forms, and it's also used as a Content-Type in HTTP requests. It allows forms to send binary data (like files) alongside text data.
+
+#### When to use it
+
+You should use `multipart/form-data` when:
+- Uploading files through a form
+- Sending binary data
+- Transmitting large amounts of data
+- Combining different types of data in one request
+
+#### Basic HTML example
+
+```html
+<form action="/upload" method="post" enctype="multipart/form-data">
+  <input type="text" name="username" />
+  <input type="file" name="avatar" />
+  <button type="submit">Upload</button>
+</form>
+```
+
+#### How it works
+
+The data is sent in parts (hence "multipart"), with each part separated by a boundary string. Each part contains:
+- Headers describing the content
+- The actual data
+
+#### Example request structure
+
+```
+POST /upload HTTP/1.1
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="username"
+
+john_doe
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="avatar"; filename="photo.jpg"
+Content-Type: image/jpeg
+
+[binary data]
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+```
+

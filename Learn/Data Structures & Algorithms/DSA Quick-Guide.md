@@ -1,57 +1,3 @@
-## Table of Contents
-
-- [[#The Array: The Foundational Data Structure|The Array: The Foundational Data Structure (p. 2)]]
-- [[#Data Structure Operations|Data Structure Operations (p. 3)]]
-- [[#Time Complexity Notations|Time Complexity Notations (p. 4)]]
-- [[#Big O Categories and Their Significance|Big O Categories and Their Significance (p. 6)]]
-- [[#The Soul of Big O|The Soul of Big O (p. 8)]]
-- [[#Deeper into the Soul of Big O|Deeper into the Soul of Big O (p. 8)]]
-- [[#Measuring Speed|Measuring Speed (p. 10)]]
-- [[#Reading from an Array|Reading from an Array(p. 10)]]
-- [[#Searching in an Array|Searching in an Array (p. 11)]]
-- [[#Insertion to an Array|Insertion to an Array (p. 13)]]
-- [[#Deletion in from Array|Deletion in from Array (p. 14)]]
-- [[#Ordered Array|Ordered Array (p. 16)]]
-- [[#Same Algorithm, Different Scenarios|Same Algorithm, Different Scenarios (p. 17)]]
-- [[#Stacks|Stacks (p. 18)]]
-- [[#Abstract Data Types|Abstract Data Types (p. 19)]]
-- [[#Queues|Queues (p. 20)]]
-- [[#Recurse Instead of Loop|Recurse Instead of Loop (p. 22)]]
-- [[#The Call Stack in Recursion|The Call Stack in Recursion (p. 24)]]
-- [[#Recursive Trick: Passing Extra Parameters|Recursive Trick: Passing Extra Parameters (p. 25)]]
-- [[#Two Approaches to Calculations|Two Approaches to Calculations (p. 28)]]
-- [[#Top-Down Recursion|Top-Down Recursion (p. 29)]]
-- [[#Binary Search|Binary Search (p. 31)]]
-- [[#Binary Search vs. Linear Search|Binary Search vs. Linear Search (p. 34)]]
-- [[#Understanding O(log N) Complexity|Understanding O(log N) Complexity (p. 36)]]
-- [[#Trees|Trees (p. 38)]]
-- [[#Binary Search Trees (BSTs)|Binary Search Trees (BSTs) (p. 39)]]
-- [[#Search a BST|Search a BST (p. 42)]]
-- [[#O(log N) Complexity in Binary Search Trees|O(log N) Complexity in Binary Search Trees (p. 46)]]
-- [[#Insertion in a Binary Search Tree (BST)|Insertion in a Binary Search Tree (BST) (p. 47)]]
-- [[#Deletion in a Binary Search Tree|Deletion in a Binary Search Tree (p. 52)]]
-- [[#B-Trees|B-Trees (p. 61)]]
-- [[#B-Tree Search|B-Tree Search (p. 64)]]
-- [[#B-Tree Insertion|B-Tree Insertion (p. 65)]]
-- [[#B-Tree Deletion|B-Tree Deletion (p. 71)]]
-- [[#Hash Tables and Hash Functions|Hash Tables and Hash Functions (p. 75)]]
-- [[#Hash Table Lookups|Hash Table Lookups (p. 76)]]
-- [[#Dealing With Collissions|Dealing With Collissions (p. 77)]]
-- [[#Making an Efficient Hash Table|Making an Efficient Hash Table (p. 78)]]
-- [[#Hash Tables for Organization|Hash Tables for Organization (p. 80)]]
-- [[#Linked Lists|Linked Lists (p. 81)]]
-- [[#Efficiency of Linked List Operations|Efficiency of Linked List Operations (p. 87)]]
-- [[#Doubly Linked Lists|Doubly Linked Lists (p. 88)]]
-- [[#Queues as Doubly Linked Lists|Queues as Doubly Linked Lists (p. 89)]]
-- [[#Graphs|Graphs (p. 91)]]
-- [[#Graph Search|Graph Search (p. 97)]]
-- [[#Depth-First Search (DFS)|Depth-First Search (DFS) (p. 99)]]
-- [[#Breadth-First Search (BFS)|Breadth-First Search (BFS) (p. 107)]]
-- [[#DFS vs. BFS|DFS vs. BFS (p. 118)]]
-- [[#Efficiency of Graph Search|Efficiency of Graph Search (p. 119)]]
-- [[#Weighted Graphs and Shortest Path Problem|Weighted Graphs and Shortest Path Problem (p. 121)]]
-- [[#Dijkstra’s Algorithm|Dijkstra’s Algorithm (p. 123)]]
-
 ## The Array: The Foundational Data Structure
 
 - **Array Definition**: An array is a list of data elements stored sequentially in memory. It's one of the most basic and foundational data structures in computer science.
@@ -209,81 +155,19 @@ Big O notation is a mathematical representation used to describe the efficiency 
 7. **O(n!)**:
    - Generating all permutations of a set.
 
+## Space Complexity Notations
 
-## Big O Categories and Their Significance
+Space complexity measures the amount of memory an algorithm uses as a function of the input size.
 
-#### **Understanding Big O Categories**
+- **O(1)** - **Constant Space**:
+  - The amount of memory required does not change with the size of the input. For example, using a fixed number of variables.
 
-1. **Categories vs. Specifics**:
-   - **Analogy**: Comparing buildings, such as a single-family home and a skyscraper, illustrates how the general category (house vs. skyscraper) often suffices to highlight significant differences. Similarly, Big O Notation categorizes algorithms based on their growth rates rather than exact step counts.
-   - **Example**: An O(N) algorithm and an O(N²) algorithm represent fundamentally different growth patterns. Even if the O(N) algorithm has a constant factor (like 100N), it will still be more efficient than an O(N²) algorithm for large enough input sizes.
+- **O(n)** - **Linear Space**:
+  - The memory usage grows linearly with the size of the input. For example, storing an array of size $n$.
 
-2. **Categories of Big O Notation**:
-   - **O(1)**: Constant time complexity, meaning the algorithm's performance does not change with the size of the input data.
-   - **O(log N)**: Logarithmic time complexity, meaning the algorithm's performance grows logarithmically with the size of the input data. Binary search is a classic example.
-   - **O(N)**: Linear time complexity, where the algorithm's performance grows linearly with the input size. For example, linear search.
-   - **O(N²)**: Quadratic time complexity, where performance grows quadratically with the input size. Selection Sort and Bubble Sort are examples.
+- **O(n^2)** - **Quadratic Space**:
+  - Memory usage grows proportionally to the square of the input size. This could occur in algorithms that use a 2D array to store data.
 
-#### **Significance of Categories**
-
-1. **Long-Term Growth**:
-   - **O(N) vs. O(N²)**: An O(N) algorithm will eventually outperform an O(N²) algorithm as the data size increases. The linear growth of O(N) will be much more manageable compared to the quadratic growth of O(N²).
-
-2. **Comparison Across Categories**:
-   - When comparing algorithms from different Big O categories, such as O(N) and O(N²), the difference is stark and clear. It’s sufficient to recognize the general category because the growth rates are vastly different.
-
-3. **Within the Same Category**:
-   - **Same Classification**: Algorithms within the same Big O category (e.g., O(N²)) may have different actual performance characteristics. For instance, Selection Sort may be faster than Bubble Sort even though both are O(N²) due to fewer swaps.
-
-4. **Practical Analysis**:
-   - While Big O provides a high-level understanding, detailed analysis is necessary for algorithms within the same category. Factors such as constant factors, implementation details, and specific data characteristics can impact real-world performance.
-
-#### **Graphical Representation**
-
-![[Pasted image 20240820191144.jpg]]
-
-Graphs illustrating different Big O categories help visualize how their growth rates diverge as input size increases. For instance:
-
-- **O(1)** remains constant regardless of input size.
-- **O(log N)** increases slowly, reflecting logarithmic growth.
-- **O(N)** shows a straight line, indicating linear growth.
-- **O(N²)** curves upwards more steeply, demonstrating quadratic growth.
-
-## The Soul of Big O
-
-**Big O Notation** is a way to express the efficiency of an algorithm, particularly how its runtime or space requirements grow as the size of the input data increases. But understanding Big O involves more than just counting steps; it's about how an algorithm's performance scales with larger datasets. Here’s a deeper look into the concept:
-
-#### **Key Concepts**
-
-1. **What is Big O Notation?**
-    - **Definition**: Big O Notation provides an upper bound on the growth rate of an algorithm’s time or space complexity. It describes how the running time or space requirement of an algorithm increases with the size of the input.
-    - **Purpose**: It helps in comparing the efficiency of algorithms, particularly as the size of the input data increases.
-2. **The Soul of Big O**
-    - **Core Idea**: Big O is not just about the absolute number of steps an algorithm takes but about how the number of steps increases relative to the size of the input. This reflects the scalability and efficiency of an algorithm.
-
-![[Pasted image 20240819202748.png]]
-
-## Deeper into the Soul of Big O
-
-Understanding the deeper implications of Big O Notation involves analyzing the efficiency of algorithms beyond just their asymptotic complexity. Let’s explore why the “soul of Big O” matters and how different scenarios affect the performance evaluation of algorithms.
-
-### **Constant Time vs. Linear Time**
-
-![[Pasted image 20240819203006.png]]
-
-1. **Comparison of O(1) and O(N)**
-   - **O(1) Algorithm**: This algorithm performs a constant number of steps regardless of the size of the input. For example, an algorithm that always takes 100 steps is O(1), because the number of steps doesn’t change with the size of the input data.
-   - **O(N) Algorithm**: This algorithm’s number of steps increases linearly with the size of the input. For instance, if you have an algorithm that takes up to N steps, it will take 10 steps for 10 elements, 100 steps for 100 elements, and so on.
-
-   **Graphical Comparison**:
-   - For smaller datasets, an O(N) algorithm might take fewer steps compared to an O(1) algorithm that takes a large constant number of steps.
-   - **Graph**: Initially, the O(N) line might be below the O(1) line (if the constant is large). However, as the dataset size grows, the O(N) line will eventually surpass the O(1) line. Beyond this crossing point, O(N) will always take more steps than the O(1) algorithm.
-
-   **Key Insight**: The O(1) algorithm will always be more efficient for sufficiently large datasets because its performance does not depend on the size of the input. Even if the constant is large (e.g., one million steps), the performance remains constant relative to the input size, whereas the O(N) algorithm’s steps increase directly with the size of the input.
-
-2. **Practical Implications**
-   - **Large Datasets**: For very large datasets, an O(1) algorithm will almost always be preferable because it maintains a constant number of steps. The performance of an O(N) algorithm, on the other hand, becomes less efficient as the input size grows.
-   - **Small Datasets**: For small datasets, the difference might be negligible. An O(N) algorithm could outperform an O(1) algorithm with a very high constant if the input size is small.
 
 ## Measuring Speed
 
@@ -310,7 +194,9 @@ Understanding the deeper implications of Big O Notation involves analyzing the e
 
 These steps provide a way to evaluate and compare the efficiency of different operations and algorithms.
 
-## Reading from an Array
+## Reading
+
+### **Reading from an Array**
 
 - **Operation**: Reading involves accessing the value stored at a specific index within the array.
 
@@ -336,7 +222,9 @@ These steps provide a way to evaluate and compare the efficiency of different op
 
 This efficient access is one of the reasons arrays are fundamental in computer science, providing quick and predictable performance for retrieving data.
 
-## Searching in an Array
+## Searching
+
+### **Searching an Array**
 
 - **Operation**: Searching involves looking for a specific value within an array and determining its index if it exists.
 
@@ -379,7 +267,9 @@ This efficient access is one of the reasons arrays are fundamental in computer s
 
 This shows why searching can be less efficient than reading and why more advanced searching techniques, like binary search (for sorted arrays), are often employed to improve performance.
 
-## Insertion to an Array
+## Insertion
+
+### **Insertion in an Array**
 
 - **Operation**: Insertion involves adding a new element to a specific position in the array. The efficiency of this operation depends on where the new element is inserted.
 
@@ -422,7 +312,7 @@ This shows why searching can be less efficient than reading and why more advance
 - **End Insertion**: Fast and efficient, typically $O(1)$ because it involves directly adding the element at the end of the array.
 - **Middle/Beginning Insertion**: Slower and less efficient, typically $O(n)$, due to the need to shift existing elements to accommodate the new element.
 
-## Deletion from an Array
+## **Deletion in an Array**
 
 **Deletion** is the process of removing a value from a specific index in an array. This operation can be broken down into two main parts: the actual deletion and the shifting of elements to fill the gap left by the deleted value.
 
@@ -460,6 +350,52 @@ This shows why searching can be less efficient than reading and why more advance
 - **Worst-Case Complexity**: The overall time complexity for deletion is $O(n)$ due to the need to shift elements after removing an item.
 
 By understanding how deletion works and its efficiency, you can better assess when and how to use arrays in your programming tasks. Each data structure has its own strengths and weaknesses, and choosing the right one can greatly impact your software’s performance.
+
+## Sets: How a Single Rule Can Affect Efficiency
+
+### **Sets: Efficiency Analysis**
+
+**Sets** are data structures that store unique elements, meaning no duplicates are allowed. This uniqueness constraint affects the efficiency of various operations, particularly insertion. Let’s break down the efficiency of operations on an array-based set compared to a regular array.
+
+#### **Operations in an Array-Based Set**
+
+1. **Reading**:
+   - **Description**: Accessing the value at a specific index.
+   - **Efficiency**: Just like in an array, reading from a set takes $O(1)$ time. The computer can jump directly to the index and retrieve the value.
+
+2. **Searching**:
+   - **Description**: Determining if a particular value exists within the set.
+   - **Efficiency**: Searching in a set is similar to searching in an array. The computer may need to inspect up to $N$ elements, making the time complexity $O(n)$ in the worst case.
+
+3. **Deletion**:
+   - **Description**: Removing a value from a specific index and shifting elements to close the gap.
+   - **Efficiency**: Deletion from a set requires up to $N$ steps, just like in an array. This includes the time to remove the value and shift subsequent elements.
+
+4. **Insertion**:
+   - **Description**: Adding a new value to the set.
+   - **Efficiency**:
+     - **Best-Case Scenario**: Inserting at the end of the set involves checking if the value already exists (which takes $O(n)$ time) and then adding it, resulting in $O(n+1)$ steps. The $+1$ accounts for the insertion step itself.
+     - **Worst-Case Scenario**: Inserting at the beginning involves searching through all $N$ elements to ensure no duplicates, shifting all $N$ elements, and then inserting the new value. This totals $2N + 1$ steps.
+
+#### **Comparative Analysis**
+
+- **Array vs. Set**:
+  - **Reading**: Both operations are $O(1)$.
+  - **Searching**: Both operations are $O(n)$.
+  - **Deletion**: Both operations are $O(n)$.
+  - **Insertion**:
+    - **Array**: Insertion at the end takes $O(1)$, but insertion at the beginning or middle takes $O(n)$.
+    - **Set**: Insertion always requires $O(n)$ time due to the need to check for duplicates, making it slower compared to inserting at the end of an array.
+
+#### **Analogy for Insertion in a Set**
+
+- **Analogy**: Imagine a row of lockers where each locker has a unique number. If you want to put a new item in one of these lockers, you first need to check if the locker is empty and not occupied by another item. If it is, you can proceed to put your item in. If not, you have to find another locker. This checking process takes time. Inserting at the end is easier but still requires you to ensure the locker isn’t already occupied.
+
+### **Summary**
+
+- **Sets** are great for ensuring unique data, but their insertion operation is generally less efficient compared to arrays due to the need for duplicate checks.
+- **Arrays** are more efficient for insertion when you don’t need to enforce uniqueness but can’t prevent duplicate data.
+- Choosing the right data structure depends on your application needs. If you need to avoid duplicates and can handle slightly slower insertions, sets are useful. If you need faster insertion and don’t need to enforce uniqueness, arrays might be better.
 
 ## Ordered Array
 
@@ -520,6 +456,208 @@ An **ordered array** is a variation of a classic array where the values are alwa
 
 - **Analogy**: Imagine a row of numbered slots where you need to insert a new card. To keep the cards in numerical order, you first need to find the correct slot by checking each one until you find the spot where your card should go. Once you’ve found the spot, you need to move all subsequent cards one slot to the right to make room. This process ensures that the cards remain in order but requires careful placement and shifting.
 
+## Binary Search
+
+Binary search is a highly efficient algorithm used to find an item in a sorted array by repeatedly dividing the search interval in half. It’s akin to the guessing game where you eliminate half the possible answers with each guess.
+
+#### **How Binary Search Works**
+
+1. **Initial Setup**:
+   - Start with the entire array.
+   - Define two pointers: `low` (start of the array) and `high` (end of the array).
+
+2. **Iterative Search**:
+   - Calculate the midpoint of the array segment.
+   - Compare the target value with the value at the midpoint:
+     - If the target equals the midpoint value, you’ve found the target.
+     - If the target is less than the midpoint value, adjust the `high` pointer to search the left half.
+     - If the target is greater, adjust the `low` pointer to search the right half.
+   - Repeat until the `low` pointer exceeds the `high` pointer or the target is found.
+
+3. **Efficiency**:
+   - **Time Complexity**: $O(\log N)$, where $N$ is the number of elements in the array. This logarithmic time complexity makes binary search much faster than linear search, especially for large arrays.
+   - **Space Complexity**: $O(1)$ for the iterative approach, as it requires only a few additional variables.
+
+![[Pasted image 20240819202513.png]]
+
+#### **Example**
+
+Suppose you have an ordered array `[1, 3, 4, 7, 9, 11]` and want to find the value `7`. Here’s a step-by-step breakdown:
+
+1. **Initial State**:
+   - Array: `[1, 3, 4, 7, 9, 11]`
+   - `low` = 0, `high` = 5
+
+2. **First Iteration**:
+   - `midpoint` = (0 + 5) / 2 = 2
+   - Value at index 2 is `4`
+   - Since `7 > 4`, update `low` to `midpoint + 1` = 3
+
+3. **Second Iteration**:
+   - `low` = 3, `high` = 5
+   - `midpoint` = (3 + 5) / 2 = 4
+   - Value at index 4 is `9`
+   - Since `7 < 9`, update `high` to `midpoint - 1` = 3
+
+4. **Third Iteration**:
+   - `low` = 3, `high` = 3
+   - `midpoint` = (3 + 3) / 2 = 3
+   - Value at index 3 is `7`
+   - Found the target!
+
+#### **Code Implementation**
+
+```cpp
+#include <iostream>
+#include <vector>
+
+int binarySearch(const std::vector<int>& array, int searchValue) {
+    int low = 0;
+    int high = array.size() - 1;
+
+    while (low <= high) {
+        int midpoint = low + (high - low) / 2;
+        int valueAtMidpoint = array[midpoint];
+
+        if (searchValue == valueAtMidpoint) {
+            return midpoint;  // Target found
+        } else if (searchValue < valueAtMidpoint) {
+            high = midpoint - 1;  // Search in the left half
+        } else {
+            low = midpoint + 1;   // Search in the right half
+        }
+    }
+
+    return -1;  // Target not found
+}
+
+int main() {
+    std::vector<int> sortedArray = {1, 3, 4, 7, 9, 11};
+    int target = 7;
+
+    int result = binarySearch(sortedArray, target);
+
+    if (result != -1) {
+        std::cout << "Value " << target << " found at index " << result << ".\n";
+    } else {
+        std::cout << "Value " << target << " not found.\n";
+    }
+
+    return 0;
+}
+```
+
+#### **Explanation**
+
+1. **Function `binarySearch`**:
+   - Takes a `std::vector<int>` (which represents the sorted array) and an integer `searchValue`.
+   - Initializes `low` and `high` pointers to represent the range of indices to search within.
+   - Uses a `while` loop to repeatedly narrow down the search range:
+     - Computes the `midpoint` index.
+     - Compares the value at `midpoint` with `searchValue`:
+       - If they match, returns the `midpoint` index.
+       - If `searchValue` is less than the midpoint value, narrows the search to the left half.
+       - If `searchValue` is greater, narrows the search to the right half.
+   - Returns `-1` if the `searchValue` is not found.
+
+2. **`main` Function**:
+   - Defines a `std::vector<int>` with sorted values.
+   - Calls `binarySearch` with the target value.
+   - Prints the result to the console.
+
+## Binary Search vs. Linear Search
+
+#### **Linear Search**
+- **Description**: Linear search checks each element in the array sequentially until it finds the target value or exhausts the array.
+- **Steps**:
+  - Start from the beginning of the array.
+  - Compare each element with the target value.
+  - Continue until you find the target or reach the end of the array.
+- **Time Complexity**: O(N), where N is the number of elements in the array.
+  - **Worst-case scenario**: If the target value is at the end or not in the array, it will take N steps.
+  - **Best-case scenario**: If the target is at the first position, it will take 1 step.
+
+#### **Binary Search**
+- **Description**: Binary search works on sorted arrays by repeatedly dividing the search interval in half.
+- **Steps**:
+  - Start with the middle element of the array.
+  - Compare the middle element with the target value.
+  - If the target value is less, search the left half; if greater, search the right half.
+  - Repeat until the target is found or the search interval is empty.
+- **Time Complexity**: O(log N), where N is the number of elements in the array.
+  - **Worst-case scenario**: In a binary search on an array of size N, it will take at most log₂(N) + 1 steps. This is due to the halving of the search space with each step.
+  - **Best-case scenario**: If the target is at the middle, it will take 1 step.
+
+#### **Comparing Performance**
+
+- **For a small array (e.g., 3 elements)**:
+  - **Linear Search**: Up to 3 steps.
+  - **Binary Search**: Up to 2 steps.
+
+- **For a medium-sized array (e.g., 100 elements)**:
+  - **Linear Search**: Up to 100 steps.
+  - **Binary Search**: Up to 7 steps.
+
+- **For a large array (e.g., 10,000 elements)**:
+  - **Linear Search**: Up to 10,000 steps.
+  - **Binary Search**: Up to 14 steps.
+
+- **For an even larger array (e.g., 1,000,000 elements)**:
+  - **Linear Search**: Up to 1,000,000 steps.
+  - **Binary Search**: Up to 20 steps.
+
+#### **Visualizing Performance**
+
+- **Linear Search**: As the number of elements increases, the number of steps increases linearly. This creates a diagonal line in a graph, where the slope represents a proportional increase in steps with the increase in data size.
+
+- **Binary Search**: As the number of elements increases, the number of steps increases logarithmically. This creates a much flatter curve on the graph, showing a much slower increase in steps compared to linear search.
+
+![[Pasted image 20240819202706.png]]
+
+#### **Trade-offs**
+
+- **Insertion and Deletion**: Ordered arrays have slower insertion and deletion compared to unsorted arrays due to the need to maintain order. Binary search is only efficient for searching in sorted data.
+
+- **Use Case Analysis**: 
+  - **If your application frequently inserts and deletes elements**, a standard array (or other data structure) might be more appropriate.
+  - **If your application frequently searches through a large dataset**, an ordered array with binary search could be more efficient despite the slower insertion time.
+
+## The Soul of Big O
+
+**Big O Notation** is a way to express the efficiency of an algorithm, particularly how its runtime or space requirements grow as the size of the input data increases. But understanding Big O involves more than just counting steps; it's about how an algorithm's performance scales with larger datasets. Here’s a deeper look into the concept:
+
+#### **Key Concepts**
+
+1. **What is Big O Notation?**
+    - **Definition**: Big O Notation provides an upper bound on the growth rate of an algorithm’s time or space complexity. It describes how the running time or space requirement of an algorithm increases with the size of the input.
+    - **Purpose**: It helps in comparing the efficiency of algorithms, particularly as the size of the input data increases.
+2. **The Soul of Big O**
+    - **Core Idea**: Big O is not just about the absolute number of steps an algorithm takes but about how the number of steps increases relative to the size of the input. This reflects the scalability and efficiency of an algorithm.
+
+![[Pasted image 20240819202748.png]]
+
+## Deeper into the Soul of Big O
+
+Understanding the deeper implications of Big O Notation involves analyzing the efficiency of algorithms beyond just their asymptotic complexity. Let’s explore why the “soul of Big O” matters and how different scenarios affect the performance evaluation of algorithms.
+
+### **Constant Time vs. Linear Time**
+
+![[Pasted image 20240819203006.png]]
+
+1. **Comparison of O(1) and O(N)**
+   - **O(1) Algorithm**: This algorithm performs a constant number of steps regardless of the size of the input. For example, an algorithm that always takes 100 steps is O(1), because the number of steps doesn’t change with the size of the input data.
+   - **O(N) Algorithm**: This algorithm’s number of steps increases linearly with the size of the input. For instance, if you have an algorithm that takes up to N steps, it will take 10 steps for 10 elements, 100 steps for 100 elements, and so on.
+
+   **Graphical Comparison**:
+   - For smaller datasets, an O(N) algorithm might take fewer steps compared to an O(1) algorithm that takes a large constant number of steps.
+   - **Graph**: Initially, the O(N) line might be below the O(1) line (if the constant is large). However, as the dataset size grows, the O(N) line will eventually surpass the O(1) line. Beyond this crossing point, O(N) will always take more steps than the O(1) algorithm.
+
+   **Key Insight**: The O(1) algorithm will always be more efficient for sufficiently large datasets because its performance does not depend on the size of the input. Even if the constant is large (e.g., one million steps), the performance remains constant relative to the input size, whereas the O(N) algorithm’s steps increase directly with the size of the input.
+
+2. **Practical Implications**
+   - **Large Datasets**: For very large datasets, an O(1) algorithm will almost always be preferable because it maintains a constant number of steps. The performance of an O(N) algorithm, on the other hand, becomes less efficient as the input size grows.
+   - **Small Datasets**: For small datasets, the difference might be negligible. An O(N) algorithm could outperform an O(1) algorithm with a very high constant if the input size is small.
+
 ## **Same Algorithm, Different Scenarios**
 
 1. **Best-Case vs. Worst-Case Scenarios**
@@ -534,6 +672,736 @@ An **ordered array** is a variation of a classic array where the values are alwa
 2. **General Big O Notation**
    - **Worst-Case Focus**: Big O Notation typically refers to the worst-case scenario because it provides a guarantee on the maximum time or space an algorithm will require. This is useful for understanding the upper limit of an algorithm's performance and preparing for the worst-case scenario.
    - **Pessimistic Approach**: By focusing on the worst case, we ensure that the algorithm will not exceed the given performance bounds, which helps in making informed decisions about algorithm choice and application.
+
+## Understanding O(log N) Complexity
+
+**Binary Search** and algorithms like it fall into the category of O(log N) complexity. Let’s explore why this is the case and how it compares to other complexities.
+
+#### **What is O(log N)?**
+
+1. **Definition**:
+   - **O(log N)**: This notation represents algorithms where the number of steps increases logarithmically as the size of the input data (N) increases. In simpler terms, the number of steps grows proportionally to the logarithm of the input size.
+   - **Logarithms**: Logarithms are the inverse of exponentiation. For example, $\log_2 8 = 3$ because $2^3 = 8$. Logarithms tell us how many times we need to multiply a base number (like 2) to reach a certain value.
+
+2. **Understanding Logarithms**:
+   - To understand O(log N) in practical terms, consider how many times you need to divide the data size by 2 until you reach 1. For instance:
+     - For $N = 8$, $\log_2 8 = 3$ (You divide 8 by 2 three times: 8 → 4 → 2 → 1).
+     - For $N = 64$, $\log_2 64 = 6$ (You divide 64 by 2 six times to get 1).
+
+![[Pasted image 20240819203149.png]]
+
+#### **Why Binary Search is O(log N)**
+
+- **Binary Search Mechanism**:
+  - **Process**: In binary search, you start with the entire sorted array and repeatedly divide the search space in half.
+  - **Steps**: Each step halves the number of elements to search through. This halving continues until you either find the target value or narrow down the search space to zero.
+
+- **Example**:
+  - For an array of size 8, you might need 3 steps: 8 → 4 → 2 → 1.
+  - For an array of size 1024, you would need about 10 steps: $\log_2 1024 = 10$.
+
+#### **Comparison with Other Complexities**
+
+1. **O(1) - Constant Time**:
+   - **Definition**: Takes a constant number of steps, regardless of input size.
+   - **Efficiency**: Best for scenarios where operations don’t depend on the size of the data.
+
+2. **O(N) - Linear Time**:
+   - **Definition**: Takes as many steps as there are data elements.
+   - **Efficiency**: Each additional data element adds one more step.
+
+3. **O(log N) - Logarithmic Time**:
+   - **Definition**: Takes fewer steps as the data size increases, increasing only logarithmically.
+   - **Efficiency**: Much more efficient than O(N) for large datasets. For example, in an array with 1,024 elements, binary search (O(log N)) takes 10 steps, while a linear search (O(N)) would take up to 1,024 steps.
+
+#### **Graphical Representation**
+
+**Graph Comparison**:
+- **O(1)**: A horizontal line indicating constant steps.
+- **O(log N)**: A curve that rises slowly, increasing gradually as N grows.
+- **O(N)**: A straight diagonal line indicating a direct, proportional relationship between steps and data size.
+
+**Example Table**:
+
+| N Elements | O(N) | O(log N) |
+|------------|------|----------|
+| 8          | 8    | 3        |
+| 16         | 16   | 4        |
+| 32         | 32   | 5        |
+| 64         | 64   | 6        |
+| 128        | 128  | 7        |
+| 256        | 256  | 8        |
+| 512        | 512  | 9        |
+| 1024       | 1024 | 10       |
+## Bubble Sort Algorithm
+
+**Bubble Sort** is a straightforward sorting algorithm with a simple concept: repeatedly stepping through the list, comparing adjacent elements, and swapping them if they are in the wrong order. The process is repeated until the list is sorted. 
+
+#### **Steps of Bubble Sort**
+
+1. **Initial Setup**:
+   - Start by comparing the first two elements of the array.
+	![[Pasted image 20240819203356.png]]
+
+2. **Compare and Swap**:
+   - If the first element is greater than the second element, swap them. This step places the larger value at the end of the array.
+	![[Pasted image 20240819203401.png]]
+
+3. **Move Pointers**:
+   - Move the pointers one position to the right and repeat the comparison and swap process for the next pair of elements.
+	![[Pasted image 20240819203406.png]]
+
+4. **Complete Pass**:
+   - Continue this process until you reach the end of the array. At the end of the first pass, the largest element will have “bubbled up” to the end of the array.
+
+5. **Repeat**:
+   - Reset the pointers to the beginning of the array and repeat the process. Each subsequent pass will ensure the next largest element finds its correct position, reducing the range of unsorted elements by one each time.
+
+6. **Termination**:
+   - The algorithm terminates when a complete pass through the array is made without any swaps, indicating that the array is sorted.
+
+#### **Code Example in C++**
+
+Here’s a simple implementation of Bubble Sort in C++:
+
+```cpp
+#include <iostream>
+using namespace std;
+
+void bubbleSort(int arr[], int n) {
+    bool swapped;
+    for (int i = 0; i < n-1; i++) {
+        swapped = false;
+        for (int j = 0; j < n-i-1; j++) {
+            if (arr[j] > arr[j+1]) {
+                swap(arr[j], arr[j+1]);
+                swapped = true;
+            }
+        }
+        // If no two elements were swapped in the inner loop, then break
+        if (!swapped)
+            break;
+    }
+}
+
+int main() {
+    int arr[] = {64, 34, 25, 12, 22, 11, 90};
+    int n = sizeof(arr)/sizeof(arr[0]);
+    bubbleSort(arr, n);
+    cout << "Sorted array: \n";
+    for (int i = 0; i < n; i++)
+        cout << arr[i] << " ";
+    cout << endl;
+    return 0;
+}
+```
+
+**Output**:
+```
+Sorted array: 
+11 12 22 25 34 64 90 
+```
+
+#### **Time Complexity**
+
+- **Worst-Case**: O(N²), where N is the number of elements in the array. This occurs when the array is in reverse order.
+- **Best-Case**: O(N) when the array is already sorted, thanks to the early termination condition.
+- **Average-Case**: O(N²) due to the nested loops.
+
+![[Pasted image 20240819203440.png]]
+
+Bubble Sort is generally not used for large datasets due to its inefficiency compared to more advanced algorithms like Quick Sort or Merge Sort. However, its simplicity makes it a useful educational tool for understanding basic sorting concepts.
+
+## Selection Sort Algorithm
+
+**Selection Sort** is another classic sorting algorithm. It operates by repeatedly selecting the smallest (or largest) element from the unsorted portion of the array and swapping it with the first unsorted element.
+
+#### **Steps of Selection Sort**
+
+1. **Find the Minimum**:
+   - Start from the first element of the array and scan through the remaining unsorted elements to find the smallest value. Keep track of the index of this minimum value.
+	![[Pasted image 20240819203604.png]]
+
+2. **Swap**:
+   - Swap the found minimum value with the first unsorted element. After the swap, the first element is now sorted, and we can consider the next element in the array.
+	![[Pasted image 20240819203612.png]]
+
+3. **Repeat**:
+   - Move the starting point of the unsorted portion one position to the right and repeat the process until the entire array is sorted.
+
+#### **Example**
+
+![[Pasted image 20240819203736.png]]
+
+#### **Code Example in C++**
+
+Here’s a simple implementation of Selection Sort in C++:
+
+```cpp
+#include <iostream>
+using namespace std;
+
+void selectionSort(int arr[], int n) {
+    for (int i = 0; i < n-1; i++) {
+        // Find the minimum element in the unsorted array
+        int minIndex = i;
+        for (int j = i+1; j < n; j++) {
+            if (arr[j] < arr[minIndex]) {
+                minIndex = j;
+            }
+        }
+        // Swap the found minimum element with the first element
+        if (minIndex != i) {
+            swap(arr[i], arr[minIndex]);
+        }
+    }
+}
+
+int main() {
+    int arr[] = {64, 25, 12, 22, 11};
+    int n = sizeof(arr)/sizeof(arr[0]);
+    selectionSort(arr, n);
+    cout << "Sorted array: \n";
+    for (int i = 0; i < n; i++)
+        cout << arr[i] << " ";
+    cout << endl;
+    return 0;
+}
+```
+
+**Output**:
+```
+Sorted array: 
+11 12 22 25 64 
+```
+
+#### **Time Complexity**
+
+- **Worst-Case**: O(N²), where N is the number of elements in the array. This occurs because of the nested loops used to find the minimum value.
+- **Best-Case**: O(N²) as well, even if the array is already sorted. This is because the algorithm still needs to perform all comparisons.
+- **Average-Case**: O(N²), due to the same reason as the worst-case scenario.
+
+#### **Comparison with Bubble Sort**
+
+Both Selection Sort and Bubble Sort have a time complexity of O(N²), but they differ in their approach:
+
+- **Selection Sort**: Always performs N-1 comparisons per pass and performs fewer swaps. It may be better for scenarios where swaps are more costly than comparisons.
+- **Bubble Sort**: Continuously swaps adjacent elements and may terminate early if the array becomes sorted before completing all passes.
+
+Selection Sort is often used in educational contexts to illustrate sorting principles and is sometimes used in practice when memory writes are expensive, as it minimizes the number of swaps.
+
+## Efficiency and Big O Notation for Sorting Algorithms
+
+The discussion of **Selection Sort** and **Bubble Sort** highlights important aspects of algorithm efficiency and the role of Big O Notation.
+
+#### **Comparison of Selection Sort and Bubble Sort**
+
+Both Selection Sort and Bubble Sort are quadratic algorithms, meaning their time complexity is O(N²). This notation captures the growth rate of the algorithm’s steps relative to the size of the input data but does not account for constant factors or lower-order terms.
+
+#### **Analysis of Steps**
+
+- **Selection Sort**:
+  - **Comparisons**: The number of comparisons is \((N - 1) + (N - 2) + \ldots + 1\), which sums up to \(\frac{N(N-1)}{2}\). This is O(N²) in Big O Notation.
+  - **Swaps**: There are at most \(N - 1\) swaps, one for each pass through the array. In practice, Selection Sort performs fewer swaps compared to Bubble Sort.
+
+- **Bubble Sort**:
+  - **Comparisons**: Bubble Sort also makes \(\frac{N(N-1)}{2}\) comparisons in the worst case, which is O(N²).
+  - **Swaps**: Bubble Sort can make up to \(\frac{N(N-1)}{2}\) swaps in the worst case, which is significantly more than Selection Sort.
+
+#### **Table of Steps**
+
+Here’s a clearer side-by-side comparison based on your data:
+
+| N Elements | Max # of Steps in Bubble Sort | Max # of Steps in Selection Sort |
+|------------|-------------------------------|---------------------------------|
+| 5          | 20                            | 14 (10 comparisons + 4 swaps)   |
+| 10         | 90                            | 54 (45 comparisons + 9 swaps)   |
+| 20         | 380                           | 199 (180 comparisons + 19 swaps)|
+| 40         | 1560                          | 819 (780 comparisons + 39 swaps)|
+| 80         | 6320                          | 3239 (3160 comparisons + 79 swaps)|
+
+This table confirms that Selection Sort is generally more efficient than Bubble Sort because it performs fewer swaps.
+
+#### **Ignoring Constants in Big O Notation**
+
+Big O Notation simplifies the description of an algorithm’s efficiency by focusing on its growth rate rather than exact counts of steps. Here’s why:
+
+1. **Focus on Growth Rate**: Big O Notation is concerned with how the time complexity grows with input size \(N\). Constants and lower-order terms are less significant for large \(N\).
+  
+2. **Dropping Constants**: Big O Notation ignores multiplicative constants. For instance:
+   - An algorithm with \(N/2\) steps is described as O(N).
+   - An algorithm with \(2N\) steps is also described as O(N).
+
+3. **Real-World Implications**: While two algorithms might have the same Big O complexity, the actual performance can differ based on constants and lower-order terms. For example, Selection Sort might be faster than Bubble Sort in practice due to fewer swaps, even though both have O(N²) complexity.
+
+#### **Why It Matters**
+
+- **Scalability**: Big O Notation helps in understanding how an algorithm will scale with increasing input sizes. It provides a high-level understanding of efficiency and performance.
+  
+- **Practical Considerations**: In real-world scenarios, you should consider both Big O complexity and practical factors like constant factors, cache performance, and implementation details to choose the most suitable algorithm.
+
+## Big O Categories and Their Significance
+
+![[Pasted image 20240819204016.png]]
+
+The discussion on Big O categories underscores the importance of understanding how different types of algorithms scale with input size. Here’s a detailed breakdown of the key points:
+
+#### **Understanding Big O Categories**
+
+1. **Categories vs. Specifics**:
+   - **Analogy**: Comparing buildings, such as a single-family home and a skyscraper, illustrates how the general category (house vs. skyscraper) often suffices to highlight significant differences. Similarly, Big O Notation categorizes algorithms based on their growth rates rather than exact step counts.
+   - **Example**: An O(N) algorithm and an O(N²) algorithm represent fundamentally different growth patterns. Even if the O(N) algorithm has a constant factor (like 100N), it will still be more efficient than an O(N²) algorithm for large enough input sizes.
+
+2. **Categories of Big O Notation**:
+   - **O(1)**: Constant time complexity, meaning the algorithm's performance does not change with the size of the input data.
+   - **O(log N)**: Logarithmic time complexity, meaning the algorithm's performance grows logarithmically with the size of the input data. Binary search is a classic example.
+   - **O(N)**: Linear time complexity, where the algorithm's performance grows linearly with the input size. For example, linear search.
+   - **O(N²)**: Quadratic time complexity, where performance grows quadratically with the input size. Selection Sort and Bubble Sort are examples.
+
+#### **Significance of Categories**
+
+1. **Long-Term Growth**:
+   - **O(N) vs. O(N²)**: An O(N) algorithm will eventually outperform an O(N²) algorithm as the data size increases. The linear growth of O(N) will be much more manageable compared to the quadratic growth of O(N²).
+
+2. **Comparison Across Categories**:
+   - When comparing algorithms from different Big O categories, such as O(N) and O(N²), the difference is stark and clear. It’s sufficient to recognize the general category because the growth rates are vastly different.
+
+3. **Within the Same Category**:
+   - **Same Classification**: Algorithms within the same Big O category (e.g., O(N²)) may have different actual performance characteristics. For instance, Selection Sort may be faster than Bubble Sort even though both are O(N²) due to fewer swaps.
+
+4. **Practical Analysis**:
+   - While Big O provides a high-level understanding, detailed analysis is necessary for algorithms within the same category. Factors such as constant factors, implementation details, and specific data characteristics can impact real-world performance.
+
+#### **Graphical Representation**
+
+Graphs illustrating different Big O categories help visualize how their growth rates diverge as input size increases. For instance:
+
+- **O(1)** remains constant regardless of input size.
+- **O(log N)** increases slowly, reflecting logarithmic growth.
+- **O(N)** shows a straight line, indicating linear growth.
+- **O(N²)** curves upwards more steeply, demonstrating quadratic growth.
+
+## Insertion Sort
+
+**Insertion Sort** is another classic sorting algorithm, and it's known for its simplicity and efficiency in certain scenarios. Here’s a detailed look at how Insertion Sort works and its efficiency:
+
+#### **Steps of Insertion Sort**
+
+1. **Initial Pass-Through**:
+   - **Remove the Value**: Start with the value at index 1 (the second cell) and store it in a temporary variable.
+   - **Create a Gap**: This removal creates a gap at index 1.
+	![[Pasted image 20240819204131.png]]
+
+2. **Shifting Phase**:
+   - **Compare and Shift**: Compare the temporarily removed value with each value to the left of the gap. 
+	![[Pasted image 20240819204156.png]]
+   - **Shift Larger Values**: If a value to the left is greater than the temporarily removed value, shift it one position to the right.
+	![[Pasted image 20240819204204.png]]
+   - **Stop Shifting**: Continue shifting until you find a value smaller than the temporarily removed value or you reach the start of the array.
+
+
+3. **Insert the Value**:
+   - **Place the Value**: Insert the temporarily removed value into the correct position within the shifted portion of the array.
+	![[Pasted image 20240819204216.png]]
+
+4. **Repeat**:
+   - **Continue**: Repeat the process for each subsequent index until you have traversed the entire array. Each pass-through inserts one element into its correct position, thus sorting the array incrementally.
+
+#### **Efficiency of Insertion Sort**
+
+1. **Best-Case Scenario**:
+   - **Sorted Array**: If the array is already sorted, Insertion Sort performs very efficiently. It only requires a linear number of comparisons and no swaps.
+   - **Complexity**: In this best-case scenario, the time complexity is \(O(N)\).
+
+2. **Worst-Case Scenario**:
+   - **Reverse-Sorted Array**: In the worst case, where the array is sorted in reverse, Insertion Sort performs the maximum number of comparisons and shifts.
+   - **Complexity**: The time complexity in this scenario is \(O(N^2)\).
+
+3. **Average-Case Scenario**:
+   - **Random Array**: On average, for a randomly ordered array, Insertion Sort will require a quadratic number of comparisons and shifts.
+   - **Complexity**: The average-case time complexity is \(O(N^2)\).
+
+#### **Comparison with Bubble Sort and Selection Sort**
+
+- **Best Case Efficiency**: Unlike Bubble Sort and Selection Sort, Insertion Sort can perform significantly better in its best case (sorted array). While both Bubble Sort and Selection Sort always have a worst-case time complexity of \(O(N^2)\), Insertion Sort can be \(O(N)\) in the best case.
+  
+- **Average Performance**: In practical scenarios where the array is partially sorted, Insertion Sort can be more efficient compared to Bubble Sort and Selection Sort due to its ability to take advantage of existing order.
+
+- **Number of Comparisons and Swaps**: Insertion Sort performs fewer swaps compared to Bubble Sort because it only swaps elements when necessary to place the element in the correct position.
+
+#### **Example**
+
+![[Pasted image 20240819204328.png]]
+
+#### **Visualizing Complexity**
+
+| **N Elements** | **Best Case (O(N))** | **Worst Case (O(N²))** |
+| -------------- | -------------------- | ---------------------- |
+| 5              | 5                    | 15                     |
+| 10             | 10                   | 55                     |
+| 20             | 20                   | 190                    |
+| 40             | 40                   | 780                    |
+|                |                      |                        |
+
+Insertion Sort is highly efficient for small datasets or arrays that are already partially sorted, making it a useful algorithm in specific situations despite its average and worst-case time complexities.
+
+#### **Code Example in C++**
+
+```cpp
+#include <iostream>
+#include <vector>
+
+void insertionSort(std::vector<int>& arr) {
+    int n = arr.size();
+    for (int i = 1; i < n; ++i) {
+        int key = arr[i];
+        int j = i - 1;
+
+        // Move elements of arr[0..i-1], that are greater than key, to one position ahead of their current position
+        while (j >= 0 && arr[j] > key) {
+            arr[j + 1] = arr[j];
+            --j;
+        }
+        arr[j + 1] = key;
+    }
+}
+
+void printArray(const std::vector<int>& arr) {
+    for (int num : arr) {
+        std::cout << num << " ";
+    }
+    std::cout << std::endl;
+}
+
+int main() {
+    std::vector<int> arr = {12, 11, 13, 5, 6};
+    
+    std::cout << "Original array: ";
+    printArray(arr);
+    
+    insertionSort(arr);
+    
+    std::cout << "Sorted array: ";
+    printArray(arr);
+    
+    return 0;
+}
+```
+
+#### Explanation
+
+1. **Function `insertionSort`**:
+   - **Input**: A vector of integers (`std::vector<int>& arr`).
+   - **Process**:
+     - Starts from the second element (index 1) and compares it to the elements before it.
+     - Moves elements that are greater than the current element (`key`) one position to the right.
+     - Inserts the `key` into its correct position.
+   - **Complexity**:
+     - Best Case: $O(N)$ (when the array is already sorted).
+     - Worst Case: $O(N^2)$ (when the array is sorted in reverse).
+
+2. **Function `printArray`**:
+   - **Input**: A constant reference to a vector of integers.
+   - **Output**: Prints the elements of the vector to the console.
+
+3. **`main` Function**:
+   - Initializes an array.
+   - Prints the original array.
+   - Calls `insertionSort` to sort the array.
+   - Prints the sorted array.
+
+#### Example Output
+For the input array `{12, 11, 13, 5, 6}`, the output will be:
+
+```
+Original array: 12 11 13 5 6 
+Sorted array: 5 6 11 12 13 
+```
+
+This implementation of Insertion Sort is straightforward and efficiently handles small to moderately sized arrays, especially when the data is nearly sorted.
+
+## Average Case: Selection Sort vs. Insertion Sort
+
+![[Pasted image 20240819204612.png]]
+
+#### **Selection Sort**
+
+1. **Best Case**: 
+   - **Complexity**: $O(N^2)$
+   - **Description**: Selection Sort always performs $N-1$ comparisons in the first pass, $N-2$ in the second, and so on, regardless of the initial order of the array.
+   - **Steps**: For an array of size $N$, the total number of comparisons is $\frac{N(N-1)}{2}$. Swaps are always $\frac{N-1}{2}$ in the worst case, but there's no optimization to stop early.
+
+2. **Average Case**: 
+   - **Complexity**: $O(N^2)$
+   - **Description**: The average case performance is also $O(N^2)$ because the number of comparisons remains constant. The array's initial order doesn’t affect the number of comparisons.
+
+3. **Worst Case**: 
+   - **Complexity**: $O(N^2)$
+   - **Description**: In the worst case, Selection Sort performs the same number of comparisons and swaps as in the best case.
+
+#### **Insertion Sort**
+
+1. **Best Case**: 
+   - **Complexity**: $O(N)$
+   - **Description**: When the array is already sorted, Insertion Sort performs only $N-1$ comparisons and no shifts. This is the most efficient scenario for Insertion Sort.
+
+2. **Average Case**: 
+   - **Complexity**: $O(N^2)$
+   - **Description**: On average, each element is compared to half of the previously sorted elements. This results in approximately $\frac{N(N-1)}{4}$ comparisons and shifts.
+
+3. **Worst Case**: 
+   - **Complexity**: $O(N^2)$
+   - **Description**: In the worst case, when the array is sorted in reverse order, Insertion Sort performs $N(N-1)/2$ comparisons and shifts.
+
+#### **Comparison Table**
+
+| Algorithm          | Best Case | Average Case | Worst Case |     |
+| ------------------ | --------- | ------------ | ---------- | --- |
+| **Selection Sort** | $O(N^2)$  | $O(N^2)$     | $O(N^2)$   |     |
+| **Insertion Sort** | $O(N)$    | $O(N^2)$     | $O(N^2)$   |     |
+
+![[Pasted image 20240819204630.png]]
+
+#### **Choosing Between the Two**
+
+- **Selection Sort** is predictable and straightforward, with consistent performance regardless of the initial order of the data. It performs the same number of comparisons in all scenarios.
+- **Insertion Sort** can be more efficient if the data is already or nearly sorted. It performs fewer operations in the best case but can degrade to $O(N^2)$ in the worst case.
+
+In practice:
+
+- **For mostly sorted data**: Insertion Sort is often faster due to its better average-case and best-case performance.
+- **For data with unknown initial order**: Both sorts will have similar performance, but Insertion Sort might be preferred for small to medium-sized arrays due to its adaptability.
+- **For large arrays**: Consider more advanced algorithms like Merge Sort or Quick Sort, which have better average-case performance.
+
+### Conclusion
+
+The choice between Selection Sort and Insertion Sort depends on the characteristics of your data and the specific use case. For arrays that are frequently partially sorted, Insertion Sort might be preferable, while for cases where data order is unknown or if consistency is key, Selection Sort's predictable performance can be advantageous.
+
+## Hash Tables and Hash Functions
+
+**Hash Tables** are a powerful data structure commonly used in programming for fast data retrieval. They are also known as hashes, hash maps, dictionaries, or associative arrays, depending on the programming language.
+
+#### **Hash Tables Overview**
+
+- **Structure**: A hash table is essentially a collection of key-value pairs. For example, in Ruby, you might define a menu using a hash table as follows:
+
+  ```ruby
+  menu = { "french fries" => 0.75, "hamburger" => 2.5, "hot dog" => 1.5, "soda" => 0.6 }
+  ```
+
+  Here, `"french fries"` is the key, and `0.75` is the value associated with that key.
+
+- **Lookup Efficiency**: Looking up a value associated with a key in a hash table is typically done in constant time, i.e., $O(1)$ on average. This efficiency is achieved through the use of **hash functions**.
+
+#### **Hashing and Hash Functions**
+
+Hash functions are essential for the operation of hash tables. They convert keys into indices of an internal array where the corresponding values are stored.
+
+##### **Example of Hash Functions**
+
+1. **Simple Character-to-Number Hash Function**:
+   - **Mapping**: `A = 1`, `B = 2`, `C = 3`, `D = 4`, etc.
+   - **Example**:
+     - **BAD** → `2, 1, 4`
+     - **Product of Digits**: `2 * 1 * 4 = 8`
+     - So, BAD maps to `8`.
+
+2. **Sum of Digits Hash Function**:
+   - **Mapping**: Same character-to-number mapping.
+   - **Example**:
+     - **BAD** → `2, 1, 4`
+     - **Sum of Digits**: `2 + 1 + 4 = 7`
+     - So, BAD maps to `7`.
+
+##### **Criteria for a Valid Hash Function**
+
+A valid hash function must:
+
+1. **Consistency**: Always produce the same hash value for the same input. For instance, with our multiplication hash function, **BAD** will always hash to `8`.
+
+2. **Deterministic**: The function should not use random elements or current time. For instance, using random numbers or the current time would result in inconsistent hash values.
+
+#### **Handling Collisions**
+
+Hash functions might produce the same hash value for different keys. This is known as a **collision**. For example, both **BAD** and **DAB** might hash to `8` with our multiplication hash function. Handling collisions effectively is a crucial aspect of designing hash tables. Common strategies include:
+
+- **Chaining**: Storing collided elements in a list at each index.
+- **Open Addressing**: Finding another open slot in the array according to a probing sequence.
+
+### Summary
+
+- **Hash Tables** provide efficient key-value storage and retrieval.
+- **Hash Functions** convert keys into indices where values are stored.
+- **Consistency and Determinism** are essential for a good hash function.
+- **Collisions** can occur and must be handled to maintain efficiency.
+
+## Hash Table Lookups
+
+- **Hash Table Basics:**
+  - A hash table is a data structure that uses keys to find associated values quickly.
+  - Each key is processed using a hash function, which converts the key into an index number.
+  - The value associated with a key is stored at the index computed by the hash function.
+
+- **Hash Table Lookup Process:**
+  - To look up a value, the key is hashed to produce an index.
+  - The value is then retrieved from the cell at the calculated index.
+  - This lookup process typically has a time complexity of $O(1)$, meaning it takes a constant amount of time.
+
+- **Efficiency of Hash Tables:**
+  - Hash tables provide faster lookups compared to arrays, where searching for an item can take $O(N)$ time in an unordered array or $O(\log N)$ in an ordered array.
+  - By using keys (e.g., menu items) directly in hash tables, lookups become much more efficient.
+
+- **One-Directional Lookups:**
+  - Hash tables are efficient only when you know the key; the key determines the location of the value.
+  - If you only know the value and need to find the key, you would have to search through the entire table, resulting in $O(N)$ time complexity.
+  - This one-directional nature means you can't easily find keys based on values.
+
+- **Key-Value Storage:**
+  - In some programming languages, keys are stored next to their corresponding values within the hash table.
+  - This helps resolve issues like collisions, where multiple keys might hash to the same index.
+
+- **Uniqueness of Keys:**
+  - Each key in a hash table must be unique; if a key is inserted again, its associated value is overwritten.
+  - However, multiple keys can map to the same value.
+
+- **Practical Example:**
+  - In a restaurant menu, using the item name as the key in a hash table allows for fast price lookups, whereas using an array would require searching through all items.
+
+## Dealing With Collissions
+
+### **Collisions in Hash Tables:**
+- **What is a Collision?**
+  - A collision occurs when two different keys hash to the same index in the hash table.
+  - In the example, both "bad" and "dab" hash to index 8, leading to a collision when trying to store the value associated with "dab".
+```python
+thesaurus["dab"] = "pat"
+```
+
+![[Pasted image 20240819205831.png]]
+
+![[Pasted image 20240819205845.png]]
+
+### **Handling Collisions:**
+- **Separate Chaining:**
+  - One common way to handle collisions is through separate chaining.
+  - Instead of storing a single value in a cell, the hash table stores a reference to an array (or linked list) when a collision occurs.
+  - This array will hold subarrays (or nodes in the case of a linked list) where each subarray contains the key and its associated value.
+
+![[Pasted image 20240819205924.png]]
+
+### **Lookup Process with Separate Chaining:**
+- **Steps in Lookup:**
+  - The computer hashes the key to determine the index.
+  - It then checks the cell at that index. If the cell contains an array of subarrays (due to a collision), a linear search is conducted within that array.
+  - The computer searches through the array, comparing the key at index 0 of each subarray until it finds the correct key. It then returns the corresponding value from index 1 of that subarray.
+
+- **Impact on Performance:**
+  - While separate chaining allows the hash table to handle collisions, it can degrade performance.
+  - In the worst-case scenario, if many keys collide and are stored in the same cell, the lookup process could degrade to $O(N)$ time complexity, which is no better than searching in a regular array.
+
+### **Importance of Minimizing Collisions:**
+- **Designing Efficient Hash Tables:**
+  - To maintain the typical $O(1)$ lookup time, it's crucial to minimize the number of collisions.
+  - This can be achieved by using a good hash function that distributes keys evenly across the hash table, and by ensuring the table is large enough relative to the number of entries.
+  - Most programming languages implement hash tables with these optimizations in place to handle collisions efficiently.
+
+## Making an Efficient Hash Table
+
+### **Factors Affecting Hash Table Efficiency:**
+1. **Amount of Data:**
+   - The more data you store in a hash table, the higher the potential for collisions if the table isn’t large enough.
+
+2. **Number of Cells:**
+   - The number of cells in the hash table should be sufficient to store data with minimal collisions. If the table has too few cells relative to the data, collisions become more frequent, reducing efficiency.
+
+3. **Hash Function:**
+   - The hash function determines how keys are converted into indices (cell locations) in the table.
+   - A good hash function distributes keys uniformly across all available cells, minimizing collisions.
+
+### **Importance of a Good Hash Function:**
+- **Example of a Poor Hash Function:**
+  - A hash function that always returns a number between 1 and 9, even if the table has more cells, results in underutilization. Only cells 1 to 9 will be used, leading to a high concentration of data (and thus collisions) in these cells.
+	![[Pasted image 20240819210137.png]]
+  
+- **Desired Hash Function Behavior:**
+  - A well-designed hash function spreads data evenly across all cells, using the entire table efficiently and reducing the chances of collisions.
+
+### **Balancing Act:**
+- **Collision Avoidance vs. Memory Usage:**
+  - While avoiding collisions is crucial, it must be balanced against memory usage. For example, using a hash table with 1,000 cells for only 5 pieces of data avoids collisions but wastes memory.
+  
+- **Load Factor:**
+  - The load factor is a ratio that represents the balance between the number of data elements and the number of cells in the table.
+  - A commonly accepted load factor is 0.7, meaning for every 7 pieces of data, there should be 10 cells.
+  - As more data is added, the table may need to be resized, and the hash function might be adjusted to maintain an even distribution.
+
+### **Dynamic Resizing and Load Factor:**
+- **Resizing the Hash Table:**
+  - When the load factor becomes too high (too many elements relative to the number of cells), the hash table is resized to accommodate more data and reduce collisions.
+  - This resizing process often involves rehashing the existing data to spread it more evenly across the new, larger table.
+
+### **Optimizing for Efficiency:**
+- **Programming Language Implementations:**
+  - Most modern programming languages handle the details of hash table sizing, hash function selection, and resizing automatically, ensuring optimal performance.
+  - This allows developers to focus on using hash tables without worrying too much about the underlying mechanics.
+
+### **Key Takeaways:**
+- Efficient hash tables balance the number of cells, the amount of data, and the effectiveness of the hash function to ensure $O(1)$ lookup times.
+- The load factor provides a guideline for maintaining this balance, preventing excessive collisions while avoiding unnecessary memory usage.
+- Understanding these principles helps in appreciating how hash tables achieve fast lookups and why certain design choices are made in their implementation.
+
+## Hash Tables for Organization
+
+1. **Natural Fit for Paired Data:**
+   - **Paired Data Examples:** 
+     - Hash tables are ideal for data that naturally exists in pairs, such as:
+       - **Fast-food menu:** Food item paired with its price.
+       - **Thesaurus:** Word paired with its synonym.
+     - In Python, hash tables are called **dictionaries** because they function like a dictionary, with words (keys) and definitions (values).
+   
+2. **Tallies and Inventory:**
+   - **Tallies:** 
+     - Example: Tracking votes in an election, where each candidate's name is paired with their vote count.
+     - Example: An inventory system, where each item's name is paired with the quantity in stock.
+   
+3. **Simplifying Conditional Logic:**
+   - **Conditional Logic Example:**
+     - Instead of using multiple `if-else` statements to map HTTP status codes to their meanings, a hash table can be used for direct lookups.
+   - **C++ Example:**
+     ```cpp
+     #include <unordered_map>
+     #include <string>
+
+     std::string status_code_meaning(int number) {
+         static const std::unordered_map<int, std::string> STATUS_CODES = {
+             {200, "OK"}, {301, "Moved Permanently"}, {401, "Unauthorized"},
+             {404, "Not Found"}, {500, "Internal Server Error"}
+         };
+         return STATUS_CODES[number];
+     }
+     ```
+
+4. **Representing Objects with Attributes:**
+   - **Attributes as Paired Data:**
+     - Example: Representing a dog with attributes like name, breed, age, and gender, where each attribute is a key-value pair.
+   - **C++ Example:**
+     - An individual dog:
+     ```cpp
+     std::unordered_map<std::string, std::string> dog = {
+         {"Name", "Fido"}, {"Breed", "Pug"}, {"Age", "3"}, {"Gender", "Male"}
+     };
+     ```
+     - A list of dogs:
+     ```cpp
+     std::vector<std::unordered_map<std::string, std::string>> dogs = {
+         {{"Name", "Fido"}, {"Breed", "Pug"}, {"Age", "3"}, {"Gender", "Male"}},
+         {{"Name", "Lady"}, {"Breed", "Poodle"}, {"Age", "6"}, {"Gender", "Female"}},
+         {{"Name", "Spot"}, {"Breed", "Dalmatian"}, {"Age", "2"}, {"Gender", "Male"}}
+     };
+     ```
+
+5. **Key Takeaway:**
+   - Hash tables are extremely useful for organizing paired data, simplifying lookups, and representing objects with multiple attributes efficiently.
 
 ## Stacks
 
@@ -564,7 +1432,7 @@ An **ordered array** is a variation of a classic array where the values are alwa
 	    - When "undo" is pressed, the most recent keystroke is popped off and removed from the document.
 	    - This mechanism allows for sequential undo actions, removing the most recent changes one by one.
 
-## Abstract Data Types
+## **Abstract Data Types**
 
 - **Abstract Data Types (ADTs):**
   - An ADT is a data structure defined by a set of operations or behaviors rather than by its implementation.
@@ -1009,7 +1877,7 @@ int factorial(int n) {
   - Useful when the problem can be broken down recursively.
   - More elegant for complex problems involving multiple levels of depth or where subproblems naturally lead to the solution.
 
-## Top-Down Recursion
+## **Top-Down Recursion:**
 
 1. **Imagine the Function is Already Implemented:** 
    - When writing a recursive function, pretend the function you're writing has already been implemented by someone else. This allows you to focus on the overall problem-solving strategy without getting bogged down by the implementation details.
@@ -1068,1592 +1936,339 @@ int main() {
 ### **Advantages:**
 - This top-down approach makes it easier to think about the problem because you focus on breaking down the problem and rely on the recursive function to handle the details of the subproblem.
 
-## Binary Search
+## Partitioning
 
-Binary search is a highly efficient algorithm used to find an item in a sorted array by repeatedly dividing the search interval in half. It’s akin to the guessing game where you eliminate half the possible answers with each guess.
+### **Quicksort Overview**
+Quicksort is a divide-and-conquer algorithm that sorts an array by partitioning it into two subarrays—elements less than a chosen pivot and elements greater than the pivot—then recursively sorting the subarrays.
 
-#### **How Binary Search Works**
+### **Partitioning Process**
+The core of Quicksort is its partitioning step, which rearranges elements in the array such that:
+- All elements less than the pivot are to the left of it.
+- All elements greater than the pivot are to the right.
 
-1. **Initial Setup**:
-   - Start with the entire array.
-   - Define two pointers: `low` (start of the array) and `high` (end of the array).
+### **Step-by-Step Partitioning Example**
 
-2. **Iterative Search**:
-   - Calculate the midpoint of the array segment.
-   - Compare the target value with the value at the midpoint:
-     - If the target equals the midpoint value, you’ve found the target.
-     - If the target is less than the midpoint value, adjust the `high` pointer to search the left half.
-     - If the target is greater, adjust the `low` pointer to search the right half.
-   - Repeat until the `low` pointer exceeds the `high` pointer or the target is found.
+Let's walk through the partitioning process step-by-step using the array `[0, 5, 2, 1, 6, 3]` with the pivot being `3`, the left pointer starting at `0`, and the right pointer starting at `6`.
 
-3. **Efficiency**:
-   - **Time Complexity**: $O(\log N)$, where $N$ is the number of elements in the array. This logarithmic time complexity makes binary search much faster than linear search, especially for large arrays.
-   - **Space Complexity**: $O(1)$ for the iterative approach, as it requires only a few additional variables.
+### Initial Array:
+![[Pasted image 20240819215451.png]]
 
-![[Pasted image 20240819202513.png]]
+- Pivot: `3`
+- Left Pointer: `0` (initially points to the value `0`)
+- Right Pointer: `6` (initially points to the value `6`)
 
-#### **Example**
+### Step 1: Compare Left Pointer to Pivot
+- Left Pointer is at `0` (value `0`), which is less than the pivot `3`.
+- **Action**: Move the left pointer to the next position.
 
-Suppose you have an ordered array `[1, 3, 4, 7, 9, 11]` and want to find the value `7`. Here’s a step-by-step breakdown:
+![[Pasted image 20240819215505.png]]
 
-1. **Initial State**:
-   - Array: `[1, 3, 4, 7, 9, 11]`
-   - `low` = 0, `high` = 5
+### Step 2: Move Left Pointer
+- Left Pointer is now at `5`, which is greater than the pivot `3`.
+- **Action**: Stop the left pointer and activate the right pointer.
 
-2. **First Iteration**:
-   - `midpoint` = (0 + 5) / 2 = 2
-   - Value at index 2 is `4`
-   - Since `7 > 4`, update `low` to `midpoint + 1` = 3
+### Step 3: Compare Right Pointer to Pivot
+- Right Pointer is at `6`, which is greater than the pivot `3`.
+- **Action**: Move the right pointer to the previous position.
 
-3. **Second Iteration**:
-   - `low` = 3, `high` = 5
-   - `midpoint` = (3 + 5) / 2 = 4
-   - Value at index 4 is `9`
-   - Since `7 < 9`, update `high` to `midpoint - 1` = 3
+### Step 4: Move Right Pointer
+- Right Pointer is now at `1`, which is less than the pivot `3`.
+- **Action**: Stop the right pointer.
 
-4. **Third Iteration**:
-   - `low` = 3, `high` = 3
-   - `midpoint` = (3 + 3) / 2 = 3
-   - Value at index 3 is `7`
-   - Found the target!
+![[Pasted image 20240819215540.png]]
 
-#### **Code Implementation**
+### Step 5: Swap Left and Right Pointers
+- Left Pointer is at `5`, and Right Pointer is at `1`.
+- **Action**: Swap the values `5` and `1`.
+
+![[Pasted image 20240819215620.png]]
+
+### Step 6: Move Left Pointer
+- Left Pointer moves to `2`, which is less than the pivot `3`.
+- **Action**: Move the left pointer to the next position.
+
+![[Pasted image 20240819215633.png]]
+
+### Step 7: Move Left Pointer Again
+- Left Pointer now moves to `5`, which is greater than the pivot `3`.
+- Since the left pointer has reached the right pointer, we stop.
+
+![[Pasted image 20240819215644.png]]
+
+### Step 8: Swap Pivot with Left Pointer Value
+- Swap the value `5` (where the left pointer is) with the pivot `3`.
+
+![[Pasted image 20240819215703.png]]
+### **C++ Implementation**
 
 ```cpp
 #include <iostream>
 #include <vector>
 
-int binarySearch(const std::vector<int>& array, int searchValue) {
-    int low = 0;
-    int high = array.size() - 1;
+int partition(std::vector<int>& arr, int low, int high) {
+    int pivot = arr[high];  // Pivot element is the last element
+    int i = low - 1;        // Index of smaller element
 
-    while (low <= high) {
-        int midpoint = low + (high - low) / 2;
-        int valueAtMidpoint = array[midpoint];
-
-        if (searchValue == valueAtMidpoint) {
-            return midpoint;  // Target found
-        } else if (searchValue < valueAtMidpoint) {
-            high = midpoint - 1;  // Search in the left half
-        } else {
-            low = midpoint + 1;   // Search in the right half
+    for (int j = low; j < high; j++) {
+        // If the current element is smaller than the pivot
+        if (arr[j] < pivot) {
+            i++;  // Increment index of smaller element
+            std::swap(arr[i], arr[j]);
         }
     }
-
-    return -1;  // Target not found
+    std::swap(arr[i + 1], arr[high]);  // Place pivot in the correct position
+    return i + 1;
 }
 
-int main() {
-    std::vector<int> sortedArray = {1, 3, 4, 7, 9, 11};
-    int target = 7;
-
-    int result = binarySearch(sortedArray, target);
-
-    if (result != -1) {
-        std::cout << "Value " << target << " found at index " << result << ".\n";
-    } else {
-        std::cout << "Value " << target << " not found.\n";
-    }
-
-    return 0;
-}
-```
-
-#### **Explanation**
-
-1. **Function `binarySearch`**:
-   - Takes a `std::vector<int>` (which represents the sorted array) and an integer `searchValue`.
-   - Initializes `low` and `high` pointers to represent the range of indices to search within.
-   - Uses a `while` loop to repeatedly narrow down the search range:
-     - Computes the `midpoint` index.
-     - Compares the value at `midpoint` with `searchValue`:
-       - If they match, returns the `midpoint` index.
-       - If `searchValue` is less than the midpoint value, narrows the search to the left half.
-       - If `searchValue` is greater, narrows the search to the right half.
-   - Returns `-1` if the `searchValue` is not found.
-
-2. **`main` Function**:
-   - Defines a `std::vector<int>` with sorted values.
-   - Calls `binarySearch` with the target value.
-   - Prints the result to the console.
-
-[Binary Search Video Tutorial](https://www.youtube.com/watch?v=fDKIpRe8GW4&list=PL9xmBV_5YoZMIAJn8M6At9CjZ0Wu0B31d&pp=iAQB)
-
-## Binary Search vs. Linear Search
-
-#### **Linear Search**
-- **Description**: Linear search checks each element in the array sequentially until it finds the target value or exhausts the array.
-- **Steps**:
-  - Start from the beginning of the array.
-  - Compare each element with the target value.
-  - Continue until you find the target or reach the end of the array.
-- **Time Complexity**: O(N), where N is the number of elements in the array.
-  - **Worst-case scenario**: If the target value is at the end or not in the array, it will take N steps.
-  - **Best-case scenario**: If the target is at the first position, it will take 1 step.
-
-#### **Binary Search**
-- **Description**: Binary search works on sorted arrays by repeatedly dividing the search interval in half.
-- **Steps**:
-  - Start with the middle element of the array.
-  - Compare the middle element with the target value.
-  - If the target value is less, search the left half; if greater, search the right half.
-  - Repeat until the target is found or the search interval is empty.
-- **Time Complexity**: O(log N), where N is the number of elements in the array.
-  - **Worst-case scenario**: In a binary search on an array of size N, it will take at most log₂(N) + 1 steps. This is due to the halving of the search space with each step.
-  - **Best-case scenario**: If the target is at the middle, it will take 1 step.
-
-#### **Comparing Performance**
-
-- **For a small array (e.g., 3 elements)**:
-  - **Linear Search**: Up to 3 steps.
-  - **Binary Search**: Up to 2 steps.
-
-- **For a medium-sized array (e.g., 100 elements)**:
-  - **Linear Search**: Up to 100 steps.
-  - **Binary Search**: Up to 7 steps.
-
-- **For a large array (e.g., 10,000 elements)**:
-  - **Linear Search**: Up to 10,000 steps.
-  - **Binary Search**: Up to 14 steps.
-
-- **For an even larger array (e.g., 1,000,000 elements)**:
-  - **Linear Search**: Up to 1,000,000 steps.
-  - **Binary Search**: Up to 20 steps.
-
-#### **Visualizing Performance**
-
-- **Linear Search**: As the number of elements increases, the number of steps increases linearly. This creates a diagonal line in a graph, where the slope represents a proportional increase in steps with the increase in data size.
-
-- **Binary Search**: As the number of elements increases, the number of steps increases logarithmically. This creates a much flatter curve on the graph, showing a much slower increase in steps compared to linear search.
-
-![[Pasted image 20240819202706.png]]
-
-#### **Trade-offs**
-
-- **Insertion and Deletion**: Ordered arrays have slower insertion and deletion compared to unsorted arrays due to the need to maintain order. Binary search is only efficient for searching in sorted data.
-
-- **Use Case Analysis**: 
-  - **If your application frequently inserts and deletes elements**, a standard array (or other data structure) might be more appropriate.
-  - **If your application frequently searches through a large dataset**, an ordered array with binary search could be more efficient despite the slower insertion time.
-
-## Understanding O(log N) Complexity
-
-**Binary Search** and algorithms like it fall into the category of O(log N) complexity. Let’s explore why this is the case and how it compares to other complexities.
-
-#### **What is O(log N)?**
-
-1. **Definition**:
-   - **O(log N)**: This notation represents algorithms where the number of steps increases logarithmically as the size of the input data (N) increases. In simpler terms, the number of steps grows proportionally to the logarithm of the input size.
-   - **Logarithms**: Logarithms are the inverse of exponentiation. For example, $\log_2 8 = 3$ because $2^3 = 8$. Logarithms tell us how many times we need to multiply a base number (like 2) to reach a certain value.
-
-2. **Understanding Logarithms**:
-   - To understand O(log N) in practical terms, consider how many times you need to divide the data size by 2 until you reach 1. For instance:
-     - For $N = 8$, $\log_2 8 = 3$ (You divide 8 by 2 three times: 8 → 4 → 2 → 1).
-     - For $N = 64$, $\log_2 64 = 6$ (You divide 64 by 2 six times to get 1).
-
-![[Pasted image 20240819203149.png]]
-
-#### **Why Binary Search is O(log N)**
-
-- **Binary Search Mechanism**:
-  - **Process**: In binary search, you start with the entire sorted array and repeatedly divide the search space in half.
-  - **Steps**: Each step halves the number of elements to search through. This halving continues until you either find the target value or narrow down the search space to zero.
-
-- **Example**:
-  - For an array of size 8, you might need 3 steps: 8 → 4 → 2 → 1.
-  - For an array of size 1024, you would need about 10 steps: $\log_2 1024 = 10$.
-
-#### **Comparison with Other Complexities**
-
-1. **O(1) - Constant Time**:
-   - **Definition**: Takes a constant number of steps, regardless of input size.
-   - **Efficiency**: Best for scenarios where operations don’t depend on the size of the data.
-
-2. **O(N) - Linear Time**:
-   - **Definition**: Takes as many steps as there are data elements.
-   - **Efficiency**: Each additional data element adds one more step.
-
-3. **O(log N) - Logarithmic Time**:
-   - **Definition**: Takes fewer steps as the data size increases, increasing only logarithmically.
-   - **Efficiency**: Much more efficient than O(N) for large datasets. For example, in an array with 1,024 elements, binary search (O(log N)) takes 10 steps, while a linear search (O(N)) would take up to 1,024 steps.
-
-#### **Graphical Representation**
-
-**Graph Comparison**:
-- **O(1)**: A horizontal line indicating constant steps.
-- **O(log N)**: A curve that rises slowly, increasing gradually as N grows.
-- **O(N)**: A straight diagonal line indicating a direct, proportional relationship between steps and data size.
-
-**Example Table**:
-
-| N Elements | O(N) | O(log N) |
-|------------|------|----------|
-| 8          | 8    | 3        |
-| 16         | 16   | 4        |
-| 32         | 32   | 5        |
-| 64         | 64   | 6        |
-| 128        | 128  | 7        |
-| 256        | 256  | 8        |
-| 512        | 512  | 9        |
-| 1024       | 1024 | 10       |
-
-## Trees
-
-- **Tree Structure:**
-  - **Node-Based Data Structure:** Like linked lists, trees consist of nodes. However, each node in a tree can have links (branches) to multiple other nodes.
-  - **Visualization:** A tree is often depicted with the root at the top and branches growing downward.
-
-- **Tree Terminology:**
-  - **Root:** The topmost node in a tree. It is the ancestor of all other nodes. In the given example, "j" is the root.
-  - **Parent and Child:** 
-    - **Parent:** A node that has branches to other nodes (children).
-    - **Child:** A node that is connected by a branch from another node (parent). For instance, "j" is the parent of "m" and "b," while "m" and "b" are children of "j."
-  - **Descendants and Ancestors:**
-    - **Descendants:** All nodes that stem from a particular node.
-    - **Ancestors:** All nodes that a particular node stems from. For example, "j" is the ancestor of all other nodes in the tree.
-  - **Levels:** The rows within a tree, where each row represents a different level. The root is at level 1, its children are at level 2, and so on.
-
-- **Tree Balance:**
-  - **Balanced Tree:** A tree is balanced if the subtrees of every node contain the same number of nodes. In the example, the tree is perfectly balanced because each node's subtrees have an equal number of nodes.
-  - **Imbalanced Tree:** If one subtree has more nodes than the other, the tree is imbalanced. An imbalance can affect the performance of operations like search, insertion, and deletion.
-
-### Visual Examples
-
-**Balanced Tree:**
-![[Pasted image 20240819222526.png]]
-
-**Imbalanced Tree:**
-![[Pasted image 20240819222537.png]]
-
-This concept of balance is crucial for many tree operations, particularly in structures like **Binary Search Trees (BSTs)** where balanced trees ensure efficient performance.
-
-## Binary Search Trees (BSTs)
-
-- **Binary Tree:**
-  - A **binary tree** is a tree where each node has zero, one, or two children.
-
-- **Binary Search Tree (BST):**
-  - A **binary search tree** is a special type of binary tree that follows two key rules:
-    1. Each node can have at most one "left" child and one "right" child.
-    2. The "left" child and its descendants must have values less than the node's value, while the "right" child and its descendants must have values greater than the node's value.
-
-### Characteristics of a BST:
-- **Left Child:** Contains values less than the parent node.
-- **Right Child:** Contains values greater than the parent node.
-- **Structure Example:**
-
-![[Pasted image 20240819222612.png]]
-
-  - In this example:
-    - The root is 50.
-    - The left subtree of 50 contains values less than 50 (25, 10, 33, ...).
-    - The right subtree of 50 contains values greater than 50 (75, 56, 52, 95, ...).
-    - This pattern holds true for each node in the tree.
-
-### Invalid BST Example:
-- A binary tree that does not follow the BST rules:
-  ```
-         50
-        /  \
-       25   40
-      / 
-     30 
-  ```
-  - This is a binary tree because each node has at most two children.
-  - However, it is not a valid BST because the right child of the root (40) is less than the root (50), violating the BST property.
-
-### C++ Implementation of a BST Node and Simple Tree
-
-```cpp
-#include <iostream>
-
-class TreeNode {
-public:
-    int value;
-    TreeNode* leftChild;
-    TreeNode* rightChild;
-
-    TreeNode(int val) : value(val), leftChild(nullptr), rightChild(nullptr) {}
-};
-
-// Function to insert a new node into the BST
-TreeNode* insert(TreeNode* root, int value) {
-    if (root == nullptr) {
-        return new TreeNode(value);
-    }
-
-    if (value < root->value) {
-        root->leftChild = insert(root->leftChild, value);
-    } else if (value > root->value) {
-        root->rightChild = insert(root->rightChild, value);
-    }
-
-    return root;
-}
-
-// Function to search for a value in the BST
-bool search(TreeNode* root, int value) {
-    if (root == nullptr) {
-        return false;
-    }
-
-    if (root->value == value) {
-        return true;
-    }
-
-    if (value < root->value) {
-        return search(root->leftChild, value);
-    } else {
-        return search(root->rightChild, value);
+void quicksort(std::vector<int>& arr, int low, int high) {
+    if (low < high) {
+        // pi is the partitioning index, arr[pi] is now in the right place
+        int pi = partition(arr, low, high);
+
+        // Recursively sort elements before partition and after partition
+        quicksort(arr, low, pi - 1);
+        quicksort(arr, pi + 1, high);
     }
 }
 
 int main() {
-    TreeNode* root = nullptr;
-
-    // Inserting nodes into the BST
-    root = insert(root, 50);
-    insert(root, 25);
-    insert(root, 75);
-    insert(root, 10);
-    insert(root, 30);
-    insert(root, 60);
-    insert(root, 85);
-
-    // Searching for a value
-    int target = 30;
-    if (search(root, target)) {
-        std::cout << target << " found in the tree." << std::endl;
-    } else {
-        std::cout << target << " not found in the tree." << std::endl;
+    std::vector<int> arr = {10, 7, 8, 9, 1, 5};
+    int n = arr.size();
+    quicksort(arr, 0, n - 1);
+    
+    std::cout << "Sorted array: ";
+    for (int x : arr) {
+        std::cout << x << " ";
     }
-
-    return 0;
-}
-```
-
-### Explanation of the Code:
-- **TreeNode Class:**
-  - Represents a node in the BST with an integer value and pointers to left and right children.
-
-- **Insert Function:**
-  - Recursively inserts a new value into the tree, maintaining the BST properties.
-
-- **Search Function:**
-  - Recursively searches for a value in the tree, returning `true` if found and `false` otherwise.
-
-This C++ implementation allows efficient insertion and search operations in a BST, with time complexity of $O(\log N)$ on average for balanced trees.
-
-## Search a BST
-
-### Steps for Searching in a Binary Search Tree (BST)
-
-1. **Start at the Root:** 
-   - Begin the search at the root node, which is initially the "current node."
-
-![[Pasted image 20240819222911.png]]
-(Say we want to search for the 61.)
-
-2. **Inspect the Current Node:** 
-   - Check the value of the current node.
-
-3. **Check for Match:**
-   - If the value matches the one you're searching for, the search is complete.
-
-4. **Move to the Left Subtree (if applicable):** 
-   - If the value you're searching for is less than the current node's value, move to the left child node and designate it as the new current node.
-
-![[Pasted image 20240819222922.png]]
-
-5. **Move to the Right Subtree (if applicable):**
-   - If the value you're searching for is greater than the current node's value, move to the right child node and designate it as the new current node.\
-
-![[Pasted image 20240819223008.png]]
-
-6. **Repeat the Process:**
-   - Continue the process by repeating steps 2-5 until either:
-     - The value is found.
-     - You reach a leaf node (a node without children), indicating that the value is not in the tree.
-
-![[Pasted image 20240819223016.png]]
-
-### Efficiency of the Search
-- **Time Complexity:** 
-  - The efficiency of searching in a BST is generally $O(\log N)$ for a balanced tree, where $N$ is the number of nodes. This is because each step of the search halves the number of potential nodes to explore by moving either left or right.
-  
-- **Caveat for Imbalance:**
-  - The $O(\log N)$ complexity assumes the tree is balanced. In an imbalanced tree (where nodes are skewed to one side), the worst-case time complexity could degrade to $O(N)$, making the search equivalent to a linear search in a linked list.
-
-### C++ Implementation
-
-```cpp
-#include <iostream>
-
-class TreeNode {
-public:
-    int value;
-    TreeNode* leftChild;
-    TreeNode* rightChild;
-
-    TreeNode(int val) : value(val), leftChild(nullptr), rightChild(nullptr) {}
-};
-
-class BST {
-public:
-    TreeNode* root;
-
-    BST() : root(nullptr) {}
-
-    // Function to insert a new node into the BST
-    void insert(int value) {
-        root = insertRec(root, value);
-    }
-
-    // Function to search for a value in the BST
-    bool search(int value) {
-        return searchRec(root, value);
-    }
-
-private:
-    // Helper function for inserting a new node
-    TreeNode* insertRec(TreeNode* node, int value) {
-        if (node == nullptr) {
-            return new TreeNode(value);
-        }
-
-        if (value < node->value) {
-            node->leftChild = insertRec(node->leftChild, value);
-        } else if (value > node->value) {
-            node->rightChild = insertRec(node->rightChild, value);
-        }
-
-        return node;
-    }
-
-    // Helper function for searching a value
-    bool searchRec(TreeNode* node, int value) {
-        if (node == nullptr) {
-            return false;
-        }
-
-        if (node->value == value) {
-            return true;
-        } else if (value < node->value) {
-            return searchRec(node->leftChild, value);
-        } else {
-            return searchRec(node->rightChild, value);
-        }
-    }
-};
-
-int main() {
-    BST tree;
-
-    // Inserting nodes into the BST
-    tree.insert(50);
-    tree.insert(25);
-    tree.insert(75);
-    tree.insert(10);
-    tree.insert(30);
-    tree.insert(60);
-    tree.insert(85);
-
-    // Searching for a value in the BST
-    int target = 30;
-    if (tree.search(target)) {
-        std::cout << target << " found in the tree." << std::endl;
-    } else {
-        std::cout << target << " not found in the tree." << std::endl;
-    }
-
-    return 0;
-}
-```
-
-### Explanation:
-
-1. **TreeNode Class:**
-   - Represents each node in the BST with an integer value, and pointers to left and right child nodes.
-
-2. **BST Class:**
-   - Contains a `root` pointer to the root node of the tree.
-   - Implements the `insert` function to add values to the tree.
-   - Implements the `search` function to find a value in the tree.
-
-3. **Insertion:**
-   - The `insertRec` function recursively finds the correct spot in the tree for a new value while maintaining the BST properties.
-
-4. **Search:**
-   - The `searchRec` function recursively checks nodes to find the target value. It follows the logic:
-     - If the value matches the current node, return true.
-     - If the value is less, search the left subtree.
-     - If the value is greater, search the right subtree.
-     - If a leaf node is reached without finding the value, return false.
-
-5. **Main Function:**
-   - Demonstrates inserting nodes into the BST and searching for a specific value.
-
-## O(log N) Complexity in Binary Search Trees
-
-The $O(\log N)$ complexity in binary search trees (BSTs) is a fundamental property that explains why searching in a balanced BST is so efficient. This concept is deeply tied to the structure of the tree itself, particularly the number of levels (or rows) that the tree has.
-
-#### Logarithmic Levels in a Balanced Binary Tree
-
-A binary tree is a hierarchical structure where each node has at most two children. In a balanced binary tree, the nodes are evenly distributed across all levels, which means the tree is as compact as possible given the number of nodes.
-
-- **Doubling Nodes with Each Level:** In a complete binary tree, every level of the tree doubles the number of nodes from the previous level (except possibly the last level, which might not be fully filled). This means if level 1 has 1 node, level 2 has 2 nodes, level 3 has 4 nodes, and so on. This doubling pattern follows an exponential growth, which is the inverse of the logarithmic relationship.
-
-- **Logarithmic Growth of Levels:** Because the number of nodes doubles with each level, the number of levels required to hold $N$ nodes in a balanced binary tree grows logarithmically with $N$. Specifically, the number of levels $L$ in a perfectly balanced binary tree with $N$ nodes can be approximated by $L = \log_2(N)$.
-
-    - For example, if a binary tree has $31$ nodes, you would calculate the levels as:
-      $L = \log_2(31) \approx 5$
-      This means a balanced binary tree with 31 nodes has about 5 levels.
-
-#### O(log N) Search Complexity
-
-- **Search Process:** When searching for a value in a BST, you start at the root and at each step, you decide to move to either the left or right child depending on the value you're searching for relative to the current node. Each step effectively eliminates half of the tree from consideration, which is similar to how binary search works in a sorted array.
-
-- **Connection to Tree Levels:** Since each step in the search process corresponds to moving down one level in the tree, the maximum number of steps required to find a value (or determine it's not in the tree) is equal to the number of levels in the tree. Hence, the search operation in a balanced BST has a time complexity of $O(\log N)$.
-
-#### Comparison to Binary Search in an Array
-
-- **Binary Search in an Array:** Similarly, binary search in a sorted array also operates in $O(\log N)$ time because each comparison eliminates half of the remaining elements. 
-
-- **Advantage of BSTs:** The key advantage of BSTs over arrays is in insertion and deletion operations. Inserting or deleting a value in a sorted array typically requires $O(N)$ time because elements may need to be shifted. In contrast, inserting or deleting in a BST can be done in $O(\log N)$ time, making BSTs more efficient for dynamic datasets where elements are frequently added or removed.
-
-### Summary
-- A balanced binary tree with $N$ nodes has approximately $\log_2(N)$ levels.
-- Searching in a BST takes $O(\log N)$ steps because each step eliminates half of the remaining tree, similar to binary search in an array.
-- While both searching in a BST and binary search in an ordered array have $O(\log N)$ time complexity, BSTs provide more efficient insertion and deletion operations.
-
-## Insertion in a Binary Search Tree (BST)
-
-1. **Start at the Root:**
-   - Begin the insertion process by comparing the value you want to insert with the root node.
-	![[Pasted image 20240820093354.png]]
-
-2. **Compare and Traverse:**
-   - If the value is less than the current node's value, move to the left child.
-   - If the value is greater than the current node's value, move to the right child.
-	   - Since 45 is less than 50, we drill down to the left child:
-		![[Pasted image 20240820093424.png]]
-     	  - Since 45 is greater than 25, we must inspect the right child:
-		![[Pasted image 20240820093515.png]]
-	   - Since 45 is greater than 33, we check the 33’s right child:
-		![[Pasted image 20240820093609.png]]
-
-3. **Repeat Until Leaf Node:**
-   - Continue comparing and moving left or right until you reach a node that has no appropriate child (i.e., a leaf node).
-
-4. **Insert the New Node:**
-   - Once you reach a leaf node, insert the new value as either a left or right child, depending on whether it is less or greater than the leaf node's value.
-	![[Pasted image 20240820093645.png]]
-
-### Efficiency of Insertion:
-- **Time Complexity:** 
-  - The insertion process in a balanced BST involves first searching for the correct position, which takes $O(\log N)$ time, followed by inserting the node in $O(1)$ time.
-  - Thus, the overall time complexity for insertion is $O(\log N)$.
-
-### Why BSTs are Efficient for Insertion:
-- **Comparison with Ordered Arrays:**
-  - Ordered arrays take $O(\log N)$ for search but $O(N)$ for insertion because elements may need to be shifted to accommodate the new element.
-  - In contrast, BSTs handle both search and insertion in $O(\log N)$ time, making them highly efficient, especially when frequent insertions are expected.
-
-### C++ Implementation
-
-```cpp
-#include <iostream>
-
-class TreeNode {
-public:
-    int value;
-    TreeNode* leftChild;
-    TreeNode* rightChild;
-
-    TreeNode(int val) : value(val), leftChild(nullptr), rightChild(nullptr) {}
-};
-
-class BST {
-public:
-    TreeNode* root;
-
-    BST() : root(nullptr) {}
-
-    // Function to insert a new value into the BST
-    void insert(int value) {
-        root = insertRec(root, value);
-    }
-
-    // Function to perform an in-order traversal of the BST (for display purposes)
-    void inOrderTraversal(TreeNode* node) {
-        if (node == nullptr) return;
-        inOrderTraversal(node->leftChild);
-        std::cout << node->value << " ";
-        inOrderTraversal(node->rightChild);
-    }
-
-    // Function to start in-order traversal from the root
-    void display() {
-        inOrderTraversal(root);
-        std::cout << std::endl;
-    }
-
-private:
-    // Helper function for inserting a new node into the BST
-    TreeNode* insertRec(TreeNode* node, int value) {
-        // If the current node is null, create a new node with the value
-        if (node == nullptr) {
-            return new TreeNode(value);
-        }
-
-        // Recursively insert in the left subtree if the value is less than the current node's value
-        if (value < node->value) {
-            node->leftChild = insertRec(node->leftChild, value);
-        }
-        // Recursively insert in the right subtree if the value is greater than the current node's value
-        else if (value > node->value) {
-            node->rightChild = insertRec(node->rightChild, value);
-        }
-
-        // Return the (unchanged) node pointer
-        return node;
-    }
-};
-
-int main() {
-    BST tree;
-
-    // Inserting nodes into the BST
-    tree.insert(50);
-    tree.insert(25);
-    tree.insert(75);
-    tree.insert(10);
-    tree.insert(33);
-    tree.insert(40);
-    tree.insert(45);
-
-    // Display the BST using in-order traversal
-    tree.display();
-
-    return 0;
-}
-```
-
-### Explanation:
-
-1. **TreeNode Class:**
-   - Represents each node in the BST with an integer value and pointers to its left and right children.
-
-2. **BST Class:**
-   - Contains a `root` pointer to the root node of the tree.
-   - Implements the `insert` function to add values to the tree.
-   - Includes an `inOrderTraversal` function to traverse and print the tree's elements in order, which helps verify the structure of the BST.
-
-3. **Insertion Logic:**
-   - The `insertRec` function is a recursive helper function that determines where the new value should be placed within the tree:
-     - If the current node is `nullptr`, a new `TreeNode` is created with the value.
-     - If the value is less than the current node's value, the function recurses into the left subtree.
-     - If the value is greater, it recurses into the right subtree.
-
-4. **Main Function:**
-   - Demonstrates inserting nodes into the BST and displaying the tree using in-order traversal, which should print the values in ascending order if the tree is correctly structured.
-
-### Impact of Insertion Order on Binary Search Trees:
-
-- **Balanced vs. Imbalanced Trees:**
-  - **Balanced Tree:** A tree is considered balanced when the depth of the left and right subtrees of any node differ by at most one. In such a tree, search operations take $O(\log N)$ time.
-  - **Imbalanced Tree:** When a tree is imbalanced, it can become linear, resembling a linked list. In this scenario, the time complexity for search operations degrades to $O(N)$.
-
-- **Effect of Insertion Order:**
-  - **Sorted Data Insertion (Worst-Case):**
-    - Inserting data in a sequential order (e.g., 1, 2, 3, 4, 5) leads to a completely imbalanced tree. This results in a tree that is essentially a straight line, causing search operations to become inefficient ($O(N)$).
-		![[Pasted image 20240820093840.png]]
-  - **Random Order Insertion (Typical-Case):**
-    - Inserting data in a random order (e.g., 3, 2, 4, 1, 5) typically results in a more balanced tree. This ensures that search operations remain efficient, usually around $O(\log N)$.
-	    ![[Pasted image 20240820093847.png]]
-
-- **Recommendation for Converting Ordered Arrays to BST:**
-  - Before converting an ordered array into a binary search tree, it is advisable to randomize the data to prevent the tree from becoming imbalanced and to maintain efficient search performance.
-
-## Deletion in a Binary Search Tree
-
-Deletion in a binary search tree (BST) involves removing a node and then adjusting the tree to maintain the BST properties. The process depends on the number of children the node to be deleted has:
-
-#### 1. **Case 1: Node with No Children (Leaf Node)**
-   - **Process:**
-     - Simply delete the node.
-   - **Example:**
-     - If you delete a node like `4` that has no children, you can remove it directly.
-     ![[Pasted image 20240820094039.png]]
-     ![[Pasted image 20240820094044.png]]
-
-#### 2. **Case 2: Node with One Child**
-   - **Process:**
-     - Delete the node and replace it with its child.
-   - **Example:**
-     - If you delete a node like `10` that has only one child (`11`), you remove the `10` and connect `11` to the parent of `10`.
-     ![[Pasted image 20240820094057.png]]
-     ![[Pasted image 20240820094109.png]]
-
-### Deleting a Node with Two Children
-
-When deleting a node with two children in a binary search tree (BST), the process involves replacing the node with its **successor**. The successor is the node with the smallest value that is greater than the node being deleted.
-
-#### 1. **Find the Successor:**
-   - The successor is the node with the smallest value in the right subtree of the node to be deleted.
-   - In the given example, if you want to delete `56`, the right subtree of `56` contains `61`. Since `61` is the smallest value in that subtree, it is the successor.
-	![[Pasted image 20240820094225.png]]
-
-#### 2. **Replace the Node:**
-   - Replace the node to be deleted (`56`) with the successor node (`61`).
-   - This involves copying the value of the successor into the node being deleted, and then deleting the successor node.
-
-#### 3. **Handle the Successor's Subtree:**
-   - If the successor node (`61`) has a right child, connect this child to the parent of the successor.
-   - In this case, after replacing `56` with `61`, the original position of `61` is left empty, so you can simply remove it, as it had no children.
-	   ![[Pasted image 20240820094319.png]]
-
-By replacing the node with its successor, you maintain the BST property that all nodes in the left subtree are smaller and all nodes in the right subtree are larger. This ensures the tree remains valid after the deletion.
-
-### Finding the Successor Node
-
-When deleting a node with two children in a Binary Search Tree (BST), you need to find the successor node to maintain the tree's structure.
-
-#### 1. **Start with the Right Child:**
-   - Begin by visiting the right child of the node you want to delete. This is the first step to finding the successor.
-
-#### 2. **Traverse Left Subtree:**
-   - From the right child, continue moving left, descending through the left children until you reach a node that has no left child. This node is the successor.
-   - The reason this works is that the smallest value greater than the node you're deleting will always be the leftmost node in the right subtree.
-
-#### 3. **Replace the Deleted Node with the Successor:**
-   - Once the successor node is found, you replace the value of the node you're deleting with the value of the successor.
-   - If the successor has a right child, you need to connect this right child to the parent of the successor, maintaining the BST property.
-
-#### Example:
-Let's say you want to delete the root node `50`. The steps would be:
-
-1. Visit the right child of `50`, which is `75`.
-	![[Pasted image 20240820094443.png]]
-2. From `75`, move left to `61`.
-3. Continue left to `52`, which has no left child. Thus, `52` is the successor.
-	![[Pasted image 20240820094506.png]]
-4. Replace `50` with `52`, making `52` the new root of the tree.
-	![[Pasted image 20240820094521.png]]
-
-By following this algorithm, you ensure that the BST remains correctly ordered after the deletion.
-
-### Handling a Successor Node with a Right Child
-
-When the successor node in a Binary Search Tree (BST) has a right child, the deletion process requires some additional steps to maintain the tree structure.
-
-#### 1. **Identify the Successor Node:**
-   - As before, find the successor node by going to the right child of the node to be deleted and then traversing left until no more left children exist.
-
-#### 2. **Plug the Successor Node into the Deleted Node's Position:**
-   - Replace the node you're deleting with the successor node. However, if the successor node has a right child, this child will be left without a parent after the replacement.
-
-#### 3. **Reattach the Successor's Right Child:**
-   - To address the dangling right child of the successor:
-     1. **Find the former parent of the successor node.** This is the node that initially linked to the successor (its parent before the deletion).
-     2. **Reattach the right child of the successor as the left child of this former parent.**
-   - This step ensures that the BST properties are preserved by maintaining the correct ordering of the nodes.
-
-#### Example:
-Consider you want to delete the root node `50` from a BST, where `52` is the successor and has a right child `55`.
-
-1. **Find the Successor:**  
-   - Start at the right child of `50` (which is `75`), move left to `61`, and then left again to `52`, which is the successor.
-	![[Pasted image 20240820094623.png]]
-
-2. **Plug the Successor into the Root:**  
-   - Replace `50` with `52`, making `52` the new root. This leaves `55` without a parent.
-	![[Pasted image 20240820094653.png]]
-
-3. **Reattach `55`:**
-   - Since `61` was the parent of `52`, make `55` the left child of `61`.
-	![[Pasted image 20240820094704.png]]
-
-By following these steps, the tree remains correctly structured, preserving the BST properties even after the deletion of a node with two children.
-
-### Complete Deletion Algorithm for a Binary Search Tree (BST)
-
-1. **Deleting a Node with No Children (Leaf Node):**
-   - If the node to be deleted has no children, simply remove it from the tree.
-
-2. **Deleting a Node with One Child:**
-   - If the node to be deleted has only one child:
-     - Remove the node.
-     - Replace it with its child, effectively bypassing the deleted node.
-
-3. **Deleting a Node with Two Children:**
-   - When the node to be deleted has two children:
-     1. **Find the Successor Node:**
-        - The successor node is the node with the smallest value greater than the node to be deleted. 
-        - To find the successor:
-          - Go to the right child of the node to be deleted.
-          - Then keep moving left until no more left children exist.
-     2. **Replace the Deleted Node with the Successor Node:**
-        - Swap the contents (value) of the node to be deleted with the successor node.
-        - Remove the successor node from its original position. 
-     3. **Handle the Successor’s Right Child (if it exists):**
-        - If the successor node has a right child:
-          - Attach this child to the left of the successor’s former parent, ensuring the BST structure remains intact.
-
-### C++ Implementation
-
-```cpp
-#include <iostream>
-
-struct TreeNode {
-    int value;
-    TreeNode* left;
-    TreeNode* right;
-
-    TreeNode(int val) : value(val), left(nullptr), right(nullptr) {}
-};
-
-// Helper function to find the minimum value node in a given subtree
-TreeNode* findMin(TreeNode* node) {
-    while (node && node->left != nullptr) {
-        node = node->left;
-    }
-    return node;
-}
-
-// Function to delete a node from the BST
-TreeNode* deleteNode(TreeNode* root, int key) {
-    // Base case: if the tree is empty
-    if (root == nullptr) {
-        return nullptr;
-    }
-
-    // Recur down the tree
-    if (key < root->value) {
-        root->left = deleteNode(root->left, key);
-    } else if (key > root->value) {
-        root->right = deleteNode(root->right, key);
-    } else {
-        // Node to be deleted found
-
-        // Case 1: Node has no children
-        if (root->left == nullptr && root->right == nullptr) {
-            delete root;
-            return nullptr;
-        }
-
-        // Case 2: Node has only one child
-        if (root->left == nullptr) {
-            TreeNode* temp = root->right;
-            delete root;
-            return temp;
-        } else if (root->right == nullptr) {
-            TreeNode* temp = root->left;
-            delete root;
-            return temp;
-        }
-
-        // Case 3: Node has two children
-        TreeNode* temp = findMin(root->right); // Find the smallest value in the right subtree
-        root->value = temp->value; // Replace value of node to be deleted with the smallest value
-        root->right = deleteNode(root->right, temp->value); // Delete the successor node
-    }
-    return root;
-}
-
-// Helper function to print the tree (inorder traversal)
-void printInOrder(TreeNode* node) {
-    if (node == nullptr) {
-        return;
-    }
-    printInOrder(node->left);
-    std::cout << node->value << " ";
-    printInOrder(node->right);
-}
-
-int main() {
-    // Example usage
-    TreeNode* root = new TreeNode(50);
-    root->left = new TreeNode(30);
-    root->right = new TreeNode(70);
-    root->left->left = new TreeNode(20);
-    root->left->right = new TreeNode(40);
-    root->right->left = new TreeNode(60);
-    root->right->right = new TreeNode(80);
-
-    std::cout << "Original tree (inorder): ";
-    printInOrder(root);
     std::cout << std::endl;
 
-    int keyToDelete = 70;
-    root = deleteNode(root, keyToDelete);
-
-    std::cout << "Tree after deleting " << keyToDelete << " (inorder): ";
-    printInOrder(root);
-    std::cout << std::endl;
-
-    // Clean up remaining nodes (not shown here for brevity)
-
     return 0;
 }
 ```
 
-### Explanation:
+### **Explanation:**
+- **`partition` Function:** 
+  - Chooses the pivot and rearranges the array such that elements smaller than the pivot are on the left and elements larger are on the right.
+  - It returns the index of the pivot after rearranging.
 
-1. **`findMin(TreeNode* node)`**: Finds the minimum value node in a subtree, used to locate the successor node.
+- **`quicksort` Function:** 
+  - Recursively applies the `partition` function to sort the subarrays before and after the pivot.
 
-2. **`deleteNode(TreeNode* root, int key)`**: Deletes the node with the given `key` and handles all cases:
-   - **No children**: Simply delete the node.
-   - **One child**: Replace the node with its child.
-   - **Two children**: Replace the node with its successor node and then delete the successor.
-
-3. **`printInOrder(TreeNode* node)`**: A utility function for displaying the BST in inorder (ascending) to verify the tree structure.
-
-This code demonstrates how to perform deletions while maintaining the BST properties.
-
-## B-Trees
-
-![[Pasted image 20240821134923.png]]
-
-A B-tree is a self-balancing tree data structure that maintains sorted data and allows searches, sequential access, insertions, and deletions in logarithmic time. B-trees are particularly well-suited for systems that read and write large blocks of data, such as databases and file systems. They are designed to work efficiently on disk-based storage systems where minimizing disk accesses is crucial.
-
-### Key Features of B-Trees:
-1. **Balanced Structure**: B-trees remain balanced by ensuring that all leaf nodes are at the same level, which means the tree has a uniform depth. This balance ensures that operations like searching, inserting, and deleting elements have consistent performance.
-
-2. **Multiple Keys per Node**: Unlike binary search trees, where each node contains a single key and two child pointers, a B-tree node can contain multiple keys and child pointers. The number of keys in a node can vary but is kept within a certain range to maintain balance. This feature makes B-trees shallow and wide, reducing the number of disk accesses required to reach a particular key.
-
-3. **Key Ordering**:
-- Within a node, the keys are ordered in a non-decreasing manner: $k_1 \leq k_2 \leq \dots \leq k_n$.
-- For a node with children, the keys define the ranges for the values in the subtrees:
-    - All keys in the leftmost child are less than the first key.
-		![[Pasted image 20240821135957.png]]
-    - All keys in the rightmost child are greater than the last key.
-	    ![[Pasted image 20240821140016.png]]
-    - For any key $k_i$, all keys in the $i$-th child are greater than $k_{i-1}$ and less than $k_i$.
-	    ![[Pasted image 20240821140030.png]]
-
-4. **Order of the Tree**: The order of a B-tree is a measure of its branching factor (i.e., the maximum number of children a node can have). A B-tree of order $t$ means that:
-   - Each node can have at most $t$ children.
-   - Each node (except the root) must have at least $\lceil t/2 \rceil$ children.
-   - Each internal node (non-leaf and non-root) contains at least $\lceil t/2 \rceil - 1$ keys and at most $t - 1$ keys.
-
-![[Pasted image 20240821135111.png]]
-
-4. **Height of the Tree**: Because B-trees are balanced, the height of the tree is kept low even with a large number of elements. This low height ensures that any operation (like search, insertion, or deletion) will require only a few steps, minimizing the number of disk accesses.
-
-5. **Efficient Disk Access**: B-trees are optimized for systems that use secondary storage (like disks) by minimizing the number of disk reads and writes. Since nodes are designed to store multiple keys, fewer nodes are needed to cover the same number of elements compared to binary search trees. This feature reduces the number of disk accesses, making B-trees suitable for database indexing and file systems.
-
-6. **Leaf Nodes**: All leaf nodes are at the same depth in the tree, which is why B-trees are balanced. Leaf nodes do not have any children and store the actual data or pointers to the data.
-
-### Operations on B-Trees:
-1. **Search**: Searching for a key in a B-tree is similar to binary search but within nodes. It involves navigating through the tree by comparing the target key with the keys stored in each node.
-
-2. **Insertion**: Inserting a new key into a B-tree requires finding the correct leaf node where the key should be placed. If the node is full, the node is split, and the middle key is promoted to the parent node. This process may propagate up to the root, potentially increasing the tree's height.
-
-3. **Deletion**: Deleting a key from a B-tree involves several steps. If the key is in a leaf node, it's simply removed. If it's in an internal node, the tree is restructured to maintain balance. Deletion can involve merging nodes or redistributing keys among sibling nodes.
-
-### Example of B-Tree:
-A B-tree of order 3 (each node can have at most 2 keys and 3 children) might look like this:
+### **Output:**
+When you run the above code, it will output the sorted array:
 
 ```
-         [13 26]
-       /    |     \
-[7 10]  [15 20]  [30 40 50]
+Sorted array: 1 5 7 8 9 10
 ```
 
-In this example:
-- The root has 2 keys (13, 26) and 3 children.
-- Each child node also has a certain number of keys within the allowed range.
+## Quicksort Algorithm
 
-### Applications of B-Trees:
-- **Databases**: B-trees are commonly used in databases for indexing, as they allow quick search, insert, and delete operations on large datasets.
-- **File Systems**: B-trees are used in file systems (e.g., NTFS, HFS+) to manage files and directories, ensuring efficient access and modification of file metadata.
-- **Memory Management**: Some operating systems use B-trees for managing virtual memory and ensuring fast access to memory pages.
+Quicksort is a widely used and efficient sorting algorithm based on the divide-and-conquer approach. The algorithm can be broken down into the following steps:
 
-[B-Trees Video Tutorial](https://www.youtube.com/watch?v=FgWbADOG44s&list=PL9xmBV_5YoZNFPPv98DjTdD9X6UI9KMHz&pp=iAQB)
+### 1. Partitioning
+- **Choose a Pivot**: Select an element from the array to serve as the pivot. There are various strategies to select the pivot, such as choosing the first element, the last element, or the median.
+- **Rearrange Elements**: Reorder the array such that all elements less than the pivot come before it, and all elements greater than the pivot come after it. The pivot element is now in its correct final position in the sorted array.
 
+### 2. Recursion
+- **Divide and Conquer**: Treat the subarrays on either side of the pivot as independent arrays and recursively apply the quicksort algorithm to these subarrays.
+  - The left subarray contains elements less than the pivot.
+  - The right subarray contains elements greater than the pivot.
+- **Recursive Process**: Continue partitioning and sorting smaller and smaller subarrays until you reach subarrays that contain zero or one element. These subarrays are already sorted by definition.
 
-## B-Tree Search
+### 3. Base Case
+- **Stop Recursion**: When a subarray contains zero or one element, it is inherently sorted, and no further partitioning or recursion is necessary.
 
-1. **Start at the Root**:
-   - Begin the search at the root node of the B-tree.
+### Example
+Let's say we have the following array: `[3, 6, 8, 10, 1, 2, 1]`
 
-2. **Compare with Keys in the Node**:
-   - Compare the search key $k$ with the keys in the current node.
-   - If $k$ matches any key in the current node, the search is successful, and you can return the found key (or the associated data).
+1. **Initial Array**: `[3, 6, 8, 10, 1, 2, 1]`
+   - Choose a pivot (e.g., 1).
+   - Partition around the pivot: `[1, 1, 2, 3, 6, 8, 10]`
 
-3. **Determine the Child Subtree**:
-   - If $k$ does not match any key in the current node:
-     - Identify the appropriate child pointer to follow. 
-     - If $k$ is less than the smallest key in the node, follow the leftmost child pointer.
-     - If $k$ is greater than the largest key in the node, follow the rightmost child pointer.
-     - Otherwise, find the interval in which $k$ falls and follow the corresponding child pointer.
+2. **Recursively Apply Quicksort**:
+   - Left subarray: `[1, 1]` (already sorted)
+   - Right subarray: `[3, 6, 8, 10]`
+   - Choose a pivot for the right subarray (e.g., 6), partition it into `[3, 6, 8, 10]`.
 
-4. **Move to the Child Node**:
-   - Move to the child node pointed to by the appropriate child pointer from the previous step.
+3. **Base Case**:
+   - Left subarray: `[3]` (sorted)
+   - Right subarray: `[8, 10]` (sorted)
 
-5. **Repeat the Process**:
-   - Repeat steps 2-4 for the child node.
-   - Continue this process until you either find the key or reach a leaf node.
+4. **Final Sorted Array**: `[1, 1, 2, 3, 6, 8, 10]`
 
-6. **Check the Leaf Node**:
-   - If the search key $k$ is not found in any of the internal nodes and you reach a leaf node, check the leaf node for the key.
-   - If $k$ is present in the leaf node, the search is successful.
-   - If $k$ is not found in the leaf node, the search is unsuccessful, and the key does not exist in the B-tree.
+Quicksort has an average-case time complexity of $O(n \log n)$, making it efficient for large datasets. However, in the worst case (when the smallest or largest element is always chosen as the pivot), the time complexity can degrade to $O(n^2)$. This is why pivot selection strategies, like choosing a random pivot or using the "median of three," are often employed to mitigate the risk of worst-case performance.
+
+## Big O Notation for Quicksort
+
+Quicksort is a highly efficient sorting algorithm, and its efficiency is generally expressed in terms of Big O notation as $O(N \log N)$. This notation describes how the time required to sort an array grows as the size of the array ($N$) increases.
+
+### Why $O(N \log N)$?
+
+Let's break down why Quicksort has an average-case time complexity of $O(N \log N)$:
+
+#### 1. **Partitioning**: 
+- Each time you partition the array, you're dividing it into two subarrays around a pivot.
+- In the average case, the pivot tends to end up near the middle, so each partitioning step roughly halves the array.
+- Partitioning the entire array (which is $N$ elements) takes $O(N)$ time.
+
+#### 2. **Logarithmic Depth**:
+- If you keep dividing the array into halves, the number of times you can do this before reaching subarrays of size 1 is $\log N$. 
+- This is because $\log N$ represents the number of times you can halve a number before it reaches 1.
+
+#### 3. **Total Work Done**:
+- At each level of recursion (i.e., each halving step), you perform a partition operation on all subarrays that together make up the original array.
+- Since the partitioning takes $O(N)$ time and there are $\log N$ levels of recursion, the total work done is $N$ multiplied by $\log N$, giving us $O(N \log N)$.
+
+### Summary:
+- **Best Case**: When the pivot always splits the array into two nearly equal halves, the time complexity is $O(N \log N)$.
+- **Average Case**: In typical scenarios where the pivot is near the middle most of the time, the time complexity is also $O(N \log N)$.
+- **Worst Case**: If the pivot is always the smallest or largest element (leading to highly unbalanced partitions), the time complexity can degrade to $O(N^2)$.
+
+### Visualization:
+
+Here's a simplified illustration:
+
+- **Original Array**: $N = 8$
+- **First Partition**: Two subarrays of size 4 → $\log N = 3$ (3 halvings)
+- **Second Partition**: Two subarrays of size 2 each
+- **Third Partition**: Two subarrays of size 1 each
+
+At each level, you're working with $N$ elements, and there are $\log N$ levels of partitioning.
+
+### Approximation vs. Reality
+
+While $O(N \log N)$ is a good approximation, there are nuances:
+
+1. **Initial Partition**: The first partition of the original array also takes $O(N)$ time.
+2. **Imperfect Splits**: In practice, the pivot doesn't always split the array perfectly in half, but this doesn't drastically change the overall time complexity.
+
+This is why Quicksort is generally categorized as $O(N \log N)$ for average and best-case scenarios.
+
+## Quickselect Algorithm Overview
+
+Quickselect is an efficient algorithm used to find the $k$th smallest (or largest) element in an unsorted array. Unlike sorting the entire array, which takes $O(N \log N)$ time, Quickselect focuses on finding just the $k$th smallest element and does so in $O(N)$ average time.
+
+### How Quickselect Works
+
+Quickselect is closely related to Quicksort and uses partitioning to narrow down the search for the desired element:
+
+1. **Partition the Array**: Just like in Quicksort, select a pivot and partition the array such that elements less than the pivot are on one side, and elements greater than the pivot are on the other side. The pivot ends up in its correct position in the sorted array.
+
+2. **Determine the Position of the Pivot**:
+   - If the pivot's position is exactly $k-1$, then the pivot is the $k$th smallest element, and you are done.
+   - If the pivot's position is greater than $k-1$, the $k$th smallest element must be in the left subarray (elements less than the pivot).
+   - If the pivot's position is less than $k-1$, the $k$th smallest element must be in the right subarray (elements greater than the pivot).
+
+3. **Recursively Apply Quickselect**: Focus on the relevant subarray (either left or right) and apply Quickselect again. This process continues until the pivot's position matches $k-1$.
 
 ### Example
 
-Consider a B-tree with the following structure:
+Let's say you want to find the 2nd smallest element in the array `[7, 10, 4, 3, 20, 15]`.
 
-```
-       [10, 20]
-       /  |   \
-    [5] [15] [25, 30]
-```
+1. **Initial Array**: `[7, 10, 4, 3, 20, 15]`
+   - Choose a pivot (e.g., `15`).
+   - Partition around `15`: `[7, 10, 4, 3, 15, 20]`.
+   - The pivot `15` ends up in position 4.
 
-- **Search for 15**:
-  1. Start at the root: [10, 20].
-  2. 15 is greater than 10 but less than 20. Move to the middle child: [15].
-  3. 15 matches the key in this node. Search successful.
+2. **Check Pivot Position**:
+   - We want the 2nd smallest element, so we need to look in the left subarray `[7, 10, 4, 3]`.
 
-- **Search for 17**:
-  1. Start at the root: [10, 20].
-  2. 17 is greater than 10 but less than 20. Move to the middle child: [15].
-  3. 17 is greater than 15. Move to the right child of [15], which is a leaf node (if one exists).
-  4. If the leaf node exists and contains no 17, search unsuccessful.
+3. **Reapply Quickselect**:
+   - Choose a new pivot (e.g., `4`).
+   - Partition around `4`: `[3, 4, 7, 10]`.
+   - The pivot `4` is now in position 1.
 
+4. **Result**:
+   - Since position 1 matches $k-1 = 1$, `4` is the 2nd smallest element.
 
-## B-Tree Insertion
+### Efficiency of Quickselect
 
-Insertion in a B-tree is more complex than in simpler tree structures like binary search trees because it involves maintaining the B-tree properties: balanced structure, the correct number of keys per node, and ordered keys.
+The efficiency of Quickselect is $O(N)$ on average. Here's why:
 
-### Steps for Inserting a Key into a B-Tree:
+- **First Partition**: The initial partitioning step takes $O(N)$ time.
+- **Subsequent Partitions**: Each subsequent partition is performed on a smaller subarray. For an array of $N$ elements, the work done is approximately:
 
-1. **Start at the Root**:
-   - The insertion process always begins at the root node of the B-tree.
-   - The goal is to find the appropriate leaf node where the new key should be inserted.
+$$N + \frac{N}{2} + \frac{N}{4} + \frac{N}{8} + \ldots + 1$$
 
-2. **Traverse the Tree**:
-   - Traverse down the tree from the root to find the correct position for the new key.
-   - At each node, determine the correct child pointer to follow by comparing the new key with the keys in the current node.
-   - Continue this process until you reach a leaf node.
-
-3. **Insert the Key in the Leaf Node**:
-   - Once you’ve reached the correct leaf node, insert the key into its proper position within the node’s existing keys, ensuring that the keys remain in sorted order.
-
-4. **Check for Overflow**:
-   - After inserting the key, check if the node now contains more than the maximum allowed number of keys ($2t-1$ keys, where $t$ is the minimum degree of the tree).
-   - If the node does **not** exceed this limit, the insertion is complete.
-
-5. **Handle Node Splitting**:
-   - If the node **does** overflow (has $2t$ keys), a **split** operation is needed.
-   - Split the node into two separate nodes:
-     - The median key (middle key) of the node is moved up to the parent node.
-     - The keys to the left of the median form a new left child, and the keys to the right form a new right child.
-   - If the split node was the root, the median key becomes the new root, and the tree height increases by one level.
-
-![[Pasted image 20240821140540.png]]
-
-6. **Recursive Splitting (if necessary)**:
-   - If the parent node also overflows after receiving the median key, repeat the splitting process at the parent level.
-   - This recursive splitting may continue up the tree until no node overflows or until the root is split, creating a new root.
-
-### Example
-
-![[BTreeInsert.png]]
-
-### **Initial Configuration (a)**
-- **Insert 9, 0, 8**: 
-  - Start by inserting 9, followed by 0 and 8. 
-  - The tree starts filling the root node with keys: `[0, 8, 9]`.
-
-![[Pasted image 20240821141638.png]]
-
-### **Step (b) - Insert 1**
-- **Before Insertion**:
-  - The root node has the keys `[0, 8, 9]`.
-  - Since this node is full (a B-tree of order 3 can hold at most 2 keys before splitting), the node must be split.
-
-- **Splitting Process**:
-  - The median key `8` is moved up to a new root.
-  - The keys `0` and `9` are split into two separate child nodes: `[0]` and `[9]`.
-  
-- **Insertion**:
-  - The key `1` is inserted into the left child node, resulting in the node `[0, 1]`.
-
-![[Pasted image 20240821141650.png]]
-
-### **Step (c) - Insert 7**
-
-- **Insertion**:
-  - Since 7 is less than 8, it should go into the left subtree.
-  - The left child `[0, 1]` is not full, so 7 is inserted in the correct position.
-  - Resulting nodes: `[0, 1, 7]`.
-
-![[Pasted image 20240821141701.png]]
-
-### **Step (d) - Insert 2**
-
-- **Insertion**:
-  - The key `2` should be inserted in the left child `[0, 1, 7]`.
-  - However, this node is full. Thus, it needs to be split.
-  - The median key `1` is moved up to the root.
-  - The node `[0, 1, 7]` is split into `[0]` and `[7]`.
-  - The resulting tree has a root `1, 8`, with children `[0]`, `[2, 7]`, and `[9]`.
-
-![[Pasted image 20240821141715.png]]
-
-### **Step (e) - Insert 6**
-
-- **Insertion**:
-  - The key `6` should be inserted into the middle child `[2, 7]`.
-  - This node is not full, so `6` is inserted in its correct position.
-  - Resulting node becomes `[2, 6, 7]`.
-
-![[Pasted image 20240821141809.png]]
-
-### **Step (f) - Insert 3**
-
-- **Insertion**:
-  - The key `3` should go into the middle child `[2, 6, 7]`.
-  - However, this node is full, so it needs to be split.
-  - The median key `6` is moved up to the root.
-  - The node `[2, 6, 7]` is split into `[2]` and `[7]`.
-  - Resulting tree: Root `1, 6, 8`, with children `[0]`, `[2, 3]`, `[7]`, and `[9]`.
-
-![[Pasted image 20240821141845.png]]
-
-### **Step (h) - Insert 5**
-
-#### Step 1: Insert `5` into Node `[2, 3]`
-
-- Before insertion: The node `[2, 3]` has two keys and is not full.
-- After insertion: The node now contains `[2, 3, 5]`. This node is still within its capacity (it can hold up to `2T-1 = 5` keys for `T = 3`).
-
-So far, no splitting is needed, and the tree should remain at the same level.
-
-#### Step 2: Consider Additional Insertions and Splitting
-
-If the insertion of `5` somehow causes an overflow higher up (perhaps in a later step or after the insertion of other keys that are not shown in the diagram), the tree may need restructuring.
-
-#### Revised Process: Handling Subsequent Insertions
-
-1. **Insertion of `4` (Example Before `5`)**:
-    - Before splitting: You have the tree rooted at `[1, 6, 8]` with the middle node `[2, 3]` already full.
-    - Splitting happens after inserting `4`, where `3` gets moved up, creating a new node that effectively changes the level count.
-2. **Recursive Splitting**:
-    - As each new median is promoted, if the root overflows, it splits, increasing the tree's height by one.
-
-#### Step 3: Understand Level Increase
-
-- If the parent node `[1, 6, 8]` becomes full after receiving a key from a lower-level split, the root node will have to split, promoting a median key to a new root.
-- The new root causes the overall height of the tree to increase.
-
-#### Final Structure After `5`
-
-After `5` is inserted and potentially more keys (like `4` in the next step) lead to further promotions, the tree might restructure itself by increasing the overall height:
-
-- **Node `[6]` as New Root**: The tree restructures such that `6` becomes the new root, splitting into two subtrees `[1, 3]` and `[8]`.
-- **Promotion of Median Keys**: If this leads to further node split promotions, that would naturally increase the tree's height from level 2 to level 3.
-
-![[Pasted image 20240821142000.png]]
-
-### **Step (h) - Insert 4**
-
-- **Insertion**:
-  - The key `4` should go into the child `[2, 3, 5]`.
-  - This node is full, so it needs to be split.
-  - The median key `3` is moved up to the root.
-  - The node `[2, 3, 5]` is split into `[2]` and `[5]`.
-
-![[Pasted image 20240821142552.png]]
-
-This sequence ensures that the B-tree remains balanced after each insertion, maintaining its efficiency for search, insertion, and deletion operations.
-
-## B-Tree Deletion
-
-Deleting a key from a B-tree is more complex than insertion, as it involves several cases.
-
-#### 1. **Locate the Key**
-   - Start by finding the key that you want to delete.
-
-#### 2. **Delete the Key from a Leaf Node**
-   - If the key is in a **leaf node** and the node contains more than the minimum number of keys (i.e., more than $\lceil m/2 \rceil - 1$ keys, where $m$ is the order of the B-tree), simply remove the key from the leaf.
-   - If the key is in a **leaf node** and the node contains the minimum number of keys, you will need to **rebalance** the tree after deletion. This could involve **merging** with a sibling node or **borrowing** a key from an adjacent sibling.
-
-#### 3. **Delete the Key from an Internal Node**
-   - If the key is in an **internal node**, the deletion process is more involved:
-     1. **Find the predecessor** (the largest key in the left subtree) or the **successor** (the smallest key in the right subtree) of the key.
-     2. Replace the key with its predecessor or successor.
-     3. Recursively delete the predecessor or successor from the leaf node where it resides.
-
-#### 4. **Rebalancing the Tree**
-   - After deleting the key, check if the node is **underflowed** (has fewer than the minimum number of keys).
-   - If underflow occurs, you need to **rebalance** the tree:
-     1. **Borrow from a sibling**: If a sibling has more than the minimum number of keys, move a key from the parent down into the underflowed node and move a key from the sibling up into the parent.
-     2. **Merge with a sibling**: If both siblings have the minimum number of keys, merge the underflowed node with a sibling and pull a key down from the parent.
-
-#### 5. **Adjust the Root (if necessary)**
-   - If the root node becomes empty as a result of deletion, make the first child of the root the new root of the tree.
-
-### Example:
-#### Example 1: Deleting From an Internal Node
-
-Suppose you have a B-tree of order 3 (each node can have at most 2 keys):
-
-```
-       [10, 20]
-       /   |   \
-   [5]   [15]   [25, 30]
-```
-
-   - **Delete key 20.**
-   - 20 is in an internal node. The successor is 25.
-   - Replace 20 with 25 and delete 25 from its leaf.
-   - The tree rebalances if necessary.
-
-#### Example 2: **Deleting From a Leaf Node**
-
-```
-       [10, 20]
-       /   |   \
-   [5]   [15]   [25, 30]
-```
-
-   - **Delete key 15.**
-   - 15 is in a leaf node with only one key. Since it's a leaf node and doesn't require rebalancing, simply remove it.
-
-#### Example 3: **Deleting From an Internal Node**
-
-Suppose you have a B-tree of order 4 (each node can have at most 3 keys):
-
-```
-           [20,   40,   60]
-          /     |    \    \
-     [10]   [30] [50, 55] [70, 80, 90]
-```
-
-- **Delete key 60.**
-- **Key 60** is in the root node.
-- Replace `60` with its predecessor `55` from the leaf node.
-- Now delete `55` from the leaf node.
-
-- After deleting `55`, the B-tree looks like:
-
-```
-           [20,  40,   55]
-           /    |   \    \
-      [10]   [30] [50] [70, 80, 90]
-```
-
-- The root still has sufficient keys, so no further action is needed.
-
-#### Example 3: Rebalancing by Borrowing from a Sibling
-
-Suppose you have a B-tree of order 4 (each node can have at most 3 keys):
-
-```
-           [20, 50]
-          /    |    \
-      [10]   [30, 40] [60, 70, 80]
-```
-##### Step 1: Delete the Key `10`
-After deleting `10`, the tree looks like this:
-
-```
-           [20, 50]
-          /    |    \
-       []  [30, 40] [60, 70, 80]
-```
-
-The leftmost child node is now empty, which causes an **underflow**.
-
-##### Step 2: Rebalance by Borrowing from a Sibling
-First, check if the left sibling of the empty node (`[30, 40]`) or the right sibling (`[60, 70, 80]`) has more than the minimum number of keys (which is 1 for an order-4 tree).
-
-- The left sibling `[30, 40]` has 2 keys, which is more than the minimum.
-
-**Borrowing Process**:
-- Move `20` (the parent key) down into the empty node.
-- Move `30` (the left sibling key) up to replace `20` in the parent node.
-
-##### After Borrowing:
-```
-           [30, 50]
-          /    |    \
-       [20] [40] [60, 70, 80]
-```
-
-The tree is now balanced after borrowing from the left sibling.
-
-#### Example 4: Rebalancing by Merging with a Sibling
-
-```
-           [30, 50]
-          /    |    \
-       [20] [40] [60, 70, 80]
-```
-##### Step 1: Delete the Key `30`
-After deleting `30`, the tree looks like this:
-
-```
-           [50]
-          /    \
-       [20, 40] [60, 70, 80]
-```
-
-Now the left child has 2 keys, which is fine since it's not underflowed. But let's assume we delete `40` as well:
-
-##### Step 2: Delete the Key `40`
-After deleting `40`, the tree looks like this:
-
-```
-           [50]
-          /    \
-       [20] [60, 70, 80]
-```
-
-Now, the left child `[20]` has only 1 key, which is the minimum number of keys allowed in an order-4 tree. However, it is important to maintain balance in the tree. 
-
-If the sibling on the right `[60, 70, 80]` had only the minimum number of keys, we would have to **merge** the nodes instead of borrowing.
-
-##### Merging Process:
-- Merge the left node `[20]` with the parent key `50` and the right sibling `[60, 70, 80]`.
-- After merging, the tree looks like this:
-
-```
-           [60, 70, 80]
-          /
-       [20, 50]
-```
-
-Now the tree is balanced again.
-
-## Hash Tables and Hash Functions
-
-**Hash Tables** are a powerful data structure commonly used in programming for fast data retrieval. They are also known as hashes, hash maps, dictionaries, or associative arrays, depending on the programming language.
-
-#### **Hash Tables Overview**
-
-- **Structure**: A hash table is essentially a collection of key-value pairs. For example, in Ruby, you might define a menu using a hash table as follows:
-
-  ```ruby
-  menu = { "french fries" => 0.75, "hamburger" => 2.5, "hot dog" => 1.5, "soda" => 0.6 }
-  ```
-
-  Here, `"french fries"` is the key, and `0.75` is the value associated with that key.
-
-- **Lookup Efficiency**: Looking up a value associated with a key in a hash table is typically done in constant time, i.e., $O(1)$ on average. This efficiency is achieved through the use of **hash functions**.
-
-#### **Hashing and Hash Functions**
-
-Hash functions are essential for the operation of hash tables. They convert keys into indices of an internal array where the corresponding values are stored.
-
-##### **Example of Hash Functions**
-
-1. **Simple Character-to-Number Hash Function**:
-   - **Mapping**: `A = 1`, `B = 2`, `C = 3`, `D = 4`, etc.
-   - **Example**:
-     - **BAD** → `2, 1, 4`
-     - **Product of Digits**: `2 * 1 * 4 = 8`
-     - So, BAD maps to `8`.
-
-2. **Sum of Digits Hash Function**:
-   - **Mapping**: Same character-to-number mapping.
-   - **Example**:
-     - **BAD** → `2, 1, 4`
-     - **Sum of Digits**: `2 + 1 + 4 = 7`
-     - So, BAD maps to `7`.
-
-##### **Criteria for a Valid Hash Function**
-
-A valid hash function must:
-
-1. **Consistency**: Always produce the same hash value for the same input. For instance, with our multiplication hash function, **BAD** will always hash to `8`.
-
-2. **Deterministic**: The function should not use random elements or current time. For instance, using random numbers or the current time would result in inconsistent hash values.
-
-#### **Handling Collisions**
-
-Hash functions might produce the same hash value for different keys. This is known as a **collision**. For example, both **BAD** and **DAB** might hash to `8` with our multiplication hash function. Handling collisions effectively is a crucial aspect of designing hash tables. Common strategies include:
-
-- **Chaining**: Storing collided elements in a list at each index.
-- **Open Addressing**: Finding another open slot in the array according to a probing sequence.
+This series sums to about $2N$, leading to an overall time complexity of $O(N)$.
 
 ### Summary
 
-- **Hash Tables** provide efficient key-value storage and retrieval.
-- **Hash Functions** convert keys into indices where values are stored.
-- **Consistency and Determinism** are essential for a good hash function.
-- **Collisions** can occur and must be handled to maintain efficiency.
+- **Average Case Time Complexity**: $O(N)$.
+- **Worst Case Time Complexity**: $O(N^2)$ (if the pivot selection is consistently poor, such as always picking the smallest or largest element).
+- **Best Case Time Complexity**: $O(N)$ (if the pivot consistently divides the array into equal halves).
 
-## Hash Table Lookups
+Quickselect is particularly useful when you need to find a specific order statistic (like the median) without fully sorting the array, making it more efficient than sorting-based methods for such tasks.
 
-- **Hash Table Basics:**
-  - A hash table is a data structure that uses keys to find associated values quickly.
-  - Each key is processed using a hash function, which converts the key into an index number.
-  - The value associated with a key is stored at the index computed by the hash function.
+### C++ Code Implementation
 
-- **Hash Table Lookup Process:**
-  - To look up a value, the key is hashed to produce an index.
-  - The value is then retrieved from the cell at the calculated index.
-  - This lookup process typically has a time complexity of $O(1)$, meaning it takes a constant amount of time.
+```cpp
+#include <iostream>
+#include <vector>
+#include <algorithm>  // For std::swap
 
-- **Efficiency of Hash Tables:**
-  - Hash tables provide faster lookups compared to arrays, where searching for an item can take $O(N)$ time in an unordered array or $O(\log N)$ in an ordered array.
-  - By using keys (e.g., menu items) directly in hash tables, lookups become much more efficient.
+int partition(std::vector<int>& arr, int left, int right) {
+    int pivot = arr[right];
+    int i = left - 1;
 
-- **One-Directional Lookups:**
-  - Hash tables are efficient only when you know the key; the key determines the location of the value.
-  - If you only know the value and need to find the key, you would have to search through the entire table, resulting in $O(N)$ time complexity.
-  - This one-directional nature means you can't easily find keys based on values.
+    for (int j = left; j < right; ++j) {
+        if (arr[j] <= pivot) {
+            ++i;
+            std::swap(arr[i], arr[j]);
+        }
+    }
+    std::swap(arr[i + 1], arr[right]);
+    return i + 1;
+}
 
-- **Key-Value Storage:**
-  - In some programming languages, keys are stored next to their corresponding values within the hash table.
-  - This helps resolve issues like collisions, where multiple keys might hash to the same index.
+int quickselect(std::vector<int>& arr, int left, int right, int k) {
+    if (left == right) {
+        return arr[left];
+    }
 
-- **Uniqueness of Keys:**
-  - Each key in a hash table must be unique; if a key is inserted again, its associated value is overwritten.
-  - However, multiple keys can map to the same value.
+    int pivotIndex = partition(arr, left, right);
 
-- **Practical Example:**
-  - In a restaurant menu, using the item name as the key in a hash table allows for fast price lookups, whereas using an array would require searching through all items.
+    if (pivotIndex == k) {
+        return arr[pivotIndex];
+    } else if (pivotIndex > k) {
+        return quickselect(arr, left, pivotIndex - 1, k);
+    } else {
+        return quickselect(arr, pivotIndex + 1, right, k);
+    }
+}
 
-## Dealing With Collissions
+int main() {
+    std::vector<int> arr = {7, 10, 4, 3, 20, 15};
+    int k = 2;  // Find the 2nd smallest element
 
-### **Collisions in Hash Tables:**
-- **What is a Collision?**
-  - A collision occurs when two different keys hash to the same index in the hash table.
-  - In the example, both "bad" and "dab" hash to index 8, leading to a collision when trying to store the value associated with "dab".
-```python
-thesaurus["dab"] = "pat"
+    int result = quickselect(arr, 0, arr.size() - 1, k - 1);  // k - 1 because of zero-based index
+    std::cout << "The " << k << "th smallest element is " << result << std::endl;
+
+    return 0;
+}
 ```
 
-![[Pasted image 20240819205831.png]]
+### How It Works:
 
-![[Pasted image 20240819205845.png]]
+1. **Partition Function**:
+   - The `partition` function is similar to the one used in Quicksort. It chooses the last element as the pivot, partitions the array around it, and returns the pivot's final position.
 
-### **Handling Collisions:**
-- **Separate Chaining:**
-  - One common way to handle collisions is through separate chaining.
-  - Instead of storing a single value in a cell, the hash table stores a reference to an array (or linked list) when a collision occurs.
-  - This array will hold subarrays (or nodes in the case of a linked list) where each subarray contains the key and its associated value.
+2. **Quickselect Function**:
+   - This function recursively selects the part of the array to search in based on the pivot's position relative to the desired $k$th smallest element.
+   - It keeps partitioning until it finds the pivot in the $k$th position.
 
-![[Pasted image 20240819205924.png]]
+3. **Main Function**:
+   - In the `main` function, the array and the desired order statistic (e.g., 2nd smallest element) are defined.
+   - The `quickselect` function is called, and the result is printed.
 
-### **Lookup Process with Separate Chaining:**
-- **Steps in Lookup:**
-  - The computer hashes the key to determine the index.
-  - It then checks the cell at that index. If the cell contains an array of subarrays (due to a collision), a linear search is conducted within that array.
-  - The computer searches through the array, comparing the key at index 0 of each subarray until it finds the correct key. It then returns the corresponding value from index 1 of that subarray.
+### Output:
 
-- **Impact on Performance:**
-  - While separate chaining allows the hash table to handle collisions, it can degrade performance.
-  - In the worst-case scenario, if many keys collide and are stored in the same cell, the lookup process could degrade to $O(N)$ time complexity, which is no better than searching in a regular array.
+```
+The 2nd smallest element is 4
+```
 
-### **Importance of Minimizing Collisions:**
-- **Designing Efficient Hash Tables:**
-  - To maintain the typical $O(1)$ lookup time, it's crucial to minimize the number of collisions.
-  - This can be achieved by using a good hash function that distributes keys evenly across the hash table, and by ensuring the table is large enough relative to the number of entries.
-  - Most programming languages implement hash tables with these optimizations in place to handle collisions efficiently.
+This implementation is efficient and works well for finding the $k$th smallest element in an unsorted array.
 
-## Making an Efficient Hash Table
-
-### **Factors Affecting Hash Table Efficiency:**
-1. **Amount of Data:**
-   - The more data you store in a hash table, the higher the potential for collisions if the table isn’t large enough.
-
-2. **Number of Cells:**
-   - The number of cells in the hash table should be sufficient to store data with minimal collisions. If the table has too few cells relative to the data, collisions become more frequent, reducing efficiency.
-
-3. **Hash Function:**
-   - The hash function determines how keys are converted into indices (cell locations) in the table.
-   - A good hash function distributes keys uniformly across all available cells, minimizing collisions.
-
-### **Importance of a Good Hash Function:**
-- **Example of a Poor Hash Function:**
-  - A hash function that always returns a number between 1 and 9, even if the table has more cells, results in underutilization. Only cells 1 to 9 will be used, leading to a high concentration of data (and thus collisions) in these cells.
-	![[Pasted image 20240819210137.png]]
-  
-- **Desired Hash Function Behavior:**
-  - A well-designed hash function spreads data evenly across all cells, using the entire table efficiently and reducing the chances of collisions.
-
-### **Balancing Act:**
-- **Collision Avoidance vs. Memory Usage:**
-  - While avoiding collisions is crucial, it must be balanced against memory usage. For example, using a hash table with 1,000 cells for only 5 pieces of data avoids collisions but wastes memory.
-  
-- **Load Factor:**
-  - The load factor is a ratio that represents the balance between the number of data elements and the number of cells in the table.
-  - A commonly accepted load factor is 0.7, meaning for every 7 pieces of data, there should be 10 cells.
-  - As more data is added, the table may need to be resized, and the hash function might be adjusted to maintain an even distribution.
-
-### **Dynamic Resizing and Load Factor:**
-- **Resizing the Hash Table:**
-  - When the load factor becomes too high (too many elements relative to the number of cells), the hash table is resized to accommodate more data and reduce collisions.
-  - This resizing process often involves rehashing the existing data to spread it more evenly across the new, larger table.
-
-### **Optimizing for Efficiency:**
-- **Programming Language Implementations:**
-  - Most modern programming languages handle the details of hash table sizing, hash function selection, and resizing automatically, ensuring optimal performance.
-  - This allows developers to focus on using hash tables without worrying too much about the underlying mechanics.
-
-### **Key Takeaways:**
-- Efficient hash tables balance the number of cells, the amount of data, and the effectiveness of the hash function to ensure $O(1)$ lookup times.
-- The load factor provides a guideline for maintaining this balance, preventing excessive collisions while avoiding unnecessary memory usage.
-- Understanding these principles helps in appreciating how hash tables achieve fast lookups and why certain design choices are made in their implementation.
-
-## Hash Tables for Organization
-
-1. **Natural Fit for Paired Data:**
-   - **Paired Data Examples:** 
-     - Hash tables are ideal for data that naturally exists in pairs, such as:
-       - **Fast-food menu:** Food item paired with its price.
-       - **Thesaurus:** Word paired with its synonym.
-     - In Python, hash tables are called **dictionaries** because they function like a dictionary, with words (keys) and definitions (values).
-   
-2. **Tallies and Inventory:**
-   - **Tallies:** 
-     - Example: Tracking votes in an election, where each candidate's name is paired with their vote count.
-     - Example: An inventory system, where each item's name is paired with the quantity in stock.
-   
-3. **Simplifying Conditional Logic:**
-   - **Conditional Logic Example:**
-     - Instead of using multiple `if-else` statements to map HTTP status codes to their meanings, a hash table can be used for direct lookups.
-   - **C++ Example:**
-     ```cpp
-     #include <unordered_map>
-     #include <string>
-
-     std::string status_code_meaning(int number) {
-         static const std::unordered_map<int, std::string> STATUS_CODES = {
-             {200, "OK"}, {301, "Moved Permanently"}, {401, "Unauthorized"},
-             {404, "Not Found"}, {500, "Internal Server Error"}
-         };
-         return STATUS_CODES[number];
-     }
-     ```
-
-4. **Representing Objects with Attributes:**
-   - **Attributes as Paired Data:**
-     - Example: Representing a dog with attributes like name, breed, age, and gender, where each attribute is a key-value pair.
-   - **C++ Example:**
-     - An individual dog:
-     ```cpp
-     std::unordered_map<std::string, std::string> dog = {
-         {"Name", "Fido"}, {"Breed", "Pug"}, {"Age", "3"}, {"Gender", "Male"}
-     };
-     ```
-     - A list of dogs:
-     ```cpp
-     std::vector<std::unordered_map<std::string, std::string>> dogs = {
-         {{"Name", "Fido"}, {"Breed", "Pug"}, {"Age", "3"}, {"Gender", "Male"}},
-         {{"Name", "Lady"}, {"Breed", "Poodle"}, {"Age", "6"}, {"Gender", "Female"}},
-         {{"Name", "Spot"}, {"Breed", "Dalmatian"}, {"Age", "2"}, {"Gender", "Male"}}
-     };
-     ```
-
-5. **Key Takeaway:**
-   - Hash tables are extremely useful for organizing paired data, simplifying lookups, and representing objects with multiple attributes efficiently.
 ## Linked Lists
 
 A **linked list** is a fundamental data structure used to store a collection of elements in a linear order. Unlike arrays, linked lists do not require a contiguous block of memory for storing their elements. Instead, each element (referred to as a **node**) contains two parts:
@@ -3127,6 +2742,1441 @@ int main() {
 
 This implementation allows efficient queue operations with $O(1)$ time complexity for both enqueue and dequeue.
 
+## Trees
+
+- **Tree Structure:**
+  - **Node-Based Data Structure:** Like linked lists, trees consist of nodes. However, each node in a tree can have links (branches) to multiple other nodes.
+  - **Visualization:** A tree is often depicted with the root at the top and branches growing downward.
+
+- **Tree Terminology:**
+  - **Root:** The topmost node in a tree. It is the ancestor of all other nodes. In the given example, "j" is the root.
+  - **Parent and Child:** 
+    - **Parent:** A node that has branches to other nodes (children).
+    - **Child:** A node that is connected by a branch from another node (parent). For instance, "j" is the parent of "m" and "b," while "m" and "b" are children of "j."
+  - **Descendants and Ancestors:**
+    - **Descendants:** All nodes that stem from a particular node.
+    - **Ancestors:** All nodes that a particular node stems from. For example, "j" is the ancestor of all other nodes in the tree.
+  - **Levels:** The rows within a tree, where each row represents a different level. The root is at level 1, its children are at level 2, and so on.
+
+- **Tree Balance:**
+  - **Balanced Tree:** A tree is balanced if the subtrees of every node contain the same number of nodes. In the example, the tree is perfectly balanced because each node's subtrees have an equal number of nodes.
+  - **Imbalanced Tree:** If one subtree has more nodes than the other, the tree is imbalanced. An imbalance can affect the performance of operations like search, insertion, and deletion.
+
+### Visual Examples
+
+**Balanced Tree:**
+![[Pasted image 20240819222526.png]]
+
+**Imbalanced Tree:**
+![[Pasted image 20240819222537.png]]
+
+This concept of balance is crucial for many tree operations, particularly in structures like **Binary Search Trees (BSTs)** where balanced trees ensure efficient performance.
+
+## Binary Search Trees (BSTs)
+
+- **Binary Tree:**
+  - A **binary tree** is a tree where each node has zero, one, or two children.
+
+- **Binary Search Tree (BST):**
+  - A **binary search tree** is a special type of binary tree that follows two key rules:
+    1. Each node can have at most one "left" child and one "right" child.
+    2. The "left" child and its descendants must have values less than the node's value, while the "right" child and its descendants must have values greater than the node's value.
+
+### Characteristics of a BST:
+- **Left Child:** Contains values less than the parent node.
+- **Right Child:** Contains values greater than the parent node.
+- **Structure Example:**
+
+![[Pasted image 20240819222612.png]]
+
+  - In this example:
+    - The root is 50.
+    - The left subtree of 50 contains values less than 50 (25, 10, 33, ...).
+    - The right subtree of 50 contains values greater than 50 (75, 56, 52, 95, ...).
+    - This pattern holds true for each node in the tree.
+
+### Invalid BST Example:
+- A binary tree that does not follow the BST rules:
+  ```
+         50
+        /  \
+       25   40
+      / 
+     30 
+  ```
+  - This is a binary tree because each node has at most two children.
+  - However, it is not a valid BST because the right child of the root (40) is less than the root (50), violating the BST property.
+
+### C++ Implementation of a BST Node and Simple Tree
+
+```cpp
+#include <iostream>
+
+class TreeNode {
+public:
+    int value;
+    TreeNode* leftChild;
+    TreeNode* rightChild;
+
+    TreeNode(int val) : value(val), leftChild(nullptr), rightChild(nullptr) {}
+};
+
+// Function to insert a new node into the BST
+TreeNode* insert(TreeNode* root, int value) {
+    if (root == nullptr) {
+        return new TreeNode(value);
+    }
+
+    if (value < root->value) {
+        root->leftChild = insert(root->leftChild, value);
+    } else if (value > root->value) {
+        root->rightChild = insert(root->rightChild, value);
+    }
+
+    return root;
+}
+
+// Function to search for a value in the BST
+bool search(TreeNode* root, int value) {
+    if (root == nullptr) {
+        return false;
+    }
+
+    if (root->value == value) {
+        return true;
+    }
+
+    if (value < root->value) {
+        return search(root->leftChild, value);
+    } else {
+        return search(root->rightChild, value);
+    }
+}
+
+int main() {
+    TreeNode* root = nullptr;
+
+    // Inserting nodes into the BST
+    root = insert(root, 50);
+    insert(root, 25);
+    insert(root, 75);
+    insert(root, 10);
+    insert(root, 30);
+    insert(root, 60);
+    insert(root, 85);
+
+    // Searching for a value
+    int target = 30;
+    if (search(root, target)) {
+        std::cout << target << " found in the tree." << std::endl;
+    } else {
+        std::cout << target << " not found in the tree." << std::endl;
+    }
+
+    return 0;
+}
+```
+
+### Explanation of the Code:
+- **TreeNode Class:**
+  - Represents a node in the BST with an integer value and pointers to left and right children.
+
+- **Insert Function:**
+  - Recursively inserts a new value into the tree, maintaining the BST properties.
+
+- **Search Function:**
+  - Recursively searches for a value in the tree, returning `true` if found and `false` otherwise.
+
+This C++ implementation allows efficient insertion and search operations in a BST, with time complexity of $O(\log N)$ on average for balanced trees.
+
+## Search a BST
+
+### Steps for Searching in a Binary Search Tree (BST)
+
+1. **Start at the Root:** 
+   - Begin the search at the root node, which is initially the "current node."
+
+![[Pasted image 20240819222911.png]]
+(Say we want to search for the 61.)
+
+2. **Inspect the Current Node:** 
+   - Check the value of the current node.
+
+3. **Check for Match:**
+   - If the value matches the one you're searching for, the search is complete.
+
+4. **Move to the Left Subtree (if applicable):** 
+   - If the value you're searching for is less than the current node's value, move to the left child node and designate it as the new current node.
+
+![[Pasted image 20240819222922.png]]
+
+5. **Move to the Right Subtree (if applicable):**
+   - If the value you're searching for is greater than the current node's value, move to the right child node and designate it as the new current node.\
+
+![[Pasted image 20240819223008.png]]
+
+6. **Repeat the Process:**
+   - Continue the process by repeating steps 2-5 until either:
+     - The value is found.
+     - You reach a leaf node (a node without children), indicating that the value is not in the tree.
+
+![[Pasted image 20240819223016.png]]
+
+### Efficiency of the Search
+- **Time Complexity:** 
+  - The efficiency of searching in a BST is generally $O(\log N)$ for a balanced tree, where $N$ is the number of nodes. This is because each step of the search halves the number of potential nodes to explore by moving either left or right.
+  
+- **Caveat for Imbalance:**
+  - The $O(\log N)$ complexity assumes the tree is balanced. In an imbalanced tree (where nodes are skewed to one side), the worst-case time complexity could degrade to $O(N)$, making the search equivalent to a linear search in a linked list.
+
+### C++ Implementation
+
+```cpp
+#include <iostream>
+
+class TreeNode {
+public:
+    int value;
+    TreeNode* leftChild;
+    TreeNode* rightChild;
+
+    TreeNode(int val) : value(val), leftChild(nullptr), rightChild(nullptr) {}
+};
+
+class BST {
+public:
+    TreeNode* root;
+
+    BST() : root(nullptr) {}
+
+    // Function to insert a new node into the BST
+    void insert(int value) {
+        root = insertRec(root, value);
+    }
+
+    // Function to search for a value in the BST
+    bool search(int value) {
+        return searchRec(root, value);
+    }
+
+private:
+    // Helper function for inserting a new node
+    TreeNode* insertRec(TreeNode* node, int value) {
+        if (node == nullptr) {
+            return new TreeNode(value);
+        }
+
+        if (value < node->value) {
+            node->leftChild = insertRec(node->leftChild, value);
+        } else if (value > node->value) {
+            node->rightChild = insertRec(node->rightChild, value);
+        }
+
+        return node;
+    }
+
+    // Helper function for searching a value
+    bool searchRec(TreeNode* node, int value) {
+        if (node == nullptr) {
+            return false;
+        }
+
+        if (node->value == value) {
+            return true;
+        } else if (value < node->value) {
+            return searchRec(node->leftChild, value);
+        } else {
+            return searchRec(node->rightChild, value);
+        }
+    }
+};
+
+int main() {
+    BST tree;
+
+    // Inserting nodes into the BST
+    tree.insert(50);
+    tree.insert(25);
+    tree.insert(75);
+    tree.insert(10);
+    tree.insert(30);
+    tree.insert(60);
+    tree.insert(85);
+
+    // Searching for a value in the BST
+    int target = 30;
+    if (tree.search(target)) {
+        std::cout << target << " found in the tree." << std::endl;
+    } else {
+        std::cout << target << " not found in the tree." << std::endl;
+    }
+
+    return 0;
+}
+```
+
+### Explanation:
+
+1. **TreeNode Class:**
+   - Represents each node in the BST with an integer value, and pointers to left and right child nodes.
+
+2. **BST Class:**
+   - Contains a `root` pointer to the root node of the tree.
+   - Implements the `insert` function to add values to the tree.
+   - Implements the `search` function to find a value in the tree.
+
+3. **Insertion:**
+   - The `insertRec` function recursively finds the correct spot in the tree for a new value while maintaining the BST properties.
+
+4. **Search:**
+   - The `searchRec` function recursively checks nodes to find the target value. It follows the logic:
+     - If the value matches the current node, return true.
+     - If the value is less, search the left subtree.
+     - If the value is greater, search the right subtree.
+     - If a leaf node is reached without finding the value, return false.
+
+5. **Main Function:**
+   - Demonstrates inserting nodes into the BST and searching for a specific value.
+
+## O(log N) Complexity in Binary Search Trees
+
+The $O(\log N)$ complexity in binary search trees (BSTs) is a fundamental property that explains why searching in a balanced BST is so efficient. This concept is deeply tied to the structure of the tree itself, particularly the number of levels (or rows) that the tree has.
+
+#### Logarithmic Levels in a Balanced Binary Tree
+
+A binary tree is a hierarchical structure where each node has at most two children. In a balanced binary tree, the nodes are evenly distributed across all levels, which means the tree is as compact as possible given the number of nodes.
+
+- **Doubling Nodes with Each Level:** In a complete binary tree, every level of the tree doubles the number of nodes from the previous level (except possibly the last level, which might not be fully filled). This means if level 1 has 1 node, level 2 has 2 nodes, level 3 has 4 nodes, and so on. This doubling pattern follows an exponential growth, which is the inverse of the logarithmic relationship.
+
+- **Logarithmic Growth of Levels:** Because the number of nodes doubles with each level, the number of levels required to hold $N$ nodes in a balanced binary tree grows logarithmically with $N$. Specifically, the number of levels $L$ in a perfectly balanced binary tree with $N$ nodes can be approximated by $L = \log_2(N)$.
+
+    - For example, if a binary tree has $31$ nodes, you would calculate the levels as:
+      $L = \log_2(31) \approx 5$
+      This means a balanced binary tree with 31 nodes has about 5 levels.
+
+#### O(log N) Search Complexity
+
+- **Search Process:** When searching for a value in a BST, you start at the root and at each step, you decide to move to either the left or right child depending on the value you're searching for relative to the current node. Each step effectively eliminates half of the tree from consideration, which is similar to how binary search works in a sorted array.
+
+- **Connection to Tree Levels:** Since each step in the search process corresponds to moving down one level in the tree, the maximum number of steps required to find a value (or determine it's not in the tree) is equal to the number of levels in the tree. Hence, the search operation in a balanced BST has a time complexity of $O(\log N)$.
+
+#### Comparison to Binary Search in an Array
+
+- **Binary Search in an Array:** Similarly, binary search in a sorted array also operates in $O(\log N)$ time because each comparison eliminates half of the remaining elements. 
+
+- **Advantage of BSTs:** The key advantage of BSTs over arrays is in insertion and deletion operations. Inserting or deleting a value in a sorted array typically requires $O(N)$ time because elements may need to be shifted. In contrast, inserting or deleting in a BST can be done in $O(\log N)$ time, making BSTs more efficient for dynamic datasets where elements are frequently added or removed.
+
+### Summary
+- A balanced binary tree with $N$ nodes has approximately $\log_2(N)$ levels.
+- Searching in a BST takes $O(\log N)$ steps because each step eliminates half of the remaining tree, similar to binary search in an array.
+- While both searching in a BST and binary search in an ordered array have $O(\log N)$ time complexity, BSTs provide more efficient insertion and deletion operations.
+
+## Insertion in a Binary Search Tree (BST):
+
+1. **Start at the Root:**
+   - Begin the insertion process by comparing the value you want to insert with the root node.
+	![[Pasted image 20240820093354.png]]
+
+2. **Compare and Traverse:**
+   - If the value is less than the current node's value, move to the left child.
+   - If the value is greater than the current node's value, move to the right child.
+	   - Since 45 is less than 50, we drill down to the left child:
+		![[Pasted image 20240820093424.png]]
+     	  - Since 45 is greater than 25, we must inspect the right child:
+		![[Pasted image 20240820093515.png]]
+	   - Since 45 is greater than 33, we check the 33’s right child:
+		![[Pasted image 20240820093609.png]]
+
+3. **Repeat Until Leaf Node:**
+   - Continue comparing and moving left or right until you reach a node that has no appropriate child (i.e., a leaf node).
+
+4. **Insert the New Node:**
+   - Once you reach a leaf node, insert the new value as either a left or right child, depending on whether it is less or greater than the leaf node's value.
+	![[Pasted image 20240820093645.png]]
+
+### Efficiency of Insertion:
+- **Time Complexity:** 
+  - The insertion process in a balanced BST involves first searching for the correct position, which takes $O(\log N)$ time, followed by inserting the node in $O(1)$ time.
+  - Thus, the overall time complexity for insertion is $O(\log N)$.
+
+### Why BSTs are Efficient for Insertion:
+- **Comparison with Ordered Arrays:**
+  - Ordered arrays take $O(\log N)$ for search but $O(N)$ for insertion because elements may need to be shifted to accommodate the new element.
+  - In contrast, BSTs handle both search and insertion in $O(\log N)$ time, making them highly efficient, especially when frequent insertions are expected.
+
+### C++ Implementation
+
+```cpp
+#include <iostream>
+
+class TreeNode {
+public:
+    int value;
+    TreeNode* leftChild;
+    TreeNode* rightChild;
+
+    TreeNode(int val) : value(val), leftChild(nullptr), rightChild(nullptr) {}
+};
+
+class BST {
+public:
+    TreeNode* root;
+
+    BST() : root(nullptr) {}
+
+    // Function to insert a new value into the BST
+    void insert(int value) {
+        root = insertRec(root, value);
+    }
+
+    // Function to perform an in-order traversal of the BST (for display purposes)
+    void inOrderTraversal(TreeNode* node) {
+        if (node == nullptr) return;
+        inOrderTraversal(node->leftChild);
+        std::cout << node->value << " ";
+        inOrderTraversal(node->rightChild);
+    }
+
+    // Function to start in-order traversal from the root
+    void display() {
+        inOrderTraversal(root);
+        std::cout << std::endl;
+    }
+
+private:
+    // Helper function for inserting a new node into the BST
+    TreeNode* insertRec(TreeNode* node, int value) {
+        // If the current node is null, create a new node with the value
+        if (node == nullptr) {
+            return new TreeNode(value);
+        }
+
+        // Recursively insert in the left subtree if the value is less than the current node's value
+        if (value < node->value) {
+            node->leftChild = insertRec(node->leftChild, value);
+        }
+        // Recursively insert in the right subtree if the value is greater than the current node's value
+        else if (value > node->value) {
+            node->rightChild = insertRec(node->rightChild, value);
+        }
+
+        // Return the (unchanged) node pointer
+        return node;
+    }
+};
+
+int main() {
+    BST tree;
+
+    // Inserting nodes into the BST
+    tree.insert(50);
+    tree.insert(25);
+    tree.insert(75);
+    tree.insert(10);
+    tree.insert(33);
+    tree.insert(40);
+    tree.insert(45);
+
+    // Display the BST using in-order traversal
+    tree.display();
+
+    return 0;
+}
+```
+
+### Explanation:
+
+1. **TreeNode Class:**
+   - Represents each node in the BST with an integer value and pointers to its left and right children.
+
+2. **BST Class:**
+   - Contains a `root` pointer to the root node of the tree.
+   - Implements the `insert` function to add values to the tree.
+   - Includes an `inOrderTraversal` function to traverse and print the tree's elements in order, which helps verify the structure of the BST.
+
+3. **Insertion Logic:**
+   - The `insertRec` function is a recursive helper function that determines where the new value should be placed within the tree:
+     - If the current node is `nullptr`, a new `TreeNode` is created with the value.
+     - If the value is less than the current node's value, the function recurses into the left subtree.
+     - If the value is greater, it recurses into the right subtree.
+
+4. **Main Function:**
+   - Demonstrates inserting nodes into the BST and displaying the tree using in-order traversal, which should print the values in ascending order if the tree is correctly structured.
+
+### Impact of Insertion Order on Binary Search Trees:
+
+- **Balanced vs. Imbalanced Trees:**
+  - **Balanced Tree:** A tree is considered balanced when the depth of the left and right subtrees of any node differ by at most one. In such a tree, search operations take $O(\log N)$ time.
+  - **Imbalanced Tree:** When a tree is imbalanced, it can become linear, resembling a linked list. In this scenario, the time complexity for search operations degrades to $O(N)$.
+
+- **Effect of Insertion Order:**
+  - **Sorted Data Insertion (Worst-Case):**
+    - Inserting data in a sequential order (e.g., 1, 2, 3, 4, 5) leads to a completely imbalanced tree. This results in a tree that is essentially a straight line, causing search operations to become inefficient ($O(N)$).
+		![[Pasted image 20240820093840.png]]
+  - **Random Order Insertion (Typical-Case):**
+    - Inserting data in a random order (e.g., 3, 2, 4, 1, 5) typically results in a more balanced tree. This ensures that search operations remain efficient, usually around $O(\log N)$.
+	    ![[Pasted image 20240820093847.png]]
+
+- **Recommendation for Converting Ordered Arrays to BST:**
+  - Before converting an ordered array into a binary search tree, it is advisable to randomize the data to prevent the tree from becoming imbalanced and to maintain efficient search performance.
+
+## Deletion in a Binary Search Tree:
+
+Deletion in a binary search tree (BST) involves removing a node and then adjusting the tree to maintain the BST properties. The process depends on the number of children the node to be deleted has:
+
+#### 1. **Case 1: Node with No Children (Leaf Node)**
+   - **Process:**
+     - Simply delete the node.
+   - **Example:**
+     - If you delete a node like `4` that has no children, you can remove it directly.
+     ![[Pasted image 20240820094039.png]]
+     ![[Pasted image 20240820094044.png]]
+
+#### 2. **Case 2: Node with One Child**
+   - **Process:**
+     - Delete the node and replace it with its child.
+   - **Example:**
+     - If you delete a node like `10` that has only one child (`11`), you remove the `10` and connect `11` to the parent of `10`.
+     ![[Pasted image 20240820094057.png]]
+     ![[Pasted image 20240820094109.png]]
+
+### Deleting a Node with Two Children
+
+When deleting a node with two children in a binary search tree (BST), the process involves replacing the node with its **successor**. The successor is the node with the smallest value that is greater than the node being deleted.
+
+#### 1. **Find the Successor:**
+   - The successor is the node with the smallest value in the right subtree of the node to be deleted.
+   - In the given example, if you want to delete `56`, the right subtree of `56` contains `61`. Since `61` is the smallest value in that subtree, it is the successor.
+	![[Pasted image 20240820094225.png]]
+
+#### 2. **Replace the Node:**
+   - Replace the node to be deleted (`56`) with the successor node (`61`).
+   - This involves copying the value of the successor into the node being deleted, and then deleting the successor node.
+
+#### 3. **Handle the Successor's Subtree:**
+   - If the successor node (`61`) has a right child, connect this child to the parent of the successor.
+   - In this case, after replacing `56` with `61`, the original position of `61` is left empty, so you can simply remove it, as it had no children.
+	   ![[Pasted image 20240820094319.png]]
+
+By replacing the node with its successor, you maintain the BST property that all nodes in the left subtree are smaller and all nodes in the right subtree are larger. This ensures the tree remains valid after the deletion.
+
+### Finding the Successor Node
+
+When deleting a node with two children in a Binary Search Tree (BST), you need to find the successor node to maintain the tree's structure.
+
+#### 1. **Start with the Right Child:**
+   - Begin by visiting the right child of the node you want to delete. This is the first step to finding the successor.
+
+#### 2. **Traverse Left Subtree:**
+   - From the right child, continue moving left, descending through the left children until you reach a node that has no left child. This node is the successor.
+   - The reason this works is that the smallest value greater than the node you're deleting will always be the leftmost node in the right subtree.
+
+#### 3. **Replace the Deleted Node with the Successor:**
+   - Once the successor node is found, you replace the value of the node you're deleting with the value of the successor.
+   - If the successor has a right child, you need to connect this right child to the parent of the successor, maintaining the BST property.
+
+#### Example:
+Let's say you want to delete the root node `50`. The steps would be:
+
+1. Visit the right child of `50`, which is `75`.
+	![[Pasted image 20240820094443.png]]
+2. From `75`, move left to `61`.
+3. Continue left to `52`, which has no left child. Thus, `52` is the successor.
+	![[Pasted image 20240820094506.png]]
+4. Replace `50` with `52`, making `52` the new root of the tree.
+	![[Pasted image 20240820094521.png]]
+
+By following this algorithm, you ensure that the BST remains correctly ordered after the deletion.
+
+### Handling a Successor Node with a Right Child
+
+When the successor node in a Binary Search Tree (BST) has a right child, the deletion process requires some additional steps to maintain the tree structure.
+
+#### 1. **Identify the Successor Node:**
+   - As before, find the successor node by going to the right child of the node to be deleted and then traversing left until no more left children exist.
+
+#### 2. **Plug the Successor Node into the Deleted Node's Position:**
+   - Replace the node you're deleting with the successor node. However, if the successor node has a right child, this child will be left without a parent after the replacement.
+
+#### 3. **Reattach the Successor's Right Child:**
+   - To address the dangling right child of the successor:
+     1. **Find the former parent of the successor node.** This is the node that initially linked to the successor (its parent before the deletion).
+     2. **Reattach the right child of the successor as the left child of this former parent.**
+   - This step ensures that the BST properties are preserved by maintaining the correct ordering of the nodes.
+
+#### Example:
+Consider you want to delete the root node `50` from a BST, where `52` is the successor and has a right child `55`.
+
+1. **Find the Successor:**  
+   - Start at the right child of `50` (which is `75`), move left to `61`, and then left again to `52`, which is the successor.
+	![[Pasted image 20240820094623.png]]
+
+2. **Plug the Successor into the Root:**  
+   - Replace `50` with `52`, making `52` the new root. This leaves `55` without a parent.
+	![[Pasted image 20240820094653.png]]
+
+3. **Reattach `55`:**
+   - Since `61` was the parent of `52`, make `55` the left child of `61`.
+	![[Pasted image 20240820094704.png]]
+
+By following these steps, the tree remains correctly structured, preserving the BST properties even after the deletion of a node with two children.
+
+### Complete Deletion Algorithm for a Binary Search Tree (BST)
+
+1. **Deleting a Node with No Children (Leaf Node):**
+   - If the node to be deleted has no children, simply remove it from the tree.
+
+2. **Deleting a Node with One Child:**
+   - If the node to be deleted has only one child:
+     - Remove the node.
+     - Replace it with its child, effectively bypassing the deleted node.
+
+3. **Deleting a Node with Two Children:**
+   - When the node to be deleted has two children:
+     1. **Find the Successor Node:**
+        - The successor node is the node with the smallest value greater than the node to be deleted. 
+        - To find the successor:
+          - Go to the right child of the node to be deleted.
+          - Then keep moving left until no more left children exist.
+     2. **Replace the Deleted Node with the Successor Node:**
+        - Swap the contents (value) of the node to be deleted with the successor node.
+        - Remove the successor node from its original position. 
+     3. **Handle the Successor’s Right Child (if it exists):**
+        - If the successor node has a right child:
+          - Attach this child to the left of the successor’s former parent, ensuring the BST structure remains intact.
+
+### C++ Implementation
+
+```cpp
+#include <iostream>
+
+struct TreeNode {
+    int value;
+    TreeNode* left;
+    TreeNode* right;
+
+    TreeNode(int val) : value(val), left(nullptr), right(nullptr) {}
+};
+
+// Helper function to find the minimum value node in a given subtree
+TreeNode* findMin(TreeNode* node) {
+    while (node && node->left != nullptr) {
+        node = node->left;
+    }
+    return node;
+}
+
+// Function to delete a node from the BST
+TreeNode* deleteNode(TreeNode* root, int key) {
+    // Base case: if the tree is empty
+    if (root == nullptr) {
+        return nullptr;
+    }
+
+    // Recur down the tree
+    if (key < root->value) {
+        root->left = deleteNode(root->left, key);
+    } else if (key > root->value) {
+        root->right = deleteNode(root->right, key);
+    } else {
+        // Node to be deleted found
+
+        // Case 1: Node has no children
+        if (root->left == nullptr && root->right == nullptr) {
+            delete root;
+            return nullptr;
+        }
+
+        // Case 2: Node has only one child
+        if (root->left == nullptr) {
+            TreeNode* temp = root->right;
+            delete root;
+            return temp;
+        } else if (root->right == nullptr) {
+            TreeNode* temp = root->left;
+            delete root;
+            return temp;
+        }
+
+        // Case 3: Node has two children
+        TreeNode* temp = findMin(root->right); // Find the smallest value in the right subtree
+        root->value = temp->value; // Replace value of node to be deleted with the smallest value
+        root->right = deleteNode(root->right, temp->value); // Delete the successor node
+    }
+    return root;
+}
+
+// Helper function to print the tree (inorder traversal)
+void printInOrder(TreeNode* node) {
+    if (node == nullptr) {
+        return;
+    }
+    printInOrder(node->left);
+    std::cout << node->value << " ";
+    printInOrder(node->right);
+}
+
+int main() {
+    // Example usage
+    TreeNode* root = new TreeNode(50);
+    root->left = new TreeNode(30);
+    root->right = new TreeNode(70);
+    root->left->left = new TreeNode(20);
+    root->left->right = new TreeNode(40);
+    root->right->left = new TreeNode(60);
+    root->right->right = new TreeNode(80);
+
+    std::cout << "Original tree (inorder): ";
+    printInOrder(root);
+    std::cout << std::endl;
+
+    int keyToDelete = 70;
+    root = deleteNode(root, keyToDelete);
+
+    std::cout << "Tree after deleting " << keyToDelete << " (inorder): ";
+    printInOrder(root);
+    std::cout << std::endl;
+
+    // Clean up remaining nodes (not shown here for brevity)
+
+    return 0;
+}
+```
+
+### Explanation:
+
+1. **`findMin(TreeNode* node)`**: Finds the minimum value node in a subtree, used to locate the successor node.
+
+2. **`deleteNode(TreeNode* root, int key)`**: Deletes the node with the given `key` and handles all cases:
+   - **No children**: Simply delete the node.
+   - **One child**: Replace the node with its child.
+   - **Two children**: Replace the node with its successor node and then delete the successor.
+
+3. **`printInOrder(TreeNode* node)`**: A utility function for displaying the BST in inorder (ascending) to verify the tree structure.
+
+This code demonstrates how to perform deletions while maintaining the BST properties.
+
+## Priority Queues
+
+A **priority queue** is a specialized type of queue in which each element is assigned a priority, and elements with higher priorities are served before those with lower priorities, regardless of the order in which they were added. This makes priority queues essential for scenarios like task scheduling, where tasks must be executed based on their urgency or importance.
+
+#### Key Characteristics of a Priority Queue:
+- **Access and Deletion**: Just like a classic queue, elements are removed from the front.
+- **Insertion**: Unlike a classic queue, where elements are added to the end, in a priority queue, elements are inserted in a way that maintains a specific order, usually based on their priority.
+
+#### Example: Hospital Triage System
+Imagine a hospital emergency room where patients are treated based on the severity of their condition:
+- Patients are assigned a priority from 1 to 10, with 10 being the most critical.
+	![[Pasted image 20240820095048.png]]
+- When a patient arrives, they are placed in the queue according to their severity.
+	![[Pasted image 20240820095056.png]]
+- The patient with the highest priority is always treated first, regardless of when they arrived.
+
+For example:
+- **Patient C** with a priority of 10 is at the front of the queue.
+- If **Patient E** arrives with a priority of 3, they are placed in the queue after all patients with higher priorities but before those with lower ones.
+
+#### Implementing a Priority Queue Using an Ordered Array:
+One way to implement a priority queue is by using an ordered array:
+- **Insertion**: When a new element is added, it is inserted in such a way that the array remains sorted by priority. This takes $O(N)$ time because we might need to shift elements to make room for the new one.
+- **Deletion**: The highest-priority element is always at the end of the array, so deletion is $O(1)$, which is very efficient.
+
+However, while deletion in this approach is optimal, the insertion operation can be costly due to the need to maintain order.
+
+#### Efficiency Considerations:
+- **Deletions**: $O(1)$ because the highest-priority element is at the end of the array, so no shifting is required.
+- **Insertions**: $O(N)$ because we may need to inspect and shift elements to maintain the correct order, especially in large arrays.
+
+#### The Need for Heaps:
+Because of the inefficiency in insertions using an ordered array, computer scientists developed another data structure called the **heap** to implement priority queues more efficiently. A heap allows both insertion and deletion to be performed in $O(\log N)$ time, making it a better foundation for priority queues, especially when dealing with a large number of elements.
+
+In summary, while an array-based priority queue is simple to implement, its $O(N)$ insertion time can become a bottleneck. This is why heaps are often used as the underlying data structure for priority queues, providing a more balanced and efficient solution.
+
+## Binary Heaps
+
+A **binary heap** is a specialized tree-based data structure that satisfies two key properties: the **heap condition** and the **completeness** of the tree. Heaps are primarily used to implement priority queues, and they come in two main types: **max-heaps** and **min-heaps**. We'll focus on **max-heaps** in this explanation, but the concepts apply similarly to min-heaps with a simple reversal of the heap condition.
+
+#### Key Properties of a Binary Heap:
+
+1. **Heap Condition**:
+   - In a **max-heap**, each node's value is greater than or equal to the values of its children. This means the largest value is always at the root of the tree.
+   - In a **min-heap**, each node's value is less than or equal to the values of its children, so the smallest value is at the root.
+
+2. **Completeness**:
+   - The binary tree must be **complete**, meaning all levels of the tree are fully filled except possibly the last level, which is filled from left to right.
+
+#### Example of a Max-Heap:
+
+![[Pasted image 20240820095225.png]]
+
+- **Heap Condition**: Every parent node is greater than its children. This satisfies the max-heap condition.
+
+#### Example of a Non-Heap:
+
+![[Pasted image 20240820095243.png]]
+
+- Here, **92** is greater than its parent node **88**, violating the max-heap condition.
+
+#### Difference from a Binary Search Tree (BST):
+
+- In a **BST**, the left child is always less than the parent, and the right child is greater. The values in a BST are arranged to facilitate fast searches.
+- In contrast, a **heap** does not have this left-right ordering. Instead, it focuses on maintaining the heap condition where no descendant is greater (in a max-heap) or smaller (in a min-heap) than its parent.
+
+#### Why Use Heaps?
+
+Heaps are primarily used in scenarios where you need quick access to the largest (or smallest) element. This makes them ideal for implementing priority queues, where you often need to repeatedly access and remove the highest-priority element (the largest in a max-heap).
+
+In summary, a **binary heap** is a complete binary tree that maintains a strict order between parent and child nodes, ensuring the root always holds the maximum or minimum value, depending on the type of heap. This structure is particularly efficient for operations like finding the maximum or minimum element, which can be done in constant time $O(1)$, with insertions and deletions typically taking $O(\log N)$.
+
+## Complete Trees
+
+#### What is a Complete Tree?
+
+A **complete tree** is a binary tree in which every level is fully filled except possibly the last level. If the last level is not fully filled, the nodes must be filled from left to right, with no gaps in between.
+
+#### Examples of Complete Trees
+
+1. **Fully Filled Tree**:
+	![[Pasted image 20240820095426.png]]
+   - **Explanation**: All levels are fully filled. This is a complete tree because there are no missing nodes at any level.
+
+2. **Incomplete Tree (Not Complete)**:
+	![[Pasted image 20240820095440.png]]
+   - **Explanation**: The third level has a missing node on the left side, making it incomplete. A complete tree would not have gaps like this within a level.
+
+3. **Complete Tree with Gaps on the Bottom Row**:
+	![[Pasted image 20240820095514.png]]
+   - **Explanation**: This tree is considered complete because the only gaps are on the bottom row, and they are to the right. There are no nodes to the right of these gaps, which satisfies the complete tree condition.
+
+#### The Importance of Completeness in Heaps
+
+In the context of heaps, the **completeness** of the tree is essential because it ensures that the heap can be efficiently represented using an array. In a complete tree, if you traverse the tree level by level from left to right, the nodes can be stored sequentially in an array. This property is what allows heaps to perform insertions, deletions, and access operations efficiently.
+
+- **Example of a Valid Heap**:
+	![[Pasted image 20240820095531.png]]
+   - **Explanation**: This tree is complete and satisfies the heap condition (in this case, it's a max-heap). All nodes on the last level are as far left as possible, and no nodes are to the right of any gaps.
+
+In summary, a **complete tree** is one where all levels are fully populated except possibly the last, and if the last level has missing nodes, they must be on the far right. This structure is critical for heaps because it ensures the heap can maintain its properties while enabling efficient operations.
+
+## Properties of Heaps
+
+Heaps are fascinating data structures that are particularly useful in scenarios where we need to repeatedly access the highest (or lowest) priority element, such as in priority queues
+
+#### 1. **Weak Ordering**
+
+- **Definition**: Heaps are considered to be *weakly ordered* as compared to structures like binary search trees. This means that while the heap condition ensures that each node is greater than (or smaller than, in the case of min-heaps) its descendants, there isn't enough ordering information to efficiently search for a specific value.
+  
+  - **Example**: If you need to find the value 3 in a max-heap where the root is 100, you know that 3 must be somewhere among the descendants of 100, but you don't know exactly where. In a binary search tree, you could immediately narrow down the search to either the left or right subtree based on the value, but in a heap, you might need to search through many nodes to find the value.
+
+#### 2. **Root Node Property**
+
+- **Definition**: In a max-heap, the **root node** (the top node of the heap) will always have the greatest value among all nodes in the heap. Conversely, in a min-heap, the root will always have the smallest value.
+
+  - **Example**: In a max-heap with the root node valued at 100, no other node in the heap will have a value greater than 100. This property is what makes heaps particularly suitable for implementing priority queues, where you need to efficiently access the highest-priority element.
+
+#### 3. **Efficiency of Primary Operations**
+
+- **Insertion and Deletion**: Heaps are designed to efficiently support two primary operations:
+  
+  - **Insertion**: When you insert a new element into a heap, it is initially placed at the end (as the new last node). Then, it is "bubbled up" or "heapified" to maintain the heap property.
+  
+  - **Deletion**: Typically, the element that is deleted is the root (since it represents the highest or lowest priority). After deletion, the last node is moved to the root, and then it is "bubbled down" or "heapified" to maintain the heap property.
+
+  - **Optional "Read" Operation**: This operation simply returns the value of the root node, providing a quick way to access the highest priority element in a priority queue without altering the heap.
+
+#### 4. **The Last Node**
+
+- **Definition**: The last node in a heap is the rightmost node at the bottom level of the tree. Understanding the position of the last node is crucial when performing insertions or deletions because these operations often involve swapping with or placing the last node.
+  
+  - **Example**: In the following max-heap:
+	![[Pasted image 20240820095731.png]]
+    The last node is the node with value 3.
+
+## Heap Insertion Process
+
+The process of inserting a new value into a heap involves maintaining the heap's properties—specifically, the heap condition and the completeness of the tree.
+
+#### **Step 1: Insert the New Node**
+
+- **Create a New Node**: First, create a node containing the new value. This node is then inserted at the next available rightmost spot in the bottom level of the tree. This ensures that the tree remains complete.
+  
+  - **Example**: If you were to insert the value `40` into a heap, the first available spot is as the right child of the node containing `8`.
+	![[Pasted image 20240820095802.png]]
+	- Note that doing the following would have been incorrect:
+	![[Pasted image 20240820095832.png]]
+
+#### **Step 2: Compare with Parent Node**
+
+- **Heap Condition Check**: After placing the new node, compare its value with that of its parent node.
+  
+  - **Example**: The parent node of `40` is `8`. Since `40 > 8`, this violates the max-heap condition (where parents must be greater than or equal to their children).
+
+#### **Step 3: Swap Nodes if Necessary**
+
+- **Swap Values**: If the new node's value is greater than its parent's, swap the two nodes to maintain the heap property.
+  
+  - **Example**: Swap `40` with `8`, making `40` the new parent and `8` the child.
+	![[Pasted image 20240820095841.png]]
+  
+
+#### **Step 4: Repeat the Process**
+
+- **Move Up the Heap**: Continue comparing the new node with its new parent after each swap. Repeat the swap process until the node is in a position where its parent is greater than or equal to its value, maintaining the heap condition.
+
+	![[Pasted image 20240820095928.png]]
+
+  - **Example**: Compare `40` (now in the position of `25`). Since `40 > 25`, swap them. Finally, compare `40` with `100`, but since `100 > 40`, the process stops.
+
+This process is known as **"trickling up"** the node through the heap.
+
+### Efficiency of Insertion
+
+- **Complexity**: The insertion operation in a heap has a time complexity of $O(\log N)$. This is because the maximum number of levels the new value might have to move up through is proportional to the height of the tree, which is $\log(N)$ for a complete binary tree.
+
+### The Problem of the Last Node
+
+While the insertion algorithm works well, it raises the question of how to find the correct spot for the new last node in an efficient manner:
+
+#### **Finding the Last Node**
+
+- **The Challenge**: To insert a new node, we need to find the rightmost spot in the bottom level of the heap. For a computer, which cannot visually inspect the tree, this is non-trivial. The computer only knows the structure of the heap via the root node and can only follow links to child nodes.
+
+- **Example of the Challenge**: In one heap, the next spot might be the right child of a node on the right side of the tree. In another, it might be on the left. The specific structure of the heap determines where the last node's spot will be, but without inspecting every node, it's difficult to pinpoint this position efficiently.
+	![[Pasted image 20240820100105.png]]
+
+## Heap Deletion Process
+
+Deleting a value from a heap involves removing the root node, which holds the maximum value in a max-heap (or the minimum value in a min-heap). The process ensures that the heap properties are maintained after the deletion. Here’s how it works:
+
+#### **Step 1: Replace the Root Node**
+
+- **Move the Last Node**: Start by moving the last node in the heap (the rightmost node in the bottom level) into the root's position. This effectively removes the original root node.
+  
+  - **Example**: If the root node is `100` and the last node is `3`, you move `3` to the root position.
+	![[Pasted image 20240820100259.png]]
+	![[Pasted image 20240820100309.png]]
+
+#### **Step 2: Trickle Down the New Root Node**
+
+- **Restore the Heap Condition**: After replacing the root with the last node, the heap condition is likely violated (since the new root might be smaller than its children). The next step is to trickle the new root node down the heap until the heap condition is restored.
+	![[Pasted image 20240820100502.png]]
+  
+  - **Compare Children**: At each step, compare the trickle node (the new root) with its two children.
+  - **Swap with Larger Child**: If the trickle node is smaller than the larger of its two children, swap it with that child.
+
+- **Repeat**: Continue trickling the node down until it reaches a position where it is greater than or equal to both its children or becomes a leaf node.
+
+  - **Example**: 
+    - Start with `3` as the new root. Compare it with its children `88` and `25`.
+    - Since `88` is larger, swap `3` with `88`.
+	    ![[Pasted image 20240820100331.png]]
+    - Now, compare `3` with its new children `87` and `16`. Swap `3` with `87`.
+		![[Pasted image 20240820100344.png]]
+    - Finally, compare `3` with its children `86` and `50`. Swap `3` with `86`.
+	    ![[Pasted image 20240820100353.png]]
+    - At this point, `3` has no children, so the trickling down stops.
+
+### Why Swap with the Larger Child?
+
+Swapping with the larger of the two children is crucial because it prevents the heap condition from being violated immediately. If you were to swap with the smaller child, the larger child could end up being greater than its new parent, breaking the heap condition.
+
+#### **Example of Incorrect Swap**
+
+- If `3` (as the root) were swapped with `25` (the smaller child), `88` (the larger child) would end up as a descendant of `25`, violating the heap condition since `88` is greater than `25`.
+
+### Efficiency of Deletion
+
+- **Complexity**: The deletion operation in a heap has a time complexity of $O(\log N)$ because the trickling down process might require moving the node down through all levels of the heap, and the height of the heap is $\log(N)$.
+
+### Summary
+
+Heap deletion involves removing the root node by replacing it with the last node and then restoring the heap condition by trickling the new root down the tree. The key to maintaining the heap property is always to swap the trickle node with the larger of its two children until it reaches its correct position.
+
+## Heaps vs. Ordered Arrays in Priority Queues
+
+When implementing a priority queue, choosing the right data structure is crucial for performance. Heaps and ordered arrays are both options, but they differ significantly in their efficiency for insertion and deletion operations.
+
+#### **Comparison Table**
+
+| Operation | Ordered Array | Heap        |
+| --------- | ------------- | ----------- |
+| Insertion | $O(N)$        | $O(\log N)$ |
+| Deletion  | $O(1)$        | $O(\log N)$ |
+|           |               |             |
+
+#### **Analysis**
+
+- **Ordered Arrays**:
+  - **Insertion**: Inserting into an ordered array requires finding the correct position to maintain order, which takes $O(N)$ time because it may require shifting elements to make space.
+  - **Deletion**: Deleting the highest-priority item (typically at the end of the array) is $O(1)$, as it involves simply removing the last element.
+
+- **Heaps**:
+  - **Insertion**: In a heap, inserting a new element requires placing it in the correct position, which involves "trickling up" to maintain the heap property. This operation takes $O(\log N)$ time.
+  - **Deletion**: Deleting the root (highest-priority element) in a heap involves replacing it with the last element and "trickling down" to restore the heap property. This also takes $O(\log N)$ time.
+
+#### **Why Heaps Are Preferred**
+
+- **Balanced Performance**: Although an ordered array offers $O(1)$ deletion, it has $O(N)$ insertion, which can be prohibitively slow, especially as the size of the array grows. In contrast, a heap provides consistently fast performance for both insertion and deletion with $O(\log N)$ for each operation.
+
+- **Consistency**: Priority queues typically require frequent insertions and deletions. If either operation is slow, it could bottleneck the entire system. Heaps ensure that both operations are handled efficiently, making them the preferred choice for implementing priority queues.
+
+#### **Real-World Example**
+
+Consider an emergency room where patients are treated based on the severity of their condition (priority). If the system uses an ordered array, each new patient (insertion) might cause delays due to the need to reorder the list. However, if a heap is used, both admitting a new patient and treating the most critical one can be done quickly, ensuring smooth and efficient operation.
+
+### Summary
+
+Heaps are generally the better choice for priority queues because they offer a good balance of efficiency for both insertion and deletion, ensuring that the system remains consistently fast, even as the number of elements increases.
+
+## The Problem of the Last Node: Why It Matters and How to Solve It
+
+The "Problem of the Last Node" is a critical issue when working with heaps, particularly for insertion and deletion operations. This problem boils down to the challenge of efficiently locating the last node of the heap, which is crucial for maintaining the heap's balance and ensuring that operations remain efficient.
+
+#### **Why Is the Last Node So Important?**
+
+1. **Maintaining Completeness**:  
+   Heaps must be complete binary trees, meaning all levels of the tree are fully filled, except possibly for the last level, which is filled from left to right. Completeness is key to ensuring the heap remains balanced.
+
+2. **Ensuring Balance**:  
+   A balanced heap guarantees that the height of the tree (and thus the time complexity of operations) remains $O(\log N)$. If we insert or delete nodes incorrectly, the heap can become imbalanced, leading to degraded performance, potentially as bad as $O(N)$.
+
+#### **The Role of the Last Node in Operations**
+
+- **Insertion**:  
+  When inserting a new node, it must be added to the next available position in the bottom level to keep the heap complete. This position is determined by finding the last node and placing the new node as its rightmost sibling or as its child.
+
+- **Deletion**:  
+  During deletion, the last node is moved to the root to replace the deleted node. This approach ensures that the heap remains complete after the deletion process.
+
+#### **Why Not Use Other Nodes?**
+
+If we were to choose a node other than the last node for insertion or deletion, the heap could become imbalanced. For example:
+
+- **Inserting Elsewhere**:  
+  If a new node were inserted at a position other than the next available spot, the tree might end up skewed to one side, violating the heap's completeness and leading to inefficient operations.
+
+- **Replacing the Root with a Different Node**:  
+  If, during deletion, we replaced the root with a node other than the last node, the resulting tree could have empty spots in the middle levels, again leading to imbalance.
+
+#### **The Search for the Last Node**
+
+Given the importance of the last node, we need an efficient way to find it without traversing the entire heap. This is where the structure of the heap gives us an advantage.
+
+#### **The Twist: Using Array Representation of Heaps**
+
+Heaps are often represented as arrays due to their completeness property. In an array:
+
+- The root is at index 1 (or 0, depending on indexing).
+- For any node at index $i$:
+  - The left child is at index $2i$
+  - The right child is at index $2i + 1$
+  - The parent is at index $\left\lfloor \frac{i}{2} \right\rfloor$
+
+![[Pasted image 20240820101000.png]]
+
+**Finding the Last Node**:  
+- The last node in a heap can be found at the last index of the array representing the heap. If the array has $N$ elements, the last node is at index $N$ (or $N-1$ if 0-indexed).
+
+**Inserting and Deleting with Array Heaps**:  
+- **Insertion**: Add the new node at the end of the array, then "trickle up" to maintain the heap property.
+- **Deletion**: Replace the root with the last element in the array, then "trickle down" to restore the heap property.
+
+This approach ensures that insertion and deletion both occur in $O(\log N)$ time, as the operations involve moving up or down the tree's height, not traversing the entire structure.
+
+## Traversing an Array-Based Heap
+
+In a heap implemented using an array, traversing between nodes is not as straightforward as following pointers in a linked structure. Instead, we use mathematical formulas to determine the parent and child relationships based on the node's index in the array.
+
+#### Formulas for Traversal
+
+1. **Left Child**: For a node at index `i`, the left child is located at index $(2 \times i) + 1$.
+2. **Right Child**: For a node at index `i`, the right child is located at index $(2 \times i) + 2$.
+3. **Parent**: For a node at index `i`, the parent is located at index $\frac{(i - 1)}{2}$ (using integer division).
+
+These formulas allow you to navigate the heap structure within an array, treating the array as if it were a tree.
+
+## C++ Implementation of Max Heap
+
+```cpp
+#include <iostream>
+#include <vector>
+#include <stdexcept>
+
+class MaxHeap {
+private:
+    std::vector<int> data;
+
+    int leftChildIndex(int index) const {
+        return (index * 2) + 1;
+    }
+
+    int rightChildIndex(int index) const {
+        return (index * 2) + 2;
+    }
+
+    int parentIndex(int index) const {
+        return (index - 1) / 2;
+    }
+
+    void heapifyUp(int index) {
+        if (index == 0) return;  // The root node has no parent
+
+        int parentIdx = parentIndex(index);
+        if (data[index] > data[parentIdx]) {
+            std::swap(data[index], data[parentIdx]);
+            heapifyUp(parentIdx);
+        }
+    }
+
+    void heapifyDown(int index) {
+        int leftChildIdx = leftChildIndex(index);
+        int rightChildIdx = rightChildIndex(index);
+        int largest = index;
+
+        if (leftChildIdx < data.size() && data[leftChildIdx] > data[largest]) {
+            largest = leftChildIdx;
+        }
+        if (rightChildIdx < data.size() && data[rightChildIdx] > data[largest]) {
+            largest = rightChildIdx;
+        }
+        if (largest != index) {
+            std::swap(data[index], data[largest]);
+            heapifyDown(largest);
+        }
+    }
+
+public:
+    MaxHeap() {}
+
+    void insert(int value) {
+        data.push_back(value);
+        heapifyUp(data.size() - 1);
+    }
+
+    void deleteRoot() {
+        if (data.empty()) {
+            throw std::out_of_range("Heap is empty. Cannot delete root.");
+        }
+
+        data[0] = data.back();  // Move the last element to the root
+        data.pop_back();        // Remove the last element
+        heapifyDown(0);         // Restore the heap property
+    }
+
+    int extractMax() {
+        if (data.empty()) {
+            throw std::out_of_range("Heap is empty. Cannot extract maximum.");
+        }
+
+        int maxValue = data[0];
+        deleteRoot();
+        return maxValue;
+    }
+
+    void printHeap() const {
+        for (int i : data) {
+            std::cout << i << " ";
+        }
+        std::cout << std::endl;
+    }
+
+    bool isEmpty() const {
+        return data.empty();
+    }
+};
+
+int main() {
+    MaxHeap heap;
+
+    heap.insert(10);
+    heap.insert(5);
+    heap.insert(20);
+    heap.insert(15);
+    heap.insert(30);
+    heap.insert(25);
+
+    std::cout << "Heap after insertions: ";
+    heap.printHeap();
+
+    std::cout << "Extracted max: " << heap.extractMax() << std::endl;
+    std::cout << "Heap after extracting max: ";
+    heap.printHeap();
+
+    heap.deleteRoot();
+    std::cout << "Heap after deleting root: ";
+    heap.printHeap();
+
+    return 0;
+}
+```
+
+#### Explanation of Code
+
+1. **Heap Insertion (`insert`)**:
+   - When inserting a new value, the value is first added to the end of the array.
+   - The `heapifyUp` function is then called to restore the heap property by comparing the new value with its parent and swapping them if necessary. This process continues until the heap property is restored.
+
+2. **Heap Deletion (`deleteRoot`)**:
+   - To delete the root (which is the maximum value in a max heap), the last element of the heap is moved to the root.
+   - The `heapifyDown` function is called to restore the heap property by comparing the new root with its children and swapping it with the larger child if necessary. This process continues down the heap until the heap property is restored.
+
+3. **Extract Max (`extractMax`)**:
+   - This function removes and returns the maximum element from the heap. It first retrieves the maximum value (the root), then deletes the root using the `deleteRoot` function, and finally returns the maximum value.
+
+4. **Utility Functions**:
+   - `leftChildIndex`, `rightChildIndex`, and `parentIndex` are helper functions to calculate the indices of the left child, right child, and parent nodes, respectively.
+
+5. **Heap Printing (`printHeap`)**:
+   - This function prints out the current state of the heap in a linear array form.
+
+#### Output Example
+
+Running the above code will produce an output similar to the following:
+
+```
+Heap after insertions: 30 15 25 5 10 20 
+Extracted max: 30
+Heap after extracting max: 25 15 20 5 10 
+Heap after deleting root: 20 15 10 5 
+```
+
+#### Key Takeaways
+
+- The `insert` and `deleteRoot` functions ensure that the heap maintains its max-heap property after each operation.
+- The heap operations are efficient, with `insert` and `deleteRoot` both having a time complexity of $O(\log N)$, where $N$ is the number of elements in the heap.
+
+
+## Tries
+
+A **Trie** (pronounced "try") is a special type of tree used to store a dynamic set or associative array where the keys are usually strings. It is particularly well-suited for tasks involving strings, such as autocomplete, spell-checking, and prefix matching. The name "trie" comes from the word "retrieval."
+
+![[Pasted image 20240820192554.png]]
+
+### Structure of a Trie
+- **Nodes**: Each node in a Trie represents a single character of a string.
+- **Children**: Each node can have multiple children, each representing the next character in the sequence.
+- **Root Node**: The Trie has a root node, which is typically empty or associated with a special character. All words in the Trie are represented by paths originating from the root.
+- **End of Word**: A special marker or flag (e.g., `*`, `isEndOfWord`, `null`, etc.) is used in nodes to indicate that the path from the root to this node corresponds to a complete word.
+
+### How a Trie Works
+
+1. **Insertion**:
+   - Starting from the root, for each character in the word, check if a child node for that character exists.
+   - If it doesn't exist, create a new node for that character.
+   - Move to the child node and repeat for the next character.
+   - After inserting all characters, mark the last node as the end of a word.
+
+2. **Search**:
+   - Start from the root and follow the nodes corresponding to each character in the word.
+   - If at any point a character's node doesn't exist, the word is not in the Trie.
+   - If all characters are found and the last node is marked as the end of a word, the word exists in the Trie.
+
+3. **Prefix Matching**:
+   - Similar to searching for a word, but you only need to check if the sequence of nodes for the prefix exists. You don't need to check for the end of a word.
+
+### Example
+Imagine inserting the words “ace,” “act,” “bad,” “bake,” “bat,” “batter,” “cab,” “cat,” “catnap,” and “catnip”:
+
+![[Pasted image 20240820192529.png]]
+
+## Trie Search
+
+Searching in a Trie for a prefix or a complete word follows a straightforward process.
+#### Algorithm Steps
+
+1. **Initialize**: Start by setting a `currentNode` to the root of the Trie.
+2. **Iterate Over Characters**: For each character in the search string:
+    - Check if `currentNode` has a child corresponding to the current character.
+    - If it doesn't, the string (as a word or prefix) is not in the Trie, and you return `false`.
+    - If it does, move `currentNode` to this child node.
+	    - **Example**: Searching for the word "cat".
+			![[Pasted image 20240820192756.png]]
+			![[Pasted image 20240820192813.png]]
+			![[Pasted image 20240820193030.png]]
+3. **End of String**: If you've checked every character in the string, it means the string exists in the Trie as a prefix. If you were looking for a complete word, you would additionally check if the last node is marked as an `isEndOfWord` (`*` in the example).
+	![[Pasted image 20240820193040.png]]
+
+### Efficiency of Trie Search
+
+Trie search is known for its efficiency, especially when dealing with text-based operations like autocompletion, dictionary lookups, and prefix searches.
+
+1. **Character-by-Character Search**:
+   - In a trie, the search operation focuses on each character of the search string individually.
+   - For each character, the algorithm checks if there's a corresponding child node in the current node's hash table.
+   - Hash table lookups are extremely efficient, typically taking $O(1)$ time, meaning that checking for the presence of a character as a child node is very fast.
+
+2. **Big O Notation**:
+   - The time complexity of a trie search is expressed as $O(K)$, where $K$ is the number of characters in the search string.
+   - Unlike $O(N)$, where $N$ would refer to the total number of nodes in the trie, $O(K)$ focuses only on the length of the input string, not the size of the entire data structure.
+   - This makes trie search independent of the size of the trie itself. Whether the trie contains thousands of words or just a few, searching for a word with $K$ characters will take $K$ steps.
+
+3. **Comparison with Binary Search**:
+   - Binary search has a time complexity of $O(\log N)$, where $N$ is the number of elements in a sorted array.
+   - While $O(\log N)$ is efficient, trie search can be faster in cases where the search string is relatively short. For example, searching for the word "cat" in a trie takes just three steps ($O(3)$), whereas binary search would take more steps depending on the size of the dataset.
+
+4. **Scalability**:
+   - Trie search efficiency doesn't degrade as the trie grows. The number of nodes or words in the trie doesn't impact the search speed for a specific string.
+   - The only factor influencing the speed is the length of the search string itself. This property makes trie search extremely scalable and reliable for large datasets.
+
+## Trie Insertion
+
+Inserting a word into a trie follows a process similar to searching for a word, but with additional steps to create new nodes if necessary.
+
+#### Steps for Inserting a Word into a Trie
+
+1. **Initialize `currentNode`**:
+   - Start by setting a variable `currentNode` to the root node of the trie.
+   - This `currentNode` will traverse the trie as we go through each character of the word we're inserting.
+
+2. **Iterate Over Each Character**:
+   - For each character in the word, perform the following steps:
+
+3. **Check for the Character's Child Node**:
+   - Look at the `currentNode`'s children to see if there is already a node corresponding to the current character.
+   
+4. **If the Child Node Exists**:
+   - If the `currentNode` has a child node for the current character, update `currentNode` to point to that child node.
+   - Move on to the next character in the word.
+
+5. **If the Child Node Doesn't Exist**:
+   - If the `currentNode` does not have a child node for the current character:
+     - Create a new node for this character.
+     - Add this new node as a child of the `currentNode`.
+     - Update `currentNode` to this new node.
+   - Continue to the next character in the word.
+
+6. **Mark the End of the Word**:
+   - After processing all characters of the word, add a special node (often represented by a `*`) to the current node to signify the end of the word.
+   - This `*` node indicates that a complete word ends at this point in the trie.
+
+#### Example: Inserting the Word "can"
+
+Let’s walk through the process of inserting the word "can" into a trie:
+
+1. **Setup**:
+   - Start with `currentNode` at the root of the trie.
+   - Point to the first character of "can", which is "c".
+
+![[Pasted image 20240820193454.png]]
+
+2. **Step 1: Insert "c"**:
+   - The root node has a child node for "c", so update `currentNode` to this "c" node.
+   - Move to the next character, "a".
+
+![[Pasted image 20240820193503.png]]
+
+3. **Step 2: Insert "a"**:
+   - The "c" node has a child node for "a", so update `currentNode` to this "a" node.
+   - Move to the next character, "n".
+
+![[Pasted image 20240820193514.png]]
+
+4. **Step 3: Insert "n"**:
+   - The "a" node does not have a child node for "n".
+   - Create a new node for "n" and attach it as a child of the "a" node.
+   - Update `currentNode` to this new "n" node.
+
+![[Pasted image 20240820193522.png]]
+
+5. **Step 4: Mark the End**:
+   - Since we’ve reached the end of the word, add a `*` node as a child of the "n" node to mark the end of the word "can".
+
+![[Pasted image 20240820193532.png]]
+
+## Trie C++ Implementation
+
+To implement a Trie in C++, we will use a `TrieNode` class to represent each node in the Trie and a `Trie` class to manage the overall structure.
+
+```cpp
+#include <iostream>
+#include <unordered_map>
+#include <string>
+
+class TrieNode {
+public:
+    std::unordered_map<char, TrieNode*> children;
+    bool isEndOfWord;
+
+    TrieNode() : isEndOfWord(false) {}
+};
+
+class Trie {
+private:
+    TrieNode* root;
+
+public:
+    Trie() {
+        root = new TrieNode();
+    }
+
+    // Insert a word into the Trie
+    void insert(const std::string &word) {
+        TrieNode* currentNode = root;
+        for (char ch : word) {
+            if (currentNode->children.find(ch) == currentNode->children.end()) {
+                currentNode->children[ch] = new TrieNode();
+            }
+            currentNode = currentNode->children[ch];
+        }
+        currentNode->isEndOfWord = true;
+    }
+
+    // Search for a word in the Trie
+    bool search(const std::string &word) const {
+        TrieNode* currentNode = root;
+        for (char ch : word) {
+            if (currentNode->children.find(ch) == currentNode->children.end()) {
+                return false;
+            }
+            currentNode = currentNode->children[ch];
+        }
+        return currentNode->isEndOfWord;
+    }
+
+    // Check if any word in the Trie starts with the given prefix
+    bool startsWith(const std::string &prefix) const {
+        TrieNode* currentNode = root;
+        for (char ch : prefix) {
+            if (currentNode->children.find(ch) == currentNode->children.end()) {
+                return false;
+            }
+            currentNode = currentNode->children[ch];
+        }
+        return true;
+    }
+};
+
+int main() {
+    Trie trie;
+
+    trie.insert("apple");
+    std::cout << trie.search("apple") << std::endl;   // Output: 1 (true)
+    std::cout << trie.search("app") << std::endl;     // Output: 0 (false)
+    std::cout << trie.startsWith("app") << std::endl; // Output: 1 (true)
+
+    trie.insert("app");
+    std::cout << trie.search("app") << std::endl;     // Output: 1 (true)
+
+    return 0;
+}
+```
+
+#### Explanation of Code
+
+1. **TrieNode Class**:
+    - Each `TrieNode` contains an unordered map (`children`) that maps a character to the corresponding child `TrieNode`.
+    - The `isEndOfWord` boolean flag indicates whether a node represents the end of a word.
+
+2. **Trie Class**:
+    - The `Trie` class contains a `root` node, which is the starting point of all operations.
+    - **Insert Method**: Adds a word to the Trie by iterating through each character in the word. If a character does not exist in the current node's children, a new `TrieNode` is created. After inserting all characters, the last node is marked as the end of a word.
+    - **Search Method**: Checks if a word exists in the Trie by iterating through each character. If all characters are found in sequence and the last node is marked as the end of a word, the function returns true.
+    - **StartsWith Method**: Checks if any word in the Trie starts with a given prefix by iterating through the prefix characters. If all characters are found, it returns true.
+
+#### Key Takeaways
+
+- **Trie Operations**: The insert and search operations are efficient, typically $O(M)$, where $M$ is the length of the word being inserted or searched.
+- **Use Cases**: Tries are particularly useful for autocomplete features, prefix matching, and searching for all keys with a common prefix.
 
 ## Graphs
 
@@ -3746,7 +4796,7 @@ void bfs_traverse(Vertex* starting_vertex) {
      - Iterate through its adjacent vertices:
        - If an adjacent vertex has not been visited, mark it as visited and enqueue it.
 
-## DFS vs. BFS
+## DFS vs. BFS:
 
 **1. Search Strategy:**
 
