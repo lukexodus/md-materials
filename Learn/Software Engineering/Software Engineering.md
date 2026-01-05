@@ -1,4 +1,4 @@
-# Software Engineering Mastery Syllabus
+# Table of Contents
 
 ## Module 1: Programming Fundamentals
 - Variables, data types, and operators

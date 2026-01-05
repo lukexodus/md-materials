@@ -586,6 +586,53 @@ The `chown` command changes file ownership, typically requiring root privileges.
 
 The `umask` command sets default permissions for newly created files and directories. A umask of 022 creates files with 644 permissions and directories with 755 permissions.
 
+### Processes, Jobs, and Background Tasks
+
+#### Processes
+
+A **process** is a running instance of a program with its own memory space, process ID (PID), and system resources. Each process has:
+
+- A unique identifier (PID)
+- Its own address space in memory
+- Associated file descriptors
+- Security attributes (owner, permissions)
+- Execution state (running, sleeping, stopped, zombie)
+
+Processes are the fundamental unit of execution in Unix-like systems. When you run a command, the shell creates a new process to execute it.
+
+#### Jobs
+
+A **job** is a shell-level concept representing one or more processes that the shell manages as a single unit. Jobs are:
+
+- Created when you run commands from an interactive shell
+- Tracked by the shell (not the kernel)
+- Identified by job numbers (e.g., `[1]`, `[2]`)
+- Controllable with job control commands (`fg`, `bg`, `jobs`)
+
+A single job can contain multiple processes. For example, a pipeline like `cat file | grep pattern | sort` is one job containing three processes.
+
+#### Background Tasks
+
+A **background task** refers to a job running in the background, meaning:
+
+- It executes without blocking the shell prompt
+- Started by appending `&` to a command (e.g., `long_command &`)
+- Does not receive keyboard input from the terminal
+- May still send output to the terminal unless redirected
+- Can be brought to the foreground with `fg`
+
+Background tasks allow you to continue working in the shell while processes execute.
+
+#### Key Distinctions
+
+| Aspect | Process | Job | Background Task |
+|--------|---------|-----|-----------------|
+| Scope | System-wide | Shell session | Shell session |
+| Management | Kernel | Shell | Shell |
+| Identifier | PID | Job number | Job number + `&` state |
+| Persistence | Survives shell exit (if detached) | Dies when shell exits | Dies when shell exits |
+| Control commands | `kill`, `ps` | `jobs`, `fg`, `bg` | `bg`, `fg` |
+
 ### Process Management
 
 The `ps` command displays running processes, with `ps aux` showing all processes system-wide including CPU and memory usage. Use `ps -ef` for a different format showing parent-child relationships.
@@ -610,13 +657,39 @@ The pipe operator `|` connects commands by sending the output of one command as 
 
 **Example**: `ps aux | grep python | wc -l` counts running Python processes by chaining three commands together.
 
-Error redirection uses `2>` to redirect error messages to a file, while `2>&1` combines error output with standard output. Use `&>` or `>` followed by `2>&1` to redirect both standard output and errors to the same destination.
+- **`2>`** redirects standard error (stderr) to a file
+- **`2>&1`** redirects stderr to wherever stdout is currently going
+- **`&>`** redirects both stdout and stderr to the same destination
+- **`> file 2>&1`** also redirects both streams to the same file (stdout first, then stderr follows)
+
+For example:
+```bash
+command 2> errors.txt          # Only errors go to errors.txt
+command > output.txt 2>&1      # Both stdout and stderr go to output.txt
+command &> all.txt             # Both stdout and stderr go to all.txt
+```
 
 ### Command History and Shortcuts
 
-The shell maintains a history of executed commands, accessible through the `history` command. Use `!n` to execute command number n from history, or `!!` to repeat the last command.
+**Basic history commands:**
+- **`history`** displays the command history list
+- **`!n`** executes command number n from history
+- **`!!`** repeats the last command
 
-History expansion allows quick command repetition and modification. Use `!string` to execute the most recent command starting with that string, or `^old^new` to replace text in the previous command.
+**History expansion shortcuts:**
+- **`!string`** executes the most recent command starting with "string"
+- **`^old^new`** substitutes "old" with "new" in the previous command and executes it
+
+For example:
+```bash
+history              # Show numbered command history
+!150                 # Execute command #150
+!!                   # Repeat last command
+!git                 # Run most recent command starting with "git"
+^tset^test          # Replace "tset" with "test" in previous command
+```
+
+This is useful for quickly re-running or modifying recent commands without retyping them.
 
 **Key shortcuts** include:
 

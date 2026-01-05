@@ -1,4 +1,4 @@
-# AI Engineering
+# MASTER Syllabus: AI Engineering
 
 ## Module 1: Foundations
 
