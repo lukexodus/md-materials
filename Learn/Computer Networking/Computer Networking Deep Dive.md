@@ -8,6 +8,121 @@ The unit of data at the Data Link layer, which includes Layer 2 headers and trai
 - **Addressing:** Uses MAC addresses (hardware addresses)
 - **Scope:** Travels between directly connected devices on the same network segment
 
+---
+
+### **FCS (Frame Check Sequence)**
+A field in the frame trailer used for error detection:
+- **Purpose:** Allows the receiving device to verify data integrity
+- **Location:** Placed at the end of the frame (in the trailer)
+- **Size:** Typically 4 bytes (32 bits) in Ethernet
+- **Method:** Usually implements CRC algorithm
+- **Process:** Sender calculates FCS value based on frame contents; receiver recalculates and compares
+
+---
+
+### **CRC (Cyclic Redundancy Check)**
+The mathematical algorithm commonly used to generate the FCS:
+- **Function:** Detects accidental changes to data during transmission
+- **How it works:** Treats data as a binary number, performs polynomial division, uses remainder as checksum
+- **Strength:** Detects common transmission errors (bit flips, burst errors)
+- **Limitation:** Not cryptographically secure; designed for error detection, not intentional tampering
+- **Variants:** CRC-32 is common in Ethernet (produces 32-bit/4-byte value)
+
+---
+
+### **Ethernet Frame**
+The frame format used in wired Ethernet networks (IEEE 802.3):
+- **Header components:**
+  - Preamble (7 bytes) + Start Frame Delimiter (1 byte)
+  - Destination MAC address (6 bytes)
+  - Source MAC address (6 bytes)
+  - EtherType/Length field (2 bytes) - indicates protocol of payload
+- **Payload:** 46-1,500 bytes (IP packet or other Layer 3 data)
+- **Trailer:** FCS (4 bytes)
+- **Minimum frame size:** 64 bytes (including header and FCS, excluding preamble)
+- **Maximum frame size:** 1,518 bytes standard (excluding preamble); jumbo frames can be larger
+---
+
+#### **Header Components:**
+
+##### **Preamble (7 bytes)**
+- **Purpose:** Synchronizes receiver's clock with sender's timing
+- **Pattern:** Alternating 1s and 0s (10101010 repeated 7 times)
+- **Function:** Allows receiving network card to lock onto the bit stream and establish timing
+- **Note:** Not considered part of the actual Ethernet frame in some definitions
+
+##### **Start Frame Delimiter - SFD (1 byte)**
+- **Purpose:** Marks the end of preamble and beginning of actual frame
+- **Pattern:** 10101011 (ends with two consecutive 1s)
+- **Function:** Signals "frame data starts immediately after this"
+- **Positioning:** Immediately follows the preamble
+
+##### **Destination MAC Address (6 bytes)**
+- **Purpose:** Identifies the intended recipient of the frame
+- **Format:** 48-bit hardware address (e.g., 00:1A:2B:3C:4D:5E)
+- **Types:** 
+  - Unicast (single device)
+  - Multicast (group of devices)
+  - Broadcast (all devices - FF:FF:FF:FF:FF:FF)
+- **Scope:** Only meaningful on the local network segment
+
+##### **Source MAC Address (6 bytes)**
+- **Purpose:** Identifies the sender of the frame
+- **Format:** 48-bit hardware address
+- **Function:** Allows recipient to know where frame originated and send responses
+- **Assignment:** Typically burned into network interface card (NIC) by manufacturer
+- **Note:** First 3 bytes identify manufacturer (OUI - Organizationally Unique Identifier)
+
+##### **EtherType/Length Field (2 bytes)**
+- **Dual purpose:** Meaning depends on value
+- **If value ≥ 1536 (0x0600):** EtherType - indicates protocol of payload
+  - Examples: 0x0800 = IPv4, 0x0806 = ARP, 0x86DD = IPv6
+  - Tells receiver how to interpret the payload data
+- **If value ≤ 1500:** Length - indicates size of payload in bytes
+  - Used in IEEE 802.3 frames
+- **Function:** Allows receiver to properly parse and process the encapsulated data
+
+---
+
+#### **Payload:** 
+46-1,500 bytes (IP packet or other Layer 3 data)
+
+#### **Trailer:** 
+FCS (4 bytes)
+
+#### **Frame Size Limits:**
+- **Minimum:** 64 bytes (including header and FCS, excluding preamble)
+- **Maximum:** 1,518 bytes standard (excluding preamble); jumbo frames can be larger
+
+---
+
+### **PPP Frame (Point-to-Point Protocol)**
+The frame format used for direct connections between two nodes:
+- **Common uses:** DSL connections, dial-up, serial links
+- **Header components:**
+  - Flag (1 byte) - marks beginning of frame (0x7E)
+  - Address (1 byte)
+  - Control (1 byte)
+  - Protocol (2 bytes) - indicates payload type
+- **Payload:** Variable length (IP packet or other data)
+- **Trailer:** FCS (2 or 4 bytes) + Flag (1 byte)
+- **Features:** Supports authentication (PAP, CHAP), compression, error detection
+
+---
+
+### **Wi-Fi Frame (IEEE 802.11)**
+The frame format used in wireless networks:
+- **Header components (more complex than Ethernet):**
+  - Frame Control (2 bytes) - indicates frame type, encryption, etc.
+  - Duration/ID (2 bytes)
+  - Address fields (up to 4 MAC addresses, 6 bytes each) - can include source, destination, transmitter, receiver
+  - Sequence Control (2 bytes)
+  - QoS Control (2 bytes, optional)
+- **Payload:** Variable length (IP packet or other data)
+- **Trailer:** FCS (4 bytes)
+- **Frame types:** Management frames (network control), control frames (medium access), data frames (actual data)
+- **Differences from Ethernet:** Multiple address fields to handle wireless infrastructure (access points), additional control information for wireless medium
+
 ## **Packet (Network Layer - Layer 3)**
 The unit of data at the Network layer, encapsulated within a frame:
 - **Contents:** IP header + transport layer segment/datagram + application data

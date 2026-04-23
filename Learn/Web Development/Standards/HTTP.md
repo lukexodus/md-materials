@@ -5,7 +5,6 @@
 HTTP (Hypertext Transfer Protocol) is built on the client-server architecture, a fundamental model that governs how web resources are accessed and delivered across the internet.
 
 **Key Points**:
-
 - The client-server model establishes a clear separation of responsibilities between the requesting entity and the resource provider
 - Communication follows a request-response pattern
 - The model allows for distributed computing across networks
@@ -16,7 +15,6 @@ HTTP (Hypertext Transfer Protocol) is built on the client-server architecture, a
 The client in HTTP communication is typically a user-facing application that initiates requests for resources. Most commonly, this is a web browser, but it can also be any application capable of making HTTP requests.
 
 Clients are responsible for:
-
 - Formulating properly structured HTTP requests
 - Handling connection establishment with servers
 - Processing and rendering responses from servers
@@ -26,7 +24,6 @@ Clients are responsible for:
 - Following redirects and managing cookies
 
 Web browsers perform additional client-side operations including:
-
 - Parsing and rendering HTML, CSS, and JavaScript
 - Managing the Document Object Model (DOM)
 - Executing client-side scripts
@@ -37,7 +34,6 @@ Web browsers perform additional client-side operations including:
 The server is a computer program or device that listens for incoming requests, processes them, and delivers appropriate responses. Web servers are specifically designed to handle HTTP requests.
 
 Servers are responsible for:
-
 - Listening for incoming connections on specified ports (typically port 80 for HTTP or 443 for HTTPS)
 - Parsing and interpreting HTTP request headers and bodies
 - Processing requests according to their methods (GET, POST, PUT, DELETE, etc.)
@@ -48,7 +44,6 @@ Servers are responsible for:
 - Logging access and error information
 
 Common web server software includes:
-
 - Apache HTTP Server
 - Nginx
 - Microsoft IIS (Internet Information Services)
@@ -60,7 +55,6 @@ Common web server software includes:
 TCP/IP (Transmission Control Protocol/Internet Protocol) forms the underlying communication framework that enables HTTP to function across networks.
 
 **Key Points**:
-
 - TCP/IP is a suite of protocols that enables reliable, ordered data transmission
 - It provides abstraction layers that separate different network concerns
 - It establishes addressing and routing mechanisms across the internet
@@ -69,7 +63,6 @@ TCP/IP (Transmission Control Protocol/Internet Protocol) forms the underlying co
 #### How HTTP Operates on Top of TCP/IP
 
 HTTP is an application layer protocol that relies on TCP/IP for its transport needs. This layered architecture provides clear separation of concerns:
-
 1. **Application Layer (HTTP)**:
     - Defines the format and semantics of data exchange
     - Specifies request and response formats
@@ -92,7 +85,6 @@ HTTP is an application layer protocol that relies on TCP/IP for its transport ne
 **Example**: HTTP Request Flow Through TCP/IP Layers
 
 When a user enters "www.example.com" in a browser:
-
 1. The browser initiates an HTTP request (Application Layer)
 2. TCP establishes a connection with the server through a three-way handshake (Transport Layer)
 3. IP routes the packets to the server's address (Internet Layer)
@@ -104,14 +96,12 @@ When a user enters "www.example.com" in a browser:
 The Domain Name System (DNS) acts as the internet's phone book, translating human-readable domain names into machine-addressable IP addresses.
 
 **Key Points**:
-
 - DNS is a hierarchical, distributed database system
 - It converts domain names to IP addresses before HTTP communication can begin
 - It uses a global network of DNS servers to distribute lookup responsibilities
 - It implements caching at multiple levels to improve performance
 
 The DNS resolution process:
-
 1. **Local DNS Cache Check**:
     - The client first checks if the domain is in its local cache
     - Operating systems and browsers maintain caches to avoid redundant lookups
@@ -128,7 +118,6 @@ The DNS resolution process:
     - Cache entries have a Time-To-Live (TTL) that determines how long they remain valid
 
 **Example**: DNS Resolution for www.example.com
-
 1. Client checks local cache for www.example.com
 2. If not found, queries DNS resolver
 3. DNS resolver traverses the hierarchy:
@@ -141,7 +130,6 @@ The DNS resolution process:
 ### HTTP Connection Lifecycle
 
 Once DNS resolution completes, the HTTP communication process follows these steps:
-
 1. **TCP Connection Establishment**:
     - Client initiates a three-way handshake with the server
     - Connection parameters are negotiated
@@ -165,7 +153,6 @@ Once DNS resolution completes, the HTTP communication process follows these step
 ### HTTP Evolution and Versions
 
 HTTP has evolved significantly since its inception:
-
 - **HTTP/0.9** (1991): Extremely simple with only GET method
 - **HTTP/1.0** (1996): Added headers, status codes, and content types
 - **HTTP/1.1** (1997): Introduced persistent connections, chunked transfers, and host headers
@@ -183,7 +170,6 @@ HTTP has evolved significantly since its inception:
 An HTTP request is a message sent by a client to a server, asking for specific actions or resources. Each HTTP request consists of several clearly defined components that inform the server about what the client wants.
 
 **Key Points**:
-
 - Every HTTP request follows a standardized format
 - The structure enables both simple and complex operations
 - Components provide context and specificity for server processing
@@ -192,7 +178,6 @@ An HTTP request is a message sent by a client to a server, asking for specific a
 ### Request Line
 
 The request line is the first line of an HTTP request and contains three crucial pieces of information:
-
 - The HTTP method (verb)
 - The request target (usually a URI or path)
 - The HTTP protocol version
@@ -204,7 +189,6 @@ GET /index.html HTTP/1.1
 #### HTTP Methods
 
 HTTP methods indicate the desired action to be performed on the identified resource:
-
 - **GET**: Retrieve data from the server (should not modify any resources)
 - **POST**: Submit data to be processed by the identified resource
 - **PUT**: Update a resource with the provided data
@@ -218,25 +202,21 @@ HTTP methods indicate the desired action to be performed on the identified resou
 #### Request Target
 
 The request target identifies the resource upon which to apply the request:
-
 - **Origin form**: Most common format, consisting of the absolute path and optional query string
     
     ```
     /path/to/resource?param1=value1&param2=value2
     ```
-    
 - **Absolute form**: Complete URL, including scheme, domain, and path (used with proxies)
     
     ```
     https://www.example.com/path/to/resource?query=string
     ```
-    
 - **Authority form**: Used exclusively with the CONNECT method
     
     ```
     example.com:443
     ```
-    
 - **Asterisk form**: Used with OPTIONS to indicate server-wide options
     
     ```
@@ -247,7 +227,6 @@ The request target identifies the resource upon which to apply the request:
 #### HTTP Version
 
 Indicates which version of the HTTP protocol the client is using:
-
 - HTTP/1.0
 - HTTP/1.1
 - HTTP/2
@@ -274,13 +253,11 @@ Content-Length: 128
 Headers can be categorized by their functions:
 
 **General Headers**:
-
 - `Connection`: Controls whether the network connection stays open after the transaction
 - `Cache-Control`: Specifies caching directives
 - `Date`: The date and time at which the message was originated
 
 **Request Headers**:
-
 - `Host`: Specifies the domain name of the server (required in HTTP/1.1)
 - `User-Agent`: Contains information about the client software
 - `Accept`: Media types the client can process
@@ -289,7 +266,6 @@ Headers can be categorized by their functions:
 - `Authorization`: Authentication credentials for HTTP authentication
 
 **Entity Headers**:
-
 - `Content-Type`: Media type of the request body
 - `Content-Length`: Size of the request body in bytes
 - `Content-Encoding`: Encoding transformations applied to the body
@@ -313,7 +289,6 @@ username=john&password=pass
 #### Common Body Formats
 
 **application/x-www-form-urlencoded**:
-
 - Default format for HTML form submissions
 - Key-value pairs separated by `&` with values URL-encoded
 
@@ -322,7 +297,6 @@ name=John+Doe&age=25&city=New+York
 ```
 
 **multipart/form-data**:
-
 - Used for file uploads and form submissions with binary data
 - Each part has its own content type and boundary separators
 
@@ -340,7 +314,6 @@ This is an example image.
 ```
 
 **application/json**:
-
 - Common in modern web APIs
 - Structured data in JSON format
 
@@ -358,7 +331,6 @@ This is an example image.
 ```
 
 **text/plain**:
-
 - Simple unformatted text
 
 ```
@@ -366,7 +338,6 @@ This is a plain text message that forms the body of the HTTP request.
 ```
 
 **application/xml**:
-
 - XML-formatted data
 
 ```
@@ -383,7 +354,6 @@ This is a plain text message that forms the body of the HTTP request.
 ### HTTP/2 Request Structure
 
 HTTP/2 maintains the same logical structure but uses a binary format instead of plain text:
-
 - Requests are broken into HEADERS and DATA frames
 - Multiple requests can be multiplexed over a single connection
 - Header compression (HPACK) reduces overhead
@@ -392,7 +362,6 @@ HTTP/2 maintains the same logical structure but uses a binary format instead of 
 ### HTTP/3 Request Structure
 
 HTTP/3 operates over QUIC (a UDP-based protocol) instead of TCP:
-
 - Further reduces connection setup latency
 - Improves parallel transfers by eliminating head-of-line blocking
 - Maintains the same semantics and structure as HTTP/2
@@ -471,7 +440,6 @@ Annual financial report
 An HTTP response is the message sent by a server to a client following an HTTP request. It contains status information, metadata, and potentially requested resource content. The response structure follows a standardized format defined in the HTTP protocol specifications to ensure consistent communication between servers and clients across the web.
 
 **Key Points:**
-
 - HTTP responses are sent from servers to clients after processing HTTP requests
 - Follows a specific structure defined by HTTP protocol specifications
 - Contains status codes, headers, and an optional message body
@@ -482,7 +450,6 @@ An HTTP response is the message sent by a server to a client following an HTTP r
 ### Status Line
 
 The status line is the first line of an HTTP response and contains three elements:
-
 - HTTP protocol version (e.g., HTTP/1.1, HTTP/2, HTTP/3)
 - Status code (numeric code indicating request outcome)
 - Status text (brief textual description of the status code)
@@ -494,7 +461,6 @@ Example status line: `HTTP/1.1 200 OK`
 Headers follow the status line and provide metadata about the response or the server. Each header consists of a case-insensitive name followed by a colon, then its value.
 
 Common response headers include:
-
 - `Content-Type`: Indicates the media type of the resource (e.g., `text/html`, `application/json`)
 - `Content-Length`: Size of the response body in bytes
 - `Date`: Date and time the response was generated
@@ -523,7 +489,6 @@ Status codes are three-digit numbers grouped into five categories:
 ### 1xx: Informational
 
 Indicates that the request was received and processing continues.
-
 - 100 Continue
 - 101 Switching Protocols
 - 102 Processing
@@ -532,7 +497,6 @@ Indicates that the request was received and processing continues.
 ### 2xx: Success
 
 Indicates that the request was successfully received, understood, and accepted.
-
 - 200 OK: Standard successful response
 - 201 Created: Resource was successfully created
 - 202 Accepted: Request accepted for processing but not completed
@@ -542,7 +506,6 @@ Indicates that the request was successfully received, understood, and accepted.
 ### 3xx: Redirection
 
 Indicates that further action needs to be taken to complete the request.
-
 - 301 Moved Permanently: Resource moved permanently to a new URL
 - 302 Found: Resource temporarily located at a different URL
 - 304 Not Modified: Resource not modified since last request
@@ -552,7 +515,6 @@ Indicates that further action needs to be taken to complete the request.
 ### 4xx: Client Error
 
 Indicates that the client seems to have made an error.
-
 - 400 Bad Request: Server cannot process due to client error
 - 401 Unauthorized: Authentication required
 - 403 Forbidden: Server understood but refuses to authorize
@@ -563,7 +525,6 @@ Indicates that the client seems to have made an error.
 ### 5xx: Server Error
 
 Indicates that the server failed to fulfill a valid request.
-
 - 500 Internal Server Error: Generic server error
 - 501 Not Implemented: Server doesn't support requested functionality
 - 502 Bad Gateway: Server acting as gateway received invalid response
@@ -698,7 +659,6 @@ Content-Length: 48
 ### Browser Processing
 
 Browsers process HTTP responses by:
-
 1. Parsing status code to determine request outcome
 2. Processing and storing cookies from Set-Cookie headers
 3. Following redirects (3xx status codes) automatically
@@ -709,7 +669,6 @@ Browsers process HTTP responses by:
 ### API Client Processing
 
 API clients typically:
-
 1. Check status code for success/failure
 2. Parse response body based on Content-Type
 3. Handle error conditions appropriately
@@ -719,7 +678,6 @@ API clients typically:
 ### HTTP/2 and HTTP/3 Considerations
 
 Modern HTTP versions maintain the same logical response structure but introduce optimizations:
-
 - HTTP/2: Binary framing, header compression, multiplexing, server push
 - HTTP/3: QUIC transport protocol, improved latency, better mobile performance
 
@@ -747,7 +705,6 @@ These versions still preserve the concept of status codes, headers, and body, bu
 HTTP methods, also known as HTTP verbs, define the actions that should be performed on resources identified by URLs. These methods are a fundamental aspect of the protocol's request-response model and form the backbone of RESTful API design.
 
 **Key Points**:
-
 - HTTP methods indicate the desired operation on resources
 - Each method has specific semantics, safety, and idempotency characteristics
 - Methods can be classified as safe, idempotent, or cacheable
@@ -758,7 +715,6 @@ HTTP methods, also known as HTTP verbs, define the actions that should be perfor
 #### GET
 
 The GET method requests a representation of a specified resource without modifying it.
-
 - **Purpose**: Retrieve data only
 - **Request body**: Typically empty
 - **Response body**: Contains the requested resource
@@ -775,7 +731,6 @@ Accept: application/json
 ```
 
 **Use cases**:
-
 - Retrieving web pages
 - Fetching API resources
 - Downloading files
@@ -784,7 +739,6 @@ Accept: application/json
 #### POST
 
 The POST method submits data to be processed by the identified resource, often creating a new resource.
-
 - **Purpose**: Create resources or submit data for processing
 - **Request body**: Contains the data to be processed
 - **Response body**: Often contains the created resource or confirmation
@@ -808,7 +762,6 @@ Content-Length: 67
 ```
 
 **Use cases**:
-
 - Form submissions
 - Creating new resources
 - File uploads
@@ -817,7 +770,6 @@ Content-Length: 67
 #### PUT
 
 The PUT method replaces the current representation of the target resource with the request payload.
-
 - **Purpose**: Update existing resources or create them at a specific URI
 - **Request body**: Contains the complete new representation
 - **Response body**: May contain the updated resource or confirmation
@@ -842,7 +794,6 @@ Content-Length: 87
 ```
 
 **Use cases**:
-
 - Updating an entire resource
 - Creating a resource when the client determines the URI
 - Replacing files or documents
@@ -850,7 +801,6 @@ Content-Length: 87
 #### DELETE
 
 The DELETE method removes the specified resource.
-
 - **Purpose**: Remove resources
 - **Request body**: Typically empty, may contain conditions for deletion
 - **Response body**: May contain confirmation or be empty
@@ -867,7 +817,6 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 **Use cases**:
-
 - Removing resources
 - Canceling operations
 - Clearing data
@@ -875,7 +824,6 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 #### PATCH
 
 The PATCH method applies partial modifications to a resource.
-
 - **Purpose**: Partially update existing resources
 - **Request body**: Contains instructions for modification
 - **Response body**: May contain the updated resource or confirmation
@@ -898,7 +846,6 @@ Content-Length: 94
 ```
 
 **Use cases**:
-
 - Partial updates to resources
 - Efficient updates for large resources
 - Applying specific changes without full replacement
@@ -908,7 +855,6 @@ Content-Length: 94
 #### HEAD
 
 The HEAD method is identical to GET except the server must not return a message body.
-
 - **Purpose**: Retrieve headers only
 - **Request body**: Empty
 - **Response body**: Empty (only headers are returned)
@@ -924,7 +870,6 @@ Host: example.com
 ```
 
 **Use cases**:
-
 - Checking resource existence
 - Retrieving metadata
 - Testing validity of hyperlinks
@@ -933,7 +878,6 @@ Host: example.com
 #### OPTIONS
 
 The OPTIONS method describes the communication options for the target resource.
-
 - **Purpose**: Determine supported methods and capabilities
 - **Request body**: Typically empty
 - **Response body**: May contain details about communication options
@@ -958,7 +902,6 @@ Access-Control-Allow-Headers: Content-Type, Authorization
 ```
 
 **Use cases**:
-
 - CORS preflight requests
 - Discovering API capabilities
 - Service discovery
@@ -966,7 +909,6 @@ Access-Control-Allow-Headers: Content-Type, Authorization
 #### CONNECT
 
 The CONNECT method establishes a tunnel to the server identified by the target resource.
-
 - **Purpose**: Establish tunnels for encrypted communications (e.g., SSL/TLS)
 - **Request body**: Empty
 - **Response body**: Data from the established connection
@@ -982,7 +924,6 @@ Host: example.com
 ```
 
 **Use cases**:
-
 - HTTPS proxying
 - Establishing secure connections through proxies
 - WebSockets connections
@@ -990,7 +931,6 @@ Host: example.com
 #### TRACE
 
 The TRACE method performs a message loop-back test along the path to the target resource.
-
 - **Purpose**: Diagnostic testing
 - **Request body**: Empty
 - **Response body**: Contains the exact request message as received by the server
@@ -1007,7 +947,6 @@ X-Custom-Header: test-value
 ```
 
 **Use cases**:
-
 - Debugging proxy issues
 - Network path analysis
 - Troubleshooting request header modifications
@@ -1019,14 +958,12 @@ X-Custom-Header: test-value
 A method is considered "safe" if it doesn't alter the state of the server (i.e., read-only operations).
 
 Safe methods:
-
 - GET
 - HEAD
 - OPTIONS
 - TRACE
 
 Safe methods should:
-
 - Never change resources on the server
 - Have no side effects beyond logging and similar activities
 - Be suitable for web crawlers and automated processes
@@ -1036,7 +973,6 @@ Safe methods should:
 A method is "idempotent" if multiple identical requests have the same effect as a single request.
 
 Idempotent methods:
-
 - GET
 - HEAD
 - PUT
@@ -1045,7 +981,6 @@ Idempotent methods:
 - TRACE
 
 Benefits of idempotency:
-
 - Reliability in unstable network conditions
 - Simplifies retry logic
 - Enables parallel processing
@@ -1055,13 +990,11 @@ Benefits of idempotency:
 A response is "cacheable" if it can be stored and reused for subsequent requests.
 
 Potentially cacheable methods:
-
 - GET
 - HEAD
 - POST (only with specific cache control headers)
 
 Factors affecting cacheability:
-
 - HTTP method used
 - Response status code
 - Cache-Control and other caching headers
@@ -1083,14 +1016,12 @@ RESTful APIs use HTTP methods semantically to perform CRUD operations on resourc
 ### Method Selection Guidelines
 
 **When to use GET**:
-
 - Retrieving resources
 - No side effects intended
 - Data needs to be cacheable
 - Parameters can be passed in URL
 
 **When to use POST**:
-
 - Creating new resources without specified ID
 - Submitting form data
 - Non-idempotent operations
@@ -1098,26 +1029,22 @@ RESTful APIs use HTTP methods semantically to perform CRUD operations on resourc
 - Sensitive data that shouldn't appear in URLs
 
 **When to use PUT**:
-
 - Creating resources with client-specified IDs
 - Complete replacement of existing resources
 - Idempotent updates where the entire resource is provided
 
 **When to use PATCH**:
-
 - Partial updates to resources
 - When bandwidth is a concern
 - When only specific fields need updating
 
 **When to use DELETE**:
-
 - Removing resources
 - When the operation is idempotent
 
 ### Custom and Extended Methods
 
 While the HTTP specification defines standard methods, some systems implement custom or extended methods:
-
 - **PROPFIND**: Used in WebDAV to retrieve properties of resources
 - **MKCOL**: WebDAV method for creating collections (directories)
 - **REPORT**: Used in CalDAV for specialized queries
@@ -1129,22 +1056,18 @@ These extensions should be used cautiously and with proper documentation, as the
 ### Method Security Considerations
 
 **CSRF Vulnerability**:
-
 - Non-safe methods (POST, PUT, DELETE) should implement CSRF protection
 - Safe methods (GET) should never cause state changes
 
 **Method Restrictions**:
-
 - Sensitive operations should use POST rather than GET to prevent parameter leakage
 - PUT and DELETE may be restricted by firewalls and need special configuration
 
 **Method Override**:
-
 - Some environments don't support all methods
 - X-HTTP-Method-Override header or _method parameter can be used as workarounds
 
 **Cross-Origin Restrictions**:
-
 - Browsers restrict cross-origin non-simple requests (PUT, DELETE, etc.)
 - CORS preflight checks with OPTIONS verify allowed methods
 
@@ -1188,38 +1111,61 @@ These extensions should be used cautiously and with proper documentation, as the
 
 ### **4xx: Client Errors**
 
-- **400 Bad Request**: The server cannot process the request due to client error (e.g., malformed syntax).
-- **401 Unauthorized**: Authentication is required or failed.
-- **402 Payment Required**: Reserved for future use (rarely used).
-- **403 Forbidden**: The server understands the request but refuses to authorize it.
-- **404 Not Found**: The requested resource cannot be found.
-- **405 Method Not Allowed**: The request method is not supported for the resource.
-- **406 Not Acceptable**: The resource cannot generate a response that matches the Accept headers.
-- **407 Proxy Authentication Required**: Authentication is required for a proxy server.
-- **408 Request Timeout**: The server timed out waiting for the request.
-- **409 Conflict**: The request conflicts with the current state of the resource.
-- **410 Gone**: The resource is no longer available and will not be available again.
-- **411 Length Required**: The server requires a `Content-Length` header.
-- **412 Precondition Failed**: A precondition in the request headers is not met.
-- **413 Payload Too Large**: The request payload is too large for the server to process.
-- **414 URI Too Long**: The URI requested by the client is too long for the server.
-- **415 Unsupported Media Type**: The server does not support the media format.
-- **416 Range Not Satisfiable**: The requested range is invalid or unavailable.
-- **417 Expectation Failed**: The server cannot meet the requirements of the `Expect` header.
-- **418 I'm a Teapot**: A playful, unused status from the 1998 April Fools' joke (RFC 2324).
-- **429 Too Many Requests**: The client has sent too many requests in a given timeframe.
+- **400 Bad Request** — The server cannot process the request due to client error (e.g., malformed syntax).
+- **401 Unauthorized** — Authentication is required or failed.
+- **402 Payment Required** — Reserved for future use (rarely used).
+- **403 Forbidden** — The server understands the request but refuses to authorize it.
+- **404 Not Found** — The requested resource cannot be found.
+- **405 Method Not Allowed** — The request method is not supported for the resource.
+- **406 Not Acceptable** — The resource cannot generate a response that matches the Accept headers.
+- **407 Proxy Authentication Required** — Authentication is required for a proxy server.
+- **408 Request Timeout** — The server timed out waiting for the request.
+- **409 Conflict** — The request conflicts with the current state of the resource.
+- **410 Gone** — The resource is no longer available and will not be available again.
+- **411 Length Required** — The server requires a `Content-Length` header.
+- **412 Precondition Failed** — A precondition in the request headers is not met.
+- **413 Payload Too Large** — The request payload is too large for the server to process.
+- **414 URI Too Long** — The URI requested by the client is too long for the server.
+- **415 Unsupported Media Type** — The server does not support the media format.
+- **416 Range Not Satisfiable** — The requested range is invalid or unavailable.
+- **417 Expectation Failed** — The server cannot meet the requirements of the `Expect` header.
+- **418 I'm a Teapot** — A playful, unused status from the 1998 April Fools' joke (RFC 2324).
+- **421 Misdirected Request** — The request was directed at a server that cannot produce a response (e.g., wrong HTTP/2 connection).
+- **422 Unprocessable Content** — The request is well-formed but contains semantic errors (common in REST APIs).
+- **423 Locked** — The resource is locked (WebDAV; RFC 4918).
+- **424 Failed Dependency** — The request failed because a previous request it depended on failed (WebDAV; RFC 4918).
+- **425 Too Early** — The server is unwilling to risk processing a request that might be replayed (RFC 8470).
+- **426 Upgrade Required** — The client must switch to a different protocol (e.g., TLS).
+- **428 Precondition Required** — The server requires the request to be conditional to prevent lost-update problems (RFC 6585).
+- **429 Too Many Requests** — The client has sent too many requests in a given timeframe.
+- **431 Request Header Fields Too Large** — The server refuses to process the request because header fields are too large (RFC 6585).
+- **451 Unavailable For Legal Reasons** — The resource is unavailable due to legal demands (e.g., censorship, court order; RFC 7725).
+
+**Notable gaps:** 419, 420, 427, 430, and 432–450 are **unassigned** by IANA. Some (like 420 and 419) have seen unofficial or proprietary use but are not part of the official HTTP standard.
 
 ---
 
 ### **5xx: Server Errors**
 
-- **500 Internal Server Error**: The server encountered an unexpected error.
-- **501 Not Implemented**: The server does not support the functionality required.
-- **502 Bad Gateway**: The server received an invalid response from an upstream server.
-- **503 Service Unavailable**: The server is unavailable (e.g., overloaded or under maintenance).
-- **504 Gateway Timeout**: The server did not receive a timely response from an upstream server.
-- **505 HTTP Version Not Supported**: The HTTP version used in the request is not supported.
-- **511 Network Authentication Required**: The client must authenticate to gain network access.
+- **500 Internal Server Error** – A generic error indicating the server encountered an unexpected condition.
+- **501 Not Implemented** – The server does not support the functionality required to fulfill the request.
+- **502 Bad Gateway** – The server, acting as a gateway, received an invalid response from an upstream server.
+- **503 Service Unavailable** – The server is temporarily unable to handle the request (e.g., overloaded or under maintenance).
+- **504 Gateway Timeout** – The server, acting as a gateway, did not receive a timely response from an upstream server.
+- **505 HTTP Version Not Supported** – The HTTP version used in the request is not supported by the server.
+- **506 Variant Also Negotiates** – An internal server configuration error related to content negotiation.
+- **507 Insufficient Storage** – The server is unable to store the representation needed to complete the request (WebDAV).
+- **508 Loop Detected** – The server detected an infinite loop while processing the request (WebDAV).
+- **510 Not Extended** – Further extensions to the request are required before the server can fulfill it.
+- **511 Network Authentication Required** – The client needs to authenticate to gain network access (used by captive portals).
+
+A few practical notes:
+
+**418** is genuine RFC-defined humor — it's intentionally nonsensical and is sometimes used by developers as a playful rejection endpoint.
+
+**The 4xx vs 5xx distinction** is conceptually important: 4xx means _the client did something wrong_, 5xx means _the server failed_. This matters for debugging and for deciding whether to retry a request (5xx errors are often retryable; many 4xx are not).
+
+**WebDAV codes** (423, 424, 507, 508) are part of an extension to HTTP for web-based file management and don't appear in ordinary REST APIs.
 
 ---
 
@@ -1238,7 +1184,6 @@ Would you like further clarification or details on any specific code?
 HTTP headers are key components of HTTP requests and responses that convey essential metadata about the communication, resource, or client-server behaviors. They consist of case-insensitive name-value pairs separated by a colon, transmitted in both HTTP requests and responses. Headers enable critical functions like content negotiation, authentication, caching strategies, and security policies without modifying the actual payload.
 
 **Key Points:**
-
 - HTTP headers provide metadata about requests, responses, and resources
 - Format follows `Header-Name: header-value` structure
 - Not part of the actual content but control how content is processed
@@ -1252,39 +1197,30 @@ These headers can appear in both requests and responses:
 ### Connection Management
 
 - `Connection`: Controls whether the network connection stays open after the transaction
-    
     - Values: `keep-alive`, `close`
     - Example: `Connection: keep-alive`
 - `Keep-Alive`: Parameters for persistent connections
-    
     - Example: `Keep-Alive: timeout=5, max=1000`
 
 ### Content Negotiation
 
 - `Content-Type`: Indicates the media type of the resource
-    
     - Example: `Content-Type: application/json; charset=utf-8`
 - `Content-Length`: Size of the entity-body in bytes
-    
     - Example: `Content-Length: 348`
 - `Content-Encoding`: Compression method used on the entity-body
-    
     - Values: `gzip`, `deflate`, `br`
     - Example: `Content-Encoding: gzip`
 - `Content-Language`: Intended language for the audience
-    
     - Example: `Content-Language: en-US`
 - `Content-Location`: Alternate location for the returned data
-    
     - Example: `Content-Location: /index.en.html`
 
 ### Caching
 
 - `Cache-Control`: Directives for caching mechanisms
-    
     - Example: `Cache-Control: max-age=3600, must-revalidate`
 - `Pragma`: Implementation-specific headers with backwards compatibility
-    
     - Example: `Pragma: no-cache`
 
 ### Date and Time
@@ -1299,73 +1235,54 @@ Headers sent from clients to servers:
 ### Request Information
 
 - `Host`: Domain name of the server (required in HTTP/1.1)
-    
     - Example: `Host: www.example.com`
 - `User-Agent`: Client application information
-    
     - Example: `User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`
 - `Referer`: URL of the previous web page
-    
     - Example: `Referer: https://www.example.com/page1.html`
 - `Origin`: Initiates a request from a specific origin (CORS)
-    
     - Example: `Origin: https://www.example.com`
 
 ### Routing and Proxying
 
 - `Via`: Intermediate protocols and recipients
-    
     - Example: `Via: 1.1 vegur, 1.1 varnish, 1.1 squid`
 - `Forwarded`: Client information modified by proxies
-    
     - Example: `Forwarded: for=192.0.2.60;proto=http;by=203.0.113.43`
 - `X-Forwarded-For`: Client IP address traversing proxies
-    
     - Example: `X-Forwarded-For: 203.0.113.195, 70.41.3.18`
 - `X-Forwarded-Proto`: Original protocol used by client
-    
     - Example: `X-Forwarded-Proto: https`
 
 ### Request Control
 
 - `Accept`: Media types acceptable for the response
-    
     - Example: `Accept: text/html, application/xhtml+xml, application/xml;q=0.9`
 - `Accept-Charset`: Character sets acceptable
-    
     - Example: `Accept-Charset: utf-8, iso-8859-1;q=0.5`
 - `Accept-Encoding`: Acceptable encodings (usually compression)
-    
     - Example: `Accept-Encoding: gzip, deflate, br`
 - `Accept-Language`: Preferred natural languages
-    
     - Example: `Accept-Language: en-US,en;q=0.5`
 - `Expect`: Expectations the server must fulfill
-    
     - Example: `Expect: 100-continue`
 
 ### Conditional Requests
 
 - `If-Match`: Performs action if entity tag matches
-    
     - Example: `If-Match: "33a64df551425fcc55e4d42a148795d9f25f89d4"`
 - `If-None-Match`: Performs action if entity tags don't match
-    
     - Example: `If-None-Match: "33a64df551425fcc55e4d42a148795d9f25f89d4"`
 - `If-Modified-Since`: Performs action if resource modified after date
-    
     - Example: `If-Modified-Since: Sat, 29 Oct 2024 19:43:31 GMT`
 - `If-Unmodified-Since`: Performs action if resource not modified after date
-    
     - Example: `If-Unmodified-Since: Sat, 29 Oct 2024 19:43:31 GMT`
 
 ### Authentication
 
 - `Authorization`: Authentication credentials for HTTP authentication
-    
     - Example: `Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
 - `Cookie`: HTTP cookies previously sent by the server
-    
     - Example: `Cookie: name=value; name2=value2`
 
 ### Response-Specific Headers
@@ -1375,43 +1292,32 @@ Headers sent from servers to clients:
 ### Response Information
 
 - `Server`: Information about the server software
-    
     - Example: `Server: Apache/2.4.52 (Ubuntu)`
 - `Status`: CGI-specific header field providing the HTTP status code
-    
     - Example: `Status: 200 OK`
 
 ### Access Control (CORS)
 
 - `Access-Control-Allow-Origin`: Origins allowed to access the resource
-    
     - Example: `Access-Control-Allow-Origin: https://example.com`
 - `Access-Control-Allow-Methods`: HTTP methods allowed when accessing the resource
-    
     - Example: `Access-Control-Allow-Methods: GET, POST, PUT`
 - `Access-Control-Allow-Headers`: Headers allowed when accessing the resource
-    
     - Example: `Access-Control-Allow-Headers: Content-Type, Authorization`
 - `Access-Control-Allow-Credentials`: Whether request can include credential information
-    
     - Example: `Access-Control-Allow-Credentials: true`
 - `Access-Control-Max-Age`: How long results can be cached
-    
     - Example: `Access-Control-Max-Age: 3600`
 
 ### Caching Directives
 
 - `ETag`: Entity tag for identifying specific versions of a resource
-    
     - Example: `ETag: "33a64df551425fcc55e4d42a148795d9f25f89d4"`
 - `Expires`: Date/time after which response is considered stale
-    
     - Example: `Expires: Thu, 01 May 2025 16:00:00 GMT`
 - `Last-Modified`: Date/time resource was last modified
-    
     - Example: `Last-Modified: Tue, 15 Apr 2025 09:12:28 GMT`
 - `Vary`: Headers used in the selection algorithm
-    
     - Example: `Vary: User-Agent, Accept-Encoding`
 
 ### Session Management
@@ -1432,7 +1338,6 @@ Headers sent from servers to clients:
     - Example: `Content-Security-Policy: default-src 'self'; img-src *; script-src 'self' trusted.com;`
 
 **Key Directives:**
-
 - `default-src`: Default policy for fetching resources
 - `script-src`: Valid sources for JavaScript
 - `style-src`: Valid sources for stylesheets
@@ -1445,26 +1350,20 @@ Headers sent from servers to clients:
 ### Cross-Site Protections
 
 - `X-XSS-Protection`: Configures XSS protection in browsers
-    
     - Example: `X-XSS-Protection: 1; mode=block`
 - `X-Frame-Options`: Prevents clickjacking by controlling framing
-    
     - Values: `DENY`, `SAMEORIGIN`, `ALLOW-FROM https://example.com`
     - Example: `X-Frame-Options: DENY`
 - `X-Content-Type-Options`: Prevents MIME type sniffing
-    
     - Example: `X-Content-Type-Options: nosniff`
 
 ### Transport Security
 
 - `Strict-Transport-Security`: Forces browser to use HTTPS
-    
     - Example: `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`
 - `Public-Key-Pins`: Associates site with specific cryptographic public keys
-    
     - Example: `Public-Key-Pins: pin-sha256="base64=="; max-age=5184000; includeSubDomains`
 - `Expect-CT`: Certificate Transparency enforcement
-    
     - Example: `Expect-CT: max-age=86400, enforce, report-uri="https://example.com/report"`
 
 ### Referrer Policy
@@ -1476,49 +1375,37 @@ Headers sent from servers to clients:
 ### Feature Policy/Permissions Policy
 
 - `Feature-Policy`: Controls browser features available to a site
-    
     - Example: `Feature-Policy: camera 'none'; microphone 'self'`
 - `Permissions-Policy`: Modern replacement for Feature-Policy
-    
     - Example: `Permissions-Policy: camera=(), microphone=(self)`
 
 ### Performance Headers
 
 - `Server-Timing`: Server performance metrics
-    
     - Example: `Server-Timing: db;dur=53, app;dur=47.2`
 - `Timing-Allow-Origin`: Origins allowed to see timing information
-    
     - Example: `Timing-Allow-Origin: https://example.com`
 - `Transfer-Encoding`: Encoding transformations applied to message body
-    
     - Example: `Transfer-Encoding: chunked`
 - `TE`: Specifies transfer encodings willing to accept
-    
     - Example: `TE: trailers, deflate`
 
 ### Custom and Proprietary Headers
 
 - `X-Request-ID`: Unique identifier for correlating requests through systems
-    
     - Example: `X-Request-ID: f058ebd6-02f7-4d3f-942e-904344e8cde5`
 - `X-API-Version`: API version being used
-    
     - Example: `X-API-Version: 1.0.0`
 - `X-RateLimit-Limit`: Rate limit ceiling for the client
-    
     - Example: `X-RateLimit-Limit: 100`
 - `X-RateLimit-Remaining`: Remaining requests in current period
-    
     - Example: `X-RateLimit-Remaining: 42`
 - `X-RateLimit-Reset`: Time when rate limit resets
-    
     - Example: `X-RateLimit-Reset: 1625176323`
 
 ### HTTP/2 and HTTP/3 Header Considerations
 
 HTTP/2 and HTTP/3 introduce changes to header handling:
-
 - Header compression (HPACK in HTTP/2, QPACK in HTTP/3)
 - Binary representation rather than plain text
 - Case sensitivity (typically lowercase in HTTP/2+)
@@ -1612,31 +1499,24 @@ Here are the most common directives for `Cache-Control`:
 1. **`public`**  
     Allows the response to be cached by any cache (browser, CDN, intermediary proxies).  
     Example: `Cache-Control: public`
-    
 2. **`private`**  
     Indicates the response is specific to an individual user and should not be cached by shared caches (e.g., proxies or CDNs). Browsers can still cache it.  
     Example: `Cache-Control: private`
-    
 3. **`no-cache`**  
     Forces the client to validate the cached content with the server before using it (does not prevent caching).  
     Example: `Cache-Control: no-cache`
-    
 4. **`no-store`**  
     Prevents caching entirely. Neither the browser nor any intermediary cache should store the response.  
     Example: `Cache-Control: no-store`
-    
 5. **`max-age=<seconds>`**  
     Specifies the maximum amount of time (in seconds) a resource is considered fresh in the cache.  
     Example: `Cache-Control: max-age=3600` (cache valid for 1 hour)
-    
 6. **`s-maxage=<seconds>`**  
     Like `max-age`, but specific to shared caches (e.g., CDNs or proxies). Overrides `max-age` in shared caches.  
     Example: `Cache-Control: s-maxage=600`
-    
 7. **`must-revalidate`**  
     Requires the cache to revalidate the content with the origin server once it becomes stale.  
     Example: `Cache-Control: must-revalidate`
-    
 8. **`immutable`**  
     Indicates that the resource will not change, so the browser does not need to check for updates.  
     Example: `Cache-Control: immutable`
@@ -1649,11 +1529,9 @@ Here are the most common directives for `Cache-Control`:
 1. **`no-cache`**  
     Forces the server to revalidate and not rely on cached responses.  
     Example: `Cache-Control: no-cache`
-    
 2. **`no-store`**  
     Ensures that no caching is performed by any cache layer.  
     Example: `Cache-Control: no-store`
-    
 3. **`max-age=<seconds>`**  
     Specifies the maximum acceptable age of a cached response.  
     Example: `Cache-Control: max-age=0` (forces a fresh response)
@@ -1692,7 +1570,6 @@ Cache-Control: no-cache
 ---
 
 **Key Benefits**
-
 - Reduces server load by leveraging cached content.
 - Improves user experience by minimizing load times.
 - Provides control over how and where content is cached.
@@ -1706,7 +1583,6 @@ Cache-Control: no-cache
 HTTP caching is a technique that stores copies of resources temporarily to improve web performance and reduce server load. When implemented correctly, caching significantly enhances user experience by reducing latency and bandwidth consumption.
 
 **Key Points**:
-
 - Caching reduces server load and network traffic
 - It dramatically improves page load times and user experience
 - Multiple cache locations exist throughout the request path
@@ -1720,7 +1596,6 @@ HTTP caching can occur at various points in the network path between clients and
 #### Browser Caches
 
 Browser caches store resources locally on user devices:
-
 - Integrated into all modern web browsers
 - Persist between browsing sessions (disk cache)
 - Store resources in memory during active sessions (memory cache)
@@ -1730,7 +1605,6 @@ Browser caches store resources locally on user devices:
 #### Proxy Caches
 
 Proxy caches operate between clients and origin servers:
-
 - Serve multiple users within organizations or regions
 - Often deployed by ISPs, companies, or CDNs
 - Reduce external bandwidth consumption
@@ -1740,7 +1614,6 @@ Proxy caches operate between clients and origin servers:
 #### Gateway Caches (Reverse Proxies)
 
 Gateway caches sit in front of origin servers:
-
 - Protect and accelerate origin servers
 - Common examples include Varnish, Nginx, Cloudflare
 - Can implement complex caching policies
@@ -1750,7 +1623,6 @@ Gateway caches sit in front of origin servers:
 #### CDN Caches
 
 Content Delivery Networks distribute cached content globally:
-
 - Store copies of static assets at edge locations worldwide
 - Reduce latency by serving content from physically closer locations
 - Improve reliability through redundancy
@@ -1764,7 +1636,6 @@ Content Delivery Networks distribute cached content globally:
 The Cache-Control header is the primary mechanism for defining caching policies:
 
 **Server Directives**:
-
 - `public`: Response may be cached by any cache
 - `private`: Response may only be cached by browser caches
 - `no-cache`: Cache must revalidate before using cached response
@@ -1777,7 +1648,6 @@ The Cache-Control header is the primary mechanism for defining caching policies:
 - `stale-if-error=<seconds>`: Allow serving stale content when errors occur
 
 **Client Directives**:
-
 - `no-cache`: Request fresh content, bypass cache
 - `no-store`: Don't store the response in any cache
 - `max-age=<seconds>`: Accept responses cached for no longer than specified time
@@ -1794,7 +1664,6 @@ Cache-Control: public, max-age=86400, must-revalidate
 #### Expires Header
 
 The Expires header specifies an absolute expiration date:
-
 - Less flexible than Cache-Control
 - Overridden by Cache-Control: max-age when both are present
 - Requires server and client clocks to be synchronized
@@ -1809,7 +1678,6 @@ Expires: Wed, 21 Oct 2025 07:28:00 GMT
 #### Pragma Header
 
 The Pragma header is a legacy header for backwards compatibility:
-
 - Used primarily with `Pragma: no-cache`
 - Equivalent to `Cache-Control: no-cache`
 - Only relevant for HTTP/1.0 compatibility
@@ -1821,7 +1689,6 @@ When cached content expires, validation headers enable efficient revalidation:
 #### ETag Header
 
 The ETag (Entity Tag) provides a unique identifier for specific versions of resources:
-
 - Server generates a unique identifier for each resource version
 - Can be strong or weak (prefixed with W/)
 - Used with If-None-Match header in revalidation requests
@@ -1842,7 +1709,6 @@ ETag: W/"0815"
 #### Last-Modified Header
 
 The Last-Modified header indicates when the resource was last changed:
-
 - Less precise than ETag (second-level granularity)
 - Used with If-Modified-Since header in revalidation requests
 - Easier to implement than ETags
@@ -1861,7 +1727,6 @@ Conditional requests allow clients to revalidate cached resources efficiently:
 #### If-None-Match
 
 Used with ETags to check if cached content is still valid:
-
 - Client sends the ETag value from its cached copy
 - Server returns 304 Not Modified if the resource hasn't changed
 - Server returns 200 OK with new content if the resource has changed
@@ -1877,7 +1742,6 @@ If-None-Match: "33a64df551425fcc55e4d42a148795d9f25f89d4"
 #### If-Modified-Since
 
 Used with Last-Modified to check if cached content is still valid:
-
 - Client sends the Last-Modified date from its cached copy
 - Server returns 304 Not Modified if the resource hasn't been modified since
 - Server returns 200 OK with new content if the resource has been modified
@@ -1898,7 +1762,6 @@ If-Modified-Since: Wed, 21 Oct 2025 07:28:00 GMT
     GET /resource HTTP/1.1
     Host: example.com
     ```
-    
 2. **Server Responds with Cacheable Content**:
     
     ```
@@ -1910,9 +1773,7 @@ If-Modified-Since: Wed, 21 Oct 2025 07:28:00 GMT
     
     <html>...</html>
     ```
-    
 3. **Client Caches the Response**:
-    
     - Stores content, headers, and validation information
     - Uses the resource from cache until expiration
 4. **After Expiration, Client Revalidates**:
@@ -1923,7 +1784,6 @@ If-Modified-Since: Wed, 21 Oct 2025 07:28:00 GMT
     If-None-Match: "abc123"
     If-Modified-Since: Wed, 21 Oct 2025 07:28:00 GMT
     ```
-    
 5. **Server Responds Based on Resource Status**:
     
     If unchanged:
@@ -1953,13 +1813,11 @@ If-Modified-Since: Wed, 21 Oct 2025 07:28:00 GMT
 #### Cache Busting
 
 Cache busting ensures clients receive updated resources when content changes:
-
 - Append version numbers or hashes to filenames
     
     ```
     /styles.css?v=1.2.3/styles.v123.css/styles.a1b2c3d4.css
     ```
-    
 - Changes the URL when content changes, forcing a new request
 - Allows for aggressive caching of versioned resources
 - Common in modern frontend build systems
@@ -1967,25 +1825,21 @@ Cache busting ensures clients receive updated resources when content changes:
 #### Hierarchical Caching
 
 Different cache settings for different resource types:
-
 - HTML: Short cache or no-cache
     
     ```
     Cache-Control: no-cache, must-revalidate
     ```
-    
 - JS/CSS: Long cache with versioning
     
     ```
     Cache-Control: public, max-age=31536000, immutable
     ```
-    
 - Images: Medium to long cache
     
     ```
     Cache-Control: public, max-age=86400
     ```
-    
 - API responses: Varies by endpoint
     
     ```
@@ -2000,7 +1854,6 @@ Serves stale content while fetching fresh content in the background:
 ```
 Cache-Control: max-age=600, stale-while-revalidate=3600
 ```
-
 - Improves perceived performance
 - Reduces load spikes
 - Ensures eventual consistency
@@ -2009,7 +1862,6 @@ Cache-Control: max-age=600, stale-while-revalidate=3600
 #### Cache Delegation
 
 Different caching responsibilities at different levels:
-
 - CDN: Cache static assets globally
 - Edge cache: Handle regional traffic
 - Application cache: Store computed data
@@ -2020,7 +1872,6 @@ Different caching responsibilities at different levels:
 #### Cache Invalidation
 
 Cache invalidation ensures outdated content is removed:
-
 - One of the "two hard things" in computer science
 - Methods include:
     - Time-based expiration
@@ -2035,7 +1886,6 @@ The Vary header specifies which request headers affect caching:
 ```
 Vary: Accept-Encoding, User-Agent, Accept-Language
 ```
-
 - Creates separate cache entries for different request variations
 - Essential for:
     - Content negotiation (language, format)
@@ -2046,7 +1896,6 @@ Vary: Accept-Encoding, User-Agent, Accept-Language
 #### Privacy Considerations
 
 Private data requires careful caching controls:
-
 - Use `Cache-Control: private` for user-specific content
 - Consider `no-store` for sensitive information
 - Be careful with URL parameters containing personal data
@@ -2055,7 +1904,6 @@ Private data requires careful caching controls:
 #### Cache Poisoning
 
 Cache poisoning occurs when invalid content enters the cache:
-
 - Can affect all users of a shared cache
 - Prevention strategies:
     - Validate input parameters
@@ -2068,7 +1916,6 @@ Cache poisoning occurs when invalid content enters the cache:
 #### Browser Developer Tools
 
 Browser tools provide cache visibility:
-
 - Network panel shows cache hits/misses
 - Disable cache option for testing
 - View and inspect response headers
@@ -2077,7 +1924,6 @@ Browser tools provide cache visibility:
 #### HTTP Headers for Debugging
 
 Special headers can assist with cache debugging:
-
 - `X-Cache`: Indicates cache hit/miss status
 - `X-Cache-Hits`: Count of cache hits
 - `Age`: Seconds since the response was generated
@@ -2095,7 +1941,6 @@ X-Served-By: cache-lax8642-LAX
 #### Common Cache Issues
 
 Frequent caching problems and solutions:
-
 - Unexpected cache misses:
     - Check Cache-Control directives
     - Verify Vary header configuration
@@ -2114,7 +1959,6 @@ Frequent caching problems and solutions:
 #### Service Workers
 
 Service Workers enable precise client-side cache control:
-
 - JavaScript API for intercepting requests
 - Enables offline functionality
 - Allows programmatic caching decisions
@@ -2143,7 +1987,6 @@ self.addEventListener('fetch', event => {
 #### HTTP/2 Server Push
 
 HTTP/2 Server Push proactively sends resources:
-
 - Server predicts client needs
 - Resources are pushed into client cache
 - Eliminates round-trip requests
@@ -2153,7 +1996,6 @@ HTTP/2 Server Push proactively sends resources:
 #### Cache-Digest
 
 Cache-Digest is an emerging technique to optimize HTTP/2 Server Push:
-
 - Client informs server what it already has cached
 - Prevents unnecessary pushes
 - Reduces bandwidth waste
@@ -2170,7 +2012,6 @@ Cache-Digest is an emerging technique to optimize HTTP/2 Server Push:
 HTTP cookies are small pieces of data stored by the client (typically a web browser) at the request of a server. They serve as a persistent mechanism for maintaining state in the stateless HTTP protocol, enabling critical functionality such as session management, personalization, and tracking user behavior across websites. First introduced in Netscape Navigator in 1994, cookies have become a fundamental building block of modern web applications despite their security and privacy implications.
 
 **Key Points:**
-
 - Small data fragments stored by the client at a server's request
 - Essential for maintaining state in the stateless HTTP protocol
 - Created via the Set-Cookie response header and sent back via the Cookie request header
@@ -2182,7 +2023,6 @@ HTTP cookies are small pieces of data stored by the client (typically a web brow
 ### Structure and Components
 
 Cookies consist of a name-value pair and optional attributes that control their behavior:
-
 - `Name`: Identifier for the cookie (must be unique for the domain)
 - `Value`: String data associated with the name
 - `Domain`: Controls which domains can receive the cookie
@@ -2216,40 +2056,32 @@ Cookie: sessionId=abc123; preference=darkmode
 ### Domain and Path
 
 - `Domain`: Specifies which domains can receive the cookie
-    
     - If not specified, defaults to the origin server domain (excluding subdomains)
     - If specified, includes the specified domain and all subdomains
     - Example: `Domain=example.com` allows cookies on example.com and all subdomains
 - `Path`: Restricts cookie access to specific paths on the server
-    
     - If not specified, defaults to the current path
     - Example: `Path=/docs` restricts cookies to /docs and subdirectories
 
 ### Expiration Controls
 
 - `Expires`: Sets a specific date/time when the cookie should expire
-    
     - Example: `Expires=Wed, 30 Apr 2025 12:00:00 GMT`
     - Uses HTTP-date format
 - `Max-Age`: Sets cookie lifetime in seconds from time of receipt
-    
     - Example: `Max-Age=3600` (expires in one hour)
     - Takes precedence over Expires if both are present
 - Session cookies: Cookies without an expiration specification are deleted when the browser session ends
-    
 
 ### Security Attributes
 
 - `Secure`: Cookie is only sent over HTTPS connections
-    
     - Example: `Secure`
     - Protects against network eavesdropping
 - `HttpOnly`: Prevents access to the cookie through JavaScript
-    
     - Example: `HttpOnly`
     - Helps mitigate cross-site scripting (XSS) attacks
 - `SameSite`: Controls when cookies are sent with cross-site requests
-    
     - `Strict`: Cookies only sent in same-site context
     - `Lax`: Cookies sent for top-level navigations and same-site contexts
     - `None`: Cookies sent in all contexts (requires Secure flag)
@@ -2499,19 +2331,14 @@ These cookies help build user profiles for analytics and targeted advertising.
 ### Common Cookie-Related Vulnerabilities
 
 - **Cross-Site Scripting (XSS)**: Attackers inject malicious scripts that steal cookies
-    
     - Mitigation: Use HttpOnly flag to prevent JavaScript access to sensitive cookies
 - **Cross-Site Request Forgery (CSRF)**: Unauthorized commands executed from a user the server trusts
-    
     - Mitigation: Use SameSite attributes and anti-CSRF tokens
 - **Session Fixation**: Attacker sets a victim's session ID to one they know
-    
     - Mitigation: Generate new session IDs after authentication
 - **Cookie Theft via Man-in-the-Middle**: Intercepting cookie transmission
-    
     - Mitigation: Use Secure flag to ensure transmission only over HTTPS
 - **Cookie Tossing**: Setting malicious subdomain cookies
-    
     - Mitigation: Use __Host- prefix and explicit Path attributes
 
 ### Cookie Security Best Practices
@@ -2552,7 +2379,6 @@ Cookie consent banners are now common to comply with these regulations:
 ### Browser Privacy Features
 
 Modern browsers implement various cookie restrictions:
-
 - **Safari**: Intelligent Tracking Prevention (ITP) limits third-party cookies
 - **Firefox**: Enhanced Tracking Protection blocks known trackers
 - **Chrome**: Phasing out third-party cookies (planned for 2024)
@@ -2563,7 +2389,6 @@ Modern browsers implement various cookie restrictions:
 ### Alternatives to Third-Party Cookies
 
 As browsers phase out third-party cookies, alternatives are emerging:
-
 - **First-Party Data**: Directly collected user data
 - **Server-Side Tracking**: Moving tracking from client to server
 - **Fingerprinting**: Identifying users by browser/device characteristics
@@ -2588,7 +2413,6 @@ As browsers phase out third-party cookies, alternatives are emerging:
 HTTP redirects are server responses that instruct a client to request a different URL than the one originally requested. They serve as a fundamental mechanism for URL forwarding, website restructuring, load balancing, and enforcing canonical resource locations. Redirects operate through specific HTTP status codes in the 3xx range, with each type providing different behaviors for maintaining web infrastructure flexibility while preserving user experience.
 
 **Key Points:**
-
 - Server responses that direct clients to alternative URLs
 - Implemented using HTTP status codes in the 3xx range
 - Essential for URL management, website migrations, and content organization
@@ -2623,7 +2447,6 @@ Content-Length: 170
 ```
 
 **Common Use Cases:**
-
 - Domain changes (http to https, www to non-www)
 - Permanent URL structure changes
 - Website migrations
@@ -2655,7 +2478,6 @@ Content-Length: 154
 ```
 
 **Common Use Cases:**
-
 - Temporary site maintenance
 - Traffic management
 - A/B testing
@@ -2685,7 +2507,6 @@ Content-Length: 162
 ```
 
 **Common Use Cases:**
-
 - Post-form submission redirects
 - Preventing duplicate form submissions
 - API responses directing to resource locations
@@ -2716,7 +2537,6 @@ Content-Length: 178
 ```
 
 **Common Use Cases:**
-
 - API endpoint temporary changes
 - Load balancing
 - Preserving POST/PUT data across redirects
@@ -2747,7 +2567,6 @@ Content-Length: 178
 ```
 
 **Common Use Cases:**
-
 - API endpoint permanent changes
 - Preserving POST/PUT data in permanent migrations
 - HTTP to HTTPS migrations for form submissions
@@ -2997,7 +2816,6 @@ Original URL → Redirect 1 → Redirect 2 → Final URL
 ```
 
 **Problems with Redirect Chains:**
-
 - Increased page load time
 - Potential SEO penalties
 - Wasted crawl budget for search engines
@@ -3016,7 +2834,6 @@ URL A → URL B → URL C → URL A (loop)
 Browsers typically detect these loops after a certain number of redirects and display an error message.
 
 **Prevention:**
-
 - Test redirects thoroughly before deployment
 - Implement redirect logging
 - Use conditional logic to prevent circular references
@@ -3030,7 +2847,6 @@ Browsers typically detect these loops after a certain number of redirects and di
     ```html
     <link rel="canonical" href="https://example.com/canonical-page" />
     ```
-    
 - Update internal links to point directly to new URLs rather than through redirects
 - Create XML sitemaps with updated URLs
 - Use Google Search Console's "Change of Address" tool for domain migrations
@@ -3053,7 +2869,6 @@ Browsers typically detect these loops after a certain number of redirects and di
 ### Domain Canonicalization
 
 Ensuring visitors reach the canonical version of your domain:
-
 - HTTP to HTTPS
 - Non-www to www (or vice versa)
 - Root domain to subdomain (or vice versa)
@@ -3155,7 +2970,6 @@ if (!isset($_COOKIE['visited'])) {
     ```bash
     # Using curl to check redirectcurl -I -L https://example.com/old-page# Using wget to follow redirectswget --server-response --max-redirect=10 https://example.com/old-page
     ```
-    
 - Online redirect checkers
 - Crawling tools like Screaming Frog to identify redirect chains
 
@@ -3179,7 +2993,6 @@ if (!isset($_COOKIE['visited'])) {
 HTTP is stateless by nature, which means each request from a client to a server is treated as an independent transaction without any relation to previous requests. Session management creates the illusion of continuity across multiple HTTP requests, allowing applications to maintain state and user context.
 
 **Key Points**:
-
 - HTTP's stateless design requires additional mechanisms to track user sessions
 - Session management bridges the gap between discrete HTTP requests
 - Sessions enable personalized user experiences and authenticated access control
@@ -3190,7 +3003,6 @@ HTTP is stateless by nature, which means each request from a client to a server 
 A session represents a series of related interactions between a client and a web application. Sessions typically begin when a user logs in and end when they log out, timeout, or close their browser.
 
 Sessions store information that needs to persist across multiple HTTP requests, such as:
-
 - Authentication status
 - User preferences
 - Shopping cart contents
@@ -3202,7 +3014,6 @@ Sessions store information that needs to persist across multiple HTTP requests, 
 Session management relies on unique identifiers to associate HTTP requests with specific users or sessions.
 
 **Key Points**:
-
 - Session IDs should be random, unpredictable, and sufficiently long (at least 128 bits)
 - Session IDs are typically generated using cryptographically secure random number generators
 - The server maintains a mapping between session IDs and session data
@@ -3215,7 +3026,6 @@ Session management relies on unique identifiers to associate HTTP requests with 
 Client-side session storage keeps session data directly on the client device.
 
 **Key Points**:
-
 - Reduces server storage requirements
 - May improve performance by reducing database lookups
 - Vulnerable to tampering unless properly secured
@@ -3226,7 +3036,6 @@ Client-side session storage keeps session data directly on the client device.
 Server-side session storage maintains session data on the server while only sending the session identifier to the client.
 
 **Key Points**:
-
 - Provides better security as sensitive data stays on the server
 - Enables centralized session management
 - Requires server resources for storage
@@ -3239,7 +3048,6 @@ Server-side session storage maintains session data on the server while only send
 Cookies are small text files stored by the browser that are automatically included with each HTTP request to the same domain.
 
 **Key Points**:
-
 - Set using the `Set-Cookie` HTTP header from server responses
 - Can store the session ID directly or a reference to server-side session data
 - Various attributes control cookie behavior:
@@ -3260,7 +3068,6 @@ Set-Cookie: sessionid=abc123; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age
 Session identifiers can be appended to URLs as query parameters.
 
 **Key Points**:
-
 - Simple implementation requiring no browser support
 - Session IDs are exposed in browser history, bookmarks, and referrer headers
 - URLs become longer and less readable
@@ -3277,7 +3084,6 @@ https://example.com/profile?sessionid=abc123
 Session identifiers can be included as hidden input fields in HTML forms.
 
 **Key Points**:
-
 - Works without cookies
 - Session continuity limited to form submissions
 - Requires manually adding the session ID to each form
@@ -3297,7 +3103,6 @@ Session identifiers can be included as hidden input fields in HTML forms.
 JWTs are encoded JSON objects containing session data and signatures for verification.
 
 **Key Points**:
-
 - Self-contained tokens that can include claims and metadata
 - Digitally signed to prevent tampering
 - Can be optionally encrypted for confidentiality
@@ -3317,7 +3122,6 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEyMywia
 Sessions are typically created upon authentication or when a user first interacts with an application.
 
 **Key Points**:
-
 - Generate a secure random session identifier
 - Initialize session storage with default values
 - Set session expiration time
@@ -3329,7 +3133,6 @@ Sessions are typically created upon authentication or when a user first interact
 Each request with a session identifier requires validation before accessing session data.
 
 **Key Points**:
-
 - Verify session ID exists in storage
 - Check if session has expired
 - Optional: Validate against recorded IP, user agent, or other context
@@ -3340,7 +3143,6 @@ Each request with a session identifier requires validation before accessing sess
 Periodically changing session identifiers helps prevent session fixation attacks.
 
 **Key Points**:
-
 - Generate a new session ID while preserving session data
 - Invalidate the old session ID
 - Essential after authentication state changes
@@ -3351,7 +3153,6 @@ Periodically changing session identifiers helps prevent session fixation attacks
 Sessions should be properly terminated when no longer needed.
 
 **Key Points**:
-
 - Remove session data from storage
 - Invalidate session identifier
 - Clear client-side session markers (cookies, etc.)
@@ -3367,7 +3168,6 @@ Sessions should be properly terminated when no longer needed.
 Session hijacking occurs when an attacker steals or predicts a valid session identifier.
 
 **Key Points**:
-
 - Use HTTPS to prevent network sniffing
 - Set secure and HttpOnly cookie flags
 - Implement IP-based session validation (with caution)
@@ -3379,7 +3179,6 @@ Session hijacking occurs when an attacker steals or predicts a valid session ide
 Session fixation attacks trick users into using attacker-provided session identifiers.
 
 **Key Points**:
-
 - Always generate new session IDs after authentication
 - Never accept session IDs from URL parameters or POST data
 - Validate session creation origins
@@ -3390,7 +3189,6 @@ Session fixation attacks trick users into using attacker-provided session identi
 CSRF attacks trick authenticated users into performing unwanted actions.
 
 **Key Points**:
-
 - Implement anti-CSRF tokens in forms and AJAX requests
 - Verify request origins with Origin/Referer headers
 - Use SameSite=Strict or SameSite=Lax cookies
@@ -3401,7 +3199,6 @@ CSRF attacks trick authenticated users into performing unwanted actions.
 XSS vulnerabilities can expose session identifiers to attackers.
 
 **Key Points**:
-
 - Use HttpOnly cookies to prevent JavaScript access
 - Implement Content Security Policy (CSP)
 - Sanitize user input and output
@@ -3414,7 +3211,6 @@ XSS vulnerabilities can expose session identifiers to attackers.
 Sticky sessions ensure requests from the same client always reach the same server.
 
 **Key Points**:
-
 - Simple approach for maintaining session state in memory
 - Typically implemented via load balancer configuration
 - Creates dependency on specific servers
@@ -3425,7 +3221,6 @@ Sticky sessions ensure requests from the same client always reach the same serve
 Storing sessions in a shared database or caching system accessible to all application servers.
 
 **Key Points**:
-
 - Enables true horizontal scaling
 - Removes dependency on specific servers
 - Introduces network latency and potential bottlenecks
@@ -3436,7 +3231,6 @@ Storing sessions in a shared database or caching system accessible to all applic
 Sessions distributed across multiple nodes with replication or sharding.
 
 **Key Points**:
-
 - Combines performance of local sessions with reliability of distributed systems
 - Complex to implement and maintain
 - Requires solutions for consistency and conflict resolution
@@ -3519,7 +3313,6 @@ public class ProfileController {
 Keep session data compact to reduce storage and transmission overhead.
 
 **Key Points**:
-
 - Store only essential data in session
 - Use references instead of complete objects
 - Consider serialization efficiency
@@ -3530,7 +3323,6 @@ Keep session data compact to reduce storage and transmission overhead.
 Only create sessions when actually needed.
 
 **Key Points**:
-
 - Avoids unnecessary resource consumption
 - Improves performance for unauthenticated users
 - Reduces vulnerability to denial-of-service attacks
@@ -3541,7 +3333,6 @@ Only create sessions when actually needed.
 Splitting session data based on usage patterns.
 
 **Key Points**:
-
 - Separate frequently accessed data from rarely used data
 - Can use different storage backends based on access patterns
 - Reduces load on primary session storage
@@ -3567,7 +3358,6 @@ Splitting session data based on usage patterns.
 Mobile apps present unique session management challenges compared to web applications.
 
 **Key Points**:
-
 - Longer session lifetimes are often expected
 - Device identification can supplement session authentication
 - Token-based authentication is commonly used instead of cookies
@@ -3578,7 +3368,6 @@ Mobile apps present unique session management challenges compared to web applica
 SSO systems require coordinated session management across multiple applications.
 
 **Key Points**:
-
 - Central authentication service manages principal session
 - Individual applications maintain application-specific sessions
 - Session termination must be coordinated across systems
@@ -3589,7 +3378,6 @@ SSO systems require coordinated session management across multiple applications.
 Session management must comply with relevant regulations and standards.
 
 **Key Points**:
-
 - GDPR requirements for user consent and data protection
 - PCI DSS requirements for payment card handling
 - HIPAA requirements for healthcare information
@@ -3604,7 +3392,6 @@ Session management must comply with relevant regulations and standards.
 HTTPS (Hypertext Transfer Protocol Secure) is the secure version of HTTP, the primary protocol used to transfer data between web browsers and websites. HTTPS encrypts the communication between client and server, providing essential security for sensitive data transmission across the internet.
 
 **Key Points**:
-
 - HTTPS combines HTTP with encryption protocols (TLS/SSL)
 - Protects data integrity, confidentiality, and authenticity
 - Indicated by the padlock icon in browsers and "https://" URL prefix
@@ -3614,7 +3401,6 @@ HTTPS (Hypertext Transfer Protocol Secure) is the secure version of HTTP, the pr
 ### Historical Development
 
 HTTPS has evolved significantly since its inception to address growing security concerns and technical advancements.
-
 - 1994: Netscape Communications created HTTPS to secure online transactions
 - 1996: HTTPS first standardized with SSL 2.0 (though found to have security flaws)
 - 1999: TLS 1.0 replaced SSL 3.0 as the encryption protocol
@@ -3629,7 +3415,6 @@ HTTPS has evolved significantly since its inception to address growing security 
 Transport Layer Security (TLS) and its predecessor Secure Sockets Layer (SSL) are cryptographic protocols that secure communications over computer networks.
 
 **Key Points**:
-
 - TLS/SSL operates between the application layer (HTTP) and the transport layer (TCP)
 - Creates an encrypted channel for data transmission
 - Provides authentication, confidentiality, and integrity
@@ -3638,7 +3423,6 @@ Transport Layer Security (TLS) and its predecessor Secure Sockets Layer (SSL) ar
 #### TLS Handshake Process
 
 The TLS handshake establishes a secure connection between client and server before any data is transmitted.
-
 1. **Client Hello**: Client sends supported TLS versions, cipher suites, and a random value
 2. **Server Hello**: Server selects TLS version and cipher suite, sends its own random value
 3. **Certificate Exchange**: Server sends its digital certificate (containing public key)
@@ -3660,7 +3444,6 @@ Server → Client: [Encrypted] Finished
 Cipher suites are combinations of cryptographic algorithms that secure the connection.
 
 **Key Points**:
-
 - Define algorithms for key exchange, authentication, encryption, and message integrity
 - Modern suites typically include:
     - Key exchange: ECDHE (Elliptic Curve Diffie-Hellman Ephemeral)
@@ -3676,7 +3459,6 @@ Cipher suites are combinations of cryptographic algorithms that secure the conne
 Certificate Authorities are trusted third parties that issue digital certificates and vouch for the identity of certificate holders.
 
 **Key Points**:
-
 - CAs verify the identity of the entity requesting a certificate
 - Browsers and operating systems maintain lists of trusted root CAs
 - Popular CAs include DigiCert, Let's Encrypt, Sectigo, and GlobalSign
@@ -3685,29 +3467,23 @@ Certificate Authorities are trusted third parties that issue digital certificate
 #### Certificate Types
 
 Different types of certificates provide varying levels of validation and coverage.
-
 1. **Domain Validation (DV) Certificates**
-    
     - Verify domain ownership only
     - Fastest and cheapest to obtain
     - Display standard padlock in browsers
 2. **Organization Validation (OV) Certificates**
-    
     - Verify domain ownership and organization information
     - Moderate validation process
     - Enhanced trust for business websites
 3. **Extended Validation (EV) Certificates**
-    
     - Most rigorous validation process
     - Verify domain ownership, legal existence, and physical presence
     - Historically displayed the organization name in browser address bar (though many browsers have reduced this visual indicator)
 4. **Wildcard Certificates**
-    
     - Secure a domain and all its subdomains (e.g., *.example.com)
     - Convenient for multiple subdomains
     - Higher risk if private key is compromised
 5. **Multi-Domain Certificates (SAN certificates)**
-    
     - Cover multiple domains in a single certificate
     - Useful for related but different domains
     - More cost-effective than individual certificates
@@ -3717,7 +3493,6 @@ Different types of certificates provide varying levels of validation and coverag
 X.509 certificates contain structured information about the certificate holder and issuer.
 
 **Key Points**:
-
 - Contains subject name (domain/organization)
 - Includes public key of the certificate holder
 - Specifies issuer details (the CA)
@@ -3759,7 +3534,6 @@ Certificate:
 Installing an SSL/TLS certificate requires several steps on the web server.
 
 **Key Points**:
-
 - Generate a Certificate Signing Request (CSR) and private key
 - Submit CSR to a Certificate Authority
 - Install the signed certificate on the web server
@@ -3790,7 +3564,6 @@ Installing an SSL/TLS certificate requires several steps on the web server.
 Certificates have limited validity periods and must be renewed before expiration.
 
 **Key Points**:
-
 - Typical validity periods range from 90 days to 2 years
 - Industry trend toward shorter validity periods (maximum 1 year as of 2020)
 - Automated renewal with tools like Certbot for Let's Encrypt
@@ -3802,7 +3575,6 @@ Certificates have limited validity periods and must be renewed before expiration
 When certificates need to be invalidated before their expiration date.
 
 **Key Points**:
-
 - Reasons for revocation include private key compromise, CA compromise, or incorrect issuance
 - Two main revocation checking methods:
     - Certificate Revocation Lists (CRLs): Downloadable lists of revoked certificates
@@ -3817,7 +3589,6 @@ When certificates need to be invalidated before their expiration date.
 HTTPS encrypts all data exchanged between client and server.
 
 **Key Points**:
-
 - Prevents eavesdropping and man-in-the-middle attacks
 - Uses symmetric encryption (like AES) for data transfer after handshake
 - Unique session keys for each connection
@@ -3828,7 +3599,6 @@ HTTPS encrypts all data exchanged between client and server.
 HTTPS verifies the identity of the server, ensuring users connect to legitimate websites.
 
 **Key Points**:
-
 - Prevents phishing and server impersonation attacks
 - Certificate validation confirms server identity
 - Certificate pinning adds additional verification by specifying expected certificates
@@ -3839,7 +3609,6 @@ HTTPS verifies the identity of the server, ensuring users connect to legitimate 
 HTTPS ensures data hasn't been modified during transmission.
 
 **Key Points**:
-
 - Message Authentication Codes (MACs) verify data integrity
 - Detects any tampering with transmitted content
 - Prevents injection attacks and malicious content modification
@@ -3852,7 +3621,6 @@ HTTPS ensures data hasn't been modified during transmission.
 Migrating a website from HTTP to HTTPS requires careful planning.
 
 **Key Points**:
-
 - Obtain and install appropriate SSL/TLS certificates
 - Update internal links from HTTP to HTTPS
 - Implement 301 redirects from HTTP to HTTPS
@@ -3885,7 +3653,6 @@ server {
 HSTS is a security policy that forces browsers to use HTTPS for all connections to a domain.
 
 **Key Points**:
-
 - Prevents downgrade attacks and SSL stripping
 - Implemented via the Strict-Transport-Security header
 - Includes max-age parameter for policy duration
@@ -3903,7 +3670,6 @@ Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
 CSP helps prevent cross-site scripting (XSS) and data injection attacks.
 
 **Key Points**:
-
 - Restricts which content sources can be loaded
 - Particularly important for HTTPS sites to prevent mixed content
 - Implemented via the Content-Security-Policy header
@@ -3923,7 +3689,6 @@ Content-Security-Policy: default-src 'self'; script-src 'self' https://trusted-c
 HTTPS adds some overhead compared to plain HTTP.
 
 **Key Points**:
-
 - TLS handshake adds latency (particularly noticeable on new connections)
 - Encryption/decryption requires additional computational resources
 - Modern optimizations have significantly reduced this overhead
@@ -3935,7 +3700,6 @@ HTTPS adds some overhead compared to plain HTTP.
 OCSP Stapling improves performance by having the server provide certificate validation status.
 
 **Key Points**:
-
 - Server periodically obtains an OCSP response from the CA
 - Server includes ("staples") this response in the TLS handshake
 - Eliminates need for client to contact CA separately
@@ -3947,7 +3711,6 @@ OCSP Stapling improves performance by having the server provide certificate vali
 Modern HTTP versions provide significant performance improvements when used with HTTPS.
 
 **Key Points**:
-
 - HTTP/2 features multiplexing, header compression, server push
 - HTTP/3 uses QUIC protocol for further latency improvements
 - Both virtually always require HTTPS in practice
@@ -3960,7 +3723,6 @@ Modern HTTP versions provide significant performance improvements when used with
 Various tools help verify proper HTTPS implementation.
 
 **Key Points**:
-
 - SSL Labs Server Test: Comprehensive analysis of server configuration
 - testssl.sh: Command-line tool for detailed SSL/TLS testing
 - Chrome DevTools Security panel: Browser-based verification
@@ -3972,7 +3734,6 @@ Various tools help verify proper HTTPS implementation.
 Several issues can affect HTTPS security and functionality.
 
 **Key Points**:
-
 - Mixed content: Loading non-HTTPS resources on HTTPS pages
 - Incomplete redirects: Not redirecting all HTTP traffic to HTTPS
 - Certificate errors: Expired, misconfigured, or untrusted certificates
@@ -3984,7 +3745,6 @@ Several issues can affect HTTPS security and functionality.
 Ongoing monitoring ensures HTTPS continues to function properly.
 
 **Key Points**:
-
 - Certificate expiration monitoring
 - Regular security scanning for configuration issues
 - Performance monitoring for TLS overhead
@@ -3998,7 +3758,6 @@ Ongoing monitoring ensures HTTPS continues to function properly.
 Certificate Transparency is a system for publicly logging and monitoring SSL/TLS certificates.
 
 **Key Points**:
-
 - Helps detect misissued or malicious certificates
 - Certificates are logged in publicly verifiable, append-only logs
 - Signed Certificate Timestamps (SCTs) prove certificate inclusion
@@ -4010,7 +3769,6 @@ Certificate Transparency is a system for publicly logging and monitoring SSL/TLS
 HTTPS provides security for API calls between services.
 
 **Key Points**:
-
 - Mutual TLS (mTLS) authenticates both client and server
 - Client certificates for service-to-service authentication
 - Certificate management more complex with many services
@@ -4022,7 +3780,6 @@ HTTPS provides security for API calls between services.
 HTTPS has become a ranking factor for search engines.
 
 **Key Points**:
-
 - Google announced HTTPS as a ranking signal in 2014
 - HTTPS sites receive preference in search results
 - Page experience metrics favor secure sites
@@ -4036,7 +3793,6 @@ HTTPS has become a ranking factor for search engines.
 Payment Card Industry Data Security Standard requires HTTPS for handling cardholder data.
 
 **Key Points**:
-
 - Requires strong encryption for transmission of cardholder data
 - Mandates use of TLS 1.2 or higher
 - Prohibits use of vulnerable protocols (SSL, early TLS versions)
@@ -4048,7 +3804,6 @@ Payment Card Industry Data Security Standard requires HTTPS for handling cardhol
 General Data Protection Regulation implications for data security in transit.
 
 **Key Points**:
-
 - Article 32 requires "appropriate technical measures" for data security
 - HTTPS is considered a baseline security measure for personal data
 - Failure to implement HTTPS could be considered negligence
@@ -4062,7 +3817,6 @@ General Data Protection Regulation implications for data security in transit.
 Preparing for quantum computing threats to current cryptographic algorithms.
 
 **Key Points**:
-
 - Quantum computers could break current RSA and ECC algorithms
 - Post-quantum cryptography aims to resist quantum attacks
 - NIST standardization process selecting quantum-resistant algorithms
@@ -4074,7 +3828,6 @@ Preparing for quantum computing threats to current cryptographic algorithms.
 Latest developments in the TLS protocol.
 
 **Key Points**:
-
 - TLS 1.3 brought major security and performance improvements
 - Removed support for vulnerable cryptographic primitives
 - Reduced handshake latency to 1-RTT (0-RTT optional)
@@ -4086,7 +3839,6 @@ Latest developments in the TLS protocol.
 The trend toward universal HTTPS adoption.
 
 **Key Points**:
-
 - Major browsers pushing for "HTTPS by default" internet
 - Chrome treating HTTP as "not secure"
 - Firefox, Safari implementing similar policies
@@ -4116,7 +3868,6 @@ The trend toward universal HTTPS adoption.
 Cross-Origin Resource Sharing (CORS) is a security mechanism built into modern browsers that allows controlled access to resources on a different domain than the one that served the original web page. It extends and adds flexibility to the Same-Origin Policy (SOP), which restricts how documents or scripts from one origin can interact with resources from another origin. CORS operates through HTTP headers, enabling servers to specify which origins are permitted to access their resources and which HTTP methods, headers, and credentials can be included in cross-origin requests.
 
 **Key Points:**
-
 - Security mechanism that enables safe cross-origin requests and data transfers
 - Implemented through HTTP headers exchanged between browsers and servers
 - Extends the Same-Origin Policy while maintaining security boundaries
@@ -4128,13 +3879,11 @@ Cross-Origin Resource Sharing (CORS) is a security mechanism built into modern b
 ### What Constitutes an Origin
 
 An origin is defined by the combination of:
-
 - Protocol (e.g., http, https)
 - Domain (e.g., example.com)
 - Port (e.g., 80, 443)
 
 Examples of different origins:
-
 - https://example.com (base origin)
 - http://example.com (different protocol)
 - https://api.example.com (different subdomain)
@@ -4144,13 +3893,11 @@ Examples of different origins:
 ### Same-Origin Policy (SOP) Restrictions
 
 By default, browsers restrict:
-
 - JavaScript from accessing resources (via XMLHttpRequest or Fetch API) on different origins
 - Document access across frames/iframes from different origins
 - Reading cookies, localStorage, or IndexedDB from different origins
 
 Exceptions to SOP that have always existed:
-
 - Loading images, CSS, and scripts
 - Form submissions
 - Embedding iframes (with restricted access)
@@ -4161,7 +3908,6 @@ Exceptions to SOP that have always existed:
 ### Simple Requests
 
 A request is "simple" if it meets all the following conditions:
-
 - Uses only GET, HEAD, or POST methods
 - Uses only CORS-safelisted headers:
     - Accept
@@ -4172,7 +3918,6 @@ A request is "simple" if it meets all the following conditions:
 - No ReadableStream objects used in the request
 
 For simple requests:
-
 1. Browser adds `Origin` header to the request
 2. Server responds with appropriate CORS headers
 3. Browser allows or blocks access based on these headers
@@ -4199,13 +3944,11 @@ Content-Type: application/json
 ### Preflight Requests
 
 For requests that don't qualify as "simple," browsers automatically send a preflight request:
-
 - Uses OPTIONS HTTP method
 - Includes headers describing the intended request
 - Requires server approval before sending the actual request
 
 Preflight request sequence:
-
 1. Browser sends OPTIONS request with headers describing the intended request
 2. Server responds with CORS permissions
 3. If permissions allow, browser sends the actual request
@@ -4248,37 +3991,28 @@ Authorization: Bearer token123
 ### Request Headers
 
 - `Origin`: Origin of the requesting page
-    
     - Example: `Origin: https://app.example.org`
 - `Access-Control-Request-Method`: Method that will be used in the actual request (preflight only)
-    
     - Example: `Access-Control-Request-Method: DELETE`
 - `Access-Control-Request-Headers`: List of non-simple headers to be used (preflight only)
-    
     - Example: `Access-Control-Request-Headers: Content-Type, X-Custom-Header`
 
 ### Response Headers
 
 - `Access-Control-Allow-Origin`: Origins allowed to access the resource
-    
     - Examples:
         - Specific origin: `Access-Control-Allow-Origin: https://app.example.org`
         - Any origin: `Access-Control-Allow-Origin: *`
 - `Access-Control-Allow-Methods`: HTTP methods allowed when accessing the resource
-    
     - Example: `Access-Control-Allow-Methods: GET, POST, PUT, DELETE`
 - `Access-Control-Allow-Headers`: Headers allowed when accessing the resource
-    
     - Example: `Access-Control-Allow-Headers: Content-Type, Authorization, X-Custom-Header`
 - `Access-Control-Allow-Credentials`: Whether the request can include credentials (cookies, auth headers)
-    
     - Example: `Access-Control-Allow-Credentials: true`
     - Note: Cannot be used with `Access-Control-Allow-Origin: *`
 - `Access-Control-Max-Age`: How long preflight results can be cached (in seconds)
-    
     - Example: `Access-Control-Max-Age: 86400` (24 hours)
 - `Access-Control-Expose-Headers`: Server headers that browsers are allowed to access
-    
     - Example: `Access-Control-Expose-Headers: Content-Disposition, X-Custom-Header`
 
 ### Credentials in CORS Requests
@@ -4286,7 +4020,6 @@ Authorization: Bearer token123
 ### Understanding Credentials Mode
 
 Three possible modes for credentials (cookies, HTTP authentication, client-side SSL certificates):
-
 1. **Same-Origin (default)**: Send credentials only for same-origin requests
 2. **Include**: Always send credentials
 3. **Omit**: Never send credentials
@@ -4315,7 +4048,6 @@ fetch('https://api.example.com/data', {
 ### Server Response for Credentialed Requests
 
 When handling requests with credentials:
-
 - `Access-Control-Allow-Origin` must specify an exact origin (wildcard `*` not allowed)
 - `Access-Control-Allow-Credentials` must be set to `true`
 - `Access-Control-Allow-Methods` and `Access-Control-Allow-Headers` must explicitly list all allowed methods and headers
@@ -4646,38 +4378,30 @@ app.use('/api/v2/', cors({
 ### Common Issues and Solutions
 
 - **Missing CORS Headers**
-    
     - Issue: Server not sending any CORS response headers
     - Solution: Implement CORS headers on the server side
 - **Incorrect Origin Value**
-    
     - Issue: Server doesn't include the requesting origin in Access-Control-Allow-Origin
     - Solution: Add the specific origin or implement dynamic origin checking
 - **Credentials with Wildcard Origin**
-    
     - Issue: Using `Access-Control-Allow-Origin: *` with `Access-Control-Allow-Credentials: true`
     - Solution: Specify exact origin instead of wildcard when using credentials
 - **Missing Preflight Response**
-    
     - Issue: Server not handling OPTIONS requests correctly
     - Solution: Implement proper handling for OPTIONS method
 - **Insufficient Allowed Methods/Headers**
-    
     - Issue: The preflight response doesn't include all required methods or headers
     - Solution: Ensure all methods and headers used by the application are allowed
 
 ### Debugging Tools
 
 - **Browser Developer Tools**
-    
     - Network tab: Examine request/response headers and preflight requests
     - Console: View CORS error messages
 - **CORS Testing Extensions**
-    
     - Allow CORS: Access-Control-Allow-Origin (temporary testing only)
     - CORS Unblock (for development environments)
 - **Preflight Request Testing**
-    
     - Using curl:
         
         ```bash
@@ -4696,23 +4420,18 @@ app.use('/api/v2/', cors({
 ### CORS Security Best Practices
 
 - **Specific Origin Restrictions**
-    
     - Only allow specific, trusted origins rather than wildcards
     - Regularly audit and update allowed origins list
 - **Secure Credential Handling**
-    
     - Only enable `Access-Control-Allow-Credentials` when necessary
     - Implement proper authentication mechanisms beyond CORS
 - **Minimal Access Principle**
-    
     - Only allow methods and headers that are actually needed
     - Avoid exposing sensitive headers unnecessarily
 - **Timeboxed Preflight Caching**
-    
     - Set reasonable `Access-Control-Max-Age` values (1-24 hours)
     - Balance between performance and security
 - **Proper Error Responses**
-    
     - Return appropriate HTTP status codes
     - Avoid leaking sensitive information in error messages
 
@@ -4721,7 +4440,6 @@ app.use('/api/v2/', cors({
 ### SPAs and CORS
 
 Single-Page Applications typically require CORS when:
-
 - Frontend and API are on different domains
 - Using microservices architecture with multiple API domains
 - Accessing third-party APIs from client-side code
@@ -4729,7 +4447,6 @@ Single-Page Applications typically require CORS when:
 ### Microservices Architecture
 
 In microservices:
-
 - Each service may have its own domain/subdomain
 - API Gateway pattern can consolidate CORS handling
 - Internal service-to-service communication bypasses CORS (server-side)
@@ -4808,7 +4525,6 @@ window.addEventListener('message', function(event) {
 HTTP security headers are special HTTP response headers that, when set, can enhance the security of web applications by enabling built-in browser security mechanisms. These headers instruct browsers on how to behave when handling the website's content, helping to prevent various types of attacks and security vulnerabilities.
 
 **Key Points**:
-
 - HTTP headers are name-value pairs sent in request and response messages
 - Security headers provide an additional layer of defense through browser-enforced policies
 - Properly configured headers can mitigate many common web vulnerabilities
@@ -4820,7 +4536,6 @@ HTTP security headers are special HTTP response headers that, when set, can enha
 Content Security Policy is a powerful mechanism that helps prevent Cross-Site Scripting (XSS) attacks by controlling which resources can be loaded by the browser.
 
 **Key Points**:
-
 - Restricts which sources of content the browser is allowed to load
 - Controls JavaScript execution, style loading, image sources, fonts, etc.
 - Mitigates XSS attacks by preventing execution of malicious scripts
@@ -4830,7 +4545,6 @@ Content Security Policy is a powerful mechanism that helps prevent Cross-Site Sc
 #### CSP Directives
 
 CSP offers numerous directives to control different aspects of web security:
-
 - `default-src`: Fallback for other resource types
 - `script-src`: Controls JavaScript sources
 - `style-src`: Controls CSS sources
@@ -4856,7 +4570,6 @@ Content-Security-Policy: default-src 'self';
 #### CSP Nonces and Hashes
 
 For additional control over inline scripts and styles:
-
 - Nonce-based: Random value specified in the header and inline elements
 - Hash-based: SHA hash of allowed inline script/style content
 - Provides granular control for necessary inline elements
@@ -4878,7 +4591,6 @@ Content-Security-Policy: script-src 'self' 'nonce-r4nd0m5tr1ng';
 While largely superseded by CSP in modern browsers, X-XSS-Protection enables built-in XSS filtering capabilities.
 
 **Key Points**:
-
 - Controls browser's built-in XSS auditor/filter
 - Legacy header still relevant for older browsers
 - Can block or sanitize detected XSS attempts
@@ -4891,7 +4603,6 @@ X-XSS-Protection: 1; mode=block
 ```
 
 Values:
-
 - `0`: Disables XSS filtering
 - `1`: Enables XSS filtering
 - `1; mode=block`: Blocks page entirely when XSS is detected
@@ -4902,7 +4613,6 @@ Values:
 Prevents browsers from MIME-sniffing content types, which could lead to unexpected content execution.
 
 **Key Points**:
-
 - Forces browsers to honor the declared Content-Type header
 - Prevents browsers from interpreting files as a different content type
 - Mitigates MIME confusion attacks
@@ -4919,7 +4629,6 @@ X-Content-Type-Options: nosniff
 Controls whether a browser should be allowed to render a page in a frame, iframe, embed or object, helping to prevent clickjacking attacks.
 
 **Key Points**:
-
 - Prevents malicious sites from embedding your content
 - Protects against UI redressing and clickjacking attacks
 - Simple to implement but being replaced by CSP's frame-ancestors directive
@@ -4932,7 +4641,6 @@ X-Frame-Options: DENY
 ```
 
 Values:
-
 - `DENY`: Page cannot be displayed in a frame
 - `SAMEORIGIN`: Page can only be displayed in frames from the same origin
 - `ALLOW-FROM uri`: Page can only be displayed in frames from the specified URI
@@ -4942,7 +4650,6 @@ Values:
 HTTP Strict Transport Security forces browsers to use HTTPS instead of HTTP, even when users attempt to use HTTP.
 
 **Key Points**:
-
 - Enforces secure connections by instructing browsers to always use HTTPS
 - Prevents protocol downgrade attacks and SSL stripping
 - Once set, browser will automatically convert HTTP requests to HTTPS
@@ -4956,7 +4663,6 @@ Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
 ```
 
 Parameters:
-
 - `max-age`: How long the browser should remember to use HTTPS (in seconds)
 - `includeSubDomains`: Optional directive to apply the policy to all subdomains
 - `preload`: Optional directive to indicate interest in being included in browsers' preload list
@@ -4966,7 +4672,6 @@ Parameters:
 Controls how much referrer information should be included with requests.
 
 **Key Points**:
-
 - Manages the information sent in the Referer HTTP header
 - Helps protect user privacy by limiting information leakage
 - Prevents sensitive data in URLs from being transmitted to other sites
@@ -4980,7 +4685,6 @@ Referrer-Policy: strict-origin-when-cross-origin
 ```
 
 Common values:
-
 - `no-referrer`: No referrer information is sent
 - `no-referrer-when-downgrade`: No referrer sent when navigating to less secure destination
 - `same-origin`: Referrer sent only for same-origin requests
@@ -4995,7 +4699,6 @@ Common values:
 Controls which browser features and APIs can be used on a website.
 
 **Key Points**:
-
 - Allows developers to selectively enable/disable browser features
 - Helps limit the potential damage from XSS attacks
 - Restricts potentially dangerous or privacy-invasive features
@@ -5019,7 +4722,6 @@ Permissions-Policy: camera=(), microphone=(self), geolocation=(self https://trus
 Clears browsing data (cookies, storage, cache) associated with the website.
 
 **Key Points**:
-
 - Useful for sign-out functionality to ensure complete removal of user data
 - Can clear cookies, storage, cache, or all data
 - Helps implement "right to be forgotten" requirements
@@ -5037,7 +4739,6 @@ Clear-Site-Data: "cache", "cookies", "storage"
 Prevents other websites from embedding your resources.
 
 **Key Points**:
-
 - Protects against Spectre-style side-channel attacks
 - Restricts which websites can include cross-origin resources
 - Complements SameSite cookies for resource protection
@@ -5050,7 +4751,6 @@ Cross-Origin-Resource-Policy: same-origin
 ```
 
 Values:
-
 - `same-site`: Resource can be loaded by documents from the same site
 - `same-origin`: Resource can be loaded only by documents from the same origin
 - `cross-origin`: Resource can be embedded by any website (default behavior)
@@ -5060,7 +4760,6 @@ Values:
 Controls how your document interacts with other documents through window references.
 
 **Key Points**:
-
 - Isolates browsing context to protect against attacks that rely on cross-window interactions
 - Works with COEP to enable powerful features like SharedArrayBuffer
 - Helps prevent cross-origin information leakage
@@ -5073,7 +4772,6 @@ Cross-Origin-Opener-Policy: same-origin
 ```
 
 Values:
-
 - `unsafe-none`: Default behavior, allows cross-origin window interactions
 - `same-origin-allow-popups`: Isolates from cross-origin pages except popups it created
 - `same-origin`: Fully isolates from cross-origin pages
@@ -5083,7 +4781,6 @@ Values:
 Controls what cross-origin resources can be loaded in the document.
 
 **Key Points**:
-
 - Requires all resources to be same-origin or explicitly allowed via CORS
 - Works with COOP to enable powerful features that require cross-origin isolation
 - Helps prevent cross-origin attacks and information leakage
@@ -5096,7 +4793,6 @@ Cross-Origin-Embedder-Policy: require-corp
 ```
 
 Values:
-
 - `unsafe-none`: Default behavior, allows loading any resource
 - `require-corp`: Requires cross-origin resources to explicitly grant permission via CORS or CORP
 
@@ -5105,7 +4801,6 @@ Values:
 Controls how browsers and other intermediaries cache content.
 
 **Key Points**:
-
 - While primarily for performance, has important security implications
 - Can prevent sensitive information from being cached
 - Helps protect against information disclosure via browser cache
@@ -5118,7 +4813,6 @@ Cache-Control: no-store, max-age=0
 ```
 
 Values relevant to security:
-
 - `no-store`: Prevents caching of any kind
 - `no-cache`: Requires revalidation before using cached content
 - `private`: Only browser can cache, not intermediaries
@@ -5197,7 +4891,6 @@ header("Strict-Transport-Security: max-age=31536000; includeSubDomains");
 Many CMSs provide plugins or settings for security headers.
 
 **Key Points**:
-
 - WordPress: Security plugins like Wordfence, WP Headers and Footers, or Really Simple SSL
 - Drupal: Security Kit module or server configuration
 - Joomla: security plugins like Security Headers or direct server configuration
@@ -5210,7 +4903,6 @@ Many CMSs provide plugins or settings for security headers.
 Various tools help verify proper security header implementation.
 
 **Key Points**:
-
 - Mozilla Observatory: Comprehensive security header analysis
 - SecurityHeaders.com: Focused specifically on security headers
 - Chrome DevTools Security Tab: Basic header visibility
@@ -5220,7 +4912,6 @@ Various tools help verify proper security header implementation.
 #### Common Implementation Mistakes
 
 Errors to avoid when implementing security headers:
-
 - Overly restrictive CSP breaking legitimate functionality
 - Misconfigured HSTS preventing access to websites
 - Inconsistent header application across different pages
@@ -5235,7 +4926,6 @@ Errors to avoid when implementing security headers:
 Security headers should be part of a comprehensive security strategy.
 
 **Key Points**:
-
 - Implement multiple headers for defense in depth
 - Combine with other security measures like HTTPS, secure cookies
 - Use appropriate headers based on application risk profile
@@ -5247,7 +4937,6 @@ Security headers should be part of a comprehensive security strategy.
 Implement headers gradually to avoid breaking functionality.
 
 **Key Points**:
-
 - Start with less restrictive policies and gradually tighten
 - Use report-only mode for CSP before enforcement
 - Test thoroughly across different browsers
@@ -5259,7 +4948,6 @@ Implement headers gradually to avoid breaking functionality.
 Security headers should be audited regularly.
 
 **Key Points**:
-
 - Schedule periodic reviews of header configurations
 - Compare against latest best practices
 - Use automated scanning tools for continuous monitoring
@@ -5273,7 +4961,6 @@ Security headers should be audited regularly.
 E-commerce sites handling sensitive customer and payment data require robust security.
 
 **Key Points**:
-
 - Strict CSP to prevent script injection near payment forms
 - Strong HSTS implementation with preloading
 - Cache-Control settings to prevent caching of sensitive data
@@ -5285,7 +4972,6 @@ E-commerce sites handling sensitive customer and payment data require robust sec
 Content-focused sites have different priorities.
 
 **Key Points**:
-
 - Balancing security with content embedding needs
 - More permissive CSP for media content and embeds
 - HSTS for ensuring secure connections
@@ -5297,7 +4983,6 @@ Content-focused sites have different priorities.
 Highest-security applications require maximum protection.
 
 **Key Points**:
-
 - Most restrictive CSP with minimal exceptions
 - HSTS with long duration, subdomains, and preloading
 - Clear-Site-Data for complete session termination
@@ -5311,7 +4996,6 @@ Highest-security applications require maximum protection.
 New security headers continue to be developed.
 
 **Key Points**:
-
 - Cross-Origin-Resource-Policy, Cross-Origin-Opener-Policy, and Cross-Origin-Embedder-Policy gaining importance
 - Permissions-Policy replacing Feature-Policy
 - New CSP features and directives in development
@@ -5323,7 +5007,6 @@ New security headers continue to be developed.
 Browser support varies for newer headers.
 
 **Key Points**:
-
 - Test across major browsers before implementation
 - Use progressive enhancement approach for newer headers
 - Consider fallback mechanisms for unsupported browsers
@@ -5343,7 +5026,6 @@ HTTP (Hypertext Transfer Protocol) is the foundation of data communication on th
 ### Curl for HTTP Testing
 
 **Key Points**
-
 - Curl is a command-line tool for transferring data with URLs
 - Available on most operating systems (Windows, macOS, Linux)
 - Supports multiple protocols (HTTP, HTTPS, FTP, etc.)
@@ -5403,7 +5085,6 @@ curl -o response.json https://api.example.com/data
 ### Postman for HTTP Testing
 
 **Key Points**
-
 - GUI-based API development and testing environment
 - User-friendly interface for creating and organizing requests
 - Supports collections to group related requests
@@ -5450,7 +5131,6 @@ curl -o response.json https://api.example.com/data
 ### Browser Developer Tools: Network Tab
 
 **Key Points**
-
 - Built into all modern browsers (Chrome, Firefox, Safari, Edge)
 - Provides real-time monitoring of HTTP requests
 - Shows detailed information about each request and response
@@ -5466,7 +5146,6 @@ curl -o response.json https://api.example.com/data
 #### Monitoring HTTP Requests
 
 The Network tab displays all HTTP requests made by the browser in chronological order, showing:
-
 - Request name/URL
 - HTTP method
 - Status code
@@ -5477,7 +5156,6 @@ The Network tab displays all HTTP requests made by the browser in chronological 
 #### Analyzing Request Details
 
 Clicking on any request reveals detailed information:
-
 - Headers (request and response)
 - Preview of response body
 - Raw response content
@@ -5487,7 +5165,6 @@ Clicking on any request reveals detailed information:
 #### Filtering Requests
 
 The Network tab allows filtering by:
-
 - Content type (XHR, JS, CSS, Img, etc.)
 - Status codes (200, 404, 500, etc.)
 - Domain names
@@ -5496,7 +5173,6 @@ The Network tab allows filtering by:
 #### Network Conditions Testing
 
 Developer tools also offer capabilities to:
-
 - Throttle network speed to simulate slower connections
 - Disable cache to test fresh requests
 - Block specific requests
@@ -5556,7 +5232,6 @@ Developer tools also offer capabilities to:
 |Cost|Free|Free/Premium tiers|Free|
 
 **Related Topics to Explore:**
-
 - API documentation tools (Swagger, OpenAPI)
 - Automated API testing frameworks (Jest, Mocha)
 - Continuous integration for API testing
@@ -5571,7 +5246,6 @@ Developer tools also offer capabilities to:
 HTTP (Hypertext Transfer Protocol) facilitates communication between clients and servers on the web. Understanding its architecture is crucial for effective debugging and testing.
 
 **Key Points**
-
 - HTTP operates as a request-response protocol
 - Messages follow standardized formats with headers and bodies
 - Stateless protocol requiring context to be included in each request
@@ -5646,7 +5320,6 @@ If-None-Match: "686897696a7c876b7e"
 ### Command-Line HTTP Testing with cURL
 
 **Key Points**
-
 - Lightweight, versatile tool available on most systems
 - Ideal for scripting and automation
 - Provides detailed debug information
@@ -5680,7 +5353,6 @@ curl -L -v https://example.com/redirect
 ### Postman for Advanced HTTP Debugging
 
 **Key Points**
-
 - Visual interface for complex request construction
 - Automated test scripts for response validation
 - Environment management for different testing scenarios
@@ -5693,7 +5365,6 @@ curl -L -v https://example.com/redirect
     ```javascript
     pm.environment.set("timestamp", new Date().getTime());
     ```
-    
 2. Test scripts to verify response properties
     
     ```javascript
@@ -5707,14 +5378,12 @@ curl -L -v https://example.com/redirect
         pm.expect(jsonData.data).to.be.an('array');
     });
     ```
-    
 3. Console logging for debugging variables
     
     ```javascript
     console.log(pm.response.json());
     console.log(pm.environment.get("authToken"));
     ```
-    
 4. Environment variables for tracking state between requests
     
     ```javascript
@@ -5730,7 +5399,6 @@ curl -L -v https://example.com/redirect
 ### Browser Developer Tools for HTTP Debugging
 
 **Key Points**
-
 - Real-time monitoring of application HTTP traffic
 - Detailed timing and performance metrics
 - Header inspection and modification capabilities
@@ -5739,28 +5407,22 @@ curl -L -v https://example.com/redirect
 #### Network Panel Advanced Techniques
 
 1. Request filtering techniques
-    
     - Filter by file type: `is:xhr` or `is:fetch`
     - Filter by status: `status:404` or `status:500`
     - Filter by domain: `domain:api.example.com`
     - Filter by method: `method:POST`
 2. Copying requests for reproduction
-    
     - Copy as cURL
     - Copy as fetch
     - Export as HAR (HTTP Archive) file
 3. Request blocking for dependency testing
-    
     ```
     Right-click request → Block request URL/domain
     ```
-    
 4. Request modification and replay
-    
     ```
     Right-click request → Edit and resend
     ```
-    
 5. Comparing request timelines for performance bottlenecks
     
     ```
@@ -5790,12 +5452,10 @@ Access-Control-Allow-Credentials: true
 #### Debugging Authentication Problems
 
 1. Token validation issues
-    
     - Check token expiration (JWT decode)
     - Verify token format and structure
     - Confirm token is sent in correct header format
 2. Cookie-based authentication debugging
-    
     - Inspect cookie attributes (Secure, HttpOnly, SameSite)
     - Verify cookie domain and path settings
     - Check for cookie size limitations
@@ -5803,7 +5463,6 @@ Access-Control-Allow-Credentials: true
 ### Analyzing HTTP Performance Issues
 
 **Key Points**
-
 - Performance issues often manifest as slow response times
 - Multiple factors contribute to HTTP latency
 - Systematic approach required to identify bottlenecks
@@ -5811,16 +5470,13 @@ Access-Control-Allow-Credentials: true
 #### HTTP Performance Metrics to Monitor
 
 1. Time to First Byte (TTFB)
-    
     - Measures time from request initiation to receiving first response byte
     - High TTFB indicates server processing or network latency issues
 2. Request/Response Size
-    
     - Large payloads increase transfer time
     - Check for unnecessary data in responses
     - Verify proper compression (gzip, Brotli)
 3. Connection Reuse
-    
     - New connections require TCP handshake and possibly TLS negotiation
     - Connection: keep-alive header enables connection reuse
     - HTTP/2 multiplexes requests over single connection
@@ -5828,32 +5484,25 @@ Access-Control-Allow-Credentials: true
 #### Optimizing HTTP Performance
 
 1. Implement caching strategies
-    
     ```
     Cache-Control: max-age=3600, public
     ETag: "33a64df551425fcc55e4d42a148795d9f25f89d4"
     ```
-    
 2. Configure content compression
-    
     ```
     Accept-Encoding: gzip, deflate, br
     Content-Encoding: gzip
     ```
-    
 3. Minimize redirect chains
-    
     - Each redirect adds full HTTP round-trip
     - Use permanent redirects (301) for cacheable redirections
 4. Test with simulated network conditions
-    
     - Use browser throttling to simulate various connections
     - Test on actual mobile networks when possible
 
 ### Automated HTTP Testing Frameworks
 
 **Key Points**
-
 - Automated tests ensure consistent API behavior
 - Can be integrated into CI/CD pipelines
 - Help detect regressions early
@@ -5888,7 +5537,6 @@ def test_api_returns_user_data():
 ### Debugging HTTP Headers
 
 **Key Points**
-
 - Headers control how requests are processed
 - Malformed or missing headers cause subtle bugs
 - Headers influence caching, security, and content negotiation
@@ -5902,7 +5550,6 @@ Unexpected SyntaxError: Unexpected token < in JSON at position 0
 ```
 
 **Debug Process:**
-
 1. Check Content-Type in response headers
 2. Verify server is returning application/json
 3. Ensure content actually matches declared Content-Type
@@ -5918,7 +5565,6 @@ Authorization: Digest username="user", realm="realm", nonce="..."
 ```
 
 **Debug Process:**
-
 1. Verify token format matches expected authentication scheme
 2. Check for token expiration (for JWT)
 3. Confirm credentials are properly encoded
@@ -5929,13 +5575,11 @@ Authorization: Digest username="user", realm="realm", nonce="..."
 #### HTTP/2 Debugging
 
 **Key Points**
-
 - Multiplexed connections reduce TCP overhead
 - Header compression reduces bandwidth usage
 - Server push can optimize resource delivery
 
 **Debugging Tools:**
-
 - Chrome: chrome://net-internals/#http2
 - Firefox: about:networking#http2
 - Command line: `curl --http2 -v https://example.com`
@@ -5943,13 +5587,11 @@ Authorization: Digest username="user", realm="realm", nonce="..."
 #### WebSocket Debugging
 
 **Key Points**
-
 - Persistent bi-directional communication channel
 - Different debugging approach than standard HTTP
 - Handshake uses HTTP but subsequent communication doesn't
 
 **Debugging Techniques:**
-
 - Chrome DevTools: Network tab → WS filter
 - Firefox: Network tab → WS filter
 - Browser console: Monitor WebSocket events with listeners
@@ -5968,13 +5610,11 @@ ws.onclose = (event) => console.log('Connection closed:', event.code, event.reas
 #### Debugging HTTP Caching Issues
 
 **Problem Indicators:**
-
 - Stale content being served
 - Changes not appearing despite updates
 - Inconsistent behavior across browsers
 
 **Debug Process:**
-
 1. Check Cache-Control headers
 2. Verify ETag and Last-Modified implementations
 3. Test with cache-busting query parameters
@@ -5983,13 +5623,11 @@ ws.onclose = (event) => console.log('Connection closed:', event.code, event.reas
 #### Debugging Proxy and Gateway Issues
 
 **Problem Indicators:**
-
 - Requests work directly but fail through proxy
 - Unexpected 502 Bad Gateway errors
 - Headers being modified or stripped
 
 **Debug Process:**
-
 1. Compare direct vs. proxied requests
 2. Check for header size limitations
 3. Verify TLS/SSL certificate chain validity

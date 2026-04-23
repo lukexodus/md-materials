@@ -496,7 +496,6 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 - This script will prompt you to install Rust with default settings.
 - To customize the installation (e.g., default toolchain, install directory), choose the **custom install** option.
-    
 
 After installation, configure your environment:
 

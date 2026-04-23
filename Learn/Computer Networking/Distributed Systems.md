@@ -1059,6 +1059,14 @@ Layered architecture organizes system components into hierarchical abstraction l
 
 **Relaxed Layering**: Permits layers to access non-adjacent lower layers, reducing call chains and latency at the cost of increased coupling. Critical for distributed systems where network round-trips dominate performance profiles. Requires explicit contracts and versioning strategies to prevent fragmentation.
 
+When layers can skip directly to non-adjacent layers (relaxed layering), you create more direct dependencies. Without careful management, you could end up with:
+
+- **Version fragmentation**: Different components using different versions of the same lower-layer interface
+- **Contract fragmentation**: Inconsistent interpretations of what a layer's interface promises or requires
+- **Dependency fragmentation**: Multiple conflicting dependency paths through the architecture
+
+For example, if Layer A, Layer C, and Layer E all directly call Layer B (skipping intermediate layers), and Layer B's interface changes, you now have three separate places that need coordinated updates. Without "explicit contracts and versioning strategies," these three callers might evolve to expect different behaviors from Layer B, creating incompatible fragments of the system.
+
 **Closed vs Open Layers**: Closed layers enforce mandatory traversal, enabling interception points for cross-cutting concerns (authentication, logging, circuit breaking). Open layers allow bypass for performance-critical paths. In distributed deployments, closed layers introduce single points of failure and throughput bottlenecks unless horizontally scaled with load balancing.
 
 ### Distribution Boundaries and Network Topology

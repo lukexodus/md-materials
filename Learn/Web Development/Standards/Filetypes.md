@@ -1608,3 +1608,66 @@ Consider:
 - Primary: **Gzip** (universal)
 - Archives: **Zip** (universal)
 - Avoid formats requiring special software
+
+---
+
+
+
+# Rich Text Format (RTF)
+
+Rich Text Format (RTF) is a document file format developed by Microsoft in 1987 for cross-platform document exchange. It uses plain text with special control codes to represent formatting.
+
+## Basic Structure
+
+RTF documents begin with `{\rtf1` and end with `}`. All formatting commands start with a backslash (`\`) and are case-sensitive.
+
+```
+{\rtf1\ansi\deff0
+{\fonttbl{\f0 Times New Roman;}}
+\f0\fs24 Hello World!
+}
+```
+
+## Key Components
+
+**Control Words**: Commands that define formatting, such as `\b` for bold, `\i` for italic, `\ul` for underline.
+
+**Groups**: Content enclosed in braces `{}` that limits the scope of formatting commands.
+
+**Font Table**: Defines available fonts using `\fonttbl`.
+
+**Color Table**: Defines colors using `\colortbl`.
+
+## Common Formatting Commands
+
+- `\b` - Bold text
+- `\i` - Italic text
+- `\ul` - Underline
+- `\fs##` - Font size (in half-points, so `\fs24` = 12pt)
+- `\f#` - Font selection from font table
+- `\par` - Paragraph break
+- `\tab` - Tab character
+
+## Headers and Structure
+
+For document hierarchy, RTF doesn't have semantic heading levels like HTML. Instead, you create visual hierarchy through font sizing and styling:
+
+```
+{\rtf1
+\fs28\b Major Section Header\b0\fs24\par
+\fs24 Regular content follows...\par
+}
+```
+
+## Advantages
+
+- Human-readable as plain text
+- Wide software support
+- Platform-independent
+- Preserves basic formatting
+
+## Limitations
+
+- Larger file sizes than binary formats
+- Limited compared to modern formats like DOCX
+- Inconsistent rendering across applications

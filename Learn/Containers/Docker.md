@@ -475,6 +475,1112 @@
 - Kubernetes certifications (CKA, CKAD, CKS)
 - Cloud provider container certifications (AWS, Azure, GCP)
 
+# Quick-Guide
+
+Docker is an open-source platform for building, shipping, and running applications inside lightweight, portable units called **containers**. It abstracts the underlying operating system so that software runs consistently regardless of where it is deployed.
+
+---
+
+## Core Concepts
+
+### Containers
+
+A container is an isolated process (or group of processes) that shares the host OS kernel but has its own filesystem, networking, and process space. Containers are not virtual machines — they do not include a full OS; they share the kernel of the host system. This makes them significantly lighter and faster to start than VMs.
+
+Each container is created from an **image** and is ephemeral by default: any data written inside the container is lost when the container is removed, unless persisted via volumes.
+
+### Images
+
+An image is a read-only, layered filesystem snapshot. It contains everything needed to run an application: the OS base layer, runtime, dependencies, application code, and configuration. Images are built from a `Dockerfile` and are stored in a registry.
+
+Images are composed of **layers**. Each instruction in a Dockerfile produces one layer. Layers are cached and reused across builds and across images that share a common base, which saves disk space and speeds up builds.
+
+### Dockerfile
+
+A `Dockerfile` is a plain-text script that defines how to build an image. Docker reads it top to bottom, executing each instruction and committing a new layer.
+
+### Registry
+
+A registry is a storage and distribution service for Docker images. Docker Hub is the default public registry. Private registries can be self-hosted (e.g., with `registry:2`) or provided by cloud vendors (Amazon ECR, Google Artifact Registry, GitHub Container Registry, etc.).
+
+### Docker Engine
+
+Docker Engine is the daemon (`dockerd`) that manages containers, images, networks, and volumes on a host. The Docker CLI (`docker`) communicates with the daemon via a REST API over a Unix socket or TCP.
+
+### Docker Desktop
+
+Docker Desktop is a GUI application for macOS and Windows that bundles Docker Engine, Docker CLI, Docker Compose, and other tools. On Linux, Docker Engine is installed directly without Docker Desktop.
+
+---
+
+## Installation
+
+### Linux (Debian/Ubuntu)
+
+```bash
+# Remove old versions
+sudo apt-get remove docker docker-engine docker.io containerd runc
+
+# Install prerequisites
+sudo apt-get update
+sudo apt-get install ca-certificates curl gnupg
+
+# Add Docker's official GPG key and repository
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Install Docker Engine
+sudo apt-get update
+sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Allow running Docker without sudo (log out and back in after)
+sudo usermod -aG docker $USER
+```
+
+### macOS / Windows
+
+Download and install [Docker Desktop](https://www.docker.com/products/docker-desktop/) from the official site. It includes the daemon, CLI, Compose, and Buildx.
+
+### Verify Installation
+
+```bash
+docker version
+docker run hello-world
+```
+
+---
+
+## Dockerfile Reference
+
+### Basic Structure
+
+```dockerfile
+# Use an official base image
+FROM node:20-alpine
+
+# Set working directory inside the container
+WORKDIR /app
+
+# Copy dependency manifests first (for layer caching)
+COPY package.json package-lock.json ./
+
+# Install dependencies
+RUN npm ci --omit=dev
+
+# Copy application source
+COPY . .
+
+# Expose the port the app listens on
+EXPOSE 3000
+
+# Default command to run
+CMD ["node", "server.js"]
+```
+
+### Key Instructions
+
+**FROM** — sets the base image. Every Dockerfile must start with `FROM` (except multi-stage builds which can have multiple).
+
+```dockerfile
+FROM ubuntu:22.04
+FROM python:3.12-slim
+FROM scratch   # empty base, for statically compiled binaries
+```
+
+**RUN** — executes a shell command during build time and commits the result as a new layer.
+
+```dockerfile
+RUN apt-get update && apt-get install -y curl \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+Chaining commands with `&&` in one `RUN` instruction keeps them in a single layer, which reduces image size.
+
+**COPY** — copies files from the build context (your local machine) into the image.
+
+```dockerfile
+COPY src/ /app/src/
+COPY --chown=node:node . .
+```
+
+**ADD** — similar to `COPY` but also supports URLs and auto-extracts `.tar` archives. Prefer `COPY` for clarity unless you specifically need `ADD`'s extra features.
+
+**ENV** — sets environment variables available at both build time and runtime.
+
+```dockerfile
+ENV NODE_ENV=production
+ENV PORT=3000
+```
+
+**ARG** — defines build-time variables passed with `--build-arg`. Not available at runtime.
+
+```dockerfile
+ARG APP_VERSION=1.0.0
+RUN echo "Building version $APP_VERSION"
+```
+
+**WORKDIR** — sets (and creates if needed) the working directory for subsequent instructions.
+
+**EXPOSE** — documents which port the container listens on. It does not publish the port; that is done with `-p` at runtime.
+
+**CMD** — the default command run when the container starts. It can be overridden at `docker run` time. Only the last `CMD` takes effect.
+
+```dockerfile
+CMD ["python", "app.py"]          # exec form (preferred)
+CMD python app.py                  # shell form
+```
+
+**ENTRYPOINT** — sets the executable that always runs. Arguments from `CMD` (or from `docker run`) are appended to it.
+
+```dockerfile
+ENTRYPOINT ["gunicorn"]
+CMD ["--workers=4", "app:app"]
+```
+
+**USER** — sets the user for subsequent instructions and the container runtime. Running as a non-root user is a security best practice.
+
+```dockerfile
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+```
+
+**VOLUME** — declares a mount point for external storage. Data written here persists beyond the container lifecycle if a named volume or bind mount is attached.
+
+```dockerfile
+VOLUME ["/data"]
+```
+
+**HEALTHCHECK** — instructs Docker to periodically test whether the container is healthy.
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD curl -f http://localhost:3000/health || exit 1
+```
+
+**LABEL** — adds metadata to an image.
+
+```dockerfile
+LABEL maintainer="you@example.com"
+LABEL version="1.0"
+```
+
+### Multi-Stage Builds
+
+Multi-stage builds let you use one image to compile or build artifacts and a separate, smaller image to run them. Only the final stage is included in the output image.
+
+```dockerfile
+# Stage 1: build
+FROM golang:1.22 AS builder
+WORKDIR /src
+COPY . .
+RUN go build -o /app/server .
+
+# Stage 2: run
+FROM alpine:3.19
+COPY --from=builder /app/server /usr/local/bin/server
+EXPOSE 8080
+CMD ["server"]
+```
+
+This pattern is common for compiled languages (Go, Rust, Java, C++) where the build toolchain is not needed at runtime.
+
+### .dockerignore
+
+A `.dockerignore` file at the root of the build context excludes files from being sent to the daemon. This speeds up builds and prevents secrets from being inadvertently included.
+
+```
+.git
+node_modules
+*.log
+.env
+__pycache__
+```
+
+---
+
+## Building Images
+
+```bash
+# Basic build (uses Dockerfile in current directory)
+docker build -t myapp:1.0 .
+
+# Specify a different Dockerfile
+docker build -f Dockerfile.prod -t myapp:prod .
+
+# Pass build arguments
+docker build --build-arg APP_VERSION=2.0 -t myapp:2.0 .
+
+# Target a specific stage in a multi-stage build
+docker build --target builder -t myapp-builder .
+
+# Build with no cache
+docker build --no-cache -t myapp:fresh .
+
+# Build for a specific platform (cross-compilation)
+docker buildx build --platform linux/amd64,linux/arm64 -t myapp:multi --push .
+```
+
+---
+
+## Running Containers
+
+### docker run
+
+`docker run` creates and starts a new container from an image.
+
+```bash
+# Run and remove container when it exits
+docker run --rm ubuntu echo "hello"
+
+# Run in detached (background) mode
+docker run -d --name myapp myapp:1.0
+
+# Map host port 8080 to container port 3000
+docker run -p 8080:3000 myapp:1.0
+
+# Run interactively with a terminal
+docker run -it ubuntu bash
+
+# Set environment variables
+docker run -e NODE_ENV=production myapp:1.0
+
+# Mount a bind mount (host path:container path)
+docker run -v /host/data:/app/data myapp:1.0
+
+# Mount a named volume
+docker run -v mydata:/app/data myapp:1.0
+
+# Limit resources
+docker run --memory=512m --cpus=1.5 myapp:1.0
+
+# Set a restart policy
+docker run -d --restart=unless-stopped myapp:1.0
+```
+
+### Restart Policies
+
+| Policy           | Behavior                               |
+| ---------------- | -------------------------------------- |
+| `no`             | Never restart (default)                |
+| `always`         | Always restart regardless of exit code |
+| `on-failure`     | Restart only on non-zero exit code     |
+| `unless-stopped` | Always restart unless manually stopped |
+
+### Common docker Commands
+
+```bash
+# List running containers
+docker ps
+
+# List all containers including stopped ones
+docker ps -a
+
+# Stop a running container gracefully (SIGTERM, then SIGKILL after timeout)
+docker stop myapp
+
+# Kill a container immediately (SIGKILL)
+docker kill myapp
+
+# Remove a stopped container
+docker rm myapp
+
+# Remove a running container forcefully
+docker rm -f myapp
+
+# View container logs
+docker logs myapp
+docker logs -f myapp          # follow (like tail -f)
+docker logs --tail 100 myapp  # last 100 lines
+
+# Execute a command inside a running container
+docker exec -it myapp bash
+docker exec myapp ls /app
+
+# Copy files between container and host
+docker cp myapp:/app/config.json ./config.json
+docker cp ./config.json myapp:/app/config.json
+
+# View resource usage
+docker stats
+
+# Inspect container details (JSON)
+docker inspect myapp
+
+# View container processes
+docker top myapp
+```
+
+---
+
+## Managing Images
+
+```bash
+# List local images
+docker images
+
+# Pull an image from a registry
+docker pull nginx:1.25
+
+# Push an image to a registry (must be tagged with registry prefix)
+docker tag myapp:1.0 myregistry.example.com/myapp:1.0
+docker push myregistry.example.com/myapp:1.0
+
+# Remove an image
+docker rmi myapp:1.0
+
+# Remove all dangling (untagged) images
+docker image prune
+
+# Remove all unused images
+docker image prune -a
+
+# View image layers and history
+docker history myapp:1.0
+
+# Inspect image metadata
+docker inspect myapp:1.0
+
+# Save image to a tar archive
+docker save -o myapp.tar myapp:1.0
+
+# Load image from a tar archive
+docker load -i myapp.tar
+```
+
+---
+
+## Volumes and Data Persistence
+
+By default, container filesystems are ephemeral. Three mechanisms exist for persisting or sharing data.
+
+### Named Volumes
+
+Docker manages the storage location (typically under `/var/lib/docker/volumes/`). Named volumes survive container removal and can be shared between containers.
+
+```bash
+# Create a volume
+docker volume create mydata
+
+# List volumes
+docker volume ls
+
+# Inspect a volume
+docker volume inspect mydata
+
+# Remove a volume
+docker volume rm mydata
+
+# Remove all unused volumes
+docker volume prune
+
+# Use a named volume at runtime
+docker run -v mydata:/app/data myapp:1.0
+```
+
+### Bind Mounts
+
+A bind mount maps a specific path on the host into the container. Changes are reflected immediately in both directions.
+
+```bash
+# Mount current directory into /app
+docker run -v $(pwd):/app myapp:1.0
+
+# Read-only bind mount
+docker run -v $(pwd)/config:/app/config:ro myapp:1.0
+```
+
+Bind mounts are convenient for development (live code reloading) but are tightly coupled to the host path.
+
+### tmpfs Mounts
+
+Stored in the host's memory only. Not persisted to disk. Useful for sensitive temporary data.
+
+```bash
+docker run --tmpfs /tmp myapp:1.0
+```
+
+---
+
+## Networking
+
+### Network Drivers
+
+|Driver|Use Case|
+|---|---|
+|`bridge`|Default for standalone containers; isolated network on the host|
+|`host`|Container shares the host network stack directly|
+|`none`|No networking|
+|`overlay`|Multi-host networking (Swarm or Kubernetes)|
+|`macvlan`|Assigns a MAC address; container appears as a physical device on the network|
+
+### Working with Networks
+
+```bash
+# List networks
+docker network ls
+
+# Create a custom bridge network
+docker network create mynet
+
+# Connect a container to a network at run time
+docker run --network mynet myapp:1.0
+
+# Connect a running container to a network
+docker network connect mynet myapp
+
+# Disconnect a container from a network
+docker network disconnect mynet myapp
+
+# Inspect a network
+docker network inspect mynet
+
+# Remove a network
+docker network rm mynet
+```
+
+### Container DNS
+
+Containers on the same user-defined bridge network can resolve each other by container name. For example, if a container named `db` is on `mynet`, other containers on that network can reach it at hostname `db`.
+
+The default bridge network does not provide automatic DNS resolution between containers — this is a key reason to use user-defined networks.
+
+---
+
+## Docker Compose
+
+Docker Compose is a tool for defining and running multi-container applications using a YAML file (`docker-compose.yml` or `compose.yaml`).
+
+### Basic compose.yaml Structure
+
+```yaml
+version: "3.9"
+
+services:
+  web:
+    build: .
+    ports:
+      - "8080:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://user:pass@db:5432/mydb
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - appnet
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: mydb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - appnet
+
+volumes:
+  pgdata:
+
+networks:
+  appnet:
+```
+
+### Common Compose Commands
+
+```bash
+# Start all services in detached mode (build images if needed)
+docker compose up -d --build
+
+# Stop all services
+docker compose down
+
+# Stop and remove volumes (destructive)
+docker compose down -v
+
+# View logs for all services
+docker compose logs -f
+
+# View logs for a specific service
+docker compose logs -f web
+
+# Scale a service
+docker compose up -d --scale web=3
+
+# Run a one-off command in a service
+docker compose run --rm web bash
+
+# Execute a command in a running service
+docker compose exec db psql -U user mydb
+
+# View running services
+docker compose ps
+
+# Pull updated images without starting
+docker compose pull
+
+# Build images without starting
+docker compose build
+```
+
+### Environment Variables in Compose
+
+Compose automatically reads a `.env` file in the same directory:
+
+```env
+POSTGRES_PASSWORD=secretpassword
+APP_VERSION=2.1.0
+```
+
+Reference them in `compose.yaml`:
+
+```yaml
+environment:
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+```
+
+### Overrides and Multiple Compose Files
+
+Compose merges multiple files, which is useful for environment-specific configuration:
+
+```bash
+# Development (default + override)
+docker compose -f compose.yaml -f compose.dev.yaml up
+
+# Production
+docker compose -f compose.yaml -f compose.prod.yaml up
+```
+
+---
+
+## Registries
+
+### Docker Hub
+
+Docker Hub is the default public registry. Images without a registry prefix (e.g., `nginx`, `postgres`) are pulled from Docker Hub.
+
+```bash
+# Log in
+docker login
+
+# Tag for Docker Hub
+docker tag myapp:1.0 yourusername/myapp:1.0
+
+# Push
+docker push yourusername/myapp:1.0
+```
+
+### Private Registry
+
+Run a local registry:
+
+```bash
+docker run -d -p 5000:5000 --name registry registry:2
+
+docker tag myapp:1.0 localhost:5000/myapp:1.0
+docker push localhost:5000/myapp:1.0
+docker pull localhost:5000/myapp:1.0
+```
+
+### Cloud Registries
+
+Major cloud providers offer managed registries. The workflow is the same: authenticate, tag with the registry URL, then push/pull.
+
+```bash
+# Amazon ECR example
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 123456789.dkr.ecr.us-east-1.amazonaws.com
+docker tag myapp:1.0 123456789.dkr.ecr.us-east-1.amazonaws.com/myapp:1.0
+docker push 123456789.dkr.ecr.us-east-1.amazonaws.com/myapp:1.0
+```
+
+---
+
+## Security
+
+### Run as Non-Root
+
+Containers run as root by default. Create and use a non-root user:
+
+```dockerfile
+RUN addgroup -S app && adduser -S app -G app
+USER app
+```
+
+### Read-Only Root Filesystem
+
+Prevents writes to the container filesystem at runtime:
+
+```bash
+docker run --read-only myapp:1.0
+```
+
+Combine with `--tmpfs` for writable temporary directories:
+
+```bash
+docker run --read-only --tmpfs /tmp myapp:1.0
+```
+
+### Drop Capabilities
+
+Linux capabilities can be dropped to limit what a container process can do:
+
+```bash
+docker run --cap-drop=ALL --cap-add=NET_BIND_SERVICE myapp:1.0
+```
+
+### Secrets Management
+
+Do not store secrets in environment variables or image layers in production. Use a secrets manager (Docker Swarm secrets, Kubernetes secrets, HashiCorp Vault, AWS Secrets Manager) and inject at runtime. For Compose-based development, `.env` files can work but must be kept out of version control.
+
+### Image Scanning
+
+Scan images for known CVEs with tools such as Docker Scout, Trivy, or Grype:
+
+```bash
+docker scout cves myapp:1.0
+
+# Trivy (third-party)
+trivy image myapp:1.0
+```
+
+### Limit Resources
+
+Always set memory and CPU limits in production to prevent a container from starving the host or other containers:
+
+```bash
+docker run --memory=512m --memory-swap=512m --cpus=1 myapp:1.0
+```
+
+In Compose:
+
+```yaml
+services:
+  web:
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+```
+
+### Seccomp and AppArmor
+
+Docker applies a default seccomp profile that restricts certain syscalls. Custom profiles can be applied:
+
+```bash
+docker run --security-opt seccomp=my-profile.json myapp:1.0
+```
+
+---
+
+## Image Optimization
+
+### Use a Slim or Minimal Base Image
+
+|Base|Typical Size|Notes|
+|---|---|---|
+|`ubuntu:22.04`|~77 MB|Full Ubuntu userland|
+|`debian:bookworm-slim`|~75 MB|Slimmed Debian|
+|`alpine:3.19`|~7 MB|musl libc; may need workarounds|
+|`distroless/base`|~20 MB|No shell; Google-maintained|
+|`scratch`|0 MB|Empty; for static binaries only|
+
+### Minimize Layers
+
+Combine related `RUN` commands and clean up in the same layer:
+
+```dockerfile
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+### Leverage Build Cache
+
+Put instructions that change infrequently (like installing system dependencies) before instructions that change often (like copying source code). Docker caches each layer and reuses it if the instruction and all preceding layers are unchanged.
+
+```dockerfile
+# Install deps first (rarely changes)
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Copy source last (changes frequently)
+COPY . .
+```
+
+### Use Multi-Stage Builds
+
+As described earlier, this removes build tools from the final image, substantially reducing its size and attack surface.
+
+---
+
+## Debugging and Troubleshooting
+
+### Shell into a Running Container
+
+```bash
+docker exec -it myapp bash
+# or for minimal images without bash
+docker exec -it myapp sh
+```
+
+### Shell into a Stopped or Crashed Container
+
+Override the entrypoint to get a shell:
+
+```bash
+docker run -it --entrypoint bash myapp:1.0
+```
+
+### Inspect Container State
+
+```bash
+docker inspect myapp
+docker inspect --format '{{.State.Status}}' myapp
+docker inspect --format '{{.NetworkSettings.Networks}}' myapp
+```
+
+### Check Container Exit Codes
+
+A non-zero exit code signals a failure. Some common codes:
+
+|Code|Meaning|
+|---|---|
+|`0`|Success|
+|`1`|General error|
+|`125`|Docker daemon error|
+|`126`|Command not executable|
+|`127`|Command not found|
+|`137`|OOM kill (SIGKILL)|
+|`143`|SIGTERM (graceful shutdown)|
+
+### View Events
+
+```bash
+docker events
+docker events --filter type=container --filter event=die
+```
+
+### Analyze Image Layers
+
+```bash
+docker history myapp:1.0
+
+# Third-party tool: dive
+dive myapp:1.0
+```
+
+### Networking Troubleshooting
+
+```bash
+# Inspect a network
+docker network inspect mynet
+
+# Test connectivity from inside a container
+docker exec -it myapp ping db
+docker exec -it myapp curl http://db:5432
+
+# Check port bindings
+docker port myapp
+```
+
+---
+
+## Docker Swarm
+
+Docker Swarm is Docker's built-in clustering and orchestration mode. It groups multiple Docker hosts into a swarm and deploys services across them.
+
+### Initialize and Manage a Swarm
+
+```bash
+# Initialize a swarm (on the manager node)
+docker swarm init --advertise-addr <MANAGER-IP>
+
+# Get the join token for worker nodes
+docker swarm join-token worker
+
+# Join as a worker (run on worker nodes)
+docker swarm join --token <TOKEN> <MANAGER-IP>:2377
+
+# List nodes
+docker node ls
+```
+
+### Deploy a Stack
+
+Compose files are used as stack definitions:
+
+```bash
+docker stack deploy -c compose.yaml mystack
+
+# List stacks
+docker stack ls
+
+# List services in a stack
+docker stack services mystack
+
+# List tasks (containers) in a stack
+docker stack ps mystack
+
+# Remove a stack
+docker stack rm mystack
+```
+
+### Services
+
+```bash
+# Create a service
+docker service create --name web --replicas 3 -p 80:80 nginx
+
+# Scale a service
+docker service scale web=5
+
+# Update a service (rolling update)
+docker service update --image nginx:1.25 web
+
+# Inspect a service
+docker service inspect web
+
+# View service logs
+docker service logs -f web
+```
+
+---
+
+## BuildKit and Buildx
+
+BuildKit is the modern build backend for Docker. It is enabled by default in recent Docker versions and provides faster builds, better caching, and additional features.
+
+### Enable BuildKit (older Docker versions)
+
+```bash
+DOCKER_BUILDKIT=1 docker build -t myapp .
+```
+
+### Buildx for Multi-Platform Builds
+
+Buildx is a CLI plugin that extends `docker build` with BuildKit features, including cross-platform builds:
+
+```bash
+# Create a builder that supports multi-platform builds
+docker buildx create --use --name multibuilder
+
+# Build for multiple platforms and push
+docker buildx build \
+  --platform linux/amd64,linux/arm64,linux/arm/v7 \
+  -t yourusername/myapp:1.0 \
+  --push .
+```
+
+### Cache Mounts in BuildKit
+
+BuildKit supports mounting a cache directory across builds, which can dramatically speed up dependency installation:
+
+```dockerfile
+# syntax=docker/dockerfile:1
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
+```
+
+### Secret Mounts
+
+Pass secrets into a build without including them in the image:
+
+```dockerfile
+# syntax=docker/dockerfile:1
+RUN --mount=type=secret,id=mysecret \
+    cat /run/secrets/mysecret
+```
+
+```bash
+docker build --secret id=mysecret,src=./secret.txt .
+```
+
+---
+
+## Environment Variables and Configuration
+
+### Passing Variables at Runtime
+
+```bash
+docker run -e MY_VAR=value myapp:1.0
+docker run --env-file .env myapp:1.0
+```
+
+### Accessing Variables in the Container
+
+Environment variables set with `-e` or `--env-file` are available to the container process as standard Unix environment variables.
+
+### Config Files via Volumes
+
+For complex configuration, mount config files via bind mounts or volumes rather than baking them into the image:
+
+```bash
+docker run -v ./config/app.yaml:/app/config/app.yaml:ro myapp:1.0
+```
+
+---
+
+## Housekeeping and Pruning
+
+Docker accumulates unused images, containers, networks, and volumes over time. Regular pruning keeps disk usage under control.
+
+```bash
+# Remove all stopped containers, unused networks, dangling images, and build cache
+docker system prune
+
+# Also remove unused volumes (use with caution)
+docker system prune --volumes
+
+# Remove all unused images, not just dangling ones
+docker system prune -a
+
+# Disk usage summary
+docker system df
+
+# Detailed disk usage
+docker system df -v
+```
+
+---
+
+## CI/CD Integration
+
+### GitHub Actions Example
+
+```yaml
+name: Build and Push
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: yourusername/myapp:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+```
+
+---
+
+## Common Patterns
+
+### Health Checks with depends_on
+
+In Compose, use `condition: service_healthy` to delay dependent services until a dependency passes its healthcheck:
+
+```yaml
+depends_on:
+  db:
+    condition: service_healthy
+```
+
+### Sidecar Containers
+
+A sidecar is a secondary container in the same pod (Kubernetes) or task (Swarm) that provides auxiliary functionality (logging agents, proxies, config sync). In Compose, sidecars share the same network namespace if configured appropriately.
+
+### Init Containers
+
+Some orchestrators support init containers that run to completion before the main container starts. In plain Docker, this pattern can be approximated with a startup script or by using `depends_on` with healthchecks in Compose.
+
+### Graceful Shutdown
+
+Containers receive SIGTERM when stopped. Applications should listen for SIGTERM and shut down cleanly. The default grace period before Docker sends SIGKILL is 10 seconds. Adjust with:
+
+```bash
+docker stop --time 30 myapp
+```
+
+In the Dockerfile, use exec form (`CMD ["node", "server.js"]`) rather than shell form so the process receives the signal directly rather than through a shell intermediary.
+
+---
+
+## Quick Reference
+
+### Image Commands
+
+|Command|Description|
+|---|---|
+|`docker build -t name:tag .`|Build image from current directory|
+|`docker pull image:tag`|Pull image from registry|
+|`docker push image:tag`|Push image to registry|
+|`docker images`|List local images|
+|`docker rmi image:tag`|Remove image|
+|`docker image prune`|Remove dangling images|
+
+### Container Commands
+
+|Command|Description|
+|---|---|
+|`docker run -d --name n image`|Run container in background|
+|`docker run -it image bash`|Run interactively|
+|`docker ps`|List running containers|
+|`docker ps -a`|List all containers|
+|`docker stop name`|Stop container (SIGTERM)|
+|`docker rm name`|Remove stopped container|
+|`docker logs -f name`|Stream logs|
+|`docker exec -it name bash`|Shell into container|
+|`docker inspect name`|Full container metadata|
+
+### Volume Commands
+
+|Command|Description|
+|---|---|
+|`docker volume create vol`|Create named volume|
+|`docker volume ls`|List volumes|
+|`docker volume rm vol`|Remove volume|
+|`docker volume prune`|Remove unused volumes|
+
+### Network Commands
+
+|Command|Description|
+|---|---|
+|`docker network create net`|Create network|
+|`docker network ls`|List networks|
+|`docker network connect net ctr`|Connect container to network|
+|`docker network inspect net`|Inspect network|
+
+### System Commands
+
+|Command|Description|
+|---|---|
+|`docker system df`|Disk usage|
+|`docker system prune`|Clean unused resources|
+|`docker system prune -a`|Clean all unused images too|
+|`docker info`|Docker daemon info|
+|`docker version`|Client and daemon versions|
+
 ---
 
 # Docker Fundamentals

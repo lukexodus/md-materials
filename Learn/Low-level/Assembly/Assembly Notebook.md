@@ -1840,3 +1840,144 @@ Imagine a **modern city (protected mode)** that builds **virtual 1980s neighborh
 | Protection    | None          | Full (rings, paging) | Simulated by OS                   |
 | Multitasking  | No            | Yes                  | Yes (multiple DOS apps)           |
 | Compatibility | 8086 software | 32-bit software      | 8086 software inside protected OS |
+
+---
+
+# `.bss` vs `.data`
+
+In compiled programs (especially C/C++ and systems programming), **`.bss`** and **`.data`** are two different sections of a process’s memory image. Both store **global and static variables**, but they differ in **initialization, storage on disk, and runtime behavior**.
+
+---
+
+## 🔹 `.data` Section (Initialized Data)
+
+![Image](https://d8it4huxumps7.cloudfront.net/uploads/images/6851382354377_memory_layout_in_c_inside.jpg?d=2000x2000)
+
+![Image](https://i.sstatic.net/urwKw.png)
+
+![Image](https://upload.wikimedia.org/wikipedia/commons/7/77/Elf-layout--en.svg)
+
+![Image](https://substackcdn.com/image/fetch/%24s_%21bro7%21%2Cf_auto%2Cq_auto%3Agood%2Cfl_progressive%3Asteep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F0a0eeaa1-a7ad-4b1f-8f9e-5d6d61fbfebd_400x599.png)
+
+### ✔ What goes here?
+
+Global/static variables that are **explicitly initialized** by the programmer.
+
+```c
+int x = 5;          // goes to .data
+static int y = 10;  // goes to .data
+char msg[] = "Hi";  // goes to .data
+```
+
+### ✔ Key Characteristics
+
+* Stored in the **executable file** (ELF/PE/Mach-O).
+* Occupies **actual disk space** because the initial values must be saved.
+* Loader copies these values into memory at program start.
+* Read–write at runtime.
+
+### ✔ Why?
+
+Because the OS must **remember the initial value** exactly as written.
+
+---
+
+## 🔹 `.bss` Section (Block Started by Symbol)
+
+![Image](https://www.tutorialspoint.com/cprogramming/images/c_memory_layout.jpg)
+
+![Image](https://substackcdn.com/image/fetch/f_auto%2Cq_auto%3Agood%2Cfl_progressive%3Asteep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fb0ee7723-3682-4c00-9283-8cbbe09879ee_2460x2478.png)
+
+![Image](https://i.sstatic.net/CbBPH.png)
+
+![Image](https://downloads.ti.com/docs/esd/SPRU513/ods/images/SPRU513T/memblocks_new.png)
+
+### ✔ What goes here?
+
+Global/static variables that are **uninitialized or initialized to zero**.
+
+```c
+int x;              // goes to .bss
+static int y;       // goes to .bss
+int arr[1000];      // goes to .bss
+int z = 0;          // usually optimized into .bss
+```
+
+### ✔ Key Characteristics
+
+* **Does NOT take space in the executable file** (only its size is recorded).
+* OS initializes it to **zero at runtime**.
+* Much smaller binaries because zeros aren’t stored.
+* Also read–write during execution.
+
+### ✔ Why?
+
+Storing thousands of zero bytes would waste disk space.
+Instead, the loader just says: *“Allocate N bytes and memset to 0.”*
+
+---
+
+## ⚖️ Direct Comparison
+
+| Feature                | `.data`                      | `.bss`                                  |
+| ---------------------- | ---------------------------- | --------------------------------------- |
+| Contains               | Initialized globals/statics  | Uninitialized or zeroed globals/statics |
+| Stored in executable   | ✅ Yes                        | ❌ No (only size metadata)               |
+| Initial value          | Explicit (e.g., `5`, `"Hi"`) | Implicitly `0`                          |
+| Binary size impact     | Increases file size          | Almost none                             |
+| Runtime initialization | Copied from file             | Zero-filled by OS                       |
+| Memory permissions     | Read–Write                   | Read–Write                              |
+
+---
+
+## 🧠 Why This Separation Exists (Systems Perspective)
+
+This design comes from early UNIX and still matters today:
+
+1. **Reduces executable size**
+
+   * Large arrays of zeros don’t bloat the binary.
+
+2. **Speeds program loading**
+
+   * Zero-fill is faster than disk reads.
+
+3. **Enables demand paging**
+
+   * OS can map zeroed pages lazily.
+
+4. **Improves memory sharing**
+
+   * `.data` must be private copies.
+   * `.bss` can start from shared zero pages.
+
+---
+
+## 🔬 Example: Observe It Yourself (Linux)
+
+Compile:
+
+```bash
+cat <<EOF > test.c
+int a = 42;
+int b;
+int c = 0;
+int big[10000];
+EOF
+
+gcc test.c -o test
+size test
+```
+
+You’ll see:
+
+* `a` → `.data`
+* `b`, `c`, `big` → `.bss`
+
+---
+
+## ✅ Quick Rule to Remember
+
+> **If it has a non-zero initializer → `.data`**
+> **If it’s zero or uninitialized → `.bss`**
+

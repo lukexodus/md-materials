@@ -1422,14 +1422,14 @@ app.use(session({
 
 ### Express vs. Other Frameworks
 
-|Framework|Pros|Cons|
-|---|---|---|
-|Express.js|Minimalist, flexible, mature ecosystem, middleware system|Requires more setup for large applications|
-|Koa.js|Modern async/await support, cleaner middleware|Smaller ecosystem, steeper learning curve|
-|Fastify|Extremely fast performance, schema validation|Smaller ecosystem, different plugin system|
-|NestJS|Structured architecture, TypeScript first, Angular-like|More opinionated, heavier|
-|Hapi.js|Configuration over code, built-in validation|More verbose, less middleware-focused|
-|Sails.js|Full MVC framework, auto-generated REST APIs|More opinionated, steeper learning curve|
+| Framework  | Pros                                                      | Cons                                       |
+| ---------- | --------------------------------------------------------- | ------------------------------------------ |
+| Express.js | Minimalist, flexible, mature ecosystem, middleware system | Requires more setup for large applications |
+| Koa.js     | Modern async/await support, cleaner middleware            | Smaller ecosystem, steeper learning curve  |
+| Fastify    | Extremely fast performance, schema validation             | Smaller ecosystem, different plugin system |
+| NestJS     | Structured architecture, TypeScript first, Angular-like   | More opinionated, heavier                  |
+| Hapi.js    | Configuration over code, built-in validation              | More verbose, less middleware-focused      |
+| Sails.js   | Full MVC framework, auto-generated REST APIs              | More opinionated, steeper learning curve   |
 
 ### Modern Express Best Practices
 

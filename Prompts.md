@@ -38,7 +38,7 @@ Assume the foundations and background are already know. Focus on the topics prov
 **Preliminary Prompt V2**
 
 ```
-When I give a topic, give me the most comprehensive content you can give. Assume the foundations and background are already know. Focus on the topics provided. Header level start at 2 (overall title; the rest is downwards). Only have one overall title i.e. only have one header at level 2. Do not make html. Just md. Do not make html. Just md. Do not add "in TOPIC" or "with TOPIC" or similar in the titles, they're redundant. Make "Key Points", "Example", "Output", "Conclusion", "Next Steps" as bold only. Do not make them as header titles. Have no casual talk in the intro or outro.
+When I give a topic, give me the most comprehensive content you can give. Assume the foundations and background are already know. Focus on the topics provided. Header level start at 2 (overall title; the rest is downwards). Only have one overall title i.e. only have one header at level 2. Do not make html. Just md. Do not add "in TOPIC" or "with TOPIC" or similar in the titles, they're redundant. Make "Key Points", "Example", "Output", "Conclusion", "Next Steps" as bold only. Do not make them as header titles. Have no casual talk in the intro or outro.
 
 Context: TOPIC (wait for the topic yet)
 ```

@@ -55,3 +55,24 @@ Modern networks typically rely on transport layer segmentation (via Path MTU Dis
 - Lost fragments require retransmission of entire packet
 - Fragments can be blocked by firewalls
 - TCP's proactive approach is more efficient than IP's reactive approach
+
+---
+
+# Network Interface Card (NIC)
+
+A **network interface card (NIC)** is a hardware component that enables a computer or device to connect to a network. It provides the physical interface between the computer and the network medium (such as Ethernet cables or wireless signals).
+
+## Key functions:
+- **Physical connection**: Provides ports (like RJ-45 for Ethernet) or antennas (for Wi-Fi) to connect to network infrastructure
+- **Data conversion**: Translates data between the computer's internal format and the network's transmission format
+- **MAC addressing**: Each NIC has a unique Media Access Control (MAC) address used for network identification
+- **Signal processing**: Handles the electrical or radio signals used for data transmission
+
+## Common types:
+- **Wired NICs**: Ethernet cards that connect via cables (10/100/1000 Mbps or higher speeds)
+- **Wireless NICs**: Wi-Fi adapters using radio frequencies (802.11a/b/g/n/ac/ax standards)
+- **Integrated vs. expansion**: Many modern computers have NICs built into the motherboard, while others use expansion cards (PCIe) or USB adapters
+
+## Where you'll find them:
+NICs are standard in desktops, laptops, servers, gaming consoles, and IoT devices. Modern systems often have both wired and wireless NICs.
+

@@ -213,7 +213,200 @@
 
 # Mathematical Foundations
 
-## Sets, Relations, Functions
+## Sets, Relations, Function
+### **1. Sets: Collections of Things**
+
+**What is a set?**
+A set is just a collection of objects. We write sets using curly braces:
+- $\{1, 2, 3\}$ is a set containing three numbers
+- $\{a, b, c\}$ is a set containing three letters
+- $\{\text{apple}, \text{banana}\}$ is a set of fruits
+
+**Key idea:** Either something is in the set (we write $x \in A$) or it's not (we write $x \notin A$).
+
+**Examples:**
+- Let $A = \{2, 4, 6, 8\}$. Then $4 \in A$ but $5 \notin A$.
+- The *empty set* $\emptyset = \{\}$ contains nothing.
+
+**Set operations:**
+- **Union** $A \cup B$: everything in $A$ *or* $B$ (or both)
+  - $\{1,2\} \cup \{2,3\} = \{1,2,3\}$
+- **Intersection** $A \cap B$: everything in *both* $A$ and $B$
+  - $\{1,2\} \cap \{2,3\} = \{2\}$
+- **Complement** $\overline{A}$: everything *not* in $A$
+  - If our universe is $\{1,2,3,4,5\}$ and $A = \{1,2\}$, then $\overline{A} = \{3,4,5\}$
+- **Difference** $A \setminus B$: things in $A$ but not in $B$
+  - $\{1,2,3\} \setminus \{2,4\} = \{1,3\}$
+
+---
+
+### **2. Relations: Connections Between Things**
+
+**What is a relation?**
+A relation describes how things are connected. The simplest is a *binary relation* connecting pairs.
+
+**Examples:**
+- "is less than" on numbers: $2 < 5$, $3 < 4$
+- "is a parent of" on people
+- "is connected to" on cities
+
+**Formal definition:**
+A binary relation $R$ on sets $A$ and $B$ is just a set of pairs:
+$$R \subseteq A \times B$$
+
+where $A \times B = \{(a,b) : a \in A, b \in B\}$ (the *Cartesian product*).
+
+**Example:**
+Let $A = \{1,2,3\}$ and $B = \{a,b\}$.
+- $A \times B = \{(1,a), (1,b), (2,a), (2,b), (3,a), (3,b)\}$
+- A relation might be $R = \{(1,a), (2,b)\}$
+
+**Special types of relations:**
+
+An **equivalence relation** satisfies three properties:
+1. **Reflexive:** $x \sim x$ (everything relates to itself)
+2. **Symmetric:** if $x \sim y$ then $y \sim x$
+3. **Transitive:** if $x \sim y$ and $y \sim z$ then $x \sim z$
+
+**Example:** "has the same birthday as" is an equivalence relation on people.
+
+---
+
+### **3. Functions: Special Relations**
+
+**What is a function?**
+A function $f: A \to B$ assigns to each element of $A$ exactly one element of $B$.
+
+**Example:**
+- $f(x) = 2x$ assigns to each number its double
+- $f(1) = 2$, $f(2) = 4$, $f(3) = 6$
+
+**Key difference from relations:**
+- A relation can connect one input to many outputs: $\{(1,a), (1,b)\}$
+- A function connects each input to *exactly one* output
+
+**Partial vs. total functions:**
+- **Total function:** defined for *every* input in $A$
+  - $f(x) = x + 1$ is total on all numbers
+- **Partial function:** defined for *some* inputs
+  - $g(x) = \frac{1}{x}$ is undefined at $x = 0$
+
+**Example of partial function:**
+A program that tries to find a solution:
+```
+find_solution(problem):
+    search for solution
+    if found: return solution
+    if not found: keep searching forever (never returns)
+```
+This is partial because it doesn't return an answer for every input.
+
+---
+
+### **4. Alphabets, Strings, and Languages**
+
+**Alphabet:** A finite set of symbols.
+- $\Sigma = \{0, 1\}$ (binary alphabet)
+- $\Sigma = \{a, b, c, \ldots, z\}$ (English letters)
+
+**String (word):** A sequence of symbols from the alphabet.
+- Over $\{0,1\}$: "0", "101", "1111", ""
+- The empty string is written $\varepsilon$ or $\lambda$
+
+**$\Sigma^*$:** The set of *all possible strings* over alphabet $\Sigma$.
+- $\{0,1\}^* = \{\varepsilon, 0, 1, 00, 01, 10, 11, 000, \ldots\}$
+
+**Language:** A set of strings. Just a subset $L \subseteq \Sigma^*$.
+
+**Examples:**
+- $L_1 = \{\text{all strings with even length}\}$
+- $L_2 = \{\text{all strings starting with } 0\}$
+- $L_3 = \{0^n 1^n : n \geq 0\} = \{\varepsilon, 01, 0011, 000111, \ldots\}$
+
+---
+
+### **5. Decision Problems**
+
+**What is a decision problem?**
+A yes/no question about strings.
+
+**Examples:**
+- "Does this string have even length?" 
+- "Does this string contain the substring '101'?"
+- "Is this string a palindrome?"
+
+**Characteristic function:**
+For a language $L$, the characteristic function is:
+$$\chi_L(x) = \begin{cases} 1 & \text{if } x \in L \\ 0 & \text{if } x \notin L \end{cases}$$
+
+This turns set membership into a function that outputs 0 or 1.
+
+---
+
+### **6. Computability: What Can Algorithms Solve?**
+
+**Computable/decidable:**
+A problem is *decidable* if there exists an algorithm that always halts and correctly answers yes/no.
+
+**Example (decidable):**
+"Is this number even?"
+```
+is_even(n):
+    if n % 2 == 0:
+        return YES
+    else:
+        return NO
+```
+This always terminates with the right answer.
+
+**Example (undecidable):**
+The *halting problem*: "Does this program halt on this input?"
+
+[Unverified claim about fundamental result]:
+There is no algorithm that can solve the halting problem for all programs. This was proven by Alan Turing in 1936.
+
+**Why it matters:** Some problems have no algorithmic solution, no matter how clever we are.
+
+---
+
+### **7. Recursively Enumerable Sets**
+
+**Semi-decidable (r.e. = recursively enumerable):**
+A set $A$ is r.e. if there's an algorithm that:
+- Says YES if $x \in A$ (eventually)
+- Might run forever if $x \notin A$ (never answers NO)
+
+**Example:**
+The halting problem is r.e.:
+```
+halts(program, input):
+    run program on input
+    if it halts:
+        return YES
+    else:
+        keep running forever (never return NO)
+```
+
+**Why "enumerable"?**
+[Inference]: R.e. sets can be listed by a program: it can print all members one by one, though it might take forever to print them all.
+
+**Relationship:**
+- Decidable = r.e. AND co-r.e. (both the set and its complement are r.e.)
+- Many sets are r.e. but not decidable
+
+---
+
+### **8. What You Need to Understand the Next Section**
+
+Now you have the building blocks:
+
+1. **Sets, operations, universes** → What we're studying
+2. **Relations and equivalences** → How things connect
+3. **Functions (total/partial)** → Computations and algorithms
+4. **Strings and languages** → Problems encoded as sets of strings
+5. **Decision problems** → Yes/no questions
+6. **Computability** → What algorithms can/cannot solve
+7. **R.e. vs decidable** → Degrees of solvability
 
 ### Sets
 
@@ -3374,7 +3567,7 @@ $\equiv_A$ has finite index and refines the Myhill–Nerode equivalence $\equiv_
 
 ### Myhill–Nerode Theorem
 
-For a language $L \subseteq \Sigma^_$, the following are equivalent:  
+For a language $L \subseteq \Sigma^*$, the following are equivalent:  
 $$  
 L \in \mathrm{REG}  
 $$  
@@ -3386,7 +3579,7 @@ L \text{ is recognized by a DFA}
 $$  
 where  
 $$  
-u \equiv_L v \iff \forall w \in \Sigma^_ : uw \in L \leftrightarrow vw \in L  
+u \equiv_L v \iff \forall w \in \Sigma^* : uw \in L \leftrightarrow vw \in L  
 $$  
 The number of equivalence classes equals the number of states in the minimal DFA for $L$.
 
@@ -4668,7 +4861,7 @@ Canonical examples:
 
 * $L = { a^n b^n \mid n \in \mathbb{N} }$
 * $L = { ww \mid w \in \Sigma^* }$
-* $L = { w \in {0,1}^* \mid #0(w) = #1(w) }$
+* $L = \{ w \in \{0,1\}^* \mid \#_0(w) = \#_1(w) \}$
 
 ---
 
@@ -5430,7 +5623,7 @@ with predecessor operator $\mathrm{Pre}*\exists(X)={s\mid \exists s': s\to s'\we
 **Complexity.**
 
 * CTL model checking: $O(|\varphi|\cdot(|S|+|\to|))$.
-* LTL model checking (explicit): PSPACE-complete in $|\varphi|$, polynomial in $|S|$, typically $O(2^{|\varphi|}}\cdot(|S|+|\to|))$ via automata blow-up.
+* LTL model checking (explicit): PSPACE-complete in $|\varphi|$, polynomial in $|S|$, typically $O(2^{|\varphi|} \cdot (|S|+|\to|))$ via automata blow-up.
 * CTL* model checking: PSPACE-complete.
 
 ---
@@ -6369,7 +6562,7 @@ Every DCFL has an unambiguous CFG, but not conversely.
 
 Define the **degree of ambiguity** of a grammar $G$ as:
 $$
-\sup_{w \in L(G)} #{\text{parse trees of } w}
+\sup_{w \in L(G)} \#\{\text{parse trees of } w\}
 $$
 
 Possible cases:
@@ -8841,7 +9034,7 @@ Deterministic automaton over $\Sigma\cup V$ recognizes viable prefixes; states a
 
 #### Canonical LR(1)
 
-* **LR(1) item:** $A\to \alpha\cdot\beta, a$ where $a$ is lookahead in $\Sigma\cup{$ }$.
+* **LR(1) item:** $A\to \alpha\cdot\beta, a$ where $a$ is lookahead in $\Sigma\cup{\$ }$.
 * Closure propagates lookahead via FIRST of $\beta a$.
 * Most powerful deterministic bottom-up parsing method; recognizes all LR(1) grammars.
 
@@ -11348,7 +11541,7 @@ $$
 The single tape stores a convolution of all tapes:
 
 $$
-# w_1 # w_2 # \cdots # w_k #
+\# w_1 \# w_2 \# \cdots \# w_k \#
 $$
 
 with head positions encoded by marked symbols.
@@ -12064,7 +12257,7 @@ $$
 
 ### Formal implications for language theory
 
-Let $L \subseteq \Sigma^_$ be a language. A language is decidable if and only if its characteristic function $\chi_L : \Sigma^_ \to {0,1}$ is total recursive. A language is recursively enumerable if and only if it is accepted by some Turing machine. Under the thesis, these definitions capture exactly the class of algorithmically decidable and semi-decidable problems.
+Let $L \subseteq \Sigma^*$ be a language. A language is decidable if and only if its characteristic function $\chi_L : \Sigma^* \to {0,1}$ is total recursive. A language is recursively enumerable if and only if it is accepted by some Turing machine. Under the thesis, these definitions capture exactly the class of algorithmically decidable and semi-decidable problems.
 
 ### Decidability and undecidability consequences
 
@@ -12331,7 +12524,7 @@ $M = \langle Q , \Sigma , \Gamma , \delta , q_0 , q_{acc} , q_{rej} \rangle$
 with $Q$ finite, $\Sigma \subseteq \Gamma \setminus { \sqcup }$, and partial transition function  
 $\delta : Q \times \Gamma \to Q \times \Gamma \times { L , R }$.
 
-A **partial function** $f : \Sigma^* \rightharpoonup \Sigma^_$ is **Turing-computable** if there exists a Turing machine $M$ such that for every $w \in \Sigma^_$:
+A **partial function** $f : \Sigma^* \rightharpoonup \Sigma^*$ is **Turing-computable** if there exists a Turing machine $M$ such that for every $w \in \Sigma^*$:
 - if $f w$ is defined, then $M$ halts in $q_{acc}$ with $f w$ written on the tape
 - if $f w$ is undefined, then $M$ does not halt
     
@@ -12349,8 +12542,8 @@ This invariance under effective encodings yields the **Church–Turing thesis**,
 
 ### Relationship to language recognition
 
-For a set $A \subseteq \Sigma^_$, define the characteristic function  
-$\chi_A : \Sigma^_ \to { 0 , 1 }$.
+For a set $A \subseteq \Sigma^*$, define the characteristic function  
+$\chi_A : \Sigma^* \to { 0 , 1 }$.
 
 Then:
 - $A$ is recursive iff $\chi_A$ is total Turing-computable
@@ -12502,7 +12695,7 @@ Function complexity classes
 
 ### Formal characterization
 
-A decision problem is identified with a language $L \subseteq \Sigma^_$ via its characteristic function $\chi_L : \Sigma^_ \to {0,1}$. Algorithms, automata, or deduction systems for the problem correspond to effective realizations of $\chi_L$. The study focuses on representation of $L$ within language hierarchies and on structural properties of the induced class of characteristic functions.
+A decision problem is identified with a language $L \subseteq \Sigma^*$ via its characteristic function $\chi_L : \Sigma^* \to {0,1}$. Algorithms, automata, or deduction systems for the problem correspond to effective realizations of $\chi_L$. The study focuses on representation of $L$ within language hierarchies and on structural properties of the induced class of characteristic functions.
 
 A decision problem is **decidable** if $L$ is recursive $\subseteq$ $\mathcal{R}$, **semidecidable** if $L$ is recursively enumerable $\subseteq$ $\mathcal{RE}$, and **co-semidecidable** if $\Sigma^* \setminus L$ is recursively enumerable. The trichotomy  
 $$  
@@ -12512,7 +12705,7 @@ is fundamental for separation arguments.
 
 ### Reductions and completeness
 
-Given decision problems $A,B \subseteq \Sigma^_$, a mapping reduction is a computable function $f : \Sigma^_ \to \Sigma^*$ such that  
+Given decision problems $A,B \subseteq \Sigma^*$, a mapping reduction is a computable function $f : \Sigma^* \to \Sigma^*$ such that  
 $$  
 x \in A \iff f(x) \in B.  
 $$  
@@ -12732,9 +12925,7 @@ $$
 is recursive. Multi-tape, nondeterministic, and alternative models admit uniform encodings with polynomial-time translations.
 
 A **universal Turing machine** $U$ operates on encodings:  
-$$  
-U \langle \langle M \rangle # w \rangle = M \langle w \rangle  
-$$  
+$$ U \langle \langle M \rangle \# w \rangle = M \langle w \rangle $$  
 establishing effective programmability and supporting diagonalization arguments.
 
 ---
@@ -12756,7 +12947,7 @@ This relies on effective encodings and underpins fixed-point constructions, quin
 ### Reductions via Encodings
 
 Many-one reductions are defined using encodings:  
-A language $A \subseteq \Sigma^_$ is many-one reducible to $B \subseteq {0,1}^_$ if there exists a total computable $f$ such that:  
+A language $A \subseteq \Sigma^*$ is many-one reducible to $B \subseteq \{0,1\}^*$ if there exists a total computable $f$ such that:  
 $$  
 x \in A \iff f \langle x \rangle \in B  
 $$
@@ -12809,9 +13000,9 @@ In verification, encodings allow automata and transition systems to be inputs to
 
 ### Formal Definitions
 
-A language $L \subseteq \Sigma^_$ is **recursive** if there exists a Turing machine $M$ such that for every input $w \in \Sigma^_$, $M$ halts and accepts if $w \in L$, and halts and rejects if $w \notin L$. Equivalently, the characteristic function $\chi_L : \Sigma^* \to {0,1}$ is total and computable.
+A language $L \subseteq \Sigma^*$ is **recursive** if there exists a Turing machine $M$ such that for every input $w \in \Sigma^*$, $M$ halts and accepts if $w \in L$, and halts and rejects if $w \notin L$. Equivalently, the characteristic function $\chi_L : \Sigma^* \to {0,1}$ is total and computable.
 
-A language $L \subseteq \Sigma^_$ is **recursively enumerable** if there exists a Turing machine $M$ such that for every $w \in \Sigma^_$, $M$ accepts if $w \in L$, and either rejects or diverges if $w \notin L$. Equivalently, $L$ is the domain or range of a partial computable function.
+A language $L \subseteq \Sigma^*$ is **recursively enumerable** if there exists a Turing machine $M$ such that for every $w \in \Sigma^*$, $M$ accepts if $w \in L$, and either rejects or diverges if $w \notin L$. Equivalently, $L$ is the domain or range of a partial computable function.
 
 The classes are denoted:  
 $$  
@@ -13159,7 +13350,7 @@ $\mathrm{HALT}$ is definable by an existential arithmetic formula but not by a u
 
 ### Formal Framework
 
-Let $\Sigma$ be a finite alphabet. A _language_ is a subset of $\Sigma^_$. Decision problems are identified with languages via characteristic functions $\chi_L : \Sigma^_ \to {0,1}$. Reductions formalize relative computational hardness and enable transfer of decidability, recognizability, and complexity properties between languages.
+Let $\Sigma$ be a finite alphabet. A _language_ is a subset of $\Sigma^*$. Decision problems are identified with languages via characteristic functions $\chi_L : \Sigma^* \to {0,1}$. Reductions formalize relative computational hardness and enable transfer of decidability, recognizability, and complexity properties between languages.
 
 Let $\mathcal{C}$ be a class of languages closed under computable preimages. A reduction $\leq_\mathcal{R}$ is a preorder on languages satisfying reflexivity and transitivity.
 
@@ -13169,7 +13360,7 @@ Let $\mathcal{C}$ be a class of languages closed under computable preimages. A r
 
 #### Definition
 
-A _mapping reduction_ from language $A \subseteq \Sigma^_$ to language $B \subseteq \Gamma^_$ is a total computable function $f : \Sigma^* \to \Gamma^*$ such that
+A _mapping reduction_ from language $A \subseteq \Sigma^*$ to language $B \subseteq \Gamma^*$ is a total computable function $f : \Sigma^* \to \Gamma^*$ such that
 
 $$  
 x \in A \iff f x \in B  
@@ -13983,7 +14174,7 @@ $$
 Padding transforms languages:
 
 $$  
-L \mapsto { x #^{p |x|} \mid x \in L }  
+L \mapsto \{ x \#^{p(|x|)} \mid x \in L \}  
 $$
 
 Used to amplify time bounds and construct complete problems for $\text{TIME} f n$ under linear-time reductions.
@@ -14041,7 +14232,7 @@ $$
 $$  
 Equivalently, space may be measured as the number of distinct tape cells ever scanned or written during the computation.
 
-For a function $s : \mathbb{N} \to \mathbb{N}$, a language $L \subseteq \Sigma^_$ is **decidable in space $s(n)$** if there exists a Turing machine $M$ such that for all $x \in \Sigma^_$:  
+For a function $s : \mathbb{N} \to \mathbb{N}$, a language $L \subseteq \Sigma^*$ is **decidable in space $s(n)$** if there exists a Turing machine $M$ such that for all $x \in \Sigma^*$:  
 $$  
 x \in L \iff M \text{ accepts } x, \quad \mathrm{space}_M(x) \leq s(|x|).  
 $$
@@ -14483,7 +14674,7 @@ remains unresolved.
 
 ### Formal characterization via nondeterminism
 
-$\mathrm{NP}$ is the class of decision problems $L \subseteq \Sigma^_$ for which there exists a nondeterministic Turing machine $M$ and a polynomial $p$ such that for all $x \in \Sigma^_$:
+$\mathrm{NP}$ is the class of decision problems $L \subseteq \Sigma^*$ for which there exists a nondeterministic Turing machine $M$ and a polynomial $p$ such that for all $x \in \Sigma^*$:
 
 $$  
 x \in L \iff \exists \text{ accepting computation path of } M \text{ on } x \text{ of length } \le p |x|  
@@ -14498,7 +14689,7 @@ Analogy: a nondeterministic machine behaves like an omniscient guesser that expl
 Equivalently, $L \in \mathrm{NP}$ iff there exists a deterministic polynomial-time Turing machine $V$ and a polynomial $p$ such that
 
 $$  
-x \in L \iff \exists y \in \Sigma^* \text{ with } |y| \le p |x| \text{ and } V x # y = 1  
+x \in L \iff \exists y \in \Sigma^* \text{ with } |y| \le p(|x|) \text{ and } V(x \# y) = 1  
 $$
 
 Here $y$ is a certificate or witness. This definition emphasizes verification rather than search.
@@ -14512,7 +14703,7 @@ Associated with $\mathrm{NP}$ is the function class $\mathrm{FNP}$ consisting of
 For $L \in \mathrm{NP}$, define the witness relation
 
 $$  
-R_L = { \langle x , y \rangle \mid V x # y = 1 }  
+R_L = \{ \langle x , y \rangle \mid V(x \# y) = 1 \}  
 $$
 
 Then $R_L$ is polynomially balanced and polynomial-time decidable.
@@ -14654,7 +14845,7 @@ Circuit complexity
 
 ### Formal definition
 
-Let $\Sigma$ be a finite alphabet. A language $L \subseteq \Sigma^_$ belongs to $\text{coNP}$ if its complement $\overline{L} = \Sigma^_ \setminus L$ belongs to $\text{NP}$. Equivalently, $L \in \text{coNP}$ if there exists a polynomial $p$ and a polynomial-time computable predicate $R$ such that  
+Let $\Sigma$ be a finite alphabet. A language $L \subseteq \Sigma^*$ belongs to $\text{coNP}$ if its complement $\overline{L} = \Sigma^* \setminus L$ belongs to $\text{NP}$. Equivalently, $L \in \text{coNP}$ if there exists a polynomial $p$ and a polynomial-time computable predicate $R$ such that  
 $$  
 x \in L \iff \forall y,\ |y| \le p(|x|)\ \neg R(x,y),  
 $$  
@@ -15116,7 +15307,7 @@ These bounds are tight under standard complexity assumptions.
 
 ### Formal Definition
 
-Let $\Sigma$ be a finite alphabet. For languages $A,B \subseteq \Sigma^_$, a **polynomial-time many-one reduction** from $A$ to $B$, denoted $A \le_p B$, is a total function $f : \Sigma^_ \to \Sigma^*$ such that:
+Let $\Sigma$ be a finite alphabet. For languages $A,B \subseteq \Sigma^*$, a **polynomial-time many-one reduction** from $A$ to $B$, denoted $A \le_p B$, is a total function $f : \Sigma^* \to \Sigma^*$ such that:
 
 $$  
 x \in A \iff f x \in B  
@@ -15881,7 +16072,7 @@ A **head reversal** occurs when the move direction changes sign.
 
 For a computation $C$, define  
 $$  
-\text{rev} C = # \text{ of head direction changes}  
+\text{rev}_C = \# \text{ of head direction changes}  
 $$
 
 Results:
@@ -16900,7 +17091,7 @@ $$
 $$  
 A i \to \alpha  
 $$  
-where $A,B \in N$, $i \in I$, and $\alpha \in \langle N \cup T \rangle^_$. Each nonterminal carries a stack of indices from $I^_$.
+where $A,B \in N$, $i \in I$, and $\alpha \in \langle N \cup T \rangle^*$. Each nonterminal carries a stack of indices from $I^*$.
 
 Derivations operate by attaching, removing, and propagating index stacks. If a nonterminal is written as $A \gamma$ with $\gamma \in I^*$, then:
 - $A \to B i$ pushes $i$ onto $\gamma$
@@ -17827,7 +18018,7 @@ Attribute grammars formalize semantic computation over context-free structures w
 
 ### Formal Role of Lexical and Syntactic Analysis
 
-Let $\Sigma$ be a finite character alphabet. Lexical analysis defines a partition of $\Sigma^_$ into a sequence of **tokens**, each token belonging to a token class $T_i \subseteq \Sigma^_$. Syntax analysis defines a language  
+Let $\Sigma$ be a finite character alphabet. Lexical analysis defines a partition of $\Sigma^*$ into a sequence of **tokens**, each token belonging to a token class $T_i \subseteq \Sigma^*$. Syntax analysis defines a language  
 $$  
 L \subseteq T^*  
 $$  
@@ -17967,7 +18158,7 @@ Violations introduce hidden context sensitivity, breaking deterministic parsing 
 
 ### Regular–Context-Free Composition
 
-Given a regular language $R \subseteq \Sigma^_$ and a CFL $L \subseteq T^_$, define  
+Given a regular language $R \subseteq \Sigma^*$ and a CFL $L \subseteq T^*$ define  
 $$  
 R^{-1} L = { w \in \Sigma^* \mid h w \in L }  
 $$
@@ -18191,7 +18382,7 @@ An LCFRS is defined by nonterminals with arity $k$ and productions rewriting tup
 Formally, productions define linear functions
 
 $$  
-f : (\Sigma^_)^m \to (\Sigma^_)^k  
+f : (\Sigma^*)^m \to (\Sigma^*)^k  
 $$
 
 LCFRS properties:
@@ -18324,7 +18515,7 @@ CTL and CTL* interpret formulas over states. Path quantifiers $A, E$ combined wi
 
 Strict inclusion:  
 $$  
-CTL \subsetneq CTL^_, \quad LTL \subsetneq CTL^_  
+CTL \subsetneq CTL^*, \quad LTL \subsetneq CTL^*  
 $$
 
 CTL is incomparable in expressiveness with LTL.
@@ -18772,11 +18963,9 @@ Derivation consists of attaching single stranded stickers to exposed sites respe
 
 ### Splicing systems
 
-A splicing system is defined as $S = \langle \Sigma, A, R \rangle$ where $A \subseteq \Sigma^_$ is finite and $R$ is a finite set of splicing rules of the form  
-$$  
-u_1 # u_2 $ v_1 # v_2  
-$$  
-with $u_i, v_i \in \Sigma^_$.
+A splicing system is defined as $S = \langle \Sigma, A, R \rangle$ where $A \subseteq \Sigma^*$ is finite and $R$ is a finite set of splicing rules of the form  
+$$ u_1 \# u_2 \text{ or } v_1 \# v_2 $$  
+with $u_i, v_i \in \Sigma^*$.
 
 Given strings $x = x_1 u_1 u_2 x_2$ and $y = y_1 v_1 v_2 y_2$, splicing yields  
 $$  
@@ -18954,7 +19143,7 @@ Nonuniform lower bounds beyond $ACC^0$ remain largely open for general $\operato
 
 ### Formal Models
 
-An **infinite tree** over a finite ranked alphabet $\Sigma$ is a function $t : D^* \to \Sigma$ where $D$ is a finite set of directions and $D^_$ is the set of all finite sequences over $D$. Typically $D = {0,1}$ for full binary trees or $D = {1,\dots,k}$ for $k$-ary trees. Nodes are addressed by words in $D^_$, with the root at $\epsilon$.
+An **infinite tree** over a finite ranked alphabet $\Sigma$ is a function $t : D^* \to \Sigma$ where $D$ is a finite set of directions and $D^*$ is the set of all finite sequences over $D$. Typically $D = {0,1}$ for full binary trees or $D = {1,\dots,k}$ for $k$-ary trees. Nodes are addressed by words in $D^*$, with the root at $\epsilon$.
 
 A **tree automaton on infinite trees** is a tuple  
 $$  
@@ -19093,13 +19282,7 @@ Regular tree languages form a Boolean algebra but are not well-quasi-ordered und
 ### Logical Characterizations
 
 Equivalences:  
-$$  
-\mathsf{REG}_\omega^\mathsf{tree}
-
-# \text{MSO}
-
-\mu\text{-calculus}  
-$$
+$$ \mathsf{REG}_\omega^\mathsf{tree} \subseteq \text{MSO} \subseteq \mu\text{-calculus} $$
 
 The modal $\mu$-calculus corresponds exactly to alternating parity tree automata, with fixpoint alternation depth matching parity index.
 
@@ -19754,7 +19937,7 @@ An **informant** is a sequence of labeled examples $(w, \ell)$ with $\ell \in {0
 
 A learner is a computable function  
 $$  
-\mathcal{A} : \Sigma^_{}^_ \to \mathcal{H}  
+\mathcal{A} : \Sigma^* \to 2^\mathcal{H}  
 $$  
 mapping finite prefixes of observations to hypotheses.
 
@@ -19785,9 +19968,9 @@ with strict separations under standard information models.
 
 Regular languages admit effective learning under stronger query models.
 
-Angluin's $L^_$ algorithm learns minimal DFA using membership queries  
+Angluin's $L^\omega$ algorithm learns minimal DFA using membership queries  
 $$  
-\chi_L : \Sigma^_ \to {0,1}  
+\chi_L : \Sigma^* \to {0,1}  
 $$  
 and equivalence queries returning counterexamples.
 
@@ -20246,9 +20429,9 @@ Undecidability arises when functors encode Turing-complete transition systems.
 
 ### Syntactic Semigroups and Morphisms
 
-For a language $L \subseteq \Sigma^_$, define the Myhill–Nerode congruence $\equiv_L$ by  
+For a language $L \subseteq \Sigma^*$, define the Myhill–Nerode congruence $\equiv_L$ by  
 $$  
-u \equiv_L v \iff \forall x,y \in \Sigma^_. ; xuy \in L \Leftrightarrow xvy \in L .  
+u \equiv_L v \iff \forall x,y \in \Sigma^*. ; xuy \in L \Leftrightarrow xvy \in L .  
 $$  
 The quotient semigroup $\Sigma^* / {\equiv_L}$ is the **syntactic semigroup** $S_L$, with multiplication induced by concatenation. The canonical morphism $\eta_L : \Sigma^* \to S_L$ is surjective and recognizes $L$ via a subset $P \subseteq S_L$ such that $L = \eta_L^{-1}(P)$. $S_L$ is finite iff $L$ is regular.
 
