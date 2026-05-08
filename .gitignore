@@ -8,7 +8,12 @@ Prompts
 /Projects/
 /Configs/
 /Environment/
-/.obsidian/
+/Research
+/Misc
 
 # Confidential Files
 /Learn/@CA
+
+# Obsidian Files
+/.trash
+/.obsidian/
