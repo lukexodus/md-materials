@@ -509,3 +509,167 @@ Do not reply.
 ```
 I will prompt each of these to another thread. Make me a preliminary prompt containing all context needed and maybe additional instructions if needed.
 ```
+
+# Presentation
+
+```
+You are given a design system file (CSS variables, fonts, components, layout rules). Your task is to generate a single self-contained HTML file for a presentation.
+
+Follow these rules strictly:
+
+DESIGN SYSTEM USAGE
+- Use ALL CSS variables exactly as defined (no approximations or replacements).
+- Use the provided fonts exactly as specified.
+- Reuse all available components (cards, badges, callouts, code blocks, layout frames, etc.).
+- Do NOT invent new styles unless absolutely necessary.
+- Maintain strict visual consistency across slides.
+
+STRUCTURE
+- Output a single HTML file (no external dependencies).
+- Include all CSS inside a <style> tag.
+- Include all JavaScript inside a <script> tag.
+- Each slide must follow the provided slide-frame structure.
+- Add a vertical accent bar on the left edge of every slide.
+
+TOPBAR & FOOTER
+- Topbar:
+  - Left text: [ORGANIZATION NAME]
+  - Right text: [PRESENTATION TOPIC]
+- Footer:
+  - Left text: [PRESENTATION SUBTITLE]
+  - Right text: slide counter in format: "01 / XX" where XX is total slide count
+
+NAVIGATION
+- No visible buttons.
+- Clicking LEFT half of screen → previous slide
+- Clicking RIGHT half → next slide
+- Keyboard:
+  - Left arrow → previous slide
+  - Right arrow → next slide
+- Smooth transitions between slides
+- Maintain slide index state
+
+ILLUSTRATIONS & GRAPHICS
+- If illustrating a concept is needed, use inline SVG code for the illustration/graphics.
+- Keep SVGs clean, scalable, and styled using the design system's CSS variables (e.g., `fill="var(--accent)"`, `stroke="var(--border)"`).
+
+SLIDES CONTENT
+- Build slides in the exact order provided below.
+- Each slide should:
+  - Follow the design system layout
+  - Use varied layouts:
+    - Some text-heavy
+    - Some visual (cards/grid, SVG illustrations)
+    - Some minimal (large heading + short text)
+  - Use appropriate components:
+    - Cards for grouped info
+    - Badges for tags/labels
+    - Code blocks for technical or structured content
+    - Callouts for warnings or emphasis
+
+SLIDE LIST
+[INSERT YOUR SLIDES HERE. For each slide, specify:
+- Slide number and title
+- Content to display
+- Preferred layout (minimal / card grid / text-heavy / visual/SVG / comparison)
+- Components to use (callout, badge, code block, card, etc.)
+
+Example format:
+1. **[Slide Title]**: [Content description]. [Layout preference]. [Components to use.]
+2. **[Slide Title]**: [Content description]. [Layout preference]. [Components to use.]
+...]
+
+INTERACTIVITY
+- Implement slide switching logic in JavaScript
+- Ensure full-screen slide behavior
+- Prevent scrolling between slides
+
+OUTPUT FORMAT
+- Return ONLY the HTML file
+- No explanations
+- No markdown wrappers around the HTML
+```
+
+```
+You are tasked with generating a single self-contained HTML file for a presentation based on the content provided at the end of this prompt.
+
+STEP 1 — INFER A DESIGN SYSTEM
+Before building any slides, derive a fitting visual design system from the content itself. Consider:
+- The topic, tone, and audience (technical? civic? academic? corporate?)
+- An appropriate color palette (2–3 primary colors + neutrals)
+- Typography pairing (heading font + body font, sourced from Google Fonts via @import)
+- Component styles: cards, badges, callouts, code blocks, dividers, accent bars
+- Overall mood: clean/minimal, bold/data-driven, warm/community-focused, etc.
+
+Define all design decisions as CSS custom properties (variables) at the top of your <style> block. Every visual choice must reference these variables — no hardcoded colors, fonts, or spacing values elsewhere.
+
+STEP 2 — PLAN THE SLIDES
+From the content provided, extract and organize the key ideas into a logical slide sequence. Determine:
+- Total number of slides (typically 6–10)
+- A title slide, a closing/summary slide, and content slides in between
+- Which slides benefit from visuals (SVG illustrations, card grids) vs. text-heavy or minimal layouts
+
+STEP 3 — BUILD THE PRESENTATION
+Generate a single HTML file following all rules below.
+
+---
+
+STRUCTURE
+- Output a single HTML file (no external dependencies except Google Fonts).
+- Include all CSS inside a <style> tag.
+- Include all JavaScript inside a <script> tag.
+- Each slide must use a consistent slide-frame structure.
+- Add a vertical accent bar on the left edge of every slide.
+
+TOPBAR & FOOTER
+- Topbar:
+  - Left: organization or author name (inferred from content, or left as a short placeholder)
+  - Right: presentation topic (inferred from content)
+- Footer:
+  - Left: presentation subtitle or tagline (inferred from content)
+  - Right: slide counter in format "01 / XX" where XX is total slide count
+
+NAVIGATION
+- No visible buttons.
+- Clicking LEFT half of screen → previous slide
+- Clicking RIGHT half → next slide
+- Keyboard:
+  - Left arrow → previous slide
+  - Right arrow → next slide
+- Smooth transitions between slides
+- Maintain slide index state
+
+ILLUSTRATIONS & GRAPHICS
+- Where a concept benefits from visualization, use inline SVG.
+- SVGs must be clean, scalable, and use only CSS variables for all colors and strokes.
+- Do not use emoji or external images.
+
+SLIDE LAYOUTS
+Use a varied mix across slides:
+- Minimal: large heading + short supporting text
+- Card grid: grouped information in 2–4 cards
+- Text-heavy: structured prose or bullet points with section heading
+- Visual: SVG illustration as the primary element with a short caption
+- Comparison: two side-by-side cards contrasting two options or ideas
+
+Use components as appropriate:
+- Cards for grouped or categorized info
+- Badges for labels, tags, or status markers
+- Callouts for emphasis, mandates, warnings, or key insights
+- Code blocks for formulas, structured data, or technical content
+
+INTERACTIVITY
+- Implement slide switching logic in JavaScript
+- Ensure full-screen slide behavior
+- Prevent scrolling between slides
+
+OUTPUT FORMAT
+- Return ONLY the HTML file
+- No explanations
+- No markdown wrappers around the HTML
+
+---
+
+CONTENT
+[PASTE YOUR RAW CONTENT HERE — notes, outline, report excerpt, data, or any source material the slides should be derived from]
+```

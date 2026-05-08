@@ -49,14 +49,14 @@ These work at the shell prompt, not just GNOME Terminal — they are readline/zs
 
 ### Cursor Movement
 
-|Action|Shortcut|
-|---|---|
-|Move to beginning of line|`Ctrl + A`|
-|Move to end of line|`Ctrl + E`|
-|Move one word left|`Alt + B`|
-|Move one word right|`Alt + F`|
-|Move one character left|`Ctrl + B`|
-|Move one character right|`Ctrl + F`|
+| Action                    | Shortcut   |
+| ------------------------- | ---------- |
+| Move to beginning of line | `Ctrl + A` |
+| Move to end of line       | `Ctrl + E` |
+| Move one word left        | `Alt + B`  |
+| Move one word right       | `Alt + F`  |
+| Move one character left   | `Ctrl + B` |
+| Move one character right  | `Ctrl + F` |
 
 ### Editing
 
@@ -78,21 +78,21 @@ These work at the shell prompt, not just GNOME Terminal — they are readline/zs
 
 ### History Navigation
 
-|Action|Shortcut|
-|---|---|
-|Previous command|`Ctrl + P` or `↑`|
-|Next command|`Ctrl + N` or `↓`|
-|Search history backward|`Ctrl + R`|
-|Search history forward|`Ctrl + S` (may need `stty -ixon` in `.bashrc`)|
-|Accept current history match|`Enter` or `Ctrl + J`|
-|Cancel history search|`Ctrl + G`|
-|First command in history|`Alt + <`|
-|Last command in history|`Alt + >`|
-|Run last command|`!!`|
-|Run last command as root|`sudo !!`|
-|Last argument of prev cmd|`Alt + .` or `!$`|
-|Nth argument of prev cmd|`!:N` (e.g., `!:2`)|
-|All args of previous cmd|`!*`|
+| Action                       | Shortcut                                        |
+| ---------------------------- | ----------------------------------------------- |
+| Previous command             | `Ctrl + P` or `↑`                               |
+| Next command                 | `Ctrl + N` or `↓`                               |
+| Search history backward      | `Ctrl + R`                                      |
+| Search history forward       | `Ctrl + S` (may need `stty -ixon` in `.bashrc`) |
+| Accept current history match | `Enter` or `Ctrl + J`                           |
+| Cancel history search        | `Ctrl + G`                                      |
+| First command in history     | `Alt + <`                                       |
+| Last command in history      | `Alt + >`                                       |
+| Run last command             | `!!`                                            |
+| Run last command as root     | `sudo !!`                                       |
+| Last argument of prev cmd    | `Alt + .` or `!$`                               |
+| Nth argument of prev cmd     | `!:N` (e.g., `!:2`)                             |
+| All args of previous cmd     | `!*`                                            |
 
 ### Process Control
 

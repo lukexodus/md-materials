@@ -8599,6 +8599,717 @@ echo "Visit http://localhost:8000 to see the application"
 - Container monitoring and logging solutions
 - Infrastructure as Code approaches for container deployments
 
+----
+
+# Docker-Centric Development Cycle
+
+Docker is a platform for building, shipping, and running applications inside lightweight, isolated environments called containers. This guide walks through the full development lifecycle as it is commonly practiced when Docker is the central tool — from local setup through production deployment and ongoing maintenance.
+
+---
+
+## Core Concepts
+
+### Containers vs. Virtual Machines
+
+A container packages an application and its dependencies into a single runnable unit that shares the host operating system's kernel. Unlike a virtual machine, a container does not include a full OS image. This makes containers faster to start and smaller in size, though the isolation model is different: containers share the kernel, while VMs have fully separate kernels.
+
+### Images
+
+A Docker image is a read-only template used to create containers. Images are built in layers, where each instruction in a `Dockerfile` produces a new layer. Layers are cached, so rebuilds only re-execute changed steps and everything after them.
+
+### The Docker Daemon and CLI
+
+The Docker daemon (`dockerd`) runs as a background service and manages containers, images, networks, and volumes. The Docker CLI (`docker`) communicates with the daemon via a socket. Most day-to-day commands go through the CLI.
+
+### Registries
+
+A registry stores and distributes images. Docker Hub is the default public registry. Private registries (e.g., AWS ECR, GCP Artifact Registry, GitHub Container Registry, or a self-hosted Harbor instance) are common in organizational workflows.
+
+---
+
+## Setting Up the Development Environment
+
+### Installing Docker
+
+Docker Desktop is the standard installation for macOS and Windows. On Linux, Docker Engine is installed directly via the distribution's package manager. Docker Desktop bundles the daemon, CLI, Docker Compose, and related tooling.
+
+After installation, confirm the daemon is running:
+
+```bash
+docker version
+docker info
+```
+
+### User Permissions on Linux
+
+On Linux, the Docker daemon socket is owned by the `docker` group. Add your user to that group to run Docker commands without `sudo`:
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+Log out and back in for the change to take effect.
+
+### Docker Context
+
+A Docker context defines which daemon the CLI connects to. This matters when you want to switch between a local daemon, a remote host, or a Kubernetes cluster. List and switch contexts with:
+
+```bash
+docker context ls
+docker context use <context-name>
+```
+
+---
+
+## Writing a Dockerfile
+
+The `Dockerfile` is the source of truth for how an image is built. It is a plain-text file containing a sequence of instructions.
+
+### Common Instructions
+
+```dockerfile
+# Base image — always pin to a specific tag in production
+FROM node:20-alpine
+
+# Set a working directory inside the container
+WORKDIR /app
+
+# Copy dependency manifests first to leverage layer caching
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --omit=dev
+
+# Copy the rest of the source code
+COPY . .
+
+# Expose the port the app listens on (documentation only — does not publish the port)
+EXPOSE 3000
+
+# Default command to run when the container starts
+CMD ["node", "src/index.js"]
+```
+
+### Multi-Stage Builds
+
+Multi-stage builds allow you to use a heavier image for building/compiling and copy only the final artifact into a lean runtime image. This keeps production images small and free of build tools.
+
+```dockerfile
+# Stage 1: Build
+FROM golang:1.22-alpine AS builder
+WORKDIR /build
+COPY . .
+RUN go build -o app ./cmd/server
+
+# Stage 2: Runtime
+FROM alpine:3.19
+WORKDIR /app
+COPY --from=builder /build/app .
+CMD ["./app"]
+```
+
+### Layer Caching Best Practices
+
+Place instructions that change infrequently (installing system packages, copying dependency manifests) before instructions that change often (copying source code). This maximizes cache reuse and speeds up rebuilds.
+
+### .dockerignore
+
+A `.dockerignore` file works like `.gitignore` and prevents files from being sent to the build context, which speeds up builds and prevents secrets from leaking into images.
+
+```
+node_modules
+.git
+*.env
+dist
+```
+
+### Base Image Selection
+
+- Use official images from Docker Hub as a starting point.
+- Alpine-based images are smaller but use `musl libc`, which can cause compatibility issues with some binaries.
+- `slim` variants of Debian/Ubuntu-based images are a middle ground.
+- Scratch or distroless images are used for compiled binaries when minimal attack surface is a priority.
+
+Always pin base image tags (e.g., `node:20.11.0-alpine3.19`) in production Dockerfiles. Floating tags like `latest` can introduce unexpected changes.
+
+---
+
+## Building Images
+
+### Basic Build
+
+```bash
+docker build -t myapp:1.0.0 .
+```
+
+The `-t` flag tags the image. The `.` at the end specifies the build context — the directory whose contents are sent to the daemon.
+
+### Build Arguments
+
+Build arguments (`ARG`) allow values to be passed in at build time without baking them into the final image layer permanently. Do not use `ARG` for secrets; use Docker BuildKit secrets instead.
+
+```dockerfile
+ARG APP_ENV=production
+ENV APP_ENV=$APP_ENV
+```
+
+```bash
+docker build --build-arg APP_ENV=staging -t myapp:staging .
+```
+
+### BuildKit
+
+BuildKit is Docker's modern build backend. It is enabled by default in recent Docker versions and provides faster builds, better caching, and secret mounting. You can verify it is active by checking for `BuildKit` in `docker info` output.
+
+```bash
+DOCKER_BUILDKIT=1 docker build -t myapp:1.0.0 .
+```
+
+### Inspecting Images
+
+```bash
+docker images                        # List local images
+docker inspect myapp:1.0.0           # Full image metadata in JSON
+docker history myapp:1.0.0           # Show layers and sizes
+docker image prune                   # Remove dangling (untagged) images
+```
+
+---
+
+## Running Containers
+
+### Basic Run
+
+```bash
+docker run -d -p 3000:3000 --name myapp-dev myapp:1.0.0
+```
+
+- `-d`: Detached mode (runs in background)
+- `-p host:container`: Publishes a port
+- `--name`: Assigns a name instead of a random one
+
+### Environment Variables
+
+```bash
+docker run -e DATABASE_URL=postgres://... myapp:1.0.0
+# Or from a file:
+docker run --env-file .env myapp:1.0.0
+```
+
+### Volumes
+
+Volumes persist data beyond the container lifecycle. Bind mounts map a host directory into the container, useful during development.
+
+```bash
+# Named volume (managed by Docker)
+docker run -v myapp-data:/data myapp:1.0.0
+
+# Bind mount (maps host path to container path)
+docker run -v $(pwd)/src:/app/src myapp:1.0.0
+```
+
+### Resource Limits
+
+```bash
+docker run --memory="512m" --cpus="1.5" myapp:1.0.0
+```
+
+### Stopping and Removing
+
+```bash
+docker stop myapp-dev      # Sends SIGTERM, waits, then SIGKILL
+docker rm myapp-dev        # Remove the stopped container
+docker rm -f myapp-dev     # Force stop and remove
+```
+
+---
+
+## Docker Compose for Local Development
+
+Docker Compose defines and runs multi-container applications using a YAML file (`compose.yaml` or `docker-compose.yml`). It is the standard tool for orchestrating services locally.
+
+### Example compose.yaml
+
+```yaml
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgres://user:password@db:5432/mydb
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      db:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mydb
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d mydb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db-data:
+```
+
+### Common Compose Commands
+
+```bash
+docker compose up -d          # Start all services in detached mode
+docker compose up --build     # Rebuild images before starting
+docker compose down           # Stop and remove containers (volumes preserved)
+docker compose down -v        # Stop, remove containers, and remove volumes
+docker compose logs -f app    # Follow logs for a specific service
+docker compose exec app sh    # Open a shell in a running service
+docker compose ps             # List running services
+docker compose restart app    # Restart a specific service
+```
+
+### Watch Mode (Compose Develop)
+
+The `develop.watch` block (introduced in Compose v2.22) enables file-sync and hot-reload behavior without running a separate file-watching utility. The `sync` action copies changed files into the running container; the `rebuild` action triggers a full image rebuild.
+
+### Service Profiles
+
+Profiles allow optional services (e.g., a mail catcher, a monitoring stack) to be included only when explicitly requested:
+
+```yaml
+services:
+  mailhog:
+    image: mailhog/mailhog
+    profiles: ["tools"]
+```
+
+```bash
+docker compose --profile tools up
+```
+
+---
+
+## Networking
+
+### Default Compose Network
+
+Compose automatically creates a network for each project. Services within the same project can reach each other by service name, which acts as a DNS hostname. In the example above, the app service connects to the database using `db` as the hostname.
+
+### Network Types
+
+Docker supports several network drivers:
+
+- `bridge` (default for standalone containers): Containers on the same bridge network can communicate. External traffic reaches them only through published ports.
+- `host`: The container shares the host's network stack directly. Available on Linux only.
+- `none`: No networking.
+- `overlay`: Used in Docker Swarm for multi-host networking.
+
+### Exposing vs. Publishing Ports
+
+`EXPOSE` in a Dockerfile documents which port a container listens on but does not make it reachable from the host. `-p` or `ports:` in Compose actually publishes the port to the host interface.
+
+---
+
+## Environment and Secret Management
+
+### Development: .env Files
+
+Compose automatically reads a `.env` file in the project directory for variable substitution in `compose.yaml`. Keep `.env` out of version control.
+
+```
+POSTGRES_PASSWORD=devpassword
+APP_SECRET_KEY=localdevkey
+```
+
+### Production: Secrets
+
+Hardcoding secrets in environment variables is a common practice but carries risk since they appear in process listings and container inspection output. Better alternatives include:
+
+- Docker Swarm secrets or Kubernetes secrets (mounted as files inside the container)
+- External secret managers (HashiCorp Vault, AWS Secrets Manager, GCP Secret Manager)
+- BuildKit `--secret` for build-time secrets that do not persist in image layers
+
+```bash
+# Build-time secret example (secret never baked into image)
+docker build --secret id=npmrc,src=$HOME/.npmrc .
+```
+
+---
+
+## Debugging and Observability
+
+### Logs
+
+```bash
+docker logs myapp-dev               # Print all logs
+docker logs -f myapp-dev            # Follow (tail) logs
+docker logs --since 5m myapp-dev    # Logs from the last 5 minutes
+docker compose logs -f              # Follow all Compose service logs
+```
+
+### Exec Into a Running Container
+
+```bash
+docker exec -it myapp-dev sh        # Alpine / minimal images
+docker exec -it myapp-dev bash      # Debian/Ubuntu-based images
+```
+
+### Inspecting Container State
+
+```bash
+docker inspect myapp-dev            # Full JSON metadata
+docker stats                        # Live CPU/memory/network usage
+docker top myapp-dev                # Running processes inside the container
+```
+
+### Ephemeral Debug Containers
+
+If a production image has no shell, run a debug container sharing the same network or PID namespace:
+
+```bash
+docker run -it --rm \
+  --network container:myapp-dev \
+  nicolaka/netshoot
+```
+
+---
+
+## Testing in Docker
+
+### Running Tests Inside the Container
+
+Tests should run against the same image used in production to catch environment-specific failures. A common pattern is to override the container's command:
+
+```bash
+docker run --rm \
+  --env-file .env.test \
+  myapp:1.0.0 \
+  npm test
+```
+
+### Compose-Based Test Environment
+
+Define a separate Compose file or override file for testing:
+
+```bash
+docker compose -f compose.yaml -f compose.test.yaml up --abort-on-container-exit
+```
+
+The `--abort-on-container-exit` flag stops all services when any container exits, allowing CI to capture the exit code of the test runner.
+
+### Integration Tests with Ephemeral Services
+
+Use the `depends_on` health check condition to wait for dependent services (databases, caches) to be ready before the test runner starts. This avoids flaky tests caused by race conditions at startup.
+
+---
+
+## CI/CD Integration
+
+### General Pattern
+
+A typical CI pipeline performs these steps in order:
+
+1. Check out source code
+2. Build the Docker image
+3. Run tests inside the container
+4. Push the image to a registry (on success, for the target branch)
+5. Deploy
+
+### Tagging Strategy
+
+A consistent tagging strategy is important. Common approaches:
+
+- Tag with the full Git commit SHA for traceability: `myapp:a3f9c2d`
+- Tag with semantic version for releases: `myapp:1.4.0`
+- Tag with branch name for preview environments: `myapp:feature-login`
+- Avoid using `latest` as the sole tag in automated pipelines
+
+### Registry Authentication in CI
+
+Most CI platforms support injecting registry credentials as environment variables or secrets. Example for Docker Hub:
+
+```bash
+echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+```
+
+### Build Caching in CI
+
+Without cache, every CI run rebuilds all layers from scratch. Options to speed this up:
+
+- **Registry cache**: Push cache layers to the registry using `--cache-from` and `--cache-to` with BuildKit.
+- **GitHub Actions cache**: The `docker/build-push-action` supports the `cache-from: type=gha` backend.
+- **Layer cache in self-hosted runners**: Persistent runners retain the local image cache between runs.
+
+```bash
+docker buildx build \
+  --cache-from type=registry,ref=myregistry/myapp:buildcache \
+  --cache-to type=registry,ref=myregistry/myapp:buildcache,mode=max \
+  -t myregistry/myapp:$GIT_SHA \
+  --push .
+```
+
+---
+
+## Image Security
+
+### Scanning for Vulnerabilities
+
+Scan images for known CVEs before pushing to production. Tools include:
+
+- `docker scout cve myapp:1.0.0` (Docker Scout, integrated into Docker Desktop and Hub)
+- Trivy (`trivy image myapp:1.0.0`)
+- Snyk (`snyk container test myapp:1.0.0`)
+- Grype (`grype myapp:1.0.0`)
+
+Integrate scanning into the CI pipeline and decide on a policy for what severity level blocks a deployment.
+
+### Running as a Non-Root User
+
+By default, processes inside containers run as root. This is a security risk if a process is compromised. Create and use a non-root user in the Dockerfile:
+
+```dockerfile
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+```
+
+### Read-Only Filesystems
+
+Where possible, run containers with a read-only root filesystem and mount specific writable paths explicitly:
+
+```bash
+docker run --read-only --tmpfs /tmp myapp:1.0.0
+```
+
+### Minimal Images
+
+Smaller images have a smaller attack surface. Multi-stage builds and distroless base images reduce the number of packages present in the final image.
+
+### Signing Images
+
+Docker Content Trust (DCT) and Sigstore/cosign can be used to sign images and verify their integrity before deployment.
+
+```bash
+cosign sign --key cosign.key myregistry/myapp:1.0.0
+cosign verify --key cosign.pub myregistry/myapp:1.0.0
+```
+
+---
+
+## Production Deployment Options
+
+### Docker Swarm
+
+Docker Swarm is Docker's built-in orchestrator. It uses Compose-like YAML (stack files) and supports multi-node deployments, rolling updates, and service scaling. It is simpler to operate than Kubernetes but has a smaller ecosystem.
+
+```bash
+docker stack deploy -c stack.yaml myapp
+docker service ls
+docker service scale myapp_app=3
+```
+
+### Kubernetes
+
+Kubernetes (K8s) is the dominant container orchestration platform for production. Docker images run on Kubernetes without modification; the difference is in how they are described and scheduled. Workloads are defined as `Deployment`, `StatefulSet`, `DaemonSet`, and other resource types in YAML manifests.
+
+Docker Compose files can be converted to Kubernetes manifests using tools like Kompose, though the output typically requires manual adjustment.
+
+### Single-Host Deployments
+
+For smaller deployments, a single server running Docker with Compose is a practical option. Tools like Kamal (from 37signals) automate deploying Compose-based apps to a fleet of servers over SSH, handling rolling deploys and zero-downtime restarts.
+
+### Managed Container Services
+
+Cloud providers offer managed services that run Docker containers without requiring you to manage the underlying infrastructure: AWS ECS/Fargate, Google Cloud Run, Azure Container Apps, Fly.io, and Render, among others. These services consume standard Docker images from a registry.
+
+---
+
+## Health Checks
+
+Define a `HEALTHCHECK` in the Dockerfile or in Compose to let Docker monitor whether the application inside the container is functioning correctly. A container can be running (process is alive) but unhealthy (the application is not responding to requests).
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:3000/health || exit 1
+```
+
+In Compose:
+
+```yaml
+healthcheck:
+  test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 10s
+```
+
+The `start_period` grace period avoids false positives during application startup.
+
+---
+
+## Persistent Data and Volumes
+
+### Volume Drivers
+
+The default volume driver stores data in a Docker-managed directory on the host. For production, you may use remote volume drivers (e.g., for NFS, AWS EFS, or cloud block storage) to make data available across nodes.
+
+### Backup and Restore
+
+Back up named volumes by running a temporary container that reads the volume and writes to an archive:
+
+```bash
+docker run --rm \
+  -v myapp-data:/data \
+  -v $(pwd)/backup:/backup \
+  alpine \
+  tar czf /backup/myapp-data-$(date +%Y%m%d).tar.gz -C /data .
+```
+
+Restore with the reverse process:
+
+```bash
+docker run --rm \
+  -v myapp-data:/data \
+  -v $(pwd)/backup:/backup \
+  alpine \
+  tar xzf /backup/myapp-data-20240101.tar.gz -C /data
+```
+
+---
+
+## Cleanup and Maintenance
+
+Docker accumulates stopped containers, unused images, dangling volumes, and stale networks over time. Regular cleanup prevents disk exhaustion.
+
+```bash
+docker system prune          # Remove stopped containers, dangling images, unused networks
+docker system prune -a       # Also remove unused images (not just dangling)
+docker system prune --volumes # Also remove unused volumes (data loss risk — use with care)
+docker image prune -a        # Remove all unused images
+docker volume prune          # Remove all unused volumes
+docker container prune       # Remove all stopped containers
+```
+
+Check disk usage:
+
+```bash
+docker system df
+```
+
+---
+
+## Advanced Patterns
+
+### Init Processes
+
+PID 1 inside a container has special responsibilities (signal handling, zombie reaping). Some application processes are not designed to run as PID 1. Use `--init` to run a minimal init process (Tini) as PID 1, or use a multi-process supervisor like s6-overlay for containers that genuinely need multiple processes.
+
+```bash
+docker run --init myapp:1.0.0
+```
+
+### Entrypoint vs. CMD
+
+`ENTRYPOINT` defines the executable; `CMD` defines default arguments. When both are present, `CMD` is passed as arguments to `ENTRYPOINT`. This combination is useful for images that act like commands:
+
+```dockerfile
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["serve"]
+```
+
+The entrypoint script can perform setup tasks (waiting for dependencies, running migrations) before handing off to the main process.
+
+### Graceful Shutdown
+
+Applications should handle `SIGTERM` and complete in-flight requests before exiting. Docker sends `SIGTERM` when a container is stopped, then `SIGKILL` after the stop timeout (default 10 seconds). Set `stop_grace_period` in Compose or pass `--stop-timeout` to `docker stop` if your application needs more time.
+
+### Docker Buildx and Multi-Platform Images
+
+`docker buildx` allows building images for multiple CPU architectures (e.g., `linux/amd64` and `linux/arm64`) from a single machine using QEMU emulation or remote builders. This is important for supporting Apple Silicon Macs and ARM-based cloud instances.
+
+```bash
+docker buildx create --use
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t myregistry/myapp:1.0.0 \
+  --push .
+```
+
+### Docker Extensions and Docker Desktop
+
+Docker Desktop supports extensions that add functionality: database GUIs, log viewers, resource monitoring, and more. These are useful during development but are not part of the production workflow.
+
+---
+
+## Common Pitfalls
+
+**Not pinning base image tags.** Using `FROM node:latest` means a future build may pull a different major version, breaking the build silently. Always pin to a specific tag.
+
+**Baking secrets into image layers.** Passing secrets via `ENV` or `RUN` commands embeds them in the image layer history, even if they are later deleted. Use BuildKit secrets or multi-stage builds to avoid this.
+
+**Running as root.** Containers running as root are a security risk. Always create and use a non-root user unless there is a specific, documented reason not to.
+
+**Not setting resource limits.** Without memory and CPU limits, a container can consume all host resources. Set limits in production.
+
+**Large build contexts.** Without a `.dockerignore`, the entire project directory (including `node_modules`, `.git`, and other large directories) is sent to the daemon on every build. This slows builds significantly.
+
+**Conflating image size with image security.** A smaller image is not necessarily more secure — what matters is whether it contains packages with known vulnerabilities. Scan images regardless of size.
+
+**Not handling startup ordering.** `depends_on` in Compose waits for the container to start, not for the application inside it to be ready. Use health checks with `condition: service_healthy` to express readiness correctly.
+
+---
+
+## Quick Reference: Key Commands
+
+```bash
+# Build
+docker build -t name:tag .
+docker buildx build --platform linux/amd64,linux/arm64 -t name:tag --push .
+
+# Run
+docker run -d -p 8080:8080 --name myapp name:tag
+docker exec -it myapp sh
+
+# Compose
+docker compose up -d --build
+docker compose down -v
+docker compose logs -f
+
+# Images
+docker images
+docker pull name:tag
+docker push name:tag
+docker rmi name:tag
+
+# Registry
+docker login myregistry.com
+docker tag myapp:local myregistry.com/myapp:1.0.0
+
+# Cleanup
+docker system prune -a
+docker system df
+
+# Inspect
+docker inspect myapp
+docker stats
+docker logs -f myapp
+```
+
 ---
 
 # Docker Swarm
