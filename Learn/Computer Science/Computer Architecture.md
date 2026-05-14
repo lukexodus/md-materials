@@ -575,10 +575,8 @@ A · (A + B) = A
 
 #### De Morgan's Theorems
 
-```
-A·B̄ = Ā + B̄      (NAND identity)
-A+B̄ = Ā · B̄      (NOR identity)
-```
+$$\overline{A \cdot B} = \bar A + \bar B$$
+$$\overline{A + B} = \bar A \cdot \bar B$$
 
 De Morgan's theorems are critical in practice: they allow conversion between AND-OR and OR-AND forms, and enable expression using only NAND or only NOR gates.
 
@@ -592,18 +590,24 @@ Any Boolean expression can be represented in two standard canonical forms.
 
 A **minterm** for _n_ variables is a product term where each variable appears exactly once (complemented or uncomplemented). For two variables A, B:
 
-|Index|A|B|Minterm|
-|---|---|---|---|
-|m₀|0|0|Ā·B̄|
-|m₁|0|1|Ā·B|
-|m₂|1|0|A·B̄|
-|m₃|1|1|A·B|
+| Index | A   | B   | Minterm |
+| ----- | --- | --- | ------- |
+| m₀    | 0   | 0   | Ā·B̄    |
+| m₁    | 0   | 1   | Ā·B     |
+| m₂    | 1   | 0   | A·B̄    |
+| m₃    | 1   | 1   | A·B     |
 
 A function is expressed as the sum of all minterms for which the output is 1:
 
 ```
 F = Σm(1, 2) = Ā·B + A·B̄
 ```
+
+**Core intuition**
+- Minterms describe exact rows of a truth table.
+- A complemented variable means “this variable must be 0.”
+- An uncomplemented variable means “this variable must be 1.”
+- Summing minterms means OR-ing together all rows where the output should be true.
 
 #### Product of Maxterms (POM) — Product of Sums (POS)
 
@@ -614,6 +618,22 @@ F = ΠM(0, 3) = (A + B)·(Ā + B̄)
 ```
 
 SOP and POS are duals; minimizing one is equivalent to minimizing the other.
+
+**Core Intuition for POS / Maxterms**
+- Maxterms describe exact rows where the function is **0**.
+- In a maxterm:
+    - an **uncomplemented** variable means “this variable must be 0”
+    - a **complemented** variable means “this variable must be 1”
+- Each maxterm is constructed so the entire sum becomes 0 for exactly one row.
+- Taking the product of maxterms means AND-ing together all rows where the output should be false.
+
+The key intuition is:
+
+- **SOP / minterms** describe where the function is **1**
+- **POS / maxterms** describe where the function is **0**
+
+- **minterms select a row**
+- **maxterms reject a row**
 
 ---
 
@@ -646,7 +666,6 @@ Cells are arranged so that adjacent cells differ in exactly one variable (includ
 
 **2-Variable K-Map:**
 
-```svg
 <svg viewBox="0 0 260 160" xmlns="http://www.w3.org/2000/svg" font-family="monospace" font-size="14">
   <!-- Outer border -->
   <rect x="60" y="40" width="160" height="80" fill="none" stroke="#ccc" stroke-width="1.5"/>
@@ -665,11 +684,9 @@ Cells are arranged so that adjacent cells differ in exactly one variable (includ
   <text x="100" y="105" text-anchor="middle" fill="#e0e0e0">m₂</text>
   <text x="180" y="105" text-anchor="middle" fill="#e0e0e0">m₃</text>
 </svg>
-```
 
 **3-Variable K-Map (A vs BC):**
 
-```svg
 <svg viewBox="0 0 340 160" xmlns="http://www.w3.org/2000/svg" font-family="monospace" font-size="13">
   <rect x="60" y="40" width="240" height="80" fill="none" stroke="#ccc" stroke-width="1.5"/>
   <line x1="120" y1="40" x2="120" y2="120" stroke="#ccc" stroke-width="1"/>
@@ -694,7 +711,6 @@ Cells are arranged so that adjacent cells differ in exactly one variable (includ
   <text x="210" y="105" text-anchor="middle" fill="#e0e0e0">7</text>
   <text x="270" y="105" text-anchor="middle" fill="#e0e0e0">6</text>
 </svg>
-```
 
 Note the **Gray code column ordering** (00, 01, 11, 10) — not binary order. This ensures adjacency between all neighboring cells.
 

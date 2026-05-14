@@ -575,7 +575,8 @@ SLIDE LIST
 - Components to use (callout, badge, code block, card, etc.)
 
 Example format:
-1. **[Slide Title]**: [Content description]. [Layout preference]. [Components to use.]
+1. **[Slide Title]**: [Content description]. [Layout preference]. 
+   [Components to use.]
 2. **[Slide Title]**: [Content description]. [Layout preference]. [Components to use.]
 ...]
 
