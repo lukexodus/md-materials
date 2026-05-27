@@ -2,6 +2,8 @@
 
 **Based on:** Anthropic Roundtable with Alex, David, Amanda (Finetuning Research), Zack (Prompt Engineer) **Extended with:** Related concepts, reasoning, practical extrapolations, and original synthesis
 
+**Link**: https://youtu.be/T9aRN5JkmL8?si=zSYVURZQyIQx0vdT
+
 ---
 
 ## Part I — Foundational Concepts: What You Need to Understand First

@@ -1218,7 +1218,7 @@ ALTER TABLE employees_new RENAME TO employees;
 -- Step 5: Recreate indexes, triggers, and views if any
 ```
 
-## Schema Information Queries
+### Schema Information Queries
 
 SQLite stores schema information in the `sqlite_master` table.
 
@@ -1252,7 +1252,7 @@ PRAGMA index_list(employees);
 SELECT sql FROM sqlite_master WHERE type='table' AND name='employees';
 ```
 
-## Transaction Control with DDL
+### Transaction Control with DDL
 
 DDL statements in SQLite are transactional and can be rolled back:
 
@@ -1304,3 +1304,4964 @@ COMMIT;
 
 ---
 
+# Basic SQL Operations (DML)
+
+## INSERT Statements and Variations in SQLite
+
+---
+
+### Basic Syntax
+
+The `INSERT` statement adds one or more rows to a table.
+
+```sql
+INSERT INTO table_name (column1, column2, column3)
+VALUES (value1, value2, value3);
+```
+
+**Key Points:**
+
+- Column list is optional if you supply values for _all_ columns in defined order
+- Omitting a column uses its `DEFAULT` value or `NULL` if none is defined
+- SQLite is dynamically typed; column affinity applies but is not strictly enforced
+
+**Example:**
+
+```sql
+CREATE TABLE employees (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    name    TEXT NOT NULL,
+    dept    TEXT,
+    salary  REAL DEFAULT 0.0
+);
+
+INSERT INTO employees (name, dept, salary)
+VALUES ('Alice', 'Engineering', 95000.00);
+```
+
+---
+
+### Omitting the Column List
+
+```sql
+INSERT INTO employees
+VALUES (NULL, 'Bob', 'Marketing', 72000.00);
+```
+
+**Key Points:**
+
+- `NULL` is passed for the `id` column so `AUTOINCREMENT` can assign the next value
+- Column order must exactly match the table's defined schema
+- Generally considered fragile — schema changes can silently break this form
+
+---
+
+### Multi-Row INSERT
+
+SQLite supports inserting multiple rows in a single statement (since SQLite 3.7.11).
+
+```sql
+INSERT INTO employees (name, dept, salary)
+VALUES
+    ('Carol', 'Design',      68000.00),
+    ('David', 'Engineering', 101000.00),
+    ('Eve',   'HR',          61000.00);
+```
+
+**Key Points:**
+
+- Reduces round-trips compared to individual inserts
+- All rows are inserted atomically within the statement
+- [Inference] Likely more efficient than looped single-row inserts for bulk data, though actual performance depends on transaction context and hardware
+
+---
+
+### INSERT OR REPLACE
+
+Attempts an insert; if a `UNIQUE` or `PRIMARY KEY` constraint is violated, the conflicting row is **deleted** and re-inserted.
+
+```sql
+INSERT OR REPLACE INTO employees (id, name, dept, salary)
+VALUES (1, 'Alice', 'Engineering', 99000.00);
+```
+
+**Key Points:**
+
+- The old row is fully removed, then a new row is written — this means the `rowid` changes
+- Any columns not supplied receive their default values, not the old row's values
+- Triggers for `DELETE` and `INSERT` may fire; `UPDATE` triggers do **not**
+- Behavior may vary depending on trigger configuration — test in your environment
+
+---
+
+### INSERT OR IGNORE
+
+Skips the insert silently if a constraint violation would occur.
+
+```sql
+INSERT OR IGNORE INTO employees (id, name, dept, salary)
+VALUES (1, 'Alice', 'Engineering', 99000.00);
+```
+
+**Key Points:**
+
+- No error is raised; the conflicting row is left untouched
+- Useful for idempotent seed scripts or deduplication scenarios
+- Does **not** update the existing row — if an update is needed, use `INSERT OR REPLACE` or `UPSERT`
+
+---
+
+### INSERT OR FAIL
+
+Raises an error and aborts the current statement if a constraint is violated, but does **not** roll back any prior changes in the same transaction.
+
+```sql
+INSERT OR FAIL INTO employees (name, dept, salary)
+VALUES ('Frank', 'Legal', 85000.00);
+```
+
+---
+
+### INSERT OR ABORT _(default behavior)_
+
+Aborts the current statement and rolls back changes made by that statement only. This is the default conflict resolution strategy.
+
+```sql
+INSERT OR ABORT INTO employees (name, dept, salary)
+VALUES ('Grace', 'Finance', 79000.00);
+```
+
+---
+
+### INSERT OR ROLLBACK
+
+Aborts the current statement **and** rolls back the entire current transaction on conflict.
+
+```sql
+BEGIN;
+INSERT OR ROLLBACK INTO employees (name, dept, salary)
+VALUES ('Hank', 'Operations', 67000.00);
+COMMIT;
+```
+
+**Key Points:**
+
+- Strongest conflict response among the `OR` variants
+- Useful when partial transaction state is considered invalid
+
+---
+
+### Conflict Resolution Summary Table
+
+|Variant|On Conflict: Aborts Statement|Rolls Back Transaction|Existing Row Affected|
+|---|---|---|---|
+|`OR ABORT` _(default)_|✅|❌|Untouched|
+|`OR FAIL`|✅|❌|Untouched|
+|`OR IGNORE`|❌ (skips)|❌|Untouched|
+|`OR REPLACE`|✅ (deletes + re-inserts)|❌|Deleted|
+|`OR ROLLBACK`|✅|✅|Untouched|
+
+---
+
+### INSERT INTO ... SELECT
+
+Inserts rows derived from a query result.
+
+```sql
+INSERT INTO employees (name, dept, salary)
+SELECT name, dept, salary
+FROM contractors
+WHERE contract_end < DATE('now');
+```
+
+**Key Points:**
+
+- Column count and compatible types must align between `SELECT` output and target table
+- The `SELECT` can include joins, subqueries, filters, and expressions
+- No `VALUES` clause is used with this form
+
+**Example — copying a table:**
+
+```sql
+INSERT INTO employees_backup
+SELECT * FROM employees;
+```
+
+---
+
+### UPSERT (INSERT ... ON CONFLICT)
+
+Introduced in SQLite 3.24.0. Allows conditional update logic when a conflict occurs, without deleting the existing row.
+
+```sql
+INSERT INTO employees (id, name, dept, salary)
+VALUES (1, 'Alice', 'Engineering', 99000.00)
+ON CONFLICT(id) DO UPDATE SET
+    salary = excluded.salary,
+    dept   = excluded.dept;
+```
+
+**Key Points:**
+
+- `excluded` refers to the row that _would have been_ inserted
+- The existing row's `rowid` is preserved (unlike `OR REPLACE`)
+- `UPDATE` triggers fire instead of `DELETE`/`INSERT` triggers
+- You may add a `WHERE` clause to the `DO UPDATE` to conditionally apply the update:
+
+```sql
+ON CONFLICT(id) DO UPDATE SET
+    salary = excluded.salary
+WHERE excluded.salary > employees.salary;
+```
+
+- To explicitly do nothing on conflict:
+
+```sql
+ON CONFLICT(id) DO NOTHING;
+```
+
+---
+
+### INSERT with DEFAULT VALUES
+
+Inserts a single row using all column defaults.
+
+```sql
+INSERT INTO employees DEFAULT VALUES;
+```
+
+**Key Points:**
+
+- Every column must have a `DEFAULT` defined, or be nullable — otherwise an error occurs
+- Rarely used in practice but valid syntax
+
+---
+
+### INSERT with a WITH Clause (CTE)
+
+A Common Table Expression can precede an `INSERT ... SELECT`.
+
+```sql
+WITH high_earners AS (
+    SELECT name, dept, salary
+    FROM contractors
+    WHERE salary > 90000.00
+)
+INSERT INTO employees (name, dept, salary)
+SELECT name, dept, salary
+FROM high_earners;
+```
+
+**Key Points:**
+
+- CTE is evaluated first, then the result is fed to the `INSERT`
+- Multiple CTEs can be chained with commas
+
+---
+
+### Retrieving the Last Inserted Row ID
+
+```sql
+INSERT INTO employees (name, dept, salary)
+VALUES ('Ivan', 'IT', 74000.00);
+
+SELECT last_insert_rowid();
+```
+
+**Key Points:**
+
+- `last_insert_rowid()` returns the `rowid` of the most recent successful insert in the current connection
+- Behavior is connection-scoped, not global — [Inference] concurrent connections should not interfere, but this depends on your application's connection management
+- Returns `0` if no insert has occurred in the session
+
+---
+
+### Performance Considerations
+
+**Key Points:**
+
+- Wrapping many inserts in an explicit `BEGIN ... COMMIT` transaction significantly reduces I/O overhead — [Inference] each auto-committed insert writes to disk individually, which can be orders of magnitude slower for bulk loads (behavior may vary by OS and storage)
+- `PRAGMA journal_mode = WAL;` may improve concurrent write throughput — verify in your environment
+- `PRAGMA synchronous = NORMAL;` or `OFF` can reduce fsync calls at the cost of durability guarantees — use with caution
+
+**Example — bulk insert with transaction:**
+
+```sql
+BEGIN;
+INSERT INTO employees (name, dept, salary) VALUES ('J1', 'Dept', 50000);
+INSERT INTO employees (name, dept, salary) VALUES ('J2', 'Dept', 51000);
+-- ... more rows
+COMMIT;
+```
+
+---
+
+**Conclusion:** SQLite's `INSERT` covers a wide range of use cases — from basic single-row inserts to conflict-aware upserts and bulk `SELECT`-driven loads. Choosing the right variation depends on your conflict handling needs, whether row identity must be preserved, and performance requirements. Always verify behavior in your specific SQLite version, as features like `UPSERT` have minimum version requirements.
+
+---
+
+## SELECT Statements and Basic Queries in SQLite
+
+---
+
+### Basic Syntax
+
+The `SELECT` statement retrieves rows from one or more tables.
+
+```sql
+SELECT column1, column2
+FROM table_name;
+```
+
+**Key Points:**
+
+- `SELECT` does not modify data
+- Column list can be explicit or use `*` to return all columns
+- SQLite processes clauses in a defined logical order (covered below)
+
+---
+
+### Selecting All Columns
+
+```sql
+SELECT * FROM employees;
+```
+
+**Key Points:**
+
+- Returns every column in the table's defined order
+- Generally discouraged in production code — schema changes silently alter result shape
+- Acceptable for exploration and quick debugging
+
+---
+
+### Selecting Specific Columns
+
+```sql
+SELECT name, dept, salary
+FROM employees;
+```
+
+**Key Points:**
+
+- Only the listed columns are returned
+- Column order in the result follows the order listed in the query, not the table schema
+
+---
+
+### Column Aliases
+
+Rename a column in the result set using `AS`.
+
+```sql
+SELECT name AS employee_name, salary AS annual_salary
+FROM employees;
+```
+
+**Key Points:**
+
+- `AS` is optional — `name employee_name` is valid but less readable
+- Aliases can be used in `ORDER BY` but **not** in `WHERE` (SQLite processes `WHERE` before alias resolution)
+- Aliases defined in `SELECT` are available in `ORDER BY` and `HAVING`
+
+---
+
+### Expressions in SELECT
+
+You can compute values directly in the column list.
+
+```sql
+SELECT
+    name,
+    salary,
+    salary * 0.10        AS bonus,
+    salary + salary * 0.10 AS total_compensation
+FROM employees;
+```
+
+**Key Points:**
+
+- Arithmetic operators: `+`, `-`, `*`, `/`, `%`
+- String concatenation uses `||`
+- Expression results are not stored — they are computed per query
+
+**Example — string expression:**
+
+```sql
+SELECT name || ' (' || dept || ')' AS label
+FROM employees;
+```
+
+**Output:**
+
+```
+Alice (Engineering)
+Bob (Marketing)
+```
+
+---
+
+### DISTINCT
+
+Removes duplicate rows from the result.
+
+```sql
+SELECT DISTINCT dept
+FROM employees;
+```
+
+**Key Points:**
+
+- `DISTINCT` applies to the entire row, not a single column
+- When multiple columns are selected, uniqueness is evaluated across the combination
+- [Inference] May involve a sort or hash operation internally — can be slower on large, unindexed datasets
+
+```sql
+SELECT DISTINCT dept, salary
+FROM employees;
+-- Returns unique (dept, salary) pairs, not unique depts alone
+```
+
+---
+
+### WHERE Clause
+
+Filters rows based on a condition.
+
+```sql
+SELECT name, salary
+FROM employees
+WHERE dept = 'Engineering';
+```
+
+#### Comparison Operators
+
+|Operator|Meaning|
+|---|---|
+|`=`|Equal|
+|`!=` or `<>`|Not equal|
+|`<`, `>`|Less / greater than|
+|`<=`, `>=`|Less / greater than or equal|
+
+#### Logical Operators
+
+```sql
+-- AND
+SELECT name FROM employees
+WHERE dept = 'Engineering' AND salary > 90000;
+
+-- OR
+SELECT name FROM employees
+WHERE dept = 'Engineering' OR dept = 'Design';
+
+-- NOT
+SELECT name FROM employees
+WHERE NOT dept = 'HR';
+```
+
+**Key Points:**
+
+- `AND` has higher precedence than `OR` — use parentheses to clarify complex conditions
+- SQLite evaluates `WHERE` before `SELECT` expressions
+
+---
+
+### NULL Handling in WHERE
+
+`NULL` comparisons require `IS NULL` or `IS NOT NULL`.
+
+```sql
+SELECT name FROM employees WHERE dept IS NULL;
+SELECT name FROM employees WHERE dept IS NOT NULL;
+```
+
+**Key Points:**
+
+- `WHERE dept = NULL` does **not** work as expected — it always evaluates to false in SQL
+- `NULL` is not equal to anything, including itself
+- This is standard SQL behavior, not SQLite-specific
+
+---
+
+### BETWEEN
+
+Tests whether a value falls within an inclusive range.
+
+```sql
+SELECT name, salary
+FROM employees
+WHERE salary BETWEEN 60000 AND 90000;
+```
+
+**Key Points:**
+
+- Equivalent to `salary >= 60000 AND salary <= 90000`
+- Works with numbers, text (lexicographic), and dates stored as text in ISO format
+
+---
+
+### IN and NOT IN
+
+Tests membership in a value list.
+
+```sql
+SELECT name FROM employees
+WHERE dept IN ('Engineering', 'Design', 'IT');
+
+SELECT name FROM employees
+WHERE dept NOT IN ('HR', 'Marketing');
+```
+
+**Key Points:**
+
+- `IN` can also accept a subquery (covered in subquery topics)
+- `NOT IN` with a list containing `NULL` may produce unexpected results — [Inference] if any value in the list is `NULL`, `NOT IN` can return no rows; always filter `NULL` from `NOT IN` lists when this is a concern
+- Behavior may vary depending on data — test with your actual dataset
+
+---
+
+### LIKE
+
+Pattern matching on text values.
+
+|Wildcard|Meaning|
+|---|---|
+|`%`|Zero or more characters|
+|`_`|Exactly one character|
+
+```sql
+-- Names starting with 'A'
+SELECT name FROM employees WHERE name LIKE 'A%';
+
+-- Names ending with 'e'
+SELECT name FROM employees WHERE name LIKE '%e';
+
+-- Names with exactly 3 characters
+SELECT name FROM employees WHERE name LIKE '___';
+
+-- Names containing 'ar'
+SELECT name FROM employees WHERE name LIKE '%ar%';
+```
+
+**Key Points:**
+
+- Case-insensitive by default for ASCII characters in SQLite
+- Case sensitivity for Unicode characters depends on the build and any loaded ICU extension — [Unverified] behavior for non-ASCII `LIKE` comparisons should be tested in your environment
+- `ESCAPE` clause defines a custom escape character for literal `%` or `_`:
+
+```sql
+SELECT * FROM files WHERE path LIKE '50\% done%' ESCAPE '\';
+```
+
+---
+
+### GLOB
+
+Similar to `LIKE` but uses Unix-style wildcards and is case-sensitive.
+
+|Wildcard|Meaning|
+|---|---|
+|`*`|Zero or more characters|
+|`?`|Exactly one character|
+|`[abc]`|Character class|
+
+```sql
+SELECT name FROM employees WHERE name GLOB 'A*';
+SELECT name FROM employees WHERE name GLOB '[ABC]*';
+```
+
+**Key Points:**
+
+- Always case-sensitive, unlike `LIKE`
+- Not part of standard SQL — SQLite-specific
+
+---
+
+### ORDER BY
+
+Sorts the result set.
+
+```sql
+SELECT name, salary
+FROM employees
+ORDER BY salary DESC;
+```
+
+```sql
+-- Multiple columns
+SELECT name, dept, salary
+FROM employees
+ORDER BY dept ASC, salary DESC;
+```
+
+**Key Points:**
+
+- `ASC` is the default and can be omitted
+- `NULL` values sort **before** non-null values in `ASC` order and **after** in `DESC` order in SQLite — [Inference] this differs from some other databases; verify if portability matters
+- You can order by column position: `ORDER BY 2 DESC` (refers to second column in `SELECT`) — valid but fragile
+
+---
+
+### LIMIT and OFFSET
+
+Controls how many rows are returned.
+
+```sql
+-- First 5 rows
+SELECT name, salary FROM employees
+ORDER BY salary DESC
+LIMIT 5;
+
+-- Rows 6–10 (skip first 5)
+SELECT name, salary FROM employees
+ORDER BY salary DESC
+LIMIT 5 OFFSET 5;
+```
+
+**Key Points:**
+
+- `LIMIT` without `ORDER BY` returns an arbitrary subset — row order is not guaranteed without explicit sorting
+- `OFFSET` is zero-based
+- SQLite also supports the shorthand `LIMIT offset, count` (comma syntax) though the `OFFSET` keyword form is clearer
+- [Inference] Large `OFFSET` values on big tables can be slow since SQLite scans and discards rows up to the offset — keyset pagination may be preferable for performance
+
+---
+
+### Logical Processing Order
+
+SQLite (and SQL generally) processes clauses in this logical order, regardless of written order:
+
+```
+1. FROM
+2. WHERE
+3. GROUP BY
+4. HAVING
+5. SELECT  (expressions, aliases resolved here)
+6. DISTINCT
+7. ORDER BY
+8. LIMIT / OFFSET
+```
+
+**Key Points:**
+
+- This explains why `WHERE` cannot reference `SELECT` aliases — aliases don't exist yet at that stage
+- `HAVING` can reference aliases defined in `SELECT` in SQLite — [Inference] this is a SQLite-specific extension to standard behavior and may not be portable
+
+---
+
+### SELECT Without a Table
+
+SQLite allows `SELECT` without a `FROM` clause, useful for evaluating expressions.
+
+```sql
+SELECT 1 + 1;
+SELECT UPPER('hello');
+SELECT DATE('now');
+SELECT SQLITE_VERSION();
+```
+
+**Output:**
+
+```
+2
+HELLO
+2026-05-23
+3.x.x
+```
+
+---
+
+### Combining Conditions — Practical Example
+
+```sql
+SELECT name, dept, salary
+FROM employees
+WHERE dept IN ('Engineering', 'IT')
+  AND salary BETWEEN 70000 AND 110000
+  AND name LIKE 'A%'
+ORDER BY salary DESC
+LIMIT 10;
+```
+
+---
+
+### CASE Expression in SELECT
+
+Conditional logic within a query.
+
+```sql
+SELECT
+    name,
+    salary,
+    CASE
+        WHEN salary >= 90000 THEN 'Senior'
+        WHEN salary >= 70000 THEN 'Mid'
+        ELSE 'Junior'
+    END AS level
+FROM employees;
+```
+
+**Key Points:**
+
+- `CASE` is an expression, not a statement — it returns a value
+- Can be used anywhere an expression is valid: `SELECT`, `WHERE`, `ORDER BY`
+- Evaluated top-to-bottom; first matching `WHEN` wins
+
+---
+
+### TYPEOF and Type Introspection
+
+Useful for debugging SQLite's dynamic typing.
+
+```sql
+SELECT name, TYPEOF(salary), TYPEOF(name)
+FROM employees;
+```
+
+**Output:**
+
+```
+Alice | real | text
+Bob   | real | text
+```
+
+**Key Points:**
+
+- Returns the storage class: `null`, `integer`, `real`, `text`, `blob`
+- Reflects the actual stored value type, not the declared column affinity
+
+---
+
+**Conclusion:** The `SELECT` statement is the foundation of all data retrieval in SQLite. Core variations — filtering with `WHERE`, sorting with `ORDER BY`, limiting with `LIMIT`, and pattern matching with `LIKE` or `GLOB` — cover most practical querying needs. Understanding logical processing order helps avoid common errors with aliases and filtering. Behavior for edge cases like `NULL` comparisons and Unicode `LIKE` should be verified in your target environment.
+
+**Next Steps:**
+
+- Aggregate functions and `GROUP BY`
+- Joins (`INNER`, `LEFT`, `CROSS`)
+- Subqueries and CTEs
+- Full-text search with FTS5
+
+---
+
+## UPDATE Operations in SQLite
+
+---
+
+### Basic Syntax
+
+The `UPDATE` statement modifies existing rows in a table.
+
+```sql
+UPDATE table_name
+SET column1 = value1, column2 = value2
+WHERE condition;
+```
+
+**Key Points:**
+
+- `SET` accepts one or more column assignments, comma-separated
+- `WHERE` is optional but omitting it updates **every row** in the table
+- SQLite processes the `WHERE` filter before applying `SET` assignments
+- No rows are added or removed — only existing row values change
+
+---
+
+### Single Column Update
+
+```sql
+UPDATE employees
+SET salary = 105000.00
+WHERE id = 1;
+```
+
+---
+
+### Multiple Column Update
+
+```sql
+UPDATE employees
+SET salary = 105000.00,
+    dept   = 'Senior Engineering'
+WHERE id = 1;
+```
+
+**Key Points:**
+
+- All assignments in a single `SET` clause are applied atomically to each matching row
+- Column order in `SET` does not matter
+- [Inference] Assignments do not chain within the same `SET` — each right-hand side expression is evaluated using the row's _original_ values before any updates in that statement take effect; behavior should be tested in your environment
+
+---
+
+### Updating All Rows
+
+Omitting `WHERE` applies the change to every row.
+
+```sql
+UPDATE employees
+SET salary = salary * 1.05;
+```
+
+**Key Points:**
+
+- This is valid and intentional in some cases (e.g., applying a universal raise)
+- There is no confirmation prompt — execute with care
+- [Inference] Wrapping in a transaction allows rollback if the result is not as intended
+
+---
+
+### UPDATE with Expressions
+
+The right-hand side of `SET` can be any valid expression.
+
+```sql
+-- Percentage increase
+UPDATE employees
+SET salary = salary * 1.10
+WHERE dept = 'Engineering';
+
+-- String update with concatenation
+UPDATE employees
+SET name = name || ' (Contractor)'
+WHERE dept = 'IT';
+
+-- Conditional assignment using CASE
+UPDATE employees
+SET salary = CASE
+    WHEN dept = 'Engineering' THEN salary * 1.10
+    WHEN dept = 'Design'      THEN salary * 1.07
+    ELSE                           salary * 1.03
+END;
+```
+
+**Key Points:**
+
+- Expressions can reference the column being updated (e.g., `salary = salary * 1.1`)
+- `CASE` in `SET` allows row-by-row conditional logic without multiple statements
+- String, numeric, and date functions are all valid in `SET` expressions
+
+---
+
+### UPDATE with WHERE and Multiple Conditions
+
+```sql
+UPDATE employees
+SET salary = 95000.00
+WHERE dept = 'Marketing'
+  AND salary < 80000.00;
+```
+
+```sql
+UPDATE employees
+SET dept = 'General'
+WHERE dept IS NULL;
+```
+
+**Key Points:**
+
+- All `WHERE` clauses from `SELECT` apply here: `AND`, `OR`, `IN`, `BETWEEN`, `LIKE`, `IS NULL`
+- `NULL` assignments require `= NULL` in `SET` (unlike `WHERE`, where you must use `IS NULL`)
+
+**Example — setting a column to NULL:**
+
+```sql
+UPDATE employees
+SET dept = NULL
+WHERE id = 5;
+```
+
+---
+
+### UPDATE with RETURNING
+
+Available in SQLite 3.35.0+. Returns data from the rows that were modified.
+
+```sql
+UPDATE employees
+SET salary = salary * 1.10
+WHERE dept = 'Engineering'
+RETURNING id, name, salary;
+```
+
+**Output:**
+
+```
+1 | Alice | 104500.00
+4 | David | 111100.00
+```
+
+**Key Points:**
+
+- `RETURNING *` returns all columns of the updated rows
+- Useful for retrieving new computed values without a follow-up `SELECT`
+- Returns the row values **after** the update is applied
+- Behavior depends on SQLite version — verify `SQLITE_VERSION()` in your environment
+
+---
+
+### UPDATE with Subquery in SET
+
+A subquery can supply the new value for a column.
+
+```sql
+UPDATE employees
+SET salary = (
+    SELECT AVG(salary)
+    FROM employees
+    WHERE dept = 'Engineering'
+)
+WHERE dept = 'Engineering'
+  AND salary < 70000.00;
+```
+
+**Key Points:**
+
+- The subquery must return a single value (scalar subquery)
+- If the subquery returns no rows, the column is set to `NULL`
+- [Inference] The subquery is evaluated once per updated row in SQLite's default behavior — test with your data to confirm expected results
+
+---
+
+### UPDATE with Subquery in WHERE
+
+Filter rows to update based on a subquery result.
+
+```sql
+UPDATE employees
+SET salary = salary * 1.05
+WHERE id IN (
+    SELECT id FROM employees
+    WHERE dept = 'Engineering'
+      AND salary < (SELECT AVG(salary) FROM employees)
+);
+```
+
+**Key Points:**
+
+- Subqueries in `WHERE` follow the same rules as in `SELECT` statements
+- Correlated subqueries are supported but [Inference] may be slower on large tables without appropriate indexes — verify with `EXPLAIN QUERY PLAN`
+
+---
+
+### UPDATE with JOIN (via Subquery)
+
+SQLite does not support `UPDATE ... JOIN` syntax directly. Joins are expressed using subqueries or the `FROM` clause (added in SQLite 3.33.0).
+
+#### Using a Subquery (all versions):
+
+```sql
+UPDATE employees
+SET salary = salary * 1.08
+WHERE id IN (
+    SELECT e.id
+    FROM employees e
+    JOIN departments d ON e.dept = d.name
+    WHERE d.budget_tier = 'high'
+);
+```
+
+#### Using FROM clause (SQLite 3.33.0+):
+
+```sql
+UPDATE employees
+SET salary = employees.salary * 1.08
+FROM departments
+WHERE employees.dept = departments.name
+  AND departments.budget_tier = 'high';
+```
+
+**Key Points:**
+
+- The `FROM` clause form is more readable and closer to PostgreSQL syntax
+- Both achieve the same logical result — [Inference] performance may differ depending on indexes and query plan; use `EXPLAIN QUERY PLAN` to compare
+- Always qualify column names with table names when using `FROM` to avoid ambiguity
+
+---
+
+### UPDATE with CTE (Common Table Expression)
+
+```sql
+WITH engineering_avg AS (
+    SELECT AVG(salary) AS avg_sal
+    FROM employees
+    WHERE dept = 'Engineering'
+)
+UPDATE employees
+SET salary = (SELECT avg_sal FROM engineering_avg)
+WHERE dept = 'Engineering'
+  AND salary < (SELECT avg_sal FROM engineering_avg);
+```
+
+**Key Points:**
+
+- CTEs in `UPDATE` are supported in SQLite 3.35.0+
+- The CTE is referenced like a subquery in both `SET` and `WHERE`
+- Useful for readability when the same derived value is needed in multiple places
+
+---
+
+### Conflict Resolution in UPDATE
+
+Like `INSERT`, `UPDATE` supports `OR` conflict resolution clauses.
+
+```sql
+UPDATE OR IGNORE employees
+SET id = 99
+WHERE name = 'Alice';
+
+UPDATE OR REPLACE employees
+SET id = 99
+WHERE name = 'Alice';
+
+UPDATE OR ROLLBACK employees
+SET id = 99
+WHERE name = 'Alice';
+```
+
+| Variant                | On Constraint Violation                                  |
+| ---------------------- | -------------------------------------------------------- |
+| `OR ABORT` _(default)_ | Rolls back the statement, not the transaction            |
+| `OR FAIL`              | Stops at the failing row; prior rows in statement remain |
+| `OR IGNORE`            | Skips the conflicting row silently                       |
+| `OR REPLACE`           | Deletes the conflicting row, then applies the update     |
+| `OR ROLLBACK`          | Rolls back the entire transaction                        |
+
+**Key Points:**
+
+- These mirror the `INSERT OR ...` variants in behavior
+- `OR REPLACE` in an `UPDATE` context deletes the _other_ row that conflicts, then proceeds — not the row being updated
+- Trigger behavior during conflict resolution may vary — test in your environment
+
+---
+
+### Verifying Updates with changes()
+
+`changes()` returns the number of rows affected by the most recent `INSERT`, `UPDATE`, or `DELETE`.
+
+```sql
+UPDATE employees
+SET salary = 75000.00
+WHERE dept = 'HR';
+
+SELECT changes();
+```
+
+**Output:**
+
+```
+3
+```
+
+**Key Points:**
+
+- Returns `0` if no rows matched the `WHERE` condition
+- Scoped to the current database connection
+- Does not reflect rows changed by triggers — for that, use `total_changes()`
+
+---
+
+### Safe UPDATE Practices
+
+**Key Points:**
+
+- Always run a `SELECT` with the same `WHERE` clause before executing an `UPDATE` to verify which rows will be affected
+- Wrap updates in a transaction to allow rollback:
+
+```sql
+BEGIN;
+
+UPDATE employees
+SET dept = 'Restructured'
+WHERE dept = 'Operations';
+
+-- Verify
+SELECT * FROM employees WHERE dept = 'Restructured';
+
+-- If correct:
+COMMIT;
+
+-- If not:
+-- ROLLBACK;
+```
+
+- Use `LIMIT` in `UPDATE` to cap the number of rows affected (requires SQLite compiled with `SQLITE_ENABLE_UPDATE_DELETE_LIMIT`):
+
+```sql
+UPDATE employees
+SET salary = 80000.00
+WHERE dept = 'Marketing'
+ORDER BY salary ASC
+LIMIT 3;
+```
+
+**Key Points on LIMIT in UPDATE:**
+
+- Not available in all SQLite builds — check with `PRAGMA compile_options;`
+- `ORDER BY` must accompany `LIMIT` in `UPDATE` to define which rows are selected
+- [Unverified] availability depends on compile-time flags; do not assume this is present without verification
+
+---
+
+### Checking for Unintended Full-Table Updates
+
+SQLite does not warn before a full-table update. [Inference] It is good practice to check `WHERE` clause presence before executing in scripts or applications — some database wrappers or ORMs may offer safeguards, but SQLite itself does not.
+
+```sql
+-- Dangerous: no WHERE clause
+UPDATE employees SET dept = 'Unknown';
+
+-- Safer pattern: always verify row count first
+SELECT COUNT(*) FROM employees WHERE dept IS NULL;
+UPDATE employees SET dept = 'Unknown' WHERE dept IS NULL;
+```
+
+---
+
+**Conclusion:** SQLite's `UPDATE` supports a range of patterns from simple single-column changes to conditional `CASE` expressions, subquery-driven updates, and conflict-aware variants. The `FROM` clause and `RETURNING` clause extend its capabilities in newer versions. For safety, wrapping updates in transactions, verifying row counts beforehand, and using `changes()` to confirm results are recommended practices. Always verify version-dependent features like `RETURNING`, `FROM`, and `LIMIT` against your environment.
+
+**Next Steps:**
+
+- DELETE operations and safe deletion patterns
+- Transactions and savepoints
+- Triggers (which fire on `UPDATE` events)
+- Indexes and their effect on UPDATE performance
+
+---
+
+## DELETE Operations in SQLite
+
+---
+
+### Basic Syntax
+
+The `DELETE` statement removes rows from a table.
+
+```sql
+DELETE FROM table_name
+WHERE condition;
+```
+
+**Key Points:**
+
+- Only rows are removed — the table structure, indexes, and triggers remain intact
+- `WHERE` is optional; omitting it removes **every row** in the table
+- `DELETE` does not reset `AUTOINCREMENT` counters — the next inserted row continues from the last known max `rowid`
+- Removed rows cannot be recovered without a transaction rollback or backup
+
+---
+
+### Delete a Single Row
+
+```sql
+DELETE FROM employees
+WHERE id = 5;
+```
+
+---
+
+### Delete with Multiple Conditions
+
+```sql
+DELETE FROM employees
+WHERE dept = 'Marketing'
+  AND salary < 60000.00;
+```
+
+```sql
+DELETE FROM employees
+WHERE dept IN ('Temp', 'Contractor')
+   OR salary IS NULL;
+```
+
+**Key Points:**
+
+- All `WHERE` clause patterns from `SELECT` apply: `AND`, `OR`, `IN`, `BETWEEN`, `LIKE`, `IS NULL`
+- Parentheses are recommended when mixing `AND` and `OR` to avoid precedence errors
+
+---
+
+### Delete All Rows
+
+```sql
+DELETE FROM employees;
+```
+
+**Key Points:**
+
+- Removes every row but preserves the table definition
+- The `rowid` sequence is **not** reset — [Inference] this differs from `TRUNCATE` in other databases; SQLite has no `TRUNCATE` statement
+- If resetting the sequence is required alongside clearing rows, `DROP TABLE` and recreate, or manually reset the `sqlite_sequence` table (for `AUTOINCREMENT` tables):
+
+```sql
+-- Reset AUTOINCREMENT counter (only applies to AUTOINCREMENT tables)
+DELETE FROM sqlite_sequence WHERE name = 'employees';
+```
+
+**Key Points on sqlite_sequence:**
+
+- `sqlite_sequence` only exists if at least one table was created with `AUTOINCREMENT`
+- Modifying it directly is supported but should be done carefully — [Inference] inserting after a manual reset may produce IDs that conflict with previously deleted rows if those rows still exist elsewhere (e.g., in foreign key references)
+
+---
+
+### DELETE with RETURNING
+
+Available in SQLite 3.35.0+. Returns data from the rows that were deleted.
+
+```sql
+DELETE FROM employees
+WHERE dept = 'Temp'
+RETURNING id, name, salary;
+```
+
+**Output:**
+
+```
+7  | Frank  | 52000.00
+11 | Judy   | 48000.00
+```
+
+**Key Points:**
+
+- `RETURNING *` returns all columns of the deleted rows
+- Row values are returned as they existed **before** deletion
+- Useful for logging, auditing, or feeding deleted data into another operation without a prior `SELECT`
+- Requires SQLite 3.35.0+ — verify with `SELECT SQLITE_VERSION();`
+
+---
+
+### DELETE with Subquery in WHERE
+
+```sql
+DELETE FROM employees
+WHERE id IN (
+    SELECT id FROM employees
+    WHERE salary < (SELECT AVG(salary) FROM employees)
+      AND dept = 'Operations'
+);
+```
+
+**Key Points:**
+
+- Subqueries in `DELETE` follow the same rules as in `SELECT`
+- The subquery is evaluated before deletion begins — [Inference] rows matching the subquery at evaluation time are the rows deleted; modifications mid-statement do not alter the target set, but this should be tested in your environment
+- Correlated subqueries are supported
+
+---
+
+### DELETE with FROM Clause (Join-Style)
+
+SQLite does not support `DELETE ... JOIN` directly. A join can be expressed via subquery or, in SQLite 3.33.0+, via a `FROM` clause.
+
+#### Using Subquery (all versions):
+
+```sql
+DELETE FROM employees
+WHERE id IN (
+    SELECT e.id
+    FROM employees e
+    JOIN departments d ON e.dept = d.name
+    WHERE d.status = 'dissolved'
+);
+```
+
+#### Using FROM clause (SQLite 3.33.0+):
+
+```sql
+DELETE FROM employees
+WHERE employees.dept = departments.name
+  AND departments.status = 'dissolved';
+```
+
+Wait — the `FROM` clause form for `DELETE` requires explicit syntax:
+
+```sql
+DELETE FROM employees
+WHERE EXISTS (
+    SELECT 1 FROM departments
+    WHERE departments.name = employees.dept
+      AND departments.status = 'dissolved'
+);
+```
+
+**Key Points:**
+
+- SQLite's `DELETE` does not support a standalone `FROM` join clause the way `UPDATE` does in 3.33.0+ — use `EXISTS` or `IN` subqueries for join-style filtering
+- `EXISTS` can be more readable when checking related table conditions
+- [Inference] `EXISTS` may perform differently than `IN` depending on indexes — use `EXPLAIN QUERY PLAN` to compare
+
+---
+
+### DELETE with EXISTS
+
+```sql
+DELETE FROM employees
+WHERE EXISTS (
+    SELECT 1 FROM terminations
+    WHERE terminations.employee_id = employees.id
+      AND terminations.effective_date <= DATE('now')
+);
+```
+
+**Key Points:**
+
+- `EXISTS` returns true if the subquery produces at least one row
+- The `SELECT 1` convention is standard — the actual selected value is irrelevant; only row existence matters
+- Correlated via `employees.id` — evaluated per row in the outer table
+
+---
+
+### DELETE with CTE
+
+```sql
+WITH low_performers AS (
+    SELECT id FROM employees
+    WHERE salary < 50000.00
+      AND dept = 'Operations'
+)
+DELETE FROM employees
+WHERE id IN (SELECT id FROM low_performers);
+```
+
+**Key Points:**
+
+- CTE support in `DELETE` requires SQLite 3.35.0+
+- The CTE is read-only — it supplies row identifiers; the actual deletion targets the main table
+- Useful when the filter logic is complex enough to benefit from named decomposition
+
+---
+
+### Conflict Resolution in DELETE
+
+`DELETE` supports `OR` conflict resolution clauses, though they are less commonly applicable than in `INSERT` or `UPDATE`.
+
+```sql
+DELETE OR IGNORE FROM employees WHERE id = 99;
+DELETE OR ROLLBACK FROM employees WHERE id = 1;
+```
+
+**Key Points:**
+
+- Conflicts during `DELETE` most commonly arise from triggers that perform inserts or updates on constrained columns
+- The same conflict variants apply: `OR ABORT` (default), `OR FAIL`, `OR IGNORE`, `OR REPLACE`, `OR ROLLBACK`
+- In practice, `OR IGNORE` is the most useful variant for `DELETE` — it suppresses errors from constraint violations triggered by the deletion
+
+---
+
+### Cascade Deletes via Foreign Keys
+
+SQLite supports `ON DELETE CASCADE` when foreign keys are enabled.
+
+```sql
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE departments (
+    id   INTEGER PRIMARY KEY,
+    name TEXT NOT NULL
+);
+
+CREATE TABLE employees (
+    id      INTEGER PRIMARY KEY,
+    name    TEXT,
+    dept_id INTEGER REFERENCES departments(id) ON DELETE CASCADE
+);
+
+-- Deleting a department removes all linked employees
+DELETE FROM departments WHERE id = 3;
+```
+
+**Key Points:**
+
+- Foreign key enforcement is **disabled by default** in SQLite — `PRAGMA foreign_keys = ON;` must be set per connection
+- `ON DELETE CASCADE` removes child rows automatically when the parent row is deleted
+- Other options: `ON DELETE SET NULL`, `ON DELETE SET DEFAULT`, `ON DELETE RESTRICT`, `ON DELETE NO ACTION`
+- [Inference] Cascade behavior is not triggered if foreign keys are off — deletions may leave orphaned rows silently; always verify `PRAGMA foreign_keys;` returns `1` before relying on cascade behavior
+
+---
+
+### PRAGMA foreign_keys Behavior
+
+```sql
+-- Check current state
+PRAGMA foreign_keys;
+-- 0 = disabled (default), 1 = enabled
+
+-- Enable for current connection
+PRAGMA foreign_keys = ON;
+```
+
+**Key Points:**
+
+- Must be set after every new connection — it does not persist
+- Has no effect inside a transaction — set it before `BEGIN`
+- [Unverified] Some SQLite builds or wrapper libraries may enable this automatically — verify in your environment
+
+---
+
+### Verifying Deletions with changes()
+
+```sql
+DELETE FROM employees
+WHERE dept = 'Temp';
+
+SELECT changes();
+```
+
+**Output:**
+
+```
+4
+```
+
+**Key Points:**
+
+- Returns the row count affected by the most recent `INSERT`, `UPDATE`, or `DELETE`
+- Returns `0` if no rows matched the `WHERE` condition — useful for detecting no-op deletes
+- Does not count rows removed by cascading foreign key actions — use `total_changes()` for that
+- Scoped to the current connection
+
+---
+
+### TRUNCATE Equivalent
+
+SQLite has no `TRUNCATE` statement. The closest equivalent is:
+
+```sql
+DELETE FROM employees;
+```
+
+Or, for full reset including `rowid` sequence:
+
+```sql
+DROP TABLE employees;
+CREATE TABLE employees ( ... );
+```
+
+**Key Points:**
+
+- `DELETE FROM table` without `WHERE` is a full-table delete but does not reclaim disk space immediately
+- Run `VACUUM` afterward to reclaim space if needed:
+
+```sql
+VACUUM;
+```
+
+- [Inference] `VACUUM` rewrites the entire database file — on large databases this can be slow and temporarily doubles disk usage; run outside of peak usage windows
+
+---
+
+### DELETE with LIMIT and ORDER BY
+
+Available only in SQLite builds compiled with `SQLITE_ENABLE_UPDATE_DELETE_LIMIT`.
+
+```sql
+DELETE FROM employees
+ORDER BY salary ASC
+LIMIT 3;
+```
+
+**Key Points:**
+
+- Deletes only the first N rows matching the sort order
+- `ORDER BY` is required when `LIMIT` is used in `DELETE`
+- Not available in all distributions — check with:
+
+```sql
+PRAGMA compile_options;
+-- Look for: ENABLE_UPDATE_DELETE_LIMIT
+```
+
+- [Unverified] Do not assume this feature is present without confirming compile options in your environment
+
+---
+
+### Safe DELETE Practices
+
+Always verify which rows will be affected before deleting.
+
+```sql
+-- Step 1: Preview affected rows
+SELECT * FROM employees
+WHERE dept = 'Temp' AND salary < 55000.00;
+
+-- Step 2: If correct, delete within a transaction
+BEGIN;
+
+DELETE FROM employees
+WHERE dept = 'Temp' AND salary < 55000.00;
+
+SELECT changes(); -- Confirm row count
+
+COMMIT;
+
+-- Or roll back if result is unexpected:
+-- ROLLBACK;
+```
+
+**Key Points:**
+
+- The `SELECT` preview uses the identical `WHERE` clause — copy-paste to avoid divergence
+- Wrapping in `BEGIN ... COMMIT` allows inspection and rollback before finalizing
+- `changes()` inside the transaction confirms the count before `COMMIT`
+- [Inference] In application code, using parameterized queries reduces the risk of accidental full-table deletes from malformed `WHERE` clauses — behavior depends on the driver and how queries are constructed
+
+---
+
+### Soft Delete Pattern
+
+A common alternative to physical deletion — mark rows as inactive instead of removing them.
+
+```sql
+ALTER TABLE employees ADD COLUMN deleted_at TEXT DEFAULT NULL;
+
+-- Soft delete
+UPDATE employees
+SET deleted_at = DATETIME('now')
+WHERE id = 7;
+
+-- Query only active rows
+SELECT * FROM employees
+WHERE deleted_at IS NULL;
+
+-- Restore
+UPDATE employees
+SET deleted_at = NULL
+WHERE id = 7;
+```
+
+**Key Points:**
+
+- Preserves history and allows recovery without a backup
+- Requires all queries to include `WHERE deleted_at IS NULL` to exclude deleted rows — a partial index helps:
+
+```sql
+CREATE INDEX idx_employees_active
+ON employees (dept, salary)
+WHERE deleted_at IS NULL;
+```
+
+- [Inference] The partial index is only used by queries that include the matching `WHERE deleted_at IS NULL` condition — query plans should be verified with `EXPLAIN QUERY PLAN`
+- Disk usage grows over time — periodic archival or purging of soft-deleted rows may be needed
+
+---
+
+**Conclusion:** SQLite's `DELETE` ranges from simple single-row removals to subquery-driven bulk deletions and cascade operations. Key behaviors to internalize: foreign keys are off by default and must be enabled per connection; `AUTOINCREMENT` sequences are not reset by `DELETE`; `RETURNING` and CTE support require SQLite 3.35.0+. Wrapping destructive operations in transactions and previewing with `SELECT` first are the most reliable safeguards against unintended data loss.
+
+**Next Steps:**
+
+- Transactions and savepoints
+- Foreign key constraints and referential integrity
+- Triggers (which can fire on `DELETE` events)
+- Indexes and their effect on DELETE performance
+
+---
+
+## Data Import and Export in SQLite
+
+---
+
+### Overview
+
+SQLite does not have a built-in network-based import/export server. All import and export operations happen through:
+
+- The SQLite CLI (`.import`, `.output`, `.dump`)
+- SQL statements (`ATTACH`, `INSERT INTO ... SELECT`)
+- External tools and language libraries
+- Direct file operations on the `.db` file itself
+
+**Key Points:**
+
+- The SQLite CLI is the primary built-in tool for file-based import/export
+- Behavior of CLI commands may vary slightly across SQLite versions — verify with your installed version
+- All paths in CLI commands are relative to the working directory from which the CLI was launched unless absolute paths are given
+
+---
+
+### The SQLite CLI
+
+Launch the CLI against a database file:
+
+```bash
+sqlite3 mydatabase.db
+```
+
+Or open an in-memory database:
+
+```bash
+sqlite3 :memory:
+```
+
+Check version:
+
+```bash
+sqlite3 --version
+```
+
+---
+
+### Exporting Data
+
+---
+
+#### .output and .once
+
+Redirect subsequent query output to a file.
+
+```sql
+.output /path/to/results.txt
+SELECT * FROM employees;
+.output stdout
+```
+
+**Key Points:**
+
+- `.output` redirects all subsequent output until changed
+- `.once` redirects only the next query's output:
+
+```sql
+.once /path/to/single_result.txt
+SELECT * FROM employees WHERE dept = 'Engineering';
+```
+
+- After `.once`, output returns to stdout automatically
+- If the file exists it is overwritten — there is no append mode in `.output`
+
+---
+
+#### Exporting as CSV
+
+```sql
+.headers on
+.mode csv
+.output employees.csv
+SELECT * FROM employees;
+.output stdout
+.mode list
+```
+
+**Key Points:**
+
+- `.headers on` includes column names as the first row
+- `.mode csv` formats output with comma separators and quotes fields containing commas or newlines
+- Restore `.mode list` (default) or another mode after export to avoid affecting subsequent output
+- [Inference] Fields containing embedded quotes are escaped by doubling them — this follows RFC 4180 convention but verify compatibility with your target application
+
+**Example output:**
+
+```
+id,name,dept,salary
+1,Alice,Engineering,95000.0
+2,Bob,Marketing,72000.0
+```
+
+---
+
+#### Exporting as TSV (Tab-Separated)
+
+```sql
+.headers on
+.mode tabs
+.output employees.tsv
+SELECT * FROM employees;
+.output stdout
+```
+
+---
+
+#### Exporting as JSON
+
+Available in SQLite 3.38.0+.
+
+```sql
+.mode json
+.output employees.json
+SELECT * FROM employees;
+.output stdout
+```
+
+**Output:**
+
+```json
+[
+  {"id":1,"name":"Alice","dept":"Engineering","salary":95000.0},
+  {"id":2,"name":"Bob","dept":"Marketing","salary":72000.0}
+]
+```
+
+**Key Points:**
+
+- Produces a JSON array of objects
+- Column names become keys
+- Requires SQLite 3.38.0+ — verify with `SELECT SQLITE_VERSION();`
+- [Inference] NULL values are exported as JSON `null`; BLOB values may not serialize cleanly — test with your data
+
+---
+
+#### Exporting as Insert Statements
+
+```sql
+.mode insert employees
+.output employees_inserts.sql
+SELECT * FROM employees;
+.output stdout
+```
+
+**Output:**
+
+```sql
+INSERT INTO employees VALUES(1,'Alice','Engineering',95000.0);
+INSERT INTO employees VALUES(2,'Bob','Marketing',72000.0);
+```
+
+**Key Points:**
+
+- Useful for migrating data between SQLite databases
+- The table name after `.mode insert` sets the target table name in the output
+- Does not include `CREATE TABLE` — combine with `.dump` for a full schema + data export
+
+---
+
+#### Full Database Dump (.dump)
+
+Exports the entire database as SQL statements — schema and data.
+
+```sql
+.dump
+```
+
+Or from the shell:
+
+```bash
+sqlite3 mydatabase.db .dump > backup.sql
+```
+
+Dump a single table:
+
+```sql
+.dump employees
+```
+
+**Key Points:**
+
+- Output includes `CREATE TABLE`, `CREATE INDEX`, `INSERT` statements, and triggers
+- Wraps everything in `BEGIN TRANSACTION ... COMMIT` for consistency
+- Suitable for backups, version control, and cross-database migration
+- Output is plain text SQL — portable to any SQLite installation
+- [Inference] For very large databases, `.dump` may produce very large SQL files and take considerable time — consider the `.backup` command or file-level copy for large datasets
+
+---
+
+#### Exporting Schema Only
+
+```sql
+.schema
+```
+
+Or for a specific table:
+
+```sql
+.schema employees
+```
+
+From the shell:
+
+```bash
+sqlite3 mydatabase.db .schema > schema.sql
+```
+
+**Key Points:**
+
+- Outputs only `CREATE` statements — no data
+- Includes tables, indexes, views, and triggers
+
+---
+
+### Importing Data
+
+---
+
+#### .import — CSV Import
+
+```sql
+.mode csv
+.import /path/to/employees.csv employees
+```
+
+**Key Points:**
+
+- If the table does not exist, SQLite creates it using the first row as column names with `TEXT` affinity for all columns
+- If the table exists, data is appended — no deduplication is performed
+- First row is treated as a header by default in SQLite 3.32.0+ when using `.import` with `--skip 1` or when table already exists
+- [Inference] Column count in the CSV must match the table's column count — mismatches typically produce errors or malformed rows; verify before importing
+
+**Explicit skip-header import (SQLite 3.32.0+):**
+
+```sql
+.import --skip 1 /path/to/employees.csv employees
+```
+
+**Key Points:**
+
+- `--skip 1` skips the first row (header) when the table already exists
+- Without `--skip 1`, the header row is inserted as a data row if the table pre-exists
+
+---
+
+#### Importing with a Defined Table
+
+Best practice: create the table first with proper types and constraints, then import.
+
+```sql
+CREATE TABLE employees (
+    id      INTEGER,
+    name    TEXT NOT NULL,
+    dept    TEXT,
+    salary  REAL
+);
+
+.mode csv
+.import --skip 1 employees.csv employees
+```
+
+**Key Points:**
+
+- Pre-creating the table applies column affinity and constraints during import
+- `NOT NULL` constraints will cause import to fail if the CSV contains empty values in that column — [Inference] pre-cleaning the CSV or using a staging table with all `TEXT` columns may reduce import errors
+
+---
+
+#### Staging Table Pattern
+
+Import into a permissive staging table, then insert into the real table after validation.
+
+```sql
+CREATE TABLE employees_staging (
+    id      TEXT,
+    name    TEXT,
+    dept    TEXT,
+    salary  TEXT
+);
+
+.mode csv
+.import --skip 1 employees.csv employees_staging
+
+-- Validate and transform
+INSERT INTO employees (id, name, dept, salary)
+SELECT
+    CAST(id AS INTEGER),
+    TRIM(name),
+    NULLIF(TRIM(dept), ''),
+    CAST(salary AS REAL)
+FROM employees_staging
+WHERE name IS NOT NULL AND name != '';
+
+DROP TABLE employees_staging;
+```
+
+**Key Points:**
+
+- All columns in the staging table are `TEXT` — avoids type mismatch errors on import
+- `CAST`, `TRIM`, `NULLIF` clean and convert data during the final insert
+- `NULLIF(value, '')` converts empty strings to `NULL`
+- Allows row-level validation before committing to the real table
+
+---
+
+#### Importing SQL Files
+
+Run a `.sql` file containing SQL statements:
+
+```bash
+sqlite3 mydatabase.db < backup.sql
+```
+
+Or from within the CLI:
+
+```sql
+.read /path/to/backup.sql
+```
+
+**Key Points:**
+
+- Executes every statement in the file sequentially
+- Errors in the file may halt execution depending on CLI error handling settings
+- Use `.bail on` to stop on first error:
+
+```sql
+.bail on
+.read backup.sql
+```
+
+---
+
+#### Importing TSV
+
+```sql
+.mode tabs
+.import employees.tsv employees
+```
+
+---
+
+### ATTACH — Cross-Database Operations
+
+`ATTACH` connects a second database file to the current session, enabling cross-database queries and data transfer.
+
+```sql
+ATTACH DATABASE '/path/to/other.db' AS other;
+
+-- Copy a table from another database
+INSERT INTO employees
+SELECT * FROM other.employees;
+
+-- Query across both databases
+SELECT e.name, d.budget
+FROM employees e
+JOIN other.departments d ON e.dept = d.name;
+
+DETACH DATABASE other;
+```
+
+**Key Points:**
+
+- Up to 10 databases can be attached simultaneously by default (compile-time limit — [Unverified] may differ in some builds)
+- The main database is always accessible as `main`
+- Schema is referenced as `database_name.table_name`
+- `ATTACH` requires filesystem access to the target file
+- Transactions can span attached databases — [Inference] atomicity across databases depends on SQLite's transaction model; this should be tested under your concurrency requirements
+
+---
+
+### Exporting to Other Databases via ATTACH
+
+```sql
+ATTACH DATABASE 'archive.db' AS archive;
+
+CREATE TABLE archive.old_employees AS
+SELECT * FROM employees WHERE deleted_at IS NOT NULL;
+
+DETACH DATABASE archive;
+```
+
+**Key Points:**
+
+- `CREATE TABLE ... AS SELECT` creates and populates a table in one step
+- The new table inherits column names and types from the query — no constraints or indexes are copied
+- Useful for archiving or partitioning data across database files
+
+---
+
+### File-Level Backup and Restore
+
+For a consistent copy of the entire database, SQLite provides the `.backup` command and the Online Backup API.
+
+#### CLI Backup:
+
+```bash
+sqlite3 mydatabase.db ".backup backup.db"
+```
+
+Or from within the CLI:
+
+```sql
+.backup backup.db
+```
+
+#### CLI Restore:
+
+```bash
+sqlite3 restored.db ".restore backup.db"
+```
+
+**Key Points:**
+
+- `.backup` uses the SQLite Online Backup API — it is safe to run on a live database
+- [Inference] A simple file copy (`cp mydatabase.db backup.db`) may produce a corrupt copy if a write is in progress — `.backup` is the safer approach
+- `.backup` and `.restore` preserve all indexes, triggers, and views
+- WAL mode databases should use `.backup` rather than direct file copy — [Inference] copying just the `.db` file without the `-wal` and `-shm` files may result in an incomplete backup; verify your WAL state before copying
+
+---
+
+### Exporting via Application Libraries
+
+Most SQLite wrappers provide cursor-based access to query results that can be serialized externally.
+
+#### Python (sqlite3 + csv):
+
+```python
+import sqlite3
+import csv
+
+conn = sqlite3.connect('mydatabase.db')
+cursor = conn.execute('SELECT * FROM employees')
+
+with open('employees.csv', 'w', newline='') as f:
+    writer = csv.writer(f)
+    writer.writerow([desc[0] for desc in cursor.description])  # headers
+    writer.writerows(cursor.fetchall())
+
+conn.close()
+```
+
+#### Python — Import CSV:
+
+```python
+import sqlite3
+import csv
+
+conn = sqlite3.connect('mydatabase.db')
+
+with open('employees.csv', newline='') as f:
+    reader = csv.DictReader(f)
+    rows = [(r['name'], r['dept'], float(r['salary'])) for r in reader]
+
+conn.executemany(
+    'INSERT INTO employees (name, dept, salary) VALUES (?, ?, ?)',
+    rows
+)
+conn.commit()
+conn.close()
+```
+
+**Key Points:**
+
+- Parameterized queries (`?`) avoid SQL injection and handle quoting automatically
+- `executemany` is more efficient than looping individual `execute` calls
+- [Inference] Wrapping `executemany` in an explicit transaction can significantly improve bulk insert performance — behavior depends on the library's default autocommit mode
+
+---
+
+#### Python — Export to JSON:
+
+```python
+import sqlite3
+import json
+
+conn = sqlite3.connect('mydatabase.db')
+conn.row_factory = sqlite3.Row
+
+rows = conn.execute('SELECT * FROM employees').fetchall()
+data = [dict(row) for row in rows]
+
+with open('employees.json', 'w') as f:
+    json.dump(data, f, indent=2)
+
+conn.close()
+```
+
+---
+
+### Handling BLOBs in Import/Export
+
+BLOBs (binary data) require special handling — they cannot be reliably exported as plain text.
+
+```sql
+-- Export BLOB as hex via CLI
+SELECT id, hex(avatar) FROM employees;
+```
+
+```python
+# Python: read BLOB back as bytes
+conn = sqlite3.connect('mydatabase.db')
+row = conn.execute('SELECT avatar FROM employees WHERE id = 1').fetchone()
+blob_data = row[0]  # bytes object in Python
+```
+
+**Key Points:**
+
+- `hex()` in SQLite converts BLOB to uppercase hexadecimal text
+- Round-tripping BLOBs through CSV is unreliable — binary-safe formats (JSON with base64, or direct DB-to-DB copy) are more appropriate
+- [Inference] Large BLOBs stored in SQLite can make `.dump` output very large and slow to re-import — externally stored files with paths in the database is a common alternative pattern
+
+---
+
+### Common Import Errors and Causes
+
+|Error|Likely Cause|
+|---|---|
+|`expected N columns but found M`|CSV column count doesn't match table|
+|`NOT NULL constraint failed`|Empty CSV field mapped to `NOT NULL` column|
+|`UNIQUE constraint failed`|Duplicate key in CSV conflicts with existing data|
+|`no such table`|Table not created before `.import`|
+|`could not open file`|Incorrect path or file permissions|
+|Garbled data|File encoding mismatch (UTF-8 vs Latin-1)|
+
+**Key Points:**
+
+- SQLite CLI assumes UTF-8 encoding — files in other encodings should be converted before import
+- [Unverified] Encoding behavior may differ across platforms and SQLite builds — verify if importing files from external sources
+
+---
+
+### Mode Reference Table
+
+|`.mode` Value|Format|Notes|
+|---|---|---|
+|`list`|Pipe-delimited (default)|Default CLI output|
+|`csv`|Comma-separated|RFC 4180 conventions|
+|`tabs`|Tab-separated|TSV output|
+|`json`|JSON array|Requires 3.38.0+|
+|`insert <table>`|SQL INSERT statements|Portable SQL|
+|`column`|Fixed-width columns|Human-readable|
+|`markdown`|Markdown table|Documentation use|
+|`box`|Unicode box-drawing|Terminal display|
+|`table`|ASCII table|Terminal display|
+|`line`|One value per line|Key=Value format|
+
+---
+
+**Conclusion:** SQLite's import and export capabilities center on the CLI's `.import`, `.output`, and `.dump` commands, supplemented by `ATTACH` for cross-database operations and library-level access for programmatic workflows. CSV is the most common interchange format, but type fidelity requires either a pre-created table or a staging-and-transform pattern. For full database backup, `.backup` is safer than raw file copy, particularly with WAL mode. Encoding, column count mismatches, and constraint violations are the most frequent sources of import errors — validate data in a staging table before committing to production tables.
+
+**Next Steps:**
+
+- Transactions and savepoints
+- Full-text search with FTS5
+- SQLite in Python, Node.js, and other runtimes
+- Performance tuning for bulk imports (WAL mode, `PRAGMA synchronous`, transaction batching)
+
+---
+
+## Bulk Operations in SQLite
+
+---
+
+### What Qualifies as a Bulk Operation
+
+Bulk operations involve inserting, updating, deleting, or reading large numbers of rows — typically where performance, atomicity, and efficiency matter more than single-row convenience.
+
+**Key Points:**
+
+- SQLite is file-based; every write that is not wrapped in an explicit transaction incurs a full disk sync by default
+- The single most impactful optimization for bulk writes is **explicit transaction batching**
+- Other factors: journal mode, synchronous setting, index presence, page size, and statement reuse
+
+---
+
+### Baseline: Why Unbatched Inserts Are Slow
+
+```sql
+-- Each statement is its own transaction (autocommit)
+INSERT INTO employees (name, dept, salary) VALUES ('Alice', 'Engineering', 95000);
+INSERT INTO employees (name, dept, salary) VALUES ('Bob', 'Marketing', 72000);
+-- ... repeated thousands of times
+```
+
+**Key Points:**
+
+- In autocommit mode, each `INSERT` opens a transaction, writes to disk, and syncs
+- [Inference] This can result in hundreds or thousands of fsync calls for bulk data — likely the dominant cost on spinning disk and a significant cost on SSD; actual impact depends on hardware and OS
+- Wrapping all inserts in a single transaction reduces this to one sync at `COMMIT`
+
+---
+
+### Transaction Batching
+
+The most effective bulk write optimization.
+
+```sql
+BEGIN;
+
+INSERT INTO employees (name, dept, salary) VALUES ('Alice', 'Engineering', 95000);
+INSERT INTO employees (name, dept, salary) VALUES ('Bob', 'Marketing', 72000);
+INSERT INTO employees (name, dept, salary) VALUES ('Carol', 'Design', 68000);
+-- ... thousands more
+
+COMMIT;
+```
+
+**Key Points:**
+
+- All writes are buffered in memory and flushed once at `COMMIT`
+- If any statement fails, `ROLLBACK` undoes all changes in the batch
+- [Inference] Transaction size has practical limits — extremely large transactions consume memory proportional to the number of changed pages; batching in chunks (e.g., 1,000–10,000 rows per transaction) often balances performance and memory usage, though optimal size depends on your environment
+- No guaranteed optimal batch size — benchmark with your data and hardware
+
+---
+
+### Chunked Transaction Batching
+
+For very large datasets, commit in chunks rather than one massive transaction.
+
+```python
+import sqlite3
+
+conn = sqlite3.connect('mydatabase.db')
+CHUNK_SIZE = 5000
+
+rows = [...]  # Large list of tuples
+
+conn.execute('BEGIN')
+for i, row in enumerate(rows):
+    conn.execute(
+        'INSERT INTO employees (name, dept, salary) VALUES (?, ?, ?)',
+        row
+    )
+    if (i + 1) % CHUNK_SIZE == 0:
+        conn.execute('COMMIT')
+        conn.execute('BEGIN')
+
+conn.execute('COMMIT')
+conn.close()
+```
+
+**Key Points:**
+
+- Commits every `CHUNK_SIZE` rows, then starts a new transaction
+- Reduces peak memory usage compared to a single transaction over millions of rows
+- [Inference] Partial failures mid-chunk lose only that chunk's data — consider whether that is acceptable for your use case, or whether full atomicity is required
+- Chunk size should be tuned empirically — no universally correct value
+
+---
+
+### Multi-Row INSERT
+
+Insert multiple rows in a single statement.
+
+```sql
+INSERT INTO employees (name, dept, salary)
+VALUES
+    ('Alice', 'Engineering', 95000),
+    ('Bob',   'Marketing',   72000),
+    ('Carol', 'Design',      68000),
+    ('David', 'Engineering', 101000);
+```
+
+**Key Points:**
+
+- Supported since SQLite 3.7.11
+- [Inference] Reduces statement parsing overhead compared to equivalent single-row inserts — actual performance gain relative to batched single-row inserts within a transaction may be marginal; benchmark to verify
+- SQLite has a limit on the number of rows per `VALUES` clause — controlled by `SQLITE_LIMIT_COMPOUND_SELECT` (default 500) — [Unverified] verify this limit in your build:
+
+```sql
+SELECT * FROM pragma_compile_options WHERE compile_options LIKE '%LIMIT%';
+```
+
+---
+
+### executemany (Python)
+
+Python's `sqlite3` module provides `executemany` for efficient parameterized bulk inserts.
+
+```python
+import sqlite3
+
+conn = sqlite3.connect('mydatabase.db')
+
+rows = [
+    ('Alice', 'Engineering', 95000.0),
+    ('Bob',   'Marketing',   72000.0),
+    ('Carol', 'Design',      68000.0),
+]
+
+conn.execute('BEGIN')
+conn.executemany(
+    'INSERT INTO employees (name, dept, salary) VALUES (?, ?, ?)',
+    rows
+)
+conn.execute('COMMIT')
+conn.close()
+```
+
+**Key Points:**
+
+- `executemany` prepares the statement once and iterates over the data — [Inference] more efficient than calling `execute` in a loop for large datasets; actual gains depend on the driver implementation
+- Parameterized queries (`?`) handle quoting and type conversion automatically
+- Wrapping in explicit `BEGIN/COMMIT` is still necessary for transaction batching — `executemany` does not automatically batch into a transaction
+
+---
+
+### INSERT INTO ... SELECT (Bulk Copy)
+
+Move or copy large sets of rows between tables in a single statement.
+
+```sql
+-- Copy all rows
+INSERT INTO employees_backup
+SELECT * FROM employees;
+
+-- Filtered copy
+INSERT INTO employees_archive
+SELECT * FROM employees
+WHERE deleted_at IS NOT NULL;
+
+-- Transform on copy
+INSERT INTO employees_normalized (name, dept, salary)
+SELECT TRIM(UPPER(name)), LOWER(dept), ROUND(salary, 2)
+FROM employees_raw;
+```
+
+**Key Points:**
+
+- Executes entirely within SQLite — no data leaves the database engine
+- [Inference] Significantly faster than read-then-write patterns through application code for large datasets, as it avoids serialization and network/IPC overhead
+- The entire operation runs in a single implicit transaction unless inside an explicit one
+- Column count and compatible types must align between source and destination
+
+---
+
+### Bulk UPDATE
+
+Update large numbers of rows efficiently.
+
+#### Full-table update (single expression):
+
+```sql
+UPDATE employees
+SET salary = ROUND(salary * 1.05, 2);
+```
+
+#### Conditional bulk update with CASE:
+
+```sql
+UPDATE employees
+SET salary = CASE
+    WHEN dept = 'Engineering' THEN ROUND(salary * 1.10, 2)
+    WHEN dept = 'Design'      THEN ROUND(salary * 1.07, 2)
+    WHEN dept = 'Marketing'   THEN ROUND(salary * 1.04, 2)
+    ELSE                           ROUND(salary * 1.02, 2)
+END;
+```
+
+**Key Points:**
+
+- A single `UPDATE` with `CASE` is [Inference] more efficient than multiple `UPDATE` statements for different departments — avoids repeated full or partial table scans; verify with `EXPLAIN QUERY PLAN`
+- Wrap in a transaction if the update is part of a larger operation
+
+#### Bulk update from another table (via subquery):
+
+```sql
+UPDATE employees
+SET salary = (
+    SELECT new_salary
+    FROM salary_adjustments
+    WHERE salary_adjustments.employee_id = employees.id
+)
+WHERE id IN (SELECT employee_id FROM salary_adjustments);
+```
+
+**Key Points:**
+
+- The `WHERE id IN (...)` clause avoids setting unmatched rows to `NULL`
+- [Inference] An index on `salary_adjustments.employee_id` and `employees.id` likely improves performance here — verify with `EXPLAIN QUERY PLAN`
+
+---
+
+### Bulk DELETE
+
+```sql
+-- Delete by condition
+DELETE FROM employees
+WHERE deleted_at < DATE('now', '-1 year');
+
+-- Delete using subquery
+DELETE FROM employees
+WHERE id IN (
+    SELECT id FROM employees
+    ORDER BY created_at ASC
+    LIMIT 10000
+);
+```
+
+**Key Points:**
+
+- Wrap large deletes in a transaction
+- [Inference] Deleting large numbers of rows in one statement may cause long write locks — chunked deletes with transactions can reduce lock duration in concurrent environments
+- Deleted rows leave free pages in the database file — run `VACUUM` afterward to reclaim space if needed
+
+#### Chunked delete pattern (Python):
+
+```python
+import sqlite3
+
+conn = sqlite3.connect('mydatabase.db')
+
+while True:
+    conn.execute('BEGIN')
+    cursor = conn.execute(
+        'DELETE FROM logs WHERE created_at < ? LIMIT 5000',
+        ('2024-01-01',)
+    )
+    conn.execute('COMMIT')
+    if cursor.rowcount == 0:
+        break
+
+conn.close()
+```
+
+**Key Points:**
+
+- Requires `SQLITE_ENABLE_UPDATE_DELETE_LIMIT` compile option — verify before use
+- Loops until no more rows match, avoiding a single massive delete
+
+---
+
+### PRAGMA Settings for Bulk Operations
+
+Several PRAGMAs significantly affect write performance. These trade durability or safety for speed and should be evaluated against your requirements.
+
+#### journal_mode
+
+```sql
+PRAGMA journal_mode = WAL;
+```
+
+|Mode|Description|
+|---|---|
+|`DELETE`|Default; rollback journal, exclusive write lock|
+|`WAL`|Write-Ahead Log; allows concurrent reads during writes|
+|`MEMORY`|Journal in memory only; data lost on crash|
+|`OFF`|No journal; no rollback on crash|
+
+**Key Points:**
+
+- `WAL` mode is [Inference] generally beneficial for bulk writes with concurrent reads — reduces contention; actual gains depend on workload
+- `MEMORY` and `OFF` remove durability guarantees — data may be unrecoverable after a crash
+- `WAL` persists across connections — set once per database, not per connection
+- [Unverified] Some embedded or read-only environments may not support WAL — verify compatibility
+
+#### synchronous
+
+```sql
+PRAGMA synchronous = NORMAL;  -- Default in WAL mode
+PRAGMA synchronous = OFF;     -- Maximum speed, minimum durability
+PRAGMA synchronous = FULL;    -- Maximum durability (default in DELETE mode)
+```
+
+|Setting|Behavior|
+|---|---|
+|`FULL`|Syncs at every critical point — safest|
+|`NORMAL`|Syncs less frequently — safe in WAL mode|
+|`OFF`|No OS-level sync — fastest, but data may be lost on OS crash|
+
+**Key Points:**
+
+- `OFF` is appropriate for disposable or reproducible data (e.g., temp processing, test data)
+- `NORMAL` with `WAL` is a common production balance — [Inference] reduces sync overhead while maintaining reasonable durability; behavior depends on OS and filesystem
+- These settings are per-connection and do not persist
+
+#### cache_size
+
+```sql
+PRAGMA cache_size = -65536;  -- 64MB (negative = kilobytes)
+PRAGMA cache_size = 10000;   -- 10000 pages
+```
+
+**Key Points:**
+
+- Larger cache reduces disk reads during bulk operations that revisit pages
+- Default is typically 2MB — [Unverified] exact default depends on SQLite build and page size
+- Setting too large may cause memory pressure — tune based on available system memory
+
+#### page_size
+
+```sql
+-- Must be set BEFORE the database is created
+PRAGMA page_size = 4096;   -- Default
+PRAGMA page_size = 16384;  -- Larger pages; may help bulk reads
+```
+
+**Key Points:**
+
+- Can only be changed on a new or empty database, or after a `VACUUM`
+- [Inference] Larger page sizes may improve sequential bulk read performance at the cost of more wasted space for small rows — actual effect depends on row size and access patterns
+- Has no effect if set after data has been written
+
+#### temp_store
+
+```sql
+PRAGMA temp_store = MEMORY;
+```
+
+**Key Points:**
+
+- Directs temporary tables and indexes used during queries to memory instead of disk
+- [Inference] Can improve performance of bulk operations involving large sorts or intermediate results — behavior depends on available memory
+
+---
+
+### Indexes and Bulk Operations
+
+**Key Points:**
+
+- Indexes slow down bulk inserts, updates, and deletes — each write must also update every applicable index
+- For large initial data loads, a common pattern is:
+
+```sql
+-- 1. Drop indexes before bulk load
+DROP INDEX IF EXISTS idx_employees_dept;
+
+-- 2. Perform bulk insert
+BEGIN;
+INSERT INTO employees ...;
+COMMIT;
+
+-- 3. Rebuild indexes after load
+CREATE INDEX idx_employees_dept ON employees (dept);
+```
+
+- [Inference] This can substantially reduce bulk insert time when multiple indexes exist — gains are proportional to the number and size of indexes; benchmark in your environment
+- `ANALYZE` after rebuild updates query planner statistics:
+
+```sql
+ANALYZE employees;
+```
+
+---
+
+### CREATE TABLE AS SELECT (Bulk Table Creation)
+
+Creates and populates a new table from a query in one operation.
+
+```sql
+CREATE TABLE engineering_employees AS
+SELECT * FROM employees
+WHERE dept = 'Engineering';
+```
+
+**Key Points:**
+
+- Column names and types are inferred from the query — no constraints, indexes, or primary keys are copied
+- [Inference] Faster than `CREATE TABLE` followed by `INSERT INTO ... SELECT` for large result sets — avoids overhead of constraint checking during insert; verify in your environment
+- Useful for temporary analysis tables or archiving subsets
+
+---
+
+### Temporary Tables for Staging
+
+```sql
+CREATE TEMPORARY TABLE bulk_staging (
+    name   TEXT,
+    dept   TEXT,
+    salary TEXT
+);
+
+-- Load raw data
+INSERT INTO bulk_staging VALUES (...);
+
+-- Validate and transform
+INSERT INTO employees (name, dept, salary)
+SELECT TRIM(name), dept, CAST(salary AS REAL)
+FROM bulk_staging
+WHERE name IS NOT NULL AND salary != '';
+
+DROP TABLE bulk_staging;
+```
+
+**Key Points:**
+
+- `TEMPORARY` tables exist only for the current connection and are automatically dropped on disconnect
+- Stored in a separate temp database — [Inference] does not bloat the main database file
+- Useful for validating and cleaning data before committing to production tables
+
+---
+
+### WITHOUT ROWID Tables
+
+For certain access patterns, `WITHOUT ROWID` tables can improve bulk read and write performance.
+
+```sql
+CREATE TABLE lookup_codes (
+    code        TEXT PRIMARY KEY,
+    description TEXT
+) WITHOUT ROWID;
+```
+
+**Key Points:**
+
+- Omits the implicit `rowid` column — data is stored in a B-tree indexed by the primary key
+- [Inference] Can improve performance for tables with small rows accessed primarily by primary key — gains depend on access pattern and row size
+- Requires an explicit `PRIMARY KEY`
+- `last_insert_rowid()` and `AUTOINCREMENT` do not apply
+- Not suitable for tables with large or variable-length primary keys — [Inference] may increase page splits and reduce efficiency in those cases
+
+---
+
+### VACUUM After Bulk Delete
+
+```sql
+VACUUM;
+```
+
+**Key Points:**
+
+- Rewrites the entire database file, reclaiming free pages left by bulk deletes
+- [Inference] Temporarily requires up to double the database file's disk space during execution — verify available disk before running on large databases
+- Blocks all other connections during execution
+- `VACUUM INTO` creates a vacuumed copy without modifying the original:
+
+```sql
+VACUUM INTO '/path/to/compacted_backup.db';
+```
+
+---
+
+### ANALYZE After Bulk Changes
+
+```sql
+ANALYZE;          -- Entire database
+ANALYZE employees; -- Single table
+```
+
+**Key Points:**
+
+- Updates internal statistics used by the query planner
+- After large bulk inserts, updates, or deletes, stale statistics may cause the planner to choose suboptimal query plans
+- [Inference] Running `ANALYZE` after significant data changes is good practice — actual impact on query plan quality depends on the queries and data distribution
+
+---
+
+### Bulk Operation PRAGMA Checklist
+
+A reference sequence for maximum bulk write throughput — adjust based on your durability requirements.
+
+```sql
+-- Before bulk operation
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA cache_size = -65536;    -- 64MB
+PRAGMA temp_store = MEMORY;
+
+DROP INDEX IF EXISTS idx_employees_dept;  -- Drop indexes if bulk loading
+
+BEGIN;
+
+-- ... bulk inserts, updates, or deletes ...
+
+COMMIT;
+
+-- After bulk operation
+CREATE INDEX idx_employees_dept ON employees (dept);
+ANALYZE employees;
+VACUUM;  -- Only if large amounts of data were deleted
+```
+
+**Key Points:**
+
+- Not all settings are appropriate for all environments — `synchronous = NORMAL` or `OFF` reduces durability
+- `VACUUM` is expensive on large databases — run only when significant free space needs reclaiming
+- These are starting points; benchmark and adjust for your specific workload and hardware
+- [Inference] The combination of WAL mode, explicit transactions, and dropped indexes during load typically produces the largest performance gains — individual contributions vary
+
+---
+
+### Performance Comparison Reference
+
+|Approach|Relative Write Speed|Notes|
+|---|---|---|
+|Autocommit single-row inserts|Very slow|One fsync per row|
+|Explicit transaction, single-row inserts|Fast|One fsync at COMMIT|
+|Multi-row INSERT in transaction|Fast|Reduced parse overhead|
+|`executemany` in transaction|Fast|Prepared once, iterated|
+|`INSERT INTO ... SELECT`|Very fast|In-engine; no app layer|
+|With indexes dropped during load|Faster|Avoids index writes|
+|WAL + synchronous=NORMAL|Faster|Reduced sync frequency|
+
+**Key Points:**
+
+- [Inference] These relative comparisons reflect commonly observed patterns — actual results depend on hardware, OS, row size, index count, and SQLite version; always benchmark with representative data
+- No single configuration is optimal for all workloads
+
+---
+
+**Conclusion:** Bulk operation performance in SQLite is primarily governed by transaction batching, journal mode, synchronous settings, and index management. The most impactful single change for bulk writes is wrapping operations in explicit transactions. Beyond that, WAL mode, dropping and rebuilding indexes around large loads, and using `INSERT INTO ... SELECT` for in-database transfers compound the gains. All PRAGMA-based optimizations involve tradeoffs between speed and durability — evaluate against your data's recoverability requirements.
+
+**Next Steps:**
+
+- Indexes — design, types, and performance impact
+- Transactions and savepoints in depth
+- Query optimization and `EXPLAIN QUERY PLAN`
+- WAL mode and concurrency behavior
+
+---
+
+# Advanced Querying
+
+## WHERE Clauses and Filtering in SQLite
+
+---
+
+### Purpose and Placement
+
+The `WHERE` clause restricts which rows are processed by a statement. It applies to `SELECT`, `UPDATE`, `DELETE`, and certain subquery contexts.
+
+```sql
+SELECT column1, column2 FROM table_name WHERE condition;
+UPDATE table_name SET column = value WHERE condition;
+DELETE FROM table_name WHERE condition;
+```
+
+**Key Points:**
+
+- `WHERE` is evaluated before `SELECT` expressions — column aliases defined in `SELECT` are not available in `WHERE`
+- `WHERE` filters individual rows before any grouping — use `HAVING` to filter after `GROUP BY`
+- A missing `WHERE` clause processes every row in the table — intentional in some cases but dangerous in `UPDATE` and `DELETE`
+
+---
+
+### Comparison Operators
+
+```sql
+SELECT * FROM employees WHERE salary = 95000;
+SELECT * FROM employees WHERE salary != 95000;
+SELECT * FROM employees WHERE salary <> 95000;   -- equivalent to !=
+SELECT * FROM employees WHERE salary > 80000;
+SELECT * FROM employees WHERE salary < 80000;
+SELECT * FROM employees WHERE salary >= 80000;
+SELECT * FROM employees WHERE salary <= 80000;
+```
+
+**Key Points:**
+
+- `!=` and `<>` are equivalent in SQLite
+- Comparisons with `NULL` using these operators always return `NULL` (falsy) — use `IS NULL` / `IS NOT NULL` instead
+- SQLite uses type affinity for comparisons — a `TEXT` value compared to an `INTEGER` follows affinity rules; results may be unexpected when column types are inconsistent
+
+---
+
+### Logical Operators: AND, OR, NOT
+
+```sql
+-- AND: both conditions must be true
+SELECT * FROM employees
+WHERE dept = 'Engineering' AND salary > 90000;
+
+-- OR: either condition must be true
+SELECT * FROM employees
+WHERE dept = 'Engineering' OR dept = 'Design';
+
+-- NOT: negates a condition
+SELECT * FROM employees
+WHERE NOT dept = 'HR';
+
+-- Combined
+SELECT * FROM employees
+WHERE (dept = 'Engineering' OR dept = 'Design')
+  AND salary > 75000
+  AND NOT name LIKE '%Temp%';
+```
+
+**Key Points:**
+
+- `AND` has higher precedence than `OR` — parentheses are required to override default precedence
+- `NOT` has higher precedence than `AND` and `OR`
+- Without parentheses, `A OR B AND C` is parsed as `A OR (B AND C)` — always use parentheses in mixed expressions to make intent explicit
+
+---
+
+### NULL Handling
+
+`NULL` represents the absence of a value. Standard comparison operators do not work with `NULL`.
+
+```sql
+-- Correct
+SELECT * FROM employees WHERE dept IS NULL;
+SELECT * FROM employees WHERE dept IS NOT NULL;
+
+-- Wrong — always returns no rows (NULL = NULL is NULL, not TRUE)
+SELECT * FROM employees WHERE dept = NULL;
+SELECT * FROM employees WHERE dept != NULL;
+```
+
+#### NULL in AND / OR
+
+|Expression|Result|
+|---|---|
+|`NULL AND TRUE`|NULL (falsy)|
+|`NULL AND FALSE`|FALSE|
+|`NULL OR TRUE`|TRUE|
+|`NULL OR FALSE`|NULL (falsy)|
+|`NOT NULL`|NULL (falsy)|
+
+**Key Points:**
+
+- `NULL` propagates through most expressions — any arithmetic or comparison involving `NULL` returns `NULL`
+- Use `COALESCE` or `IFNULL` to substitute defaults before comparing:
+
+```sql
+SELECT * FROM employees
+WHERE COALESCE(dept, 'Unknown') = 'Unknown';
+```
+
+- `IS` and `IS NOT` are NULL-safe equality operators in SQLite:
+
+```sql
+SELECT * FROM employees WHERE dept IS 'Engineering';
+-- Equivalent to: WHERE dept = 'Engineering' but NULL-safe
+```
+
+---
+
+### BETWEEN
+
+Tests for inclusive range membership.
+
+```sql
+SELECT * FROM employees
+WHERE salary BETWEEN 60000 AND 90000;
+
+-- Equivalent to:
+SELECT * FROM employees
+WHERE salary >= 60000 AND salary <= 90000;
+```
+
+**Date range example:**
+
+```sql
+SELECT * FROM employees
+WHERE hire_date BETWEEN '2022-01-01' AND '2023-12-31';
+```
+
+**Key Points:**
+
+- Both bounds are **inclusive**
+- Works on numeric, text (lexicographic), and ISO-format date strings
+- `NOT BETWEEN` excludes the range:
+
+```sql
+SELECT * FROM employees WHERE salary NOT BETWEEN 60000 AND 90000;
+```
+
+- If the lower bound exceeds the upper bound, no rows are returned — SQLite does not automatically swap bounds
+
+---
+
+### IN and NOT IN
+
+Tests membership in a fixed list.
+
+```sql
+SELECT * FROM employees
+WHERE dept IN ('Engineering', 'Design', 'IT');
+
+SELECT * FROM employees
+WHERE dept NOT IN ('HR', 'Marketing');
+```
+
+**Key Points:**
+
+- Equivalent to chained `OR` conditions but more readable
+- `IN` with a subquery is covered in the subquery section below
+- **`NOT IN` with NULL caveat:** if any value in the list is `NULL`, `NOT IN` returns no rows — even when the column value clearly does not match other list items
+
+```sql
+-- Dangerous if dept_list contains NULL
+SELECT * FROM employees
+WHERE dept NOT IN (SELECT dept FROM excluded_depts);
+
+-- Safer pattern
+SELECT * FROM employees
+WHERE dept NOT IN (
+    SELECT dept FROM excluded_depts WHERE dept IS NOT NULL
+);
+```
+
+- This behavior is standard SQL, not SQLite-specific — [Inference] any `NOT IN` subquery should explicitly filter `NULL` from the subquery result to avoid silently returning zero rows
+
+---
+
+### LIKE — Pattern Matching
+
+```sql
+-- Starts with
+SELECT * FROM employees WHERE name LIKE 'A%';
+
+-- Ends with
+SELECT * FROM employees WHERE name LIKE '%son';
+
+-- Contains
+SELECT * FROM employees WHERE name LIKE '%ar%';
+
+-- Single character wildcard
+SELECT * FROM employees WHERE name LIKE '_ob';
+
+-- Combined
+SELECT * FROM employees WHERE name LIKE 'J___s';
+```
+
+|Wildcard|Matches|
+|---|---|
+|`%`|Zero or more characters|
+|`_`|Exactly one character|
+
+**Key Points:**
+
+- Case-insensitive for ASCII characters by default in SQLite
+- Case sensitivity for non-ASCII (Unicode) characters depends on the SQLite build and whether the ICU extension is loaded — [Unverified] do not assume case-insensitive Unicode `LIKE` without verifying your build
+- `NOT LIKE` negates the pattern:
+
+```sql
+SELECT * FROM employees WHERE name NOT LIKE '%Temp%';
+```
+
+#### ESCAPE Clause
+
+Allows literal `%` or `_` to be matched.
+
+```sql
+SELECT * FROM files WHERE path LIKE '100\% complete' ESCAPE '\';
+```
+
+**Key Points:**
+
+- The character after `ESCAPE` becomes the escape prefix
+- `\%` matches a literal `%`; `\_` matches a literal `_`
+
+---
+
+### GLOB — Case-Sensitive Pattern Matching
+
+```sql
+SELECT * FROM employees WHERE name GLOB 'A*';
+SELECT * FROM employees WHERE name GLOB '[ABC]*';
+SELECT * FROM employees WHERE name GLOB '*son';
+SELECT * FROM employees WHERE dept GLOB '[A-E]*';
+```
+
+|Wildcard|Matches|
+|---|---|
+|`*`|Zero or more characters|
+|`?`|Exactly one character|
+|`[abc]`|Any character in set|
+|`[a-z]`|Any character in range|
+|`[^abc]`|Any character not in set|
+
+**Key Points:**
+
+- Always case-sensitive — unlike `LIKE`
+- SQLite-specific — not standard SQL
+- `NOT GLOB` is valid:
+
+```sql
+SELECT * FROM employees WHERE name NOT GLOB '[A-M]*';
+```
+
+---
+
+### REGEXP
+
+SQLite does not include a built-in `REGEXP` implementation. It requires a user-defined function registered at connection time.
+
+```python
+import sqlite3
+import re
+
+def regexp(pattern, value):
+    if value is None:
+        return None
+    return bool(re.search(pattern, value))
+
+conn = sqlite3.connect('mydatabase.db')
+conn.create_function('REGEXP', 2, regexp)
+
+rows = conn.execute(
+    "SELECT * FROM employees WHERE name REGEXP '^A.*n$'"
+).fetchall()
+```
+
+```sql
+-- Once registered:
+SELECT * FROM employees WHERE name REGEXP '^[A-Z][a-z]+$';
+```
+
+**Key Points:**
+
+- `REGEXP` raises an error if no function is registered — it is a placeholder in SQLite's parser
+- [Unverified] Some SQLite distributions or extensions may include a built-in `REGEXP` — verify in your environment
+- For most pattern needs, `LIKE` or `GLOB` are sufficient without external dependencies
+
+---
+
+### EXISTS and NOT EXISTS
+
+Tests whether a subquery returns any rows.
+
+```sql
+-- Rows where a related record exists
+SELECT * FROM employees e
+WHERE EXISTS (
+    SELECT 1 FROM projects p
+    WHERE p.lead_id = e.id
+);
+
+-- Rows where no related record exists
+SELECT * FROM employees e
+WHERE NOT EXISTS (
+    SELECT 1 FROM projects p
+    WHERE p.lead_id = e.id
+);
+```
+
+**Key Points:**
+
+- `EXISTS` returns `TRUE` if the subquery produces at least one row — the selected value is irrelevant; `SELECT 1` is conventional
+- Short-circuits on the first matching row — [Inference] may be more efficient than `IN` for large subquery results, particularly when the subquery is correlated; verify with `EXPLAIN QUERY PLAN`
+- Correlated subqueries reference the outer query's columns — evaluated once per outer row
+- `NOT EXISTS` is often safer than `NOT IN` when the subquery may return `NULL` values
+
+---
+
+### Subqueries in WHERE
+
+#### Scalar Subquery
+
+Returns a single value for comparison.
+
+```sql
+SELECT * FROM employees
+WHERE salary > (SELECT AVG(salary) FROM employees);
+```
+
+#### IN with Subquery
+
+```sql
+SELECT * FROM employees
+WHERE dept IN (
+    SELECT name FROM departments WHERE budget > 500000
+);
+```
+
+#### Correlated Subquery
+
+References the outer query per row.
+
+```sql
+SELECT * FROM employees e
+WHERE salary > (
+    SELECT AVG(salary) FROM employees
+    WHERE dept = e.dept
+);
+```
+
+**Key Points:**
+
+- Correlated subqueries are evaluated once per outer row — [Inference] can be slow on large tables without indexes on the correlated columns; use `EXPLAIN QUERY PLAN` to assess
+- Scalar subqueries that return more than one row produce an error — use `LIMIT 1` or aggregation to guarantee a single result
+- [Inference] In many cases, a `JOIN` can replace a correlated subquery with better performance — verify with your query planner
+
+---
+
+### CASE in WHERE
+
+`CASE` expressions can appear in `WHERE` conditions.
+
+```sql
+SELECT * FROM employees
+WHERE
+    CASE dept
+        WHEN 'Engineering' THEN salary > 90000
+        WHEN 'Design'      THEN salary > 65000
+        ELSE                    salary > 55000
+    END;
+```
+
+**Key Points:**
+
+- `CASE` returns a value — when used in `WHERE`, a truthy (non-zero, non-null) result passes the row
+- Useful for conditional thresholds that vary by category
+- [Inference] May prevent index usage on the filtered columns — verify with `EXPLAIN QUERY PLAN`
+
+---
+
+### Filtering on Expressions and Functions
+
+Any expression valid in `SELECT` can appear in `WHERE`.
+
+```sql
+-- Function in WHERE
+SELECT * FROM employees
+WHERE UPPER(dept) = 'ENGINEERING';
+
+-- Arithmetic
+SELECT * FROM employees
+WHERE salary * 1.10 > 100000;
+
+-- Date function
+SELECT * FROM employees
+WHERE hire_date >= DATE('now', '-1 year');
+
+-- String length
+SELECT * FROM employees
+WHERE LENGTH(name) > 10;
+
+-- Type check
+SELECT * FROM employees
+WHERE TYPEOF(salary) = 'real';
+```
+
+**Key Points:**
+
+- Applying functions to columns in `WHERE` typically prevents index use on that column — [Inference] SQLite cannot use an index on `dept` when `UPPER(dept)` is evaluated per row; an expression index can address this:
+
+```sql
+CREATE INDEX idx_dept_upper ON employees (UPPER(dept));
+
+-- Now this can use the index:
+SELECT * FROM employees WHERE UPPER(dept) = 'ENGINEERING';
+```
+
+- Date comparisons work correctly with ISO 8601 strings (`YYYY-MM-DD`) stored as `TEXT` — other formats may not sort or compare correctly
+
+---
+
+### Expression Indexes for WHERE Optimization
+
+When a function or expression is frequently used in `WHERE`, an expression index allows the query planner to use it.
+
+```sql
+-- Without index: full scan, UPPER() evaluated per row
+SELECT * FROM employees WHERE UPPER(name) = 'ALICE';
+
+-- Create expression index
+CREATE INDEX idx_name_upper ON employees (UPPER(name));
+
+-- Now eligible for index lookup
+SELECT * FROM employees WHERE UPPER(name) = 'ALICE';
+```
+
+**Key Points:**
+
+- Expression must match exactly in both the index definition and the `WHERE` clause
+- [Inference] Improves performance when the column has high cardinality and the expression is used frequently — actual gains depend on data size and query frequency
+- Increases write overhead — index must be updated on every row change
+
+---
+
+### Filtering NULLs with COALESCE and IFNULL
+
+```sql
+-- Treat NULL dept as 'Unassigned'
+SELECT * FROM employees
+WHERE COALESCE(dept, 'Unassigned') = 'Unassigned';
+
+-- Equivalent using IFNULL
+SELECT * FROM employees
+WHERE IFNULL(dept, 'Unassigned') = 'Unassigned';
+
+-- Filter where bonus is null or zero
+SELECT * FROM employees
+WHERE COALESCE(bonus, 0) = 0;
+```
+
+**Key Points:**
+
+- `COALESCE(x, y)` returns the first non-NULL argument
+- `IFNULL(x, y)` is equivalent to `COALESCE` with two arguments — SQLite-specific shorthand
+- Both prevent the NULL-propagation problem in comparisons
+- [Inference] Using these functions in `WHERE` may prevent index use on the column — consider restructuring as `WHERE col IS NULL OR col = value` when index performance matters:
+
+```sql
+SELECT * FROM employees
+WHERE dept IS NULL OR dept = 'Unassigned';
+```
+
+---
+
+### Filtering with ROWID
+
+Every SQLite table has an implicit `rowid` unless created as `WITHOUT ROWID`.
+
+```sql
+SELECT * FROM employees WHERE rowid = 42;
+SELECT * FROM employees WHERE rowid BETWEEN 100 AND 200;
+```
+
+**Key Points:**
+
+- `rowid` lookups use the built-in B-tree index — [Inference] typically the fastest possible lookup in SQLite
+- Accessible as `rowid`, `oid`, or `_rowid_` unless a column with that name is explicitly defined
+- An `INTEGER PRIMARY KEY` column is an alias for `rowid` — lookups on it are equally fast
+
+---
+
+### WHERE with HAVING — Knowing the Difference
+
+```sql
+-- WHERE filters before grouping
+SELECT dept, AVG(salary) AS avg_sal
+FROM employees
+WHERE salary > 50000          -- Excludes rows before grouping
+GROUP BY dept
+HAVING AVG(salary) > 80000;  -- Filters groups after aggregation
+```
+
+**Key Points:**
+
+- `WHERE` cannot reference aggregate functions (`COUNT`, `AVG`, `SUM`, etc.) — those are not computed until after grouping
+- `HAVING` filters on aggregated results — it can also filter on non-aggregated columns, though `WHERE` is more efficient for that purpose
+- Both can appear in the same query — `WHERE` narrows the row set before `GROUP BY` processes it
+
+---
+
+### Filtering in UPDATE and DELETE
+
+All `WHERE` patterns apply equally to `UPDATE` and `DELETE`.
+
+```sql
+UPDATE employees
+SET salary = salary * 1.10
+WHERE dept = 'Engineering'
+  AND salary < (SELECT AVG(salary) FROM employees WHERE dept = 'Engineering');
+
+DELETE FROM employees
+WHERE hire_date < DATE('now', '-5 years')
+  AND dept IN (SELECT name FROM departments WHERE status = 'dissolved');
+```
+
+**Key Points:**
+
+- Previewing with a `SELECT` using the identical `WHERE` clause before running `UPDATE` or `DELETE` is strongly recommended
+- Subqueries, `EXISTS`, `IN`, and all other `WHERE` patterns work in `UPDATE` and `DELETE` contexts
+
+---
+
+### Common Filtering Mistakes
+
+#### Incorrect NULL comparison:
+
+```sql
+-- Wrong
+WHERE dept = NULL
+
+-- Correct
+WHERE dept IS NULL
+```
+
+#### Precedence error with OR and AND:
+
+```sql
+-- Unintended: reads as dept='HR' OR (dept='IT' AND salary > 80000)
+WHERE dept = 'HR' OR dept = 'IT' AND salary > 80000
+
+-- Intended
+WHERE (dept = 'HR' OR dept = 'IT') AND salary > 80000
+```
+
+#### NOT IN with nullable subquery:
+
+```sql
+-- May return no rows if subquery contains NULL
+WHERE id NOT IN (SELECT manager_id FROM departments)
+
+-- Safe version
+WHERE id NOT IN (
+    SELECT manager_id FROM departments WHERE manager_id IS NOT NULL
+)
+```
+
+#### Function on column prevents index use:
+
+```sql
+-- Index on dept not used
+WHERE LOWER(dept) = 'engineering'
+
+-- Index on dept used
+WHERE dept = 'Engineering'
+
+-- Or: create expression index for the LOWER() form
+CREATE INDEX idx_dept_lower ON employees (LOWER(dept));
+```
+
+---
+
+### WHERE Clause Operator Reference
+
+|Operator / Keyword|Purpose|
+|---|---|
+|`=`, `!=`, `<>`|Equality / inequality|
+|`<`, `>`, `<=`, `>=`|Range comparison|
+|`IS NULL`, `IS NOT NULL`|NULL checks|
+|`IS`, `IS NOT`|NULL-safe equality|
+|`BETWEEN ... AND ...`|Inclusive range|
+|`IN (...)`|List membership|
+|`NOT IN (...)`|List exclusion|
+|`LIKE`|Case-insensitive pattern (ASCII)|
+|`NOT LIKE`|Negated pattern|
+|`GLOB`|Case-sensitive pattern|
+|`NOT GLOB`|Negated glob|
+|`REGEXP`|Regex (requires UDF)|
+|`EXISTS (...)`|Subquery row existence|
+|`NOT EXISTS (...)`|Subquery row absence|
+|`AND`, `OR`, `NOT`|Logical combination|
+|`COALESCE`, `IFNULL`|NULL substitution|
+
+---
+
+**Conclusion:** SQLite's `WHERE` clause supports a full range of filtering patterns — from simple equality checks to correlated subqueries, pattern matching, and expression-based conditions. The most common pitfalls are NULL handling with `NOT IN`, operator precedence with mixed `AND`/`OR`, and inadvertently preventing index use by applying functions to filtered columns. Where performance matters, `EXPLAIN QUERY PLAN` is the definitive tool for verifying whether a given `WHERE` condition uses an index.
+
+**Next Steps:**
+
+- Aggregate functions and GROUP BY
+- Joins and multi-table filtering
+- Indexes — design and query planner interaction
+- EXPLAIN QUERY PLAN in depth
+
+---
+
+## Sorting with ORDER BY in SQLite
+
+---
+
+### Basic Syntax
+
+`ORDER BY` controls the sequence in which rows are returned.
+
+```sql
+SELECT column1, column2
+FROM table_name
+ORDER BY column1 ASC;
+```
+
+**Key Points:**
+
+- `ORDER BY` is the only reliable way to guarantee row order — without it, SQLite may return rows in any order, including insertion order, but this is not guaranteed
+- `ASC` (ascending) is the default and can be omitted
+- `ORDER BY` is evaluated after `WHERE`, `GROUP BY`, and `HAVING`, but before `LIMIT` and `OFFSET`
+- Applies to `SELECT` statements only — not directly to `UPDATE` or `DELETE` unless compiled with `SQLITE_ENABLE_UPDATE_DELETE_LIMIT`
+
+---
+
+### ASC and DESC
+
+```sql
+-- Ascending (default): lowest to highest
+SELECT name, salary FROM employees ORDER BY salary ASC;
+
+-- Descending: highest to lowest
+SELECT name, salary FROM employees ORDER BY salary DESC;
+```
+
+**Output (DESC):**
+
+```
+David  | 101000.0
+Alice  | 95000.0
+Bob    | 72000.0
+Carol  | 68000.0
+```
+
+---
+
+### Sorting by Multiple Columns
+
+Columns are sorted left to right — the second column breaks ties in the first.
+
+```sql
+SELECT name, dept, salary
+FROM employees
+ORDER BY dept ASC, salary DESC;
+```
+
+**Output:**
+
+```
+Carol  | Design      | 68000.0
+Alice  | Engineering | 95000.0
+David  | Engineering | 101000.0
+Bob    | Marketing   | 72000.0
+```
+
+**Key Points:**
+
+- Each column in the list can have its own `ASC` or `DESC` direction
+- Tie-breaking continues left to right through the column list
+- Any number of columns can be listed — [Inference] performance cost increases with each additional sort column on large unsorted datasets
+
+---
+
+### Sorting by Column Position
+
+Columns can be referenced by their position in the `SELECT` list.
+
+```sql
+SELECT name, dept, salary
+FROM employees
+ORDER BY 3 DESC, 2 ASC;
+-- Equivalent to: ORDER BY salary DESC, dept ASC
+```
+
+**Key Points:**
+
+- Positions are 1-based
+- Valid SQL but generally discouraged — position references break silently when `SELECT` columns are reordered
+- `ORDER BY 0` or a position exceeding the column count produces an error
+- Useful for quick ad hoc queries; avoid in production code or stored views
+
+---
+
+### Sorting by Expression
+
+Any expression valid in `SELECT` can appear in `ORDER BY`.
+
+```sql
+-- Sort by computed value
+SELECT name, salary
+FROM employees
+ORDER BY salary * 1.10 DESC;
+
+-- Sort by string length
+SELECT name FROM employees
+ORDER BY LENGTH(name) ASC;
+
+-- Sort by extracted part of a string
+SELECT name, hire_date FROM employees
+ORDER BY SUBSTR(hire_date, 1, 4) DESC;  -- Sort by year
+
+-- Sort by CASE expression
+SELECT name, dept, salary
+FROM employees
+ORDER BY
+    CASE dept
+        WHEN 'Engineering' THEN 1
+        WHEN 'Design'      THEN 2
+        WHEN 'Marketing'   THEN 3
+        ELSE                    4
+    END ASC,
+    salary DESC;
+```
+
+**Key Points:**
+
+- Expressions in `ORDER BY` are evaluated per row — [Inference] applying functions to large result sets without an appropriate index increases sort cost; verify with `EXPLAIN QUERY PLAN`
+- The `CASE` pattern above implements a custom sort order — rows are ordered by department priority, then by salary within each department
+
+---
+
+### Sorting by Column Alias
+
+Aliases defined in `SELECT` are available in `ORDER BY`.
+
+```sql
+SELECT name, salary * 1.10 AS adjusted_salary
+FROM employees
+ORDER BY adjusted_salary DESC;
+```
+
+**Key Points:**
+
+- SQLite resolves aliases in `ORDER BY` — this is consistent behavior in SQLite but is an extension beyond strict SQL standard in some contexts
+- Avoids repeating the expression in both `SELECT` and `ORDER BY`
+- Aliases are **not** available in `WHERE` or `HAVING` — only in `ORDER BY`
+
+---
+
+### NULL Ordering
+
+In SQLite, `NULL` values have a defined sort position relative to non-NULL values.
+
+```sql
+SELECT name, dept FROM employees ORDER BY dept ASC;
+```
+
+|Sort Direction|NULL Position|
+|---|---|
+|`ASC`|NULLs appear **first** (before all non-NULL values)|
+|`DESC`|NULLs appear **last** (after all non-NULL values)|
+
+**Key Points:**
+
+- This is SQLite-specific behavior — other databases (PostgreSQL, Oracle) default to `NULLS LAST` for `ASC`; portability requires explicit handling
+- SQLite does not support `NULLS FIRST` / `NULLS LAST` syntax directly (unlike PostgreSQL)
+- To control NULL position explicitly, use a `CASE` expression:
+
+```sql
+-- Force NULLs to sort last in ASC order
+SELECT name, dept
+FROM employees
+ORDER BY
+    CASE WHEN dept IS NULL THEN 1 ELSE 0 END ASC,
+    dept ASC;
+
+-- Force NULLs to sort first in DESC order
+SELECT name, dept
+FROM employees
+ORDER BY
+    CASE WHEN dept IS NULL THEN 0 ELSE 1 END ASC,
+    dept DESC;
+```
+
+---
+
+### Sorting Text — Collation
+
+SQLite sorts text using collation sequences that define character comparison rules.
+
+#### Built-in Collations
+
+|Collation|Behavior|
+|---|---|
+|`BINARY`|Byte-by-byte comparison; case-sensitive; default|
+|`NOCASE`|Case-insensitive for ASCII A–Z; Unicode not covered|
+|`RTRIM`|Ignores trailing whitespace; otherwise binary|
+
+```sql
+-- Case-insensitive sort
+SELECT name FROM employees ORDER BY name COLLATE NOCASE ASC;
+
+-- Binary (default): uppercase before lowercase in ASCII order
+SELECT name FROM employees ORDER BY name COLLATE BINARY ASC;
+```
+
+**Key Points:**
+
+- Without `COLLATE`, the column's defined collation is used — default is `BINARY`
+- `NOCASE` only covers ASCII A–Z — [Unverified] behavior for accented or non-Latin characters depends on the SQLite build; ICU extension may be needed for full Unicode collation
+- Collation can be specified per `ORDER BY` column, overriding the column's default:
+
+```sql
+SELECT name FROM employees
+ORDER BY name COLLATE NOCASE ASC, dept COLLATE BINARY DESC;
+```
+
+#### Collation on Column Definition
+
+```sql
+CREATE TABLE employees (
+    name TEXT COLLATE NOCASE,
+    dept TEXT
+);
+
+-- Uses NOCASE automatically (defined on column)
+SELECT * FROM employees ORDER BY name;
+```
+
+**Key Points:**
+
+- Column-level collation applies automatically in `ORDER BY`, `WHERE`, and comparisons unless overridden
+- Overriding in `ORDER BY` does not change the column's stored collation
+
+---
+
+### Sorting with LIMIT and OFFSET
+
+`ORDER BY` is essential when using `LIMIT` — without it, the returned subset is arbitrary.
+
+```sql
+-- Top 5 earners
+SELECT name, salary
+FROM employees
+ORDER BY salary DESC
+LIMIT 5;
+
+-- Rows 6–10
+SELECT name, salary
+FROM employees
+ORDER BY salary DESC
+LIMIT 5 OFFSET 5;
+```
+
+**Key Points:**
+
+- `LIMIT` without `ORDER BY` returns an unpredictable subset
+- `OFFSET` requires a full sort and scan of all preceding rows — [Inference] large offsets on big tables are slow; keyset pagination is more efficient for deep paging:
+
+```sql
+-- Keyset pagination: faster than large OFFSET
+SELECT name, salary
+FROM employees
+WHERE salary < :last_salary
+   OR (salary = :last_salary AND name > :last_name)
+ORDER BY salary DESC, name ASC
+LIMIT 10;
+```
+
+**Key Points on keyset pagination:**
+
+- Requires a stable, unique sort key (or combination) to define the page boundary
+- [Inference] Performance advantage grows as the offset deepens — avoids scanning and discarding rows; behavior depends on index availability
+
+---
+
+### Sorting Across Joins
+
+`ORDER BY` applies to the full joined result.
+
+```sql
+SELECT e.name, e.salary, d.budget
+FROM employees e
+JOIN departments d ON e.dept = d.name
+ORDER BY d.budget DESC, e.salary DESC;
+```
+
+**Key Points:**
+
+- Any column from any joined table is available in `ORDER BY`
+- Qualify column names with table aliases when ambiguity exists
+- [Inference] Sort performance depends on whether the sort column is indexed and whether the join result is small enough to sort in memory
+
+---
+
+### Sorting in Subqueries and CTEs
+
+`ORDER BY` in a subquery or CTE does not guarantee order in the outer query.
+
+```sql
+-- ORDER BY in subquery has no guaranteed effect on outer result
+SELECT * FROM (
+    SELECT name, salary FROM employees ORDER BY salary DESC
+) sub;
+```
+
+**Key Points:**
+
+- SQLite may or may not preserve inner sort order in the outer query — [Inference] this is implementation-dependent and should not be relied upon; always apply `ORDER BY` at the outermost level where order matters
+- This is standard SQL behavior — subquery row order is undefined unless the outer query sorts
+
+```sql
+-- Correct: sort at the outermost level
+SELECT * FROM (
+    SELECT name, salary FROM employees WHERE dept = 'Engineering'
+) sub
+ORDER BY salary DESC;
+```
+
+---
+
+### Sorting with DISTINCT
+
+When `DISTINCT` and `ORDER BY` are combined, `ORDER BY` columns must appear in the `SELECT` list.
+
+```sql
+-- Valid
+SELECT DISTINCT dept FROM employees ORDER BY dept ASC;
+
+-- Invalid in strict mode — salary not in SELECT
+SELECT DISTINCT dept FROM employees ORDER BY salary ASC;
+```
+
+**Key Points:**
+
+- SQLite may permit ordering by a column not in `SELECT DISTINCT` in some cases — [Inference] this behavior is not guaranteed and may differ across versions; include sort columns in `SELECT` for reliable results
+- When `DISTINCT` is present, the sort is applied to the deduplicated result
+
+---
+
+### Sorting with Aggregates and GROUP BY
+
+`ORDER BY` on aggregated queries sorts the grouped result.
+
+```sql
+SELECT dept, COUNT(*) AS headcount, AVG(salary) AS avg_salary
+FROM employees
+GROUP BY dept
+ORDER BY avg_salary DESC;
+```
+
+```sql
+-- Order by aggregate not in SELECT
+SELECT dept, COUNT(*) AS headcount
+FROM employees
+GROUP BY dept
+ORDER BY AVG(salary) DESC;
+```
+
+**Key Points:**
+
+- Aggregate functions can appear in `ORDER BY` even if not in `SELECT`
+- `ORDER BY` is applied after `GROUP BY` and `HAVING`
+- Aliases defined in `SELECT` (e.g., `avg_salary`) are available in `ORDER BY`
+
+---
+
+### Stable Sort Behavior
+
+SQLite's sort is not guaranteed to be stable across all versions and configurations.
+
+**Key Points:**
+
+- A stable sort preserves the relative order of rows with equal sort keys
+- [Inference] SQLite's sort algorithm may be stable in practice for small result sets but this should not be relied upon — if tie-breaking order matters, include a unique column (e.g., `id`) as the final sort key:
+
+```sql
+SELECT name, dept, salary
+FROM employees
+ORDER BY dept ASC, salary DESC, id ASC;
+```
+
+- Adding `id ASC` as the final tiebreaker makes the sort deterministic regardless of internal algorithm behavior
+
+---
+
+### Index Use in ORDER BY
+
+SQLite can use an index to satisfy `ORDER BY` without a separate sort step.
+
+```sql
+CREATE INDEX idx_salary ON employees (salary);
+
+-- May use idx_salary to return rows in order without sorting
+SELECT name, salary FROM employees ORDER BY salary ASC;
+```
+
+**Key Points:**
+
+- When an index covers the sort column(s) in the correct direction, SQLite may scan the index in order — [Inference] eliminates the need for an explicit sort step, which can significantly improve performance on large tables; verify with `EXPLAIN QUERY PLAN`
+- Look for `SCAN employees USING INDEX` in the query plan output
+- A covering index (includes all `SELECT` columns) further avoids table lookups:
+
+```sql
+CREATE INDEX idx_salary_name ON employees (salary, name);
+
+-- Potentially a covering index scan — no table access needed
+SELECT name, salary FROM employees ORDER BY salary ASC;
+```
+
+- Composite indexes must match the `ORDER BY` column order and direction to be usable — [Inference] an index on `(dept ASC, salary DESC)` may not be used for `ORDER BY dept DESC, salary ASC`; test with `EXPLAIN QUERY PLAN`
+
+---
+
+### EXPLAIN QUERY PLAN for ORDER BY
+
+```sql
+EXPLAIN QUERY PLAN
+SELECT name, salary FROM employees ORDER BY salary DESC;
+```
+
+**Output indicators:**
+
+```
+SCAN employees
+USE TEMP B-TREE FOR ORDER BY   ← sort performed in memory/temp
+```
+
+vs.
+
+```
+SCAN employees USING INDEX idx_salary   ← index used; no sort needed
+```
+
+**Key Points:**
+
+- `USE TEMP B-TREE FOR ORDER BY` indicates a sort is happening — may be acceptable for small tables, but worth addressing with an index for large ones
+- `USING INDEX` in the plan indicates the index is being used for ordering
+- [Inference] Index-based ordering avoids materializing and sorting the full result set — likely faster for large tables with selective queries; actual gains depend on row count and hardware
+
+---
+
+### ORDER BY Reference Summary
+
+|Feature|Syntax|Notes|
+|---|---|---|
+|Ascending|`ORDER BY col ASC`|Default; ASC optional|
+|Descending|`ORDER BY col DESC`||
+|Multiple columns|`ORDER BY col1 ASC, col2 DESC`|Left to right priority|
+|By position|`ORDER BY 2 DESC`|1-based; fragile|
+|By alias|`ORDER BY alias DESC`|Alias must be in SELECT|
+|By expression|`ORDER BY LENGTH(name)`|Evaluated per row|
+|Custom order|`ORDER BY CASE ... END`|Manual priority mapping|
+|Collation|`ORDER BY col COLLATE NOCASE`|Overrides column default|
+|NULL control|`ORDER BY CASE WHEN col IS NULL ...`|SQLite lacks NULLS FIRST/LAST|
+|With LIMIT|`ORDER BY col LIMIT n`|Required for deterministic paging|
+|Tiebreaker|`ORDER BY col, id ASC`|Ensures deterministic output|
+
+---
+
+**Conclusion:** `ORDER BY` in SQLite is flexible — supporting column names, aliases, positions, expressions, `CASE` logic, and collation overrides. Key behaviors to internalize: row order without `ORDER BY` is undefined; NULL sort position differs from most other databases; subquery sort order does not propagate to outer queries; and index-backed sorting avoids the `USE TEMP B-TREE` cost for large datasets. For deterministic results, always include a unique tiebreaker as the final sort column.
+
+**Next Steps:**
+
+- LIMIT and OFFSET — pagination patterns
+- Indexes — covering indexes and sort optimization
+- GROUP BY and aggregate sorting
+- EXPLAIN QUERY PLAN in depth
+
+---
+
+## LIMIT and OFFSET for Pagination in SQLite
+
+---
+
+### Purpose
+
+`LIMIT` restricts how many rows a query returns. `OFFSET` skips a number of rows before returning results. Together they are the foundation of offset-based pagination.
+
+```sql
+SELECT column1, column2
+FROM table_name
+ORDER BY column1
+LIMIT n OFFSET m;
+```
+
+**Key Points:**
+
+- `LIMIT` and `OFFSET` are evaluated last in the logical processing order — after `WHERE`, `GROUP BY`, `HAVING`, `SELECT`, `DISTINCT`, and `ORDER BY`
+- `ORDER BY` is required for pagination to be deterministic — without it, the rows returned per page are undefined
+- Both accept integer expressions or bound parameters — negative values for `LIMIT` are treated as no limit in SQLite; negative `OFFSET` produces an error in most contexts
+
+---
+
+### LIMIT
+
+Returns at most N rows.
+
+```sql
+-- Return first 10 rows by salary
+SELECT name, salary
+FROM employees
+ORDER BY salary DESC
+LIMIT 10;
+```
+
+**Key Points:**
+
+- Returns fewer than N rows if the result set contains fewer
+- `LIMIT 0` returns no rows — valid; occasionally useful for checking query structure without fetching data
+- `LIMIT -1` returns all rows — SQLite-specific behavior; not portable
+
+---
+
+### OFFSET
+
+Skips M rows before returning results.
+
+```sql
+-- Skip first 10 rows, return next 10
+SELECT name, salary
+FROM employees
+ORDER BY salary DESC
+LIMIT 10 OFFSET 10;
+```
+
+**Key Points:**
+
+- `OFFSET 0` is the same as no offset
+- Offset is zero-based — `OFFSET 10` skips rows 1 through 10 and returns from row 11
+- `OFFSET` without `LIMIT` is not valid in SQLite — `LIMIT` must be present
+
+---
+
+### Comma Syntax (Alternative Form)
+
+SQLite supports a legacy two-argument `LIMIT` form.
+
+```sql
+-- LIMIT offset, count  (comma syntax)
+SELECT name, salary FROM employees ORDER BY salary DESC LIMIT 10, 10;
+-- Equivalent to: LIMIT 10 OFFSET 10
+```
+
+**Key Points:**
+
+- Argument order is `offset, count` — the **opposite** of the `LIMIT count OFFSET offset` form
+- [Inference] This is a common source of errors — the keyword form (`LIMIT n OFFSET m`) is clearer and less error-prone
+- Comma syntax is a SQLite/MySQL convention — not standard SQL; avoid if portability matters
+
+---
+
+### Basic Pagination Pattern
+
+Page size of 10, navigating through pages.
+
+```sql
+-- Page 1 (rows 1–10)
+SELECT name, dept, salary FROM employees
+ORDER BY id ASC
+LIMIT 10 OFFSET 0;
+
+-- Page 2 (rows 11–20)
+SELECT name, dept, salary FROM employees
+ORDER BY id ASC
+LIMIT 10 OFFSET 10;
+
+-- Page 3 (rows 21–30)
+SELECT name, dept, salary FROM employees
+ORDER BY id ASC
+LIMIT 10 OFFSET 20;
+```
+
+**Formula:**
+
+```
+OFFSET = (page_number - 1) * page_size
+```
+
+**Parameterized form:**
+
+```sql
+SELECT name, dept, salary FROM employees
+ORDER BY id ASC
+LIMIT :page_size OFFSET :offset;
+```
+
+```python
+page_size = 10
+page_number = 3
+offset = (page_number - 1) * page_size
+
+conn.execute(
+    'SELECT name, dept, salary FROM employees ORDER BY id ASC LIMIT ? OFFSET ?',
+    (page_size, offset)
+)
+```
+
+---
+
+### Getting Total Row Count for Pagination
+
+To compute total pages, a separate count query is needed.
+
+```sql
+SELECT COUNT(*) AS total FROM employees WHERE dept = 'Engineering';
+```
+
+```python
+total = conn.execute(
+    'SELECT COUNT(*) FROM employees WHERE dept = ?', ('Engineering',)
+).fetchone()[0]
+
+total_pages = (total + page_size - 1) // page_size  # ceiling division
+```
+
+**Key Points:**
+
+- The `COUNT(*)` query must use the same `WHERE` conditions as the data query
+- [Inference] Running two queries (count + data) per page request is the standard approach — there is no single SQLite statement that returns both the count and the page simultaneously
+- For large tables with complex `WHERE` clauses, the count query may be slow — caching the count or using approximate counts may be appropriate depending on use case
+
+---
+
+### The OFFSET Performance Problem
+
+`OFFSET` works by scanning and discarding rows up to the offset value.
+
+```sql
+-- SQLite scans and discards 90,000 rows, then returns 10
+SELECT name, salary FROM employees
+ORDER BY salary DESC
+LIMIT 10 OFFSET 90000;
+```
+
+**Key Points:**
+
+- SQLite does not jump directly to the offset position — it reads through all preceding rows
+- [Inference] Query time increases approximately linearly with offset size for unsorted or unindexed data; on indexed sorts the cost may be lower but is still present
+- For small tables or modest page depths, offset pagination is typically acceptable
+- For large tables or deep pages, keyset pagination is the recommended alternative
+
+---
+
+### Keyset Pagination (Seek Method)
+
+Instead of skipping rows, keyset pagination filters from the last seen value.
+
+#### Simple keyset on a unique column:
+
+```sql
+-- First page
+SELECT id, name, salary
+FROM employees
+ORDER BY id ASC
+LIMIT 10;
+
+-- Next page: pass the last seen id from the previous page
+SELECT id, name, salary
+FROM employees
+WHERE id > :last_id
+ORDER BY id ASC
+LIMIT 10;
+```
+
+**Key Points:**
+
+- No rows are scanned and discarded — the `WHERE` clause jumps directly to the next set
+- [Inference] Requires an index on the sort/filter column — without one, performance may not improve over offset; verify with `EXPLAIN QUERY PLAN`
+- Does not support arbitrary page jumps — only sequential forward (and, with modification, backward) navigation
+- The sort column must be unique, or a composite tiebreaker must be added to ensure stable page boundaries
+
+---
+
+### Keyset Pagination with Non-Unique Sort Column
+
+When sorting by a non-unique column (e.g., `salary`), ties must be broken with a unique column.
+
+```sql
+-- First page
+SELECT id, name, salary
+FROM employees
+ORDER BY salary DESC, id ASC
+LIMIT 10;
+
+-- Next page: use both last_salary and last_id as the boundary
+SELECT id, name, salary
+FROM employees
+WHERE salary < :last_salary
+   OR (salary = :last_salary AND id > :last_id)
+ORDER BY salary DESC, id ASC
+LIMIT 10;
+```
+
+**Key Points:**
+
+- The `OR` condition handles rows with the same salary as the last row on the previous page
+- Both conditions together define an unambiguous page boundary
+- [Inference] The `OR` may limit index use on some query planners — an alternative using a composite key or row value comparison may be more index-friendly; verify with `EXPLAIN QUERY PLAN`
+- Cannot jump to an arbitrary page by number — keyset pagination is inherently sequential
+
+---
+
+### Keyset Pagination — Backward Navigation
+
+```sql
+-- Previous page: reverse the comparison and sort, then re-reverse the result
+SELECT id, name, salary FROM (
+    SELECT id, name, salary
+    FROM employees
+    WHERE salary > :last_salary
+       OR (salary = :last_salary AND id < :last_id)
+    ORDER BY salary ASC, id DESC
+    LIMIT 10
+) sub
+ORDER BY salary DESC, id ASC;
+```
+
+**Key Points:**
+
+- Reverses the sort direction in the inner query to collect the preceding page
+- The outer query re-applies the original sort order for consistent presentation
+- [Inference] More complex to implement and test than forward-only pagination — ensure boundary conditions are covered in testing
+
+---
+
+### Offset vs. Keyset Comparison
+
+|Characteristic|Offset Pagination|Keyset Pagination|
+|---|---|---|
+|Arbitrary page jump|✅ Supported|❌ Sequential only|
+|Performance at depth|Degrades with offset|Consistent|
+|Implementation complexity|Simple|Moderate|
+|Requires unique sort key|No|Yes (or composite)|
+|Row skip on insert/delete|✅ Can occur|❌ Stable boundaries|
+|Index dependency|Optional|Required for performance|
+|Total page count|Easy (COUNT query)|Requires separate count|
+
+---
+
+### Row Skipping and Duplication with Offset
+
+A known hazard of offset pagination: concurrent inserts or deletes shift row positions.
+
+```sql
+-- Page 1 returns rows 1–10
+-- A new row is inserted at position 5 before page 2 is fetched
+-- Page 2 (OFFSET 10) now starts at what was row 11 — row 10 is skipped
+```
+
+**Key Points:**
+
+- Row insertion before the current offset causes a row to be skipped on the next page
+- Row deletion before the current offset causes a row to be duplicated (seen on two pages)
+- [Inference] In read-heavy or static datasets this is rarely a problem — in high-write environments it is a significant hazard
+- Keyset pagination is not affected by this problem — the `WHERE` clause anchors to values, not positions
+
+---
+
+### LIMIT in Subqueries
+
+`LIMIT` inside a subquery restricts the subquery's result independently.
+
+```sql
+-- Get the top 3 earners per department
+SELECT e.name, e.dept, e.salary
+FROM employees e
+WHERE e.id IN (
+    SELECT id FROM employees
+    WHERE dept = e.dept
+    ORDER BY salary DESC
+    LIMIT 3
+);
+```
+
+**Key Points:**
+
+- `LIMIT` in a correlated subquery applies per outer row evaluation — [Inference] may be slow on large tables; a window function (`ROW_NUMBER()`) is often more efficient for top-N-per-group queries in SQLite 3.25.0+
+- `LIMIT` in a non-correlated subquery limits the subquery result set once
+
+```sql
+-- Limit source rows for an INSERT
+INSERT INTO top_earners (name, salary)
+SELECT name, salary FROM employees
+ORDER BY salary DESC
+LIMIT 10;
+```
+
+---
+
+### LIMIT with Aggregate Queries
+
+```sql
+-- Top 3 departments by average salary
+SELECT dept, AVG(salary) AS avg_sal
+FROM employees
+GROUP BY dept
+ORDER BY avg_sal DESC
+LIMIT 3;
+```
+
+**Key Points:**
+
+- `LIMIT` applies to the grouped result — after `GROUP BY` and `HAVING`
+- Useful for top-N group queries
+
+---
+
+### Window Function Alternative for Top-N
+
+For top-N rows per group, `ROW_NUMBER()` is cleaner than correlated subqueries with `LIMIT`. Requires SQLite 3.25.0+.
+
+```sql
+SELECT name, dept, salary
+FROM (
+    SELECT
+        name, dept, salary,
+        ROW_NUMBER() OVER (
+            PARTITION BY dept ORDER BY salary DESC
+        ) AS rn
+    FROM employees
+)
+WHERE rn <= 3;
+```
+
+**Key Points:**
+
+- Assigns a sequential number within each department partition, ordered by salary
+- Outer `WHERE rn <= 3` returns only the top 3 per department
+- [Inference] Generally more efficient than a correlated subquery with `LIMIT` for this pattern — avoids re-scanning the table per department; verify with `EXPLAIN QUERY PLAN`
+- Requires SQLite 3.25.0+ — verify with `SELECT SQLITE_VERSION();`
+
+---
+
+### Using LIMIT for Existence Checks
+
+`LIMIT 1` is an efficient pattern for checking whether any row matches a condition.
+
+```sql
+-- Check if any engineer earns above 100k
+SELECT 1 FROM employees
+WHERE dept = 'Engineering' AND salary > 100000
+LIMIT 1;
+```
+
+```python
+exists = conn.execute(
+    'SELECT 1 FROM employees WHERE dept = ? AND salary > ? LIMIT 1',
+    ('Engineering', 100000)
+).fetchone() is not None
+```
+
+**Key Points:**
+
+- Returns at most one row — SQLite stops scanning after finding the first match
+- [Inference] More efficient than `COUNT(*) > 0` for existence checks — avoids counting all matching rows; actual difference depends on indexes and data distribution
+- `EXISTS (SELECT 1 ...)` in a subquery context achieves the same effect
+
+---
+
+### LIMIT 0 — Schema Inspection Without Data
+
+```sql
+SELECT * FROM employees LIMIT 0;
+```
+
+**Key Points:**
+
+- Returns no rows but provides column metadata (names and types) via the cursor
+- Useful in application code to inspect result shape without fetching data:
+
+```python
+cursor = conn.execute('SELECT * FROM employees LIMIT 0')
+columns = [desc[0] for desc in cursor.description]
+```
+
+---
+
+### Parameterized LIMIT and OFFSET
+
+Always use parameters when `LIMIT` and `OFFSET` values come from user input.
+
+```python
+# Safe: parameterized
+conn.execute(
+    'SELECT * FROM employees ORDER BY id LIMIT ? OFFSET ?',
+    (page_size, offset)
+)
+
+# Unsafe: string interpolation — avoid
+conn.execute(
+    f'SELECT * FROM employees ORDER BY id LIMIT {page_size} OFFSET {offset}'
+)
+```
+
+**Key Points:**
+
+- [Inference] SQLite parameters for `LIMIT` and `OFFSET` accept integer values — passing non-integer types may cause errors or unexpected behavior depending on the driver; validate input before binding
+- String interpolation of user-supplied values introduces SQL injection risk even for numeric inputs — parameterization is always safer
+
+---
+
+### Pagination with Filtering and Sorting
+
+Real pagination queries combine `WHERE`, `ORDER BY`, `LIMIT`, and `OFFSET`.
+
+```sql
+SELECT id, name, dept, salary
+FROM employees
+WHERE dept = :dept
+  AND salary >= :min_salary
+ORDER BY salary DESC, id ASC
+LIMIT :page_size OFFSET :offset;
+```
+
+```python
+def get_page(conn, dept, min_salary, page_number, page_size=10):
+    offset = (page_number - 1) * page_size
+    rows = conn.execute(
+        '''
+        SELECT id, name, dept, salary
+        FROM employees
+        WHERE dept = ? AND salary >= ?
+        ORDER BY salary DESC, id ASC
+        LIMIT ? OFFSET ?
+        ''',
+        (dept, min_salary, page_size, offset)
+    ).fetchall()
+    return rows
+```
+
+**Key Points:**
+
+- The `id ASC` tiebreaker ensures deterministic ordering when salaries are equal
+- All filter parameters are bound — avoids injection risk
+- The same `WHERE` clause should be used in a companion `COUNT(*)` query for total page calculation
+
+---
+
+### Index Support for LIMIT Queries
+
+An index on the `ORDER BY` column(s) allows SQLite to stop scanning early when `LIMIT` is small.
+
+```sql
+CREATE INDEX idx_salary_id ON employees (salary DESC, id ASC);
+
+-- With LIMIT, SQLite reads only as many index entries as needed
+SELECT id, name, salary
+FROM employees
+ORDER BY salary DESC, id ASC
+LIMIT 10;
+```
+
+**Key Points:**
+
+- Without an index, SQLite sorts the entire result set then returns the first N rows
+- With a matching index, SQLite reads only the first N entries from the index — [Inference] dramatically faster for small `LIMIT` values on large tables; verify with `EXPLAIN QUERY PLAN`
+- The index direction (`DESC`/`ASC`) should match the `ORDER BY` direction for optimal use
+- Look for absence of `USE TEMP B-TREE FOR ORDER BY` in `EXPLAIN QUERY PLAN` output as confirmation
+
+```sql
+EXPLAIN QUERY PLAN
+SELECT id, name, salary FROM employees
+ORDER BY salary DESC, id ASC
+LIMIT 10;
+```
+
+**Good output:**
+
+```
+SCAN employees USING INDEX idx_salary_id
+```
+
+**Output indicating a sort step:**
+
+```
+SCAN employees
+USE TEMP B-TREE FOR ORDER BY
+```
+
+---
+
+### LIMIT and OFFSET in CTEs
+
+```sql
+WITH ranked AS (
+    SELECT id, name, dept, salary
+    FROM employees
+    WHERE dept = 'Engineering'
+    ORDER BY salary DESC
+    LIMIT 10 OFFSET 0
+)
+SELECT * FROM ranked;
+```
+
+**Key Points:**
+
+- `LIMIT` and `OFFSET` inside a CTE apply to the CTE's result independently
+- [Inference] The outer query cannot further rely on the CTE's internal order — apply `ORDER BY` in the outer query if order of the final result matters
+- CTEs with `LIMIT` are useful for pre-filtering large tables before joining or further processing
+
+---
+
+### Common LIMIT / OFFSET Mistakes
+
+#### Missing ORDER BY:
+
+```sql
+-- Non-deterministic — different pages may return overlapping or missing rows
+SELECT * FROM employees LIMIT 10 OFFSET 10;
+
+-- Correct
+SELECT * FROM employees ORDER BY id ASC LIMIT 10 OFFSET 10;
+```
+
+#### Confusing comma syntax argument order:
+
+```sql
+-- Returns 20 rows starting at offset 10 — NOT 10 rows at offset 20
+SELECT * FROM employees ORDER BY id LIMIT 10, 20;
+
+-- Clearer equivalent
+SELECT * FROM employees ORDER BY id LIMIT 20 OFFSET 10;
+```
+
+#### Offset pagination on a volatile table:
+
+```sql
+-- Rows inserted or deleted between page requests shift positions
+-- Use keyset pagination for write-heavy tables
+```
+
+#### Not filtering NULL in sort column for keyset:
+
+```sql
+-- If salary can be NULL, boundary comparison may behave unexpectedly
+WHERE salary < :last_salary  -- NULL salaries excluded unpredictably
+
+-- Safer: exclude NULLs or handle explicitly
+WHERE salary < :last_salary AND salary IS NOT NULL
+```
+
+---
+
+### Quick Reference
+
+```sql
+-- First N rows
+SELECT ... ORDER BY col LIMIT N;
+
+-- Page P with page size N (1-based page number)
+SELECT ... ORDER BY col LIMIT N OFFSET (P - 1) * N;
+
+-- Existence check
+SELECT 1 FROM ... WHERE ... LIMIT 1;
+
+-- Top N per group (window function)
+SELECT ... FROM (
+    SELECT ..., ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY sort_col DESC) AS rn
+    FROM ...
+) WHERE rn <= N;
+
+-- Keyset next page
+SELECT ... FROM ... WHERE sort_col < :last_val ORDER BY sort_col DESC LIMIT N;
+
+-- Schema inspection, no data
+SELECT * FROM table LIMIT 0;
+```
+
+---
+
+**Conclusion:** `LIMIT` and `OFFSET` cover most pagination needs in SQLite, but carry a well-known performance cost at depth and a data consistency hazard in write-heavy environments. For small tables or shallow pagination, offset-based pagination is straightforward and acceptable. For large datasets, deep pages, or high-write scenarios, keyset pagination provides consistent performance and stable boundaries. Regardless of approach, `ORDER BY` with a unique tiebreaker is required for reliable results, and an index on the sort column is the most impactful performance optimization.
+
+**Next Steps:**
+
+- Window functions — ROW_NUMBER, RANK, DENSE_RANK
+- Indexes — covering indexes for sort and pagination queries
+- Query optimization and EXPLAIN QUERY PLAN
+- Joins and filtered pagination across multiple tables
+
+---
+
+## Aggregate Functions in SQLite
+
+---
+
+### What Aggregate Functions Do
+
+Aggregate functions compute a single result from a set of rows. They collapse multiple values into one — a count, total, average, or boundary value.
+
+```sql
+SELECT COUNT(*), SUM(salary), AVG(salary), MIN(salary), MAX(salary)
+FROM employees;
+```
+
+**Key Points:**
+
+- Aggregate functions operate on a set of rows — the entire table, or a group defined by `GROUP BY`
+- They appear in `SELECT` and `HAVING` clauses — not directly in `WHERE` (aggregates are not yet computed at that stage)
+- All built-in aggregates ignore `NULL` values except `COUNT(*)`
+- When no rows match the query, `COUNT(*)` returns `0`; all other aggregates return `NULL`
+
+---
+
+### COUNT
+
+Returns the number of rows or non-NULL values in a set.
+
+#### COUNT(*)
+
+```sql
+-- Total rows in the table
+SELECT COUNT(*) FROM employees;
+
+-- Total rows matching a condition
+SELECT COUNT(*) FROM employees WHERE dept = 'Engineering';
+```
+
+**Key Points:**
+
+- Counts every row regardless of NULL values in any column
+- The fastest form for row counting — does not evaluate column values
+- Returns `0` when no rows match — never returns `NULL`
+
+#### COUNT(column)
+
+```sql
+-- Count rows where dept is not NULL
+SELECT COUNT(dept) FROM employees;
+```
+
+**Key Points:**
+
+- Ignores `NULL` values in the specified column
+- `COUNT(dept)` < `COUNT(*)` when `dept` contains NULLs
+- Useful for counting how many rows have a value in a specific column
+
+#### COUNT(DISTINCT column)
+
+```sql
+-- Count unique departments
+SELECT COUNT(DISTINCT dept) FROM employees;
+```
+
+**Key Points:**
+
+- Counts distinct non-NULL values
+- `DISTINCT` applies only within the aggregate — does not affect other columns in the `SELECT`
+- [Inference] May be slower than `COUNT(*)` on large tables without an index on the column — verify with `EXPLAIN QUERY PLAN`
+
+#### COUNT Comparison Example
+
+```sql
+SELECT
+    COUNT(*)           AS total_rows,
+    COUNT(dept)        AS rows_with_dept,
+    COUNT(DISTINCT dept) AS unique_depts
+FROM employees;
+```
+
+**Output:**
+
+```
+total_rows | rows_with_dept | unique_depts
+10         | 8              | 4
+```
+
+---
+
+### SUM
+
+Returns the total of all non-NULL values in a numeric column.
+
+```sql
+SELECT SUM(salary) FROM employees;
+
+SELECT SUM(salary) FROM employees WHERE dept = 'Engineering';
+```
+
+**Key Points:**
+
+- Returns `NULL` if all values in the set are `NULL` or the set is empty
+- Use `COALESCE(SUM(col), 0)` to return `0` instead of `NULL` when needed:
+
+```sql
+SELECT COALESCE(SUM(salary), 0) AS total_salary FROM employees;
+```
+
+- SQLite stores sums as `INTEGER` or `REAL` depending on input types — [Inference] summing large integers may overflow if the result exceeds SQLite's integer range (±2^63); use `CAST` to `REAL` if overflow is a concern
+
+#### SUM with DISTINCT
+
+```sql
+-- Sum of unique salary values only
+SELECT SUM(DISTINCT salary) FROM employees;
+```
+
+**Key Points:**
+
+- Sums each distinct value once — duplicates are excluded
+- Rarely used in practice; typically `SUM(DISTINCT ...)` has a specific analytical purpose
+
+---
+
+### AVG
+
+Returns the arithmetic mean of all non-NULL values.
+
+```sql
+SELECT AVG(salary) FROM employees;
+
+SELECT AVG(salary) FROM employees WHERE dept = 'Marketing';
+```
+
+**Key Points:**
+
+- Returns `NULL` if all values are `NULL` or the set is empty
+- Computed as `SUM(col) / COUNT(col)` — only non-NULL values contribute to both numerator and denominator
+- Result is always `REAL` in SQLite regardless of input type
+- [Inference] Floating-point precision limits apply — results may have minor rounding imprecision for large or fractional values; use `ROUND()` for display:
+
+```sql
+SELECT ROUND(AVG(salary), 2) AS avg_salary FROM employees;
+```
+
+#### AVG vs Manual Calculation
+
+```sql
+-- These produce the same result
+SELECT AVG(salary) FROM employees;
+SELECT CAST(SUM(salary) AS REAL) / COUNT(salary) FROM employees;
+```
+
+**Key Points:**
+
+- Manual calculation makes NULL handling explicit
+- `CAST(SUM(...) AS REAL)` avoids integer division when salary is stored as `INTEGER`
+
+---
+
+### MIN
+
+Returns the smallest non-NULL value in the set.
+
+```sql
+SELECT MIN(salary) FROM employees;
+
+SELECT MIN(hire_date) FROM employees;  -- Earliest date (ISO format)
+```
+
+**Key Points:**
+
+- Returns `NULL` if all values are `NULL` or the set is empty
+- Works on numeric, text (lexicographic), and ISO date strings
+- For text, comparison is based on the column's collation — default is `BINARY`
+- Does not require a sort of the entire result — [Inference] SQLite may use an index to satisfy `MIN` without a full scan; verify with `EXPLAIN QUERY PLAN`
+
+---
+
+### MAX
+
+Returns the largest non-NULL value in the set.
+
+```sql
+SELECT MAX(salary) FROM employees;
+
+SELECT MAX(hire_date) FROM employees;  -- Most recent date (ISO format)
+```
+
+**Key Points:**
+
+- Returns `NULL` if all values are `NULL` or the set is empty
+- Same collation and index behavior as `MIN`
+- `MIN` and `MAX` together define the range:
+
+```sql
+SELECT MIN(salary) AS floor, MAX(salary) AS ceiling FROM employees;
+```
+
+---
+
+### Using Multiple Aggregates Together
+
+```sql
+SELECT
+    COUNT(*)                    AS headcount,
+    COUNT(DISTINCT dept)        AS departments,
+    ROUND(AVG(salary), 2)       AS avg_salary,
+    SUM(salary)                 AS payroll,
+    MIN(salary)                 AS lowest,
+    MAX(salary)                 AS highest,
+    MAX(salary) - MIN(salary)   AS salary_range
+FROM employees;
+```
+
+**Output:**
+
+```
+headcount | departments | avg_salary | payroll   | lowest  | highest  | salary_range
+10        | 4           | 79700.00   | 797000.00 | 52000.0 | 101000.0 | 49000.0
+```
+
+---
+
+### GROUP BY with Aggregates
+
+`GROUP BY` partitions rows into groups — aggregates operate on each group independently.
+
+```sql
+SELECT dept, COUNT(*) AS headcount, ROUND(AVG(salary), 2) AS avg_salary
+FROM employees
+GROUP BY dept;
+```
+
+**Output:**
+
+```
+dept        | headcount | avg_salary
+Design      | 2         | 65500.00
+Engineering | 3         | 97000.00
+HR          | 2         | 61000.00
+Marketing   | 3         | 69333.33
+```
+
+**Key Points:**
+
+- Every column in `SELECT` must be either in `GROUP BY` or wrapped in an aggregate function
+- SQLite is more permissive than standard SQL — it allows non-aggregated, non-grouped columns in `SELECT`, returning an arbitrary value from the group for that column — [Inference] this is a known SQLite quirk; relying on it produces unpredictable results and should be avoided
+- `GROUP BY` can reference column aliases defined in `SELECT` in SQLite — [Inference] this is a SQLite extension; not portable to all databases
+
+#### Grouping by Multiple Columns
+
+```sql
+SELECT dept, CASE
+    WHEN salary >= 90000 THEN 'Senior'
+    WHEN salary >= 70000 THEN 'Mid'
+    ELSE 'Junior'
+END AS level,
+COUNT(*) AS headcount
+FROM employees
+GROUP BY dept, level
+ORDER BY dept, level;
+```
+
+**Key Points:**
+
+- Groups are defined by the unique combination of all `GROUP BY` columns
+- Can group by expressions and `CASE` results, not just column names
+
+---
+
+### HAVING — Filtering Groups
+
+`HAVING` filters groups after aggregation — analogous to `WHERE` for rows.
+
+```sql
+-- Departments with more than 2 employees
+SELECT dept, COUNT(*) AS headcount
+FROM employees
+GROUP BY dept
+HAVING COUNT(*) > 2;
+```
+
+```sql
+-- Departments where average salary exceeds 75000
+SELECT dept, ROUND(AVG(salary), 2) AS avg_salary
+FROM employees
+GROUP BY dept
+HAVING AVG(salary) > 75000;
+```
+
+**Key Points:**
+
+- `HAVING` can reference aggregate functions — `WHERE` cannot
+- `HAVING` can reference `SELECT` aliases in SQLite — [Inference] this is SQLite-specific behavior; not guaranteed in other databases
+- Non-aggregate conditions are more efficiently placed in `WHERE` (filtered before grouping) than `HAVING` (filtered after):
+
+```sql
+-- Efficient: WHERE excludes rows before grouping
+SELECT dept, COUNT(*) AS headcount
+FROM employees
+WHERE salary > 50000        -- Filters rows before GROUP BY
+GROUP BY dept
+HAVING COUNT(*) > 1;        -- Filters groups after GROUP BY
+```
+
+---
+
+### WHERE vs HAVING
+
+```sql
+-- WHERE: filters individual rows before aggregation
+-- HAVING: filters groups after aggregation
+
+SELECT dept, AVG(salary) AS avg_sal
+FROM employees
+WHERE hire_date >= '2021-01-01'   -- Exclude rows before grouping
+GROUP BY dept
+HAVING AVG(salary) > 70000;       -- Exclude groups after aggregation
+```
+
+|Clause|When Applied|Can Use Aggregates|Filters|
+|---|---|---|---|
+|`WHERE`|Before `GROUP BY`|No|Individual rows|
+|`HAVING`|After `GROUP BY`|Yes|Groups|
+
+---
+
+### Aggregate Functions with NULL
+
+```sql
+-- Setup: one employee with NULL salary
+INSERT INTO employees (name, dept, salary) VALUES ('Zara', 'IT', NULL);
+
+SELECT
+    COUNT(*)       AS total_rows,     -- Includes Zara
+    COUNT(salary)  AS non_null_sal,   -- Excludes Zara
+    SUM(salary)    AS total_sal,      -- Excludes Zara's NULL
+    AVG(salary)    AS avg_sal,        -- Excludes Zara from both sum and count
+    MIN(salary)    AS min_sal,        -- Excludes Zara
+    MAX(salary)    AS max_sal         -- Excludes Zara
+FROM employees;
+```
+
+**Key Points:**
+
+- `COUNT(*)` includes NULLs; all other aggregates exclude them
+- `AVG` excluding NULLs means it is not the same as `SUM / COUNT(*)` when NULLs are present:
+
+```sql
+-- These differ when salary contains NULLs
+SELECT AVG(salary) FROM employees;
+SELECT CAST(SUM(salary) AS REAL) / COUNT(*) FROM employees;
+```
+
+- To include NULLs as zero in an average:
+
+```sql
+SELECT AVG(COALESCE(salary, 0)) FROM employees;
+```
+
+---
+
+### Aggregate Functions with DISTINCT
+
+All five aggregates support `DISTINCT`.
+
+```sql
+SELECT
+    COUNT(DISTINCT dept)    AS unique_depts,
+    SUM(DISTINCT salary)    AS sum_unique_salaries,
+    AVG(DISTINCT salary)    AS avg_unique_salaries,
+    MIN(DISTINCT salary)    AS min_salary,   -- DISTINCT has no effect on MIN
+    MAX(DISTINCT salary)    AS max_salary    -- DISTINCT has no effect on MAX
+FROM employees;
+```
+
+**Key Points:**
+
+- `DISTINCT` is meaningful for `COUNT`, `SUM`, and `AVG` — it changes the result
+- `DISTINCT` has no effect on `MIN` or `MAX` — the minimum and maximum are the same whether or not duplicates are removed
+- [Inference] `DISTINCT` inside aggregates may increase query cost due to deduplication — assess whether it is actually needed
+
+---
+
+### Conditional Aggregation
+
+Aggregate only rows matching a condition using `CASE` inside the aggregate.
+
+```sql
+SELECT
+    COUNT(*)                                        AS total,
+    COUNT(CASE WHEN dept = 'Engineering' THEN 1 END) AS eng_count,
+    SUM(CASE WHEN dept = 'Engineering' THEN salary ELSE 0 END) AS eng_payroll,
+    AVG(CASE WHEN salary > 80000 THEN salary END)   AS avg_high_earner_salary
+FROM employees;
+```
+
+**Key Points:**
+
+- `CASE WHEN condition THEN value END` returns `NULL` when the condition is false — `NULL` is then ignored by the aggregate
+- `ELSE 0` in `SUM` treats non-matching rows as zero contributions — useful when you want a sum of zero rather than NULL exclusion
+- `ELSE 0` in `COUNT` would count all rows — omit `ELSE` or use `ELSE NULL` to count only matching rows
+- This pattern avoids multiple passes or subqueries for multi-condition summaries
+
+#### Pivot-style conditional aggregation:
+
+```sql
+SELECT
+    SUM(CASE WHEN dept = 'Engineering' THEN salary ELSE 0 END) AS eng_payroll,
+    SUM(CASE WHEN dept = 'Marketing'   THEN salary ELSE 0 END) AS mkt_payroll,
+    SUM(CASE WHEN dept = 'Design'      THEN salary ELSE 0 END) AS des_payroll,
+    SUM(CASE WHEN dept = 'HR'          THEN salary ELSE 0 END) AS hr_payroll
+FROM employees;
+```
+
+---
+
+### Aggregates in Subqueries
+
+Aggregate results can be used as filter values in outer queries.
+
+```sql
+-- Employees earning above the company average
+SELECT name, salary
+FROM employees
+WHERE salary > (SELECT AVG(salary) FROM employees);
+
+-- Employees in departments with above-average headcount
+SELECT name, dept
+FROM employees
+WHERE dept IN (
+    SELECT dept FROM employees
+    GROUP BY dept
+    HAVING COUNT(*) > (SELECT AVG(cnt) FROM (
+        SELECT COUNT(*) AS cnt FROM employees GROUP BY dept
+    ))
+);
+```
+
+**Key Points:**
+
+- Scalar aggregate subqueries (returning one value) are the most common form
+- Nested subqueries using aggregates are valid but can be difficult to read — CTEs often improve clarity:
+
+```sql
+WITH dept_counts AS (
+    SELECT dept, COUNT(*) AS cnt FROM employees GROUP BY dept
+),
+avg_count AS (
+    SELECT AVG(cnt) AS avg_cnt FROM dept_counts
+)
+SELECT e.name, e.dept
+FROM employees e
+JOIN dept_counts d ON e.dept = d.dept
+JOIN avg_count a ON d.cnt > a.avg_cnt;
+```
+
+---
+
+### Aggregates with JOINs
+
+```sql
+SELECT
+    d.name AS dept,
+    COUNT(e.id)             AS headcount,
+    ROUND(AVG(e.salary), 2) AS avg_salary,
+    SUM(e.salary)           AS total_payroll
+FROM departments d
+LEFT JOIN employees e ON e.dept = d.name
+GROUP BY d.name
+ORDER BY total_payroll DESC;
+```
+
+**Key Points:**
+
+- `LEFT JOIN` includes departments with no employees — their aggregates return `0` for `COUNT(*)` and `NULL` for `SUM`, `AVG`, `MIN`, `MAX`
+- `COUNT(e.id)` counts only non-NULL matches — returns `0` for unmatched departments when using `LEFT JOIN`
+- `COUNT(*)` would return `1` for unmatched departments (counting the NULL placeholder row) — use `COUNT(column)` with joins for accurate counts
+
+---
+
+### MIN and MAX on Non-Numeric Types
+
+```sql
+-- Lexicographic min/max on text
+SELECT MIN(name), MAX(name) FROM employees;
+
+-- Earliest and latest dates (ISO format required)
+SELECT MIN(hire_date), MAX(hire_date) FROM employees;
+
+-- Works correctly with ISO 8601: YYYY-MM-DD
+-- May not work correctly with other date formats stored as TEXT
+```
+
+**Key Points:**
+
+- Text comparison uses the column's collation — `BINARY` by default (byte order)
+- ISO 8601 dates stored as `TEXT` sort and compare correctly because the format is lexicographically ordered
+- Non-ISO date formats (e.g., `MM/DD/YYYY`) do not sort correctly with `MIN`/`MAX` or `ORDER BY`
+
+---
+
+### GROUP BY with ROLLUP (Not Supported)
+
+SQLite does not support `GROUP BY ... WITH ROLLUP` or `GROUPING SETS`.
+
+```sql
+-- Not supported in SQLite
+SELECT dept, COUNT(*) FROM employees GROUP BY dept WITH ROLLUP;
+```
+
+**Workaround using UNION ALL:**
+
+```sql
+SELECT dept, COUNT(*) AS headcount
+FROM employees
+GROUP BY dept
+
+UNION ALL
+
+SELECT 'TOTAL', COUNT(*)
+FROM employees;
+```
+
+**Output:**
+
+```
+Design      | 2
+Engineering | 3
+HR          | 2
+Marketing   | 3
+TOTAL       | 10
+```
+
+**Key Points:**
+
+- `UNION ALL` appends the total row without deduplication
+- [Inference] More verbose than `ROLLUP` but achieves the same result for simple totals — for multi-level subtotals, multiple `UNION ALL` blocks are needed
+- Window functions can also produce running totals and subtotals without `ROLLUP`
+
+---
+
+### Performance Considerations
+
+**Key Points:**
+
+- `COUNT(*)` on a table without a `WHERE` clause may use the table's B-tree metadata rather than scanning all rows in some configurations — [Unverified] actual behavior depends on SQLite version and query context; do not assume it is always a metadata-only operation
+- `MIN` and `MAX` on an indexed column can be resolved by reading the first or last index entry — [Inference] significantly faster than a full scan when an index exists; verify with `EXPLAIN QUERY PLAN`
+- `GROUP BY` without an index on the grouping column may require sorting or hashing the full result set — [Inference] an index on the `GROUP BY` column can reduce this cost; assess with `EXPLAIN QUERY PLAN`
+- Conditional aggregation (`CASE` inside aggregate) requires only one table pass — [Inference] more efficient than multiple filtered queries for the same data
+
+```sql
+-- One pass
+SELECT
+    SUM(CASE WHEN dept = 'Engineering' THEN 1 ELSE 0 END),
+    SUM(CASE WHEN dept = 'Marketing'   THEN 1 ELSE 0 END)
+FROM employees;
+
+-- Two passes — less efficient
+SELECT COUNT(*) FROM employees WHERE dept = 'Engineering';
+SELECT COUNT(*) FROM employees WHERE dept = 'Marketing';
+```
+
+---
+
+### Aggregate Function Reference
+
+|Function|Returns|Ignores NULL|Empty Set Result|
+|---|---|---|---|
+|`COUNT(*)`|Row count|No|`0`|
+|`COUNT(col)`|Non-NULL count|Yes|`0`|
+|`COUNT(DISTINCT col)`|Distinct non-NULL count|Yes|`0`|
+|`SUM(col)`|Total|Yes|`NULL`|
+|`AVG(col)`|Mean|Yes|`NULL`|
+|`MIN(col)`|Smallest value|Yes|`NULL`|
+|`MAX(col)`|Largest value|Yes|`NULL`|
+
+---
+
+**Conclusion:** SQLite's five core aggregate functions cover the most common data summarization needs. The critical behaviors to internalize are: all aggregates except `COUNT(*)` ignore `NULL`; `GROUP BY` partitions the set before aggregation; `HAVING` filters groups after aggregation while `WHERE` filters rows before; and conditional aggregation with `CASE` enables multi-condition summaries in a single pass. For performance-sensitive queries, indexes on `GROUP BY` columns and sort columns used with `MIN`/`MAX` are the most impactful optimizations.
+
+**Next Steps:**
+
+- GROUP BY in depth — multi-column grouping, grouping expressions
+- Window functions — running totals, rankings, moving averages
+- Subqueries and CTEs for complex aggregation
+- EXPLAIN QUERY PLAN for aggregate query optimization
+
+---

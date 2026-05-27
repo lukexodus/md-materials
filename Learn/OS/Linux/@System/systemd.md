@@ -8,28 +8,6 @@ The init system and service manager for Linux. systemd is PID 1 — the first pr
 
 ---
 
-## Table of Contents
-
-1. [Core Concepts](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#core-concepts)
-2. [systemctl — Managing Units](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#systemctl--managing-units)
-3. [Unit Files](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#unit-files)
-4. [Service Units](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#service-units)
-5. [Target Units](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#target-units)
-6. [Timer Units](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#timer-units)
-7. [Socket Units](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#socket-units)
-8. [Mount & Automount Units](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#mount--automount-units)
-9. [journalctl — Viewing Logs](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#journalctl--viewing-logs)
-10. [Analyzing Boot Performance](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#analyzing-boot-performance)
-11. [User Services](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#user-services)
-12. [Resource Control (cgroups)](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#resource-control-cgroups)
-13. [Security & Sandboxing](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#security--sandboxing)
-14. [Dependencies & Ordering](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#dependencies--ordering)
-15. [Overriding Units (Drop-ins)](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#overriding-units-drop-ins)
-16. [Practical Examples](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#practical-examples)
-17. [Quick Cheatsheet](https://claude.ai/chat/964f3045-a161-442c-a84c-1a0249a23a6f#quick-cheatsheet)
-
----
-
 ## Core Concepts
 
 ### Units
