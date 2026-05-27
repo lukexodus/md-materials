@@ -205,13 +205,13 @@ dependencies = [
 
 Version specifiers follow [PEP 508](https://peps.python.org/pep-0508/):
 
-|Specifier|Meaning|
-|---|---|
-|`>=1.0`|At least 1.0|
-|`==1.2.3`|Exactly 1.2.3|
-|`~=1.4`|Compatible with 1.4 (>=1.4, <2.0)|
-|`!=1.3`|Anything except 1.3|
-|`>=1.0,<2.0`|Between 1.0 and 2.0|
+| Specifier    | Meaning                           |
+| ------------ | --------------------------------- |
+| `>=1.0`      | At least 1.0                      |
+| `\==1.2.3`   | Exactly 1.2.3                     |
+| `~=1.4`      | Compatible with 1.4 (>=1.4, <2.0) |
+| `!=1.3`      | Anything except 1.3               |
+| `>=1.0,<2.0` | Between 1.0 and 2.0               |
 
 ### Environment markers
 
