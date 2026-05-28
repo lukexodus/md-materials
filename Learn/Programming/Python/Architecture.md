@@ -390,12 +390,12 @@ An `>>` prefix means the line is a **jump target** — something else in the byt
 
 ### Storing values
 
-|Instruction|What it does|
-|---|---|
-|`STORE_FAST`|Assign to a local variable|
-|`STORE_GLOBAL`|Assign to a global name|
-|`STORE_ATTR`|Assign to an attribute (`obj.x = ...`)|
-|`STORE_DEREF`|Store into a closure cell|
+| Instruction    | What it does                           |
+| -------------- | -------------------------------------- |
+| `STORE_FAST`   | Assign to a local variable             |
+| `STORE_GLOBAL` | Assign to a global name                |
+| `STORE_ATTR`   | Assign to an attribute (`obj.x = ...`) |
+| `STORE_DEREF`  | Store into a closure cell              |
 
 ### Operations
 
@@ -1391,3 +1391,376 @@ inspect  — what exists in memory while it runs
 
 ---
 
+# CPython Source: `Objects/funcobject.c`
+
+This is the C implementation of Python function objects — what actually exists in memory when you write `def`. Everything `dis` and `inspect` show you from Python-land is backed by this.
+
+---
+
+## Getting the Source
+
+```bash
+# Clone CPython
+git clone https://github.com/python/cpython.git
+cd cpython
+
+# The file
+Objects/funcobject.c      # function object implementation
+Include/cpython/funcobject.h  # the struct definition
+Objects/codeobject.c      # the code object (func.__code__)
+```
+
+Or read it online: `https://github.com/python/cpython/blob/main/Objects/funcobject.c`
+
+---
+
+## The Struct: What a Function Actually Is
+
+In `Include/cpython/funcobject.h`:
+
+```c
+typedef struct {
+    PyObject_HEAD
+
+    PyObject *func_code;        /* A code object — the bytecode */
+    PyObject *func_globals;     /* The module's __dict__ */
+    PyObject *func_defaults;    /* Default arg values, or NULL */
+    PyObject *func_kwdefaults;  /* Keyword-only defaults, or NULL */
+    PyObject *func_closure;     /* Tuple of cells, or NULL */
+    PyObject *func_doc;         /* The docstring */
+    PyObject *func_name;        /* __name__ — a string */
+    PyObject *func_dict;        /* __dict__ — the function's attribute dict */
+    PyObject *func_weakreflist; /* For weakref support */
+    PyObject *func_module;      /* __module__ */
+    PyObject *func_annotations; /* __annotations__ dict */
+    PyObject *func_typeparams;  /* PEP 695 type parameters */
+    vectorcallfunc vectorcall;  /* fast call path */
+
+    int func_version;           /* For specializing call sites */
+} PyFunctionObject;
+```
+
+This struct **is** the function object. When Python does `def foo(): ...`, it allocates one of these on the heap and fills in the fields. Every attribute you access in Python maps directly to a field here:
+
+|Python|C field|
+|---|---|
+|`foo.__code__`|`func_code`|
+|`foo.__globals__`|`func_globals`|
+|`foo.__defaults__`|`func_defaults`|
+|`foo.__closure__`|`func_closure`|
+|`foo.__name__`|`func_name`|
+|`foo.__doc__`|`func_doc`|
+|`foo.__annotations__`|`func_annotations`|
+
+### `PyObject_HEAD`
+
+Every Python object starts with this macro. It expands to:
+
+```c
+Py_ssize_t ob_refcnt;     /* reference count */
+PyTypeObject *ob_type;    /* pointer to the type object */
+```
+
+This is how Python knows the type of anything at runtime, and how garbage collection works — when `ob_refcnt` drops to zero, the object is freed.
+
+---
+
+## Creating a Function: `PyFunction_NewWithQualName`
+
+When the VM executes a `MAKE_FUNCTION` bytecode instruction, this is what it calls:
+
+```c
+PyObject *
+PyFunction_NewWithQualName(PyObject *code, PyObject *globals,
+                           PyObject *qualname)
+{
+    PyFunctionObject *op;
+
+    // 1. Allocate the struct
+    op = PyObject_GC_New(PyFunctionObject, &PyFunction_Type);
+    if (op == NULL)
+        return NULL;
+
+    // 2. Store the code object
+    op->func_code = Py_NewRef(code);
+
+    // 3. Store the globals dict (the module's __dict__)
+    op->func_globals = Py_NewRef(globals);
+
+    // 4. Pull the name out of the code object
+    op->func_name = ((PyCodeObject *)code)->co_name;
+    Py_INCREF(op->func_name);
+
+    // 5. Qualname (e.g. "OuterClass.method")
+    op->func_qualname = qualname ? qualname : op->func_name;
+    Py_INCREF(op->func_qualname);
+
+    // 6. Pull docstring from first constant in code object
+    PyObject *consts = ((PyCodeObject *)code)->co_consts;
+    PyObject *first = PyTuple_GetItem(consts, 0);
+    op->func_doc = (PyUnicode_Check(first)) ? Py_NewRef(first) : Py_NewRef(Py_None);
+
+    // 7. Everything else starts NULL
+    op->func_defaults    = NULL;
+    op->func_kwdefaults  = NULL;
+    op->func_closure     = NULL;
+    op->func_annotations = NULL;
+    op->func_dict        = NULL;
+
+    // 8. Register with garbage collector
+    PyObject_GC_Track(op);
+
+    return (PyObject *)op;
+}
+```
+
+The key insight: **a function is just a code object + a globals dict, wrapped in a struct.** The code object is shared — every call to `make_counter()` creates a new function object, but they all reference the _same_ code object. Only the closure cells differ.
+
+---
+
+## The Code Object
+
+`func_code` points to a `PyCodeObject` (in `Include/cpython/code.h`):
+
+```c
+typedef struct {
+    PyObject_HEAD
+
+    int co_argcount;          /* positional arg count */
+    int co_posonlyargcount;   /* positional-only args (before /) */
+    int co_kwonlyargcount;    /* keyword-only args (after *) */
+    int co_nlocals;           /* number of local variables */
+    int co_stacksize;         /* max stack depth needed */
+    int co_flags;             /* CO_NESTED, CO_VARARGS, etc. */
+
+    PyObject *co_consts;      /* tuple of constants (literals) */
+    PyObject *co_names;       /* tuple of names used */
+    PyObject *co_localsplusnames;  /* local + cell + free var names */
+    PyObject *co_filename;    /* source file */
+    PyObject *co_name;        /* function name */
+    PyObject *co_qualname;    /* qualified name */
+
+    PyObject *co_code;        /* bytes — the actual bytecode */
+    PyObject *co_linetable;   /* maps bytecode offsets → line numbers */
+
+    /* ... more fields ... */
+} PyCodeObject;
+```
+
+This is what `dis` reads. `co_code` is the raw bytes of instructions. `co_consts` is why `LOAD_CONST 0` means "load the first thing in this tuple." `co_linetable` is how Python produces tracebacks with line numbers.
+
+---
+
+## Closure Cells: `cellobject.c`
+
+Closure variables don't live directly in the function struct. They live in **cell objects**, defined in `Objects/cellobject.c`:
+
+```c
+typedef struct {
+    PyObject_HEAD
+    PyObject *ob_ref;    /* the actual value, or NULL if unset */
+} PyCellObject;
+```
+
+That's it. A cell is a pointer to a value, wrapped in a Python object so it can be shared.
+
+When the compiler determines a variable is captured by an inner function, it emits `MAKE_CELL` and `LOAD_DEREF`/`STORE_DEREF` instead of `LOAD_FAST`/`STORE_FAST`. Both the outer and inner function's `func_closure` tuple point to the **same** cell object.
+
+```
+outer's frame          inner's func_closure
+  [cell for x] ──────────► [PyCellObject]
+                                  │
+                             ob_ref = 10
+```
+
+When `outer` writes `x = 10`, it writes into `ob_ref`. When `inner` reads `x`, it reads from the same `ob_ref`. When `outer`'s frame is destroyed, the cell lives on because `inner` still holds a reference to it.
+
+---
+
+## Attribute Access: The `tp_getattro` Slot
+
+How does `foo.__code__` work? The function type defines a **getset table** — a list of attribute names mapped to getter/setter C functions:
+
+```c
+static PyGetSetDef func_getsetlist[] = {
+    {"__code__",     func_get_code, func_set_code,     NULL},
+    {"__defaults__", func_get_defaults, func_set_defaults, NULL},
+    {"__closure__",  func_get_closure, func_set_closure,   NULL},
+    {"__globals__",  func_get_globals, NULL, NULL},   /* read-only */
+    {"__annotations__", func_get_annotations, func_set_annotations, NULL},
+    {"__dict__",     func_get_dict, func_set_dict, NULL},
+    {"__name__",     func_get_name, func_set_name, NULL},
+    {NULL}   /* sentinel */
+};
+```
+
+Each getter is a C function that receives the `PyFunctionObject*` and returns the appropriate field:
+
+```c
+static PyObject *
+func_get_code(PyFunctionObject *op, void *Py_UNUSED(ignored))
+{
+    if (PySys_Audit("object.__getattr__", "Os", op, "__code__") < 0) {
+        return NULL;
+    }
+    return Py_NewRef(op->func_code);
+}
+```
+
+`func_set_code` does the write — it validates the new value is actually a code object, then swaps the pointer:
+
+```c
+static int
+func_set_code(PyFunctionObject *op, PyObject *value, void *Py_UNUSED(ignored))
+{
+    /* Not legal to del f.__code__ */
+    if (value == NULL || !PyCode_Check(value)) {
+        PyErr_SetString(PyExc_TypeError, "__code__ must be set to a code object");
+        return -1;
+    }
+    /* ... additional validation ... */
+    Py_XSETREF(op->func_code, Py_NewRef(value));
+    return 0;
+}
+```
+
+`Py_XSETREF` decrements the old object's refcount (possibly freeing it) and stores the new pointer. This is the mechanism behind `foo.__code__ = bar.__code__` — you can swap bytecode at runtime because it's just a pointer swap in a struct.
+
+---
+
+## Calling a Function: `func_vectorcall`
+
+When the VM executes `CALL`, it eventually reaches:
+
+```c
+static PyObject *
+func_vectorcall(PyObject *func, PyObject *const *stack,
+                size_t nargsf, PyObject *kwnames)
+{
+    PyFunctionObject *f = (PyFunctionObject *)func;
+    PyCodeObject *co = (PyCodeObject *)f->func_code;
+    Py_ssize_t nargs = PyVectorcall_NARGS(nargsf);
+
+    // 1. Create a new frame for this call
+    PyFrameObject *frame = _PyEval_MakeFrameVector(
+        tstate, co, f->func_globals, f->func_closure,
+        stack, nargs, kwnames
+    );
+    if (frame == NULL) return NULL;
+
+    // 2. Push frame onto the call stack and execute
+    return _PyEval_EvalFrame(tstate, frame, 0);
+}
+```
+
+The frame is a new `PyFrameObject` that holds:
+
+- The code object being executed
+- The globals dict
+- The closure cells
+- The local variables (as a C array, not a Python dict — for speed)
+- The value stack
+- A pointer back to the calling frame
+
+`_PyEval_EvalFrame` is the main interpreter loop — a massive `switch` statement over opcodes in `Python/ceval.c`. It reads one instruction at a time from `co_code` and executes it.
+
+---
+
+## Reference Counting: The Memory Model
+
+Every `Py_NewRef`, `Py_INCREF`, `Py_DECREF`, `Py_XSETREF` you see in the source is reference counting. The rules are mechanical:
+
+- Every time you store a pointer to an object, call `Py_INCREF` (or `Py_NewRef` which returns it)
+- Every time you're done with a pointer, call `Py_DECREF`
+- When `ob_refcnt` hits zero, CPython calls the type's `tp_dealloc` to free the memory
+
+For `PyFunctionObject`, `tp_dealloc` is:
+
+```c
+static void
+func_dealloc(PyFunctionObject *op)
+{
+    PyObject_GC_UnTrack(op);         // remove from GC tracking
+    Py_DECREF(op->func_code);        // release code object
+    Py_DECREF(op->func_globals);     // release globals dict
+    Py_XDECREF(op->func_defaults);   // release defaults if any
+    Py_XDECREF(op->func_kwdefaults);
+    Py_XDECREF(op->func_closure);    // release closure cells
+    Py_XDECREF(op->func_doc);
+    Py_DECREF(op->func_name);
+    Py_DECREF(op->func_qualname);
+    Py_XDECREF(op->func_dict);
+    Py_XDECREF(op->func_annotations);
+    PyObject_GC_Del(op);             // free the memory
+}
+```
+
+`Py_XDECREF` (vs `Py_DECREF`) handles `NULL` safely — used for fields that may not be set.
+
+---
+
+## The Type Object: `PyFunction_Type`
+
+Every Python type is itself a C struct — `PyTypeObject`. The function type is:
+
+```c
+PyTypeObject PyFunction_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    "function",                         /* tp_name */
+    sizeof(PyFunctionObject),           /* tp_basicsize */
+    0,                                  /* tp_itemsize */
+    (destructor)func_dealloc,           /* tp_dealloc */
+    offsetof(PyFunctionObject,vectorcall), /* tp_vectorcall_offset */
+    0,                                  /* tp_getattr */
+    0,                                  /* tp_setattr */
+    0,                                  /* tp_as_async */
+    (reprfunc)func_repr,                /* tp_repr */
+    0,                                  /* tp_as_number */
+    0,                                  /* tp_as_sequence */
+    0,                                  /* tp_as_mapping */
+    0,                                  /* tp_hash */
+    PyObject_GenericGetAttr,            /* tp_getattro */
+    PyObject_GenericSetAttr,            /* tp_setattro */
+    /* ... */
+    func_getsetlist,                    /* tp_getset */
+    /* ... */
+    func_new,                           /* tp_new */
+};
+```
+
+The slots in this struct are **the protocol**. `tp_call` is how `foo()` works. `tp_repr` is how `repr(foo)` works. `tp_getattro` is how `foo.x` works. Every "magic" Python behavior is one of these slots in the type object.
+
+---
+
+## The Full Picture
+
+```
+def foo(x):           Python source
+    return x + 1
+        │
+        ▼
+  MAKE_FUNCTION       bytecode instruction
+        │
+        ▼
+PyFunction_NewWithQualName()     C function
+        │
+        ▼
+  PyFunctionObject {             heap-allocated C struct
+    func_code     ──────────► PyCodeObject { co_code: b'...', co_consts: (...) }
+    func_globals  ──────────► module's __dict__
+    func_closure  ──────────► NULL  (or tuple of PyCellObjects)
+    func_name     ──────────► "foo"
+    ...
+  }
+        │
+        ▼
+  STORE_NAME "foo"    bytecode instruction
+        │
+  globals()["foo"] = the PyFunctionObject
+```
+
+`foo` in your Python code is a key in a dictionary. The value is a `PyFunctionObject` on the heap. The function's behavior lives in `func_code`. Its data access lives in `func_globals` and `func_closure`. Calling it allocates a new `PyFrameObject` and enters the eval loop.
+
+There is no magic — only structs, pointers, and reference counts.
+
+---
