@@ -195,6 +195,1877 @@
 
 ---
 
+# Quick Guide
+
+## What Is SQLite
+
+SQLite is a self-contained, serverless, zero-configuration, transactional SQL database engine. Unlike client-server database systems such as PostgreSQL or MySQL, SQLite reads and writes directly to ordinary files on disk. The entire database — schema, tables, indexes, and data — lives in a single `.db` (or `.sqlite`) file.
+
+It is the most widely deployed database engine in the world, embedded in browsers, operating systems, mobile devices, and countless applications.
+
+---
+
+## Key Characteristics
+
+- **Serverless.** No separate server process. The application reads and writes the database file directly.
+- **Zero configuration.** No installation, no user accounts, no daemon to start or stop.
+- **Single file.** The entire database is one cross-platform file.
+- **Self-contained.** Minimal external dependencies.
+- **ACID-compliant.** Atomicity, Consistency, Isolation, and Durability are supported.
+- **Cross-platform.** Database files are portable across architectures and operating systems.
+
+---
+
+## When to Use SQLite
+
+SQLite is appropriate when:
+
+- The application is the only process writing to the database.
+- You need a local data store without network overhead.
+- You are building an embedded system, mobile app, desktop app, or CLI tool.
+- You want a fast, lightweight alternative to flat files (CSV, JSON) with query capabilities.
+- You are prototyping before moving to a larger database.
+
+SQLite is **not** ideal when:
+
+- Many clients need concurrent write access over a network.
+- You need fine-grained user-level access control.
+- Your dataset is many hundreds of gigabytes and write throughput is critical.
+- You need replication or high-availability clustering out of the box.
+
+---
+
+## Installation and Access
+
+### Command-Line Shell
+
+Most systems include SQLite or make it easily available.
+
+```bash
+# Debian/Ubuntu
+sudo apt install sqlite3
+
+# macOS (Homebrew)
+brew install sqlite
+
+# Windows
+# Download the precompiled binaries from sqlite.org
+```
+
+Start an interactive session:
+
+```bash
+sqlite3 mydata.db
+```
+
+If the file does not exist, SQLite creates it on first write.
+
+### In-Memory Databases
+
+```bash
+sqlite3 :memory:
+```
+
+An in-memory database is destroyed when the connection closes. Useful for testing or temporary work.
+
+---
+
+## The SQLite Shell
+
+Once inside the shell, you use two categories of commands:
+
+- **Dot commands** — shell-level directives prefixed with `.`
+- **SQL statements** — standard SQL terminated with `;`
+
+### Common Dot Commands
+
+```
+.help               List all dot commands
+.databases          Show attached databases
+.tables             List all tables
+.schema tablename   Show CREATE statement for a table
+.mode column        Set output to aligned columns
+.headers on         Show column headers in output
+.output file.txt    Redirect output to a file
+.read file.sql      Execute SQL from a file
+.quit               Exit the shell
+```
+
+---
+
+## Data Types and Type Affinity
+
+SQLite uses a flexible **type affinity** system rather than strict column types.
+
+### Storage Classes
+
+Every value stored belongs to one of five storage classes:
+
+|Storage Class|Description|
+|---|---|
+|NULL|The null value|
+|INTEGER|Signed integer, 1–8 bytes depending on magnitude|
+|REAL|8-byte IEEE 754 floating-point number|
+|TEXT|UTF-8, UTF-16BE, or UTF-16LE string|
+|BLOB|Binary data, stored exactly as input|
+
+### Type Affinity
+
+Column type declarations are advisory. SQLite maps declared types to one of five affinities: `TEXT`, `NUMERIC`, `INTEGER`, `REAL`, `BLOB`. This means you can insert a string into an `INTEGER` column without an error — though this is generally a bad practice.
+
+### Strict Tables (SQLite 3.37+)
+
+If you want enforced types, use `STRICT`:
+
+```sql
+CREATE TABLE measurements (
+    id    INTEGER PRIMARY KEY,
+    value REAL NOT NULL
+) STRICT;
+```
+
+In a `STRICT` table, only the declared type is accepted.
+
+---
+
+## Creating and Managing Databases
+
+### Creating a Database
+
+A database is created implicitly when you open a file that does not exist:
+
+```sql
+-- Nothing special needed; the file is created on first write
+```
+
+### Attaching Additional Databases
+
+```sql
+ATTACH DATABASE 'archive.db' AS archive;
+
+-- Query across both
+SELECT * FROM main.orders
+UNION ALL
+SELECT * FROM archive.orders;
+
+DETACH DATABASE archive;
+```
+
+---
+
+## Tables
+
+### Creating Tables
+
+```sql
+CREATE TABLE users (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    username   TEXT    NOT NULL UNIQUE,
+    email      TEXT    NOT NULL,
+    created_at TEXT    DEFAULT (datetime('now')),
+    active     INTEGER NOT NULL DEFAULT 1
+);
+```
+
+### Column Constraints
+
+|Constraint|Meaning|
+|---|---|
+|`PRIMARY KEY`|Uniquely identifies each row|
+|`NOT NULL`|Rejects NULL values|
+|`UNIQUE`|Rejects duplicate values|
+|`DEFAULT value`|Used when no value is supplied|
+|`CHECK(expr)`|Rejects rows where expr is false|
+|`REFERENCES`|Foreign key reference|
+
+### Composite Primary Key
+
+```sql
+CREATE TABLE order_items (
+    order_id   INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
+    quantity   INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (order_id, product_id)
+);
+```
+
+### Modifying Tables
+
+SQLite's `ALTER TABLE` is limited compared to other databases. Supported operations:
+
+```sql
+ALTER TABLE users ADD COLUMN phone TEXT;
+ALTER TABLE users RENAME COLUMN phone TO phone_number;
+ALTER TABLE users RENAME TO accounts;
+DROP TABLE accounts;
+```
+
+To make structural changes not supported by `ALTER TABLE` (such as dropping a column in older versions), the standard approach is:
+
+1. Create a new table with the desired schema.
+2. Copy data.
+3. Drop the old table.
+4. Rename the new table.
+
+SQLite 3.35.0+ added `DROP COLUMN` support for straightforward cases.
+
+---
+
+## CRUD Operations
+
+### INSERT
+
+```sql
+-- Single row
+INSERT INTO users (username, email) VALUES ('alice', 'alice@example.com');
+
+-- Multiple rows
+INSERT INTO users (username, email) VALUES
+    ('bob',   'bob@example.com'),
+    ('carol', 'carol@example.com');
+
+-- Insert or ignore on conflict
+INSERT OR IGNORE INTO users (username, email) VALUES ('alice', 'alice2@example.com');
+
+-- Insert or replace on conflict
+INSERT OR REPLACE INTO users (username, email) VALUES ('alice', 'alice_new@example.com');
+```
+
+### SELECT
+
+```sql
+-- All rows
+SELECT * FROM users;
+
+-- Specific columns with condition
+SELECT username, email FROM users WHERE active = 1;
+
+-- Ordering and limiting
+SELECT username FROM users ORDER BY created_at DESC LIMIT 10;
+
+-- Aliasing
+SELECT username AS name, email AS contact FROM users;
+```
+
+### UPDATE
+
+```sql
+UPDATE users SET active = 0 WHERE id = 42;
+
+UPDATE users SET email = 'new@example.com', active = 1 WHERE username = 'bob';
+```
+
+### DELETE
+
+```sql
+DELETE FROM users WHERE active = 0;
+
+-- Delete all rows (table structure remains)
+DELETE FROM users;
+```
+
+---
+
+## Querying
+
+### Filtering
+
+```sql
+-- Comparison operators
+WHERE age > 18
+WHERE status != 'banned'
+WHERE score BETWEEN 50 AND 100
+
+-- Pattern matching
+WHERE username LIKE 'a%'      -- starts with 'a'
+WHERE email LIKE '%@gmail.com'
+
+-- NULL checks
+WHERE phone IS NULL
+WHERE phone IS NOT NULL
+
+-- IN list
+WHERE country IN ('PH', 'SG', 'MY')
+
+-- Logical operators
+WHERE active = 1 AND age >= 18
+WHERE role = 'admin' OR role = 'moderator'
+```
+
+### Aggregation
+
+```sql
+SELECT COUNT(*) FROM users;
+SELECT COUNT(*) FROM users WHERE active = 1;
+SELECT AVG(score), MAX(score), MIN(score) FROM results;
+SELECT country, COUNT(*) AS total FROM users GROUP BY country;
+SELECT country, COUNT(*) AS total FROM users GROUP BY country HAVING total > 100;
+```
+
+### Joins
+
+```sql
+-- Inner join
+SELECT u.username, o.amount
+FROM users u
+JOIN orders o ON u.id = o.user_id;
+
+-- Left join (keeps all users, even those with no orders)
+SELECT u.username, o.amount
+FROM users u
+LEFT JOIN orders o ON u.id = o.user_id;
+
+-- Self join
+SELECT a.username AS employee, b.username AS manager
+FROM users a
+JOIN users b ON a.manager_id = b.id;
+```
+
+### Subqueries
+
+```sql
+-- Scalar subquery
+SELECT username FROM users
+WHERE id = (SELECT user_id FROM orders ORDER BY amount DESC LIMIT 1);
+
+-- IN subquery
+SELECT username FROM users
+WHERE id IN (SELECT DISTINCT user_id FROM orders WHERE amount > 500);
+```
+
+### Common Table Expressions (CTEs)
+
+```sql
+WITH active_users AS (
+    SELECT * FROM users WHERE active = 1
+),
+high_spenders AS (
+    SELECT user_id FROM orders GROUP BY user_id HAVING SUM(amount) > 1000
+)
+SELECT u.username
+FROM active_users u
+JOIN high_spenders h ON u.id = h.user_id;
+```
+
+### Recursive CTEs
+
+```sql
+-- Generate a sequence of numbers 1 through 10
+WITH RECURSIVE nums(n) AS (
+    SELECT 1
+    UNION ALL
+    SELECT n + 1 FROM nums WHERE n < 10
+)
+SELECT n FROM nums;
+
+-- Traverse a tree/hierarchy
+WITH RECURSIVE subordinates(id, username, level) AS (
+    SELECT id, username, 0 FROM users WHERE manager_id IS NULL
+    UNION ALL
+    SELECT u.id, u.username, s.level + 1
+    FROM users u
+    JOIN subordinates s ON u.manager_id = s.id
+)
+SELECT * FROM subordinates;
+```
+
+### Window Functions
+
+```sql
+-- Row number per partition
+SELECT username, country,
+       ROW_NUMBER() OVER (PARTITION BY country ORDER BY created_at) AS rn
+FROM users;
+
+-- Running total
+SELECT id, amount,
+       SUM(amount) OVER (ORDER BY id) AS running_total
+FROM orders;
+
+-- Ranking
+SELECT username, score,
+       RANK()       OVER (ORDER BY score DESC) AS rank,
+       DENSE_RANK() OVER (ORDER BY score DESC) AS dense_rank
+FROM results;
+
+-- Lag and lead
+SELECT id, amount,
+       LAG(amount, 1, 0) OVER (ORDER BY id) AS prev_amount
+FROM orders;
+```
+
+---
+
+## Indexes
+
+### Why Indexes Matter
+
+Without an index, SQLite performs a full table scan for every query. Indexes trade storage and write performance for faster reads.
+
+### Creating Indexes
+
+```sql
+-- Basic index
+CREATE INDEX idx_users_email ON users(email);
+
+-- Unique index
+CREATE UNIQUE INDEX idx_users_username ON users(username);
+
+-- Composite index
+CREATE INDEX idx_orders_user_date ON orders(user_id, created_at);
+
+-- Partial index (only indexes rows matching the condition)
+CREATE INDEX idx_active_users ON users(username) WHERE active = 1;
+```
+
+### Dropping Indexes
+
+```sql
+DROP INDEX idx_users_email;
+```
+
+### Choosing What to Index
+
+General guidance:
+
+- Index columns used frequently in `WHERE`, `JOIN ON`, and `ORDER BY` clauses.
+- Composite indexes are most effective when the leftmost columns match your query's filter.
+- Avoid indexing columns with very low cardinality (e.g., a boolean column with only two values) unless combined with higher-cardinality columns or used as partial indexes.
+- Every index costs time on `INSERT`, `UPDATE`, and `DELETE`.
+
+### EXPLAIN QUERY PLAN
+
+```sql
+EXPLAIN QUERY PLAN
+SELECT * FROM users WHERE email = 'alice@example.com';
+```
+
+The output shows whether SQLite uses an index (`SEARCH`) or a full scan (`SCAN`). Use this to verify that indexes are being used as expected.
+
+---
+
+## Transactions
+
+SQLite wraps every statement in an implicit transaction. For batched work, use explicit transactions.
+
+```sql
+BEGIN;
+
+INSERT INTO orders (user_id, amount) VALUES (1, 99.99);
+INSERT INTO order_items (order_id, product_id, quantity) VALUES (last_insert_rowid(), 7, 2);
+
+COMMIT;
+```
+
+If something goes wrong:
+
+```sql
+ROLLBACK;
+```
+
+### Savepoints
+
+```sql
+BEGIN;
+SAVEPOINT before_update;
+
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+
+-- Something went wrong
+ROLLBACK TO before_update;
+
+COMMIT;
+```
+
+### Transaction Modes
+
+SQLite supports three modes started with:
+
+```sql
+BEGIN DEFERRED;    -- Default: lock acquired on first read or write
+BEGIN IMMEDIATE;   -- Write lock acquired immediately
+BEGIN EXCLUSIVE;   -- Exclusive lock; no other connection can read or write
+```
+
+---
+
+## Foreign Keys
+
+Foreign key enforcement is **off by default** in SQLite and must be enabled per connection:
+
+```sql
+PRAGMA foreign_keys = ON;
+```
+
+### Defining Foreign Keys
+
+```sql
+CREATE TABLE orders (
+    id      INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
+);
+```
+
+### ON DELETE and ON UPDATE Actions
+
+|Action|Behavior|
+|---|---|
+|`NO ACTION`|Default; violation raises an error|
+|`RESTRICT`|Similar to NO ACTION but checked immediately|
+|`CASCADE`|Propagate delete/update to child rows|
+|`SET NULL`|Set child column to NULL|
+|`SET DEFAULT`|Set child column to its default value|
+
+---
+
+## Views
+
+A view is a saved SELECT query that acts like a read-only table.
+
+```sql
+CREATE VIEW active_users_view AS
+SELECT id, username, email
+FROM users
+WHERE active = 1;
+
+SELECT * FROM active_users_view WHERE username LIKE 'a%';
+
+DROP VIEW active_users_view;
+```
+
+---
+
+## Triggers
+
+Triggers execute SQL automatically in response to `INSERT`, `UPDATE`, or `DELETE` events.
+
+```sql
+-- Log deletions
+CREATE TABLE deleted_users_log (
+    user_id  INTEGER,
+    username TEXT,
+    deleted_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TRIGGER log_deleted_user
+AFTER DELETE ON users
+FOR EACH ROW
+BEGIN
+    INSERT INTO deleted_users_log (user_id, username)
+    VALUES (OLD.id, OLD.username);
+END;
+```
+
+### Trigger Timing
+
+|Timing|Meaning|
+|---|---|
+|`BEFORE`|Fires before the operation|
+|`AFTER`|Fires after the operation|
+|`INSTEAD OF`|Fires in place of the operation (views only)|
+
+### NEW and OLD References
+
+- `NEW.column` — the incoming value (INSERT and UPDATE)
+- `OLD.column` — the existing value (DELETE and UPDATE)
+
+---
+
+## Full-Text Search
+
+SQLite includes the FTS5 extension for full-text search.
+
+```sql
+-- Create a virtual FTS5 table
+CREATE VIRTUAL TABLE articles_fts USING fts5(title, body);
+
+-- Populate it
+INSERT INTO articles_fts SELECT title, body FROM articles;
+
+-- Query it
+SELECT * FROM articles_fts WHERE articles_fts MATCH 'sqlite database';
+
+-- Ranked results
+SELECT *, rank FROM articles_fts WHERE articles_fts MATCH 'sqlite' ORDER BY rank;
+```
+
+FTS5 supports boolean operators (`AND`, `OR`, `NOT`), phrase queries (`"exact phrase"`), and prefix queries (`sqlite*`).
+
+---
+
+## JSON Support
+
+SQLite includes built-in JSON functions (available since 3.9.0, significantly extended since).
+
+```sql
+-- Extract a value
+SELECT json_extract('{"name":"Alice","age":30}', '$.name');  -- 'Alice'
+
+-- Store JSON in a column and query it
+CREATE TABLE events (id INTEGER PRIMARY KEY, data TEXT);
+
+INSERT INTO events (data) VALUES ('{"type":"login","user":"alice"}');
+
+SELECT json_extract(data, '$.user')
+FROM events
+WHERE json_extract(data, '$.type') = 'login';
+
+-- Build JSON
+SELECT json_object('id', id, 'name', username) FROM users;
+
+-- JSON array
+SELECT json_array(1, 2, 3);  -- '[1,2,3]'
+```
+
+---
+
+## PRAGMAs
+
+PRAGMAs are SQLite-specific commands that control behavior or retrieve metadata.
+
+### Commonly Used PRAGMAs
+
+```sql
+-- Enable foreign key enforcement
+PRAGMA foreign_keys = ON;
+
+-- Check and set page size (must be set before any tables exist)
+PRAGMA page_size = 4096;
+
+-- WAL mode for better concurrent read performance
+PRAGMA journal_mode = WAL;
+
+-- Control synchronization (faster but less durable at lower settings)
+PRAGMA synchronous = NORMAL;   -- Default is FULL
+
+-- Cache size (negative = kilobytes, positive = pages)
+PRAGMA cache_size = -64000;    -- 64 MB
+
+-- Retrieve table info
+PRAGMA table_info(users);
+
+-- Check database integrity
+PRAGMA integrity_check;
+
+-- Get list of all tables
+PRAGMA database_list;
+```
+
+---
+
+## WAL Mode
+
+Write-Ahead Logging (WAL) is an alternative journaling mode that improves concurrency.
+
+```sql
+PRAGMA journal_mode = WAL;
+```
+
+In WAL mode:
+
+- Readers do not block writers, and writers do not block readers.
+- Multiple readers can coexist with one writer.
+- Performance for write-heavy workloads is generally better.
+- The database consists of the main file plus `-wal` and `-shm` sidecar files while WAL mode is active.
+
+WAL mode persists across connections and survives restarts. To return to the default:
+
+```sql
+PRAGMA journal_mode = DELETE;
+```
+
+---
+
+## Performance Tuning
+
+### Use Transactions for Bulk Writes
+
+Wrapping many inserts in a single transaction is one of the highest-impact optimizations available. Without a transaction, each insert is its own transaction and triggers an fsync.
+
+```sql
+BEGIN;
+-- thousands of inserts
+COMMIT;
+```
+
+### Tune Synchronous Mode
+
+```sql
+PRAGMA synchronous = NORMAL;
+```
+
+`FULL` (default) calls fsync after every transaction. `NORMAL` reduces fsync frequency. `OFF` disables fsync entirely — fast but data can be corrupted on a power loss.
+
+### Increase Cache Size
+
+```sql
+PRAGMA cache_size = -128000;  -- 128 MB page cache
+```
+
+### Use Prepared Statements
+
+In application code, prepare a statement once and bind parameters repeatedly rather than building SQL strings dynamically. This avoids repeated parsing overhead.
+
+### ANALYZE
+
+```sql
+ANALYZE;
+```
+
+This gathers statistics about table and index sizes, helping the query planner make better decisions. Run it after bulk data loads or significant schema changes.
+
+### VACUUM
+
+```sql
+VACUUM;
+```
+
+Rebuilds the database file, reclaiming space from deleted rows and defragmenting. Can significantly reduce file size after heavy deletions.
+
+```sql
+-- Incremental vacuum (requires auto_vacuum = INCREMENTAL set before data is written)
+PRAGMA auto_vacuum = INCREMENTAL;
+PRAGMA incremental_vacuum(100);  -- Reclaim 100 pages
+```
+
+---
+
+## Concurrency and Locking
+
+SQLite supports one writer at a time. The locking hierarchy is:
+
+1. **UNLOCKED** — No lock held.
+2. **SHARED** — Reading; multiple connections can hold this simultaneously.
+3. **RESERVED** — One connection intends to write; others can still read.
+4. **PENDING** — Waiting for existing readers to finish.
+5. **EXCLUSIVE** — Writing; no other connection can read or write.
+
+In WAL mode, this model is relaxed: readers and a single writer can coexist.
+
+For applications that genuinely need many concurrent writers, a client-server database (PostgreSQL, MySQL) is more appropriate.
+
+---
+
+## Backup and Restore
+
+### File Copy (Offline)
+
+When no connection is writing, simply copy the `.db` file.
+
+```bash
+cp mydata.db mydata.backup.db
+```
+
+### SQLite Online Backup API
+
+The Online Backup API (accessible via the CLI or language bindings) safely copies a live database without stopping writes.
+
+```bash
+sqlite3 mydata.db ".backup mydata.backup.db"
+```
+
+### Dump to SQL
+
+```bash
+sqlite3 mydata.db .dump > mydata.sql
+```
+
+### Restore from SQL Dump
+
+```bash
+sqlite3 newdata.db < mydata.sql
+```
+
+---
+
+## Security Considerations
+
+- **No built-in user authentication.** Access control is at the OS file permission level.
+- **Encryption.** The open-source SQLite does not include encryption. The commercial SQLite Encryption Extension (SEE) adds this. Third-party open-source options such as SQLCipher also exist.
+- **SQL injection.** Always use parameterized queries or prepared statements in application code. Never construct SQL by concatenating user-supplied strings.
+- **File permissions.** Protect database files with appropriate OS-level permissions, since anyone who can read the file has access to all data.
+
+---
+
+## Using SQLite in Application Code
+
+### Python
+
+```python
+import sqlite3
+
+con = sqlite3.connect("mydata.db")
+cur = con.cursor()
+
+# Create table
+cur.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT)")
+
+# Insert with parameters (always use ? placeholders, never f-strings with user input)
+cur.execute("INSERT INTO users (name) VALUES (?)", ("Alice",))
+con.commit()
+
+# Query
+for row in cur.execute("SELECT id, name FROM users"):
+    print(row)
+
+con.close()
+```
+
+### Node.js (better-sqlite3)
+
+```javascript
+const Database = require('better-sqlite3');
+const db = new Database('mydata.db');
+
+db.prepare("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT)").run();
+
+const insert = db.prepare("INSERT INTO users (name) VALUES (?)");
+insert.run("Alice");
+
+const rows = db.prepare("SELECT * FROM users").all();
+console.log(rows);
+
+db.close();
+```
+
+### Go (database/sql + mattn/go-sqlite3)
+
+```go
+import (
+    "database/sql"
+    _ "github.com/mattn/go-sqlite3"
+)
+
+db, _ := sql.Open("sqlite3", "./mydata.db")
+defer db.Close()
+
+db.Exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT)")
+db.Exec("INSERT INTO users (name) VALUES (?)", "Alice")
+
+rows, _ := db.Query("SELECT id, name FROM users")
+defer rows.Close()
+for rows.Next() {
+    var id int
+    var name string
+    rows.Scan(&id, &name)
+}
+```
+
+---
+
+## Virtual Tables
+
+Virtual tables let external data sources appear as SQLite tables. Beyond FTS5, useful built-in and commonly available virtual tables include:
+
+- **rtree** — R-Tree spatial index, useful for geographic bounding-box queries.
+- **dbstat** — Exposes internal database statistics as a table.
+- **pragma_*** — Many PRAGMAs are queryable as virtual tables (e.g., `pragma_table_info('users')`).
+
+---
+
+## Useful Built-In Functions
+
+### String Functions
+
+```sql
+LENGTH(str)
+UPPER(str) / LOWER(str)
+SUBSTR(str, start, length)
+TRIM(str) / LTRIM(str) / RTRIM(str)
+REPLACE(str, old, new)
+INSTR(str, substr)
+PRINTF(format, ...)   -- or FORMAT() in 3.38+
+```
+
+### Numeric Functions
+
+```sql
+ABS(x)
+ROUND(x, digits)
+MAX(x, y) / MIN(x, y)   -- scalar versions, not aggregate
+RANDOM()                  -- random integer in [-9223372036854775808, 9223372036854775807]
+```
+
+### Date and Time Functions
+
+```sql
+date('now')                      -- '2026-06-01'
+time('now')                      -- current UTC time
+datetime('now')                  -- '2026-06-01 HH:MM:SS'
+datetime('now', 'localtime')     -- adjusted to local time
+strftime('%Y-%m', 'now')         -- custom format
+julianday('now')                 -- Julian day number
+```
+
+Modifiers can be chained:
+
+```sql
+datetime('now', '+7 days', 'start of month')
+```
+
+### Aggregate Functions
+
+```sql
+COUNT(*) / COUNT(col)
+SUM(col)
+AVG(col)
+MAX(col) / MIN(col)
+GROUP_CONCAT(col, separator)
+```
+
+---
+
+## Common Patterns and Recipes
+
+### Upsert (Insert or Update)
+
+```sql
+INSERT INTO users (id, username, email)
+VALUES (1, 'alice', 'alice@example.com')
+ON CONFLICT(id) DO UPDATE SET
+    email = excluded.email;
+```
+
+### Pagination
+
+```sql
+-- Page 3, 20 rows per page
+SELECT * FROM users ORDER BY id LIMIT 20 OFFSET 40;
+```
+
+### Pivot / Conditional Aggregation
+
+```sql
+SELECT
+    month,
+    SUM(CASE WHEN category = 'A' THEN amount ELSE 0 END) AS cat_a,
+    SUM(CASE WHEN category = 'B' THEN amount ELSE 0 END) AS cat_b
+FROM sales
+GROUP BY month;
+```
+
+### Deduplication
+
+```sql
+-- Keep the row with the highest id for each email
+DELETE FROM users
+WHERE id NOT IN (
+    SELECT MAX(id) FROM users GROUP BY email
+);
+```
+
+### Generating Rows Without a Table
+
+```sql
+SELECT 1 AS n
+UNION ALL SELECT 2
+UNION ALL SELECT 3;
+```
+
+---
+
+## File Format Notes
+
+- The default page size is 4096 bytes (changed from 1024 in SQLite 3.12.0).
+- The maximum database size is 281 terabytes (with the default page size).
+- The maximum number of columns in a table is 2000 by default (configurable at compile time up to 32767).
+- The maximum length of a string or BLOB is 1 billion bytes by default.
+- The SQLite file format is stable and documented; Anthropic describes it as one of the recommended archival formats for long-term data storage. [Inference: this is based on SQLite's own documentation and widespread institutional use — the specific recommendation should be verified against your organization's standards.]
+
+---
+
+## Diagnostic Queries
+
+```sql
+-- List all tables
+SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name;
+
+-- List all indexes
+SELECT name, tbl_name FROM sqlite_master WHERE type = 'index';
+
+-- Show schema for a specific table
+SELECT sql FROM sqlite_master WHERE name = 'users';
+
+-- Count rows in every table (requires scripting or a loop in application code for dynamic use)
+SELECT COUNT(*) FROM users;
+
+-- Check for integrity issues
+PRAGMA integrity_check;
+
+-- Quick consistency check (faster, catches most issues)
+PRAGMA quick_check;
+```
+
+---
+
+## Summary of Key Limits
+
+| Property                 | Default Limit                          |
+| ------------------------ | -------------------------------------- |
+| Max database size        | ~281 TB                                |
+| Max columns per table    | 2,000                                  |
+| Max tables per database  | No hard limit (practical limit varies) |
+| Max string/BLOB length   | ~1 billion bytes                       |
+| Max SQL statement length | ~1 billion bytes                       |
+| Max attached databases   | 10                                     |
+| Concurrent writers       | 1                                      |
+
+---
+
+## All Ways to View Data from a SQLite Database
+
+### Command-Line Shell
+
+#### Using `sqlite3` CLI
+
+The most direct method for ad-hoc inspection.
+
+```bash
+sqlite3 mydata.db
+```
+
+Once inside the shell, use SQL queries:
+
+```sql
+SELECT * FROM users;
+SELECT id, name, email FROM users WHERE active = 1;
+```
+
+#### Output Modes
+
+The shell supports multiple output formats controlled by `.mode`:
+
+```
+.mode list          -- Comma-separated (default)
+.mode csv           -- CSV format with proper escaping
+.mode tsv           -- Tab-separated values
+.mode column        -- Aligned columns with headers
+.mode line          -- One column per line
+.mode json          -- JSON array of objects
+.mode quote         -- SQL-quoted strings
+.mode box           -- ASCII box drawing
+.mode markdown      -- Markdown table
+```
+
+Example:
+
+```bash
+sqlite3 -csv mydata.db "SELECT * FROM users;" > users.csv
+sqlite3 -json mydata.db "SELECT * FROM users;" > users.json
+```
+
+#### One-Liner Queries
+
+```bash
+sqlite3 mydata.db "SELECT COUNT(*) FROM users;"
+sqlite3 mydata.db "SELECT * FROM users WHERE id = 1;"
+```
+
+#### Headers and Column Names
+
+```sql
+.headers on         -- Show column names
+.headers off        -- Hide column names
+```
+
+#### Separator Control
+
+```sql
+.separator ","      -- Set output separator
+.separator "|"      -- Pipe-delimited
+```
+
+#### Viewing with Limits
+
+```bash
+sqlite3 mydata.db "SELECT * FROM users LIMIT 10;"
+```
+
+---
+
+### Programming Language APIs
+
+#### Python (sqlite3 Built-In)
+
+```python
+import sqlite3
+
+con = sqlite3.connect("mydata.db")
+cur = con.cursor()
+
+## Fetch all rows
+rows = cur.execute("SELECT * FROM users").fetchall()
+for row in rows:
+    print(row)
+
+## Fetch one row
+one_row = cur.execute("SELECT * FROM users WHERE id = 1").fetchone()
+print(one_row)
+
+## Fetch with column names
+con.row_factory = sqlite3.Row
+row = cur.execute("SELECT * FROM users WHERE id = 1").fetchone()
+print(f"Name: {row['name']}, Email: {row['email']}")
+
+## Iterate over rows lazily (memory-efficient for large datasets)
+for row in cur.execute("SELECT * FROM users"):
+    print(row)
+
+con.close()
+```
+
+#### Python (pandas)
+
+```python
+import pandas as pd
+import sqlite3
+
+con = sqlite3.connect("mydata.db")
+
+## Load entire table
+df = pd.read_sql_query("SELECT * FROM users", con)
+print(df)
+
+## Query with filtering
+df = pd.read_sql_query("SELECT id, name, email FROM users WHERE active = 1", con)
+print(df.head(10))
+
+con.close()
+```
+
+#### Node.js (better-sqlite3)
+
+```javascript
+const Database = require('better-sqlite3');
+const db = new Database('mydata.db');
+
+// Fetch all rows
+const rows = db.prepare("SELECT * FROM users").all();
+console.log(rows);
+
+// Fetch one row
+const row = db.prepare("SELECT * FROM users WHERE id = 1").get();
+console.log(row);
+
+// Iterate (more memory-efficient)
+const stmt = db.prepare("SELECT * FROM users");
+for (const row of stmt.iterate()) {
+    console.log(row);
+}
+
+db.close();
+```
+
+#### Node.js (sql.js - In-Memory or File-Based)
+
+```javascript
+const initSqlJs = require('sql.js');
+
+const SQL = await initSqlJs();
+const db = new SQL.Database(fileData);  // Or omit fileData for in-memory
+
+const result = db.exec("SELECT * FROM users");
+console.log(result[0].values);  // Array of rows
+
+db.close();
+```
+
+#### JavaScript (Browser - sql.js)
+
+```javascript
+// Load database from a file
+const response = await fetch('mydata.db');
+const buffer = await response.arrayBuffer();
+
+const initSqlJs = require('sql.js');
+const SQL = await initSqlJs();
+const db = new SQL.Database(new Uint8Array(buffer));
+
+const result = db.exec("SELECT * FROM users");
+result[0].columns;  // Column names
+result[0].values;   // Rows
+```
+
+#### Go (database/sql)
+
+```go
+import (
+    "database/sql"
+    _ "github.com/mattn/go-sqlite3"
+)
+
+db, err := sql.Open("sqlite3", "./mydata.db")
+defer db.Close()
+
+// Query multiple rows
+rows, err := db.Query("SELECT id, name, email FROM users")
+defer rows.Close()
+
+for rows.Next() {
+    var id int
+    var name, email string
+    rows.Scan(&id, &name, &email)
+    fmt.Println(id, name, email)
+}
+
+// Query single row
+var name, email string
+err := db.QueryRow("SELECT name, email FROM users WHERE id = 1").
+    Scan(&name, &email)
+```
+
+#### Ruby
+
+```ruby
+require 'sqlite3'
+
+db = SQLite3::Database.new 'mydata.db'
+db.results_as_hash = true  ## Get rows as hashes
+
+## Fetch all rows
+db.execute("SELECT * FROM users") do |row|
+    puts row.inspect
+end
+
+## Fetch with fetch_hash
+db.execute("SELECT * FROM users") do |row|
+    puts "#{row['name']}: #{row['email']}"
+end
+
+db.close
+```
+
+#### Java (JDBC)
+
+```java
+import java.sql.*;
+
+String url = "jdbc:sqlite:mydata.db";
+try (Connection conn = DriverManager.getConnection(url)) {
+    String sql = "SELECT * FROM users";
+    Statement stmt = conn.createStatement();
+    ResultSet rs = stmt.executeQuery(sql);
+
+    while (rs.next()) {
+        int id = rs.getInt("id");
+        String name = rs.getString("name");
+        System.out.println(id + ": " + name);
+    }
+}
+```
+
+#### C / C++
+
+Using the official SQLite C API:
+
+```c
+#include <sqlite3.h>
+#include <stdio.h>
+
+int main() {
+    sqlite3 *db;
+    sqlite3_stmt *stmt;
+    int rc = sqlite3_open("mydata.db", &db);
+
+    const char *sql = "SELECT id, name FROM users";
+    rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        int id = sqlite3_column_int(stmt, 0);
+        const char *name = (const char *)sqlite3_column_text(stmt, 1);
+        printf("%d: %s\n", id, name);
+    }
+
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return 0;
+}
+```
+
+---
+
+### GUI Tools
+
+#### SQLite Browser (DB Browser for SQLite)
+
+A visual, cross-platform tool with a full GUI for browsing tables, running queries, and editing data.
+
+- Download from [sqlitebrowser.org](https://sqlitebrowser.org)
+- Features: table browser, SQL editor, data editing, schema inspection, export to CSV/JSON.
+
+#### DBeaver
+
+A feature-rich database client supporting SQLite and many other databases.
+
+- Download from [dbeaver.io](https://dbeaver.io)
+- Features: query editor, data grid, ER diagrams, import/export, scripting.
+
+#### Datagrip (JetBrains)
+
+Commercial IDE with first-class SQLite support.
+
+- Part of the JetBrains suite or standalone.
+- Features: intelligent query editor, data inspector, version control integration.
+
+#### TablePlus
+
+Lightweight macOS/Windows tool for database inspection and queries.
+
+- Download from [tableplus.com](https://tableplus.com)
+
+#### SQLiteOnline
+
+Browser-based tool for viewing SQLite databases without installation.
+
+- Access at [sqliteonline.com](https://sqliteonline.com)
+- Upload `.db` file or use the in-memory demo.
+
+#### VS Code Extensions
+
+- **SQLite** (by alexcvzz) — Query SQLite files directly in VS Code.
+- **Better SQLite3** — If using the Node.js library.
+
+---
+
+### Export Formats
+
+#### CSV
+
+```bash
+sqlite3 -csv mydata.db "SELECT * FROM users;" > users.csv
+```
+
+Or within the shell:
+
+```sql
+.mode csv
+.output users.csv
+SELECT * FROM users;
+.output stdout
+```
+
+#### JSON
+
+```bash
+sqlite3 -json mydata.db "SELECT * FROM users;" > users.json
+```
+
+#### SQL Dump (Full Database)
+
+```bash
+sqlite3 mydata.db .dump > backup.sql
+```
+
+Then restore:
+
+```bash
+sqlite3 newdb.db < backup.sql
+```
+
+#### TSV (Tab-Separated)
+
+```bash
+sqlite3 -tsv mydata.db "SELECT * FROM users;" > users.tsv
+```
+
+#### Markdown Table
+
+```sql
+.mode markdown
+SELECT * FROM users;
+```
+
+#### Pipe-Delimited
+
+```bash
+sqlite3 -separator "|" mydata.db "SELECT * FROM users;"
+```
+
+---
+
+### Programmatic Export
+
+#### Python (to CSV)
+
+```python
+import sqlite3
+import csv
+
+con = sqlite3.connect("mydata.db")
+cur = con.cursor()
+cur.execute("SELECT * FROM users")
+
+with open("users.csv", "w", newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow([description[0] for description in cur.description])
+    writer.writerows(cur.fetchall())
+
+con.close()
+```
+
+#### Python (to JSON)
+
+```python
+import sqlite3
+import json
+
+con = sqlite3.connect("mydata.db")
+con.row_factory = sqlite3.Row
+cur = con.cursor()
+
+rows = cur.execute("SELECT * FROM users").fetchall()
+data = [dict(row) for row in rows]
+
+with open("users.json", "w") as f:
+    json.dump(data, f, indent=2)
+
+con.close()
+```
+
+#### Node.js (to JSON)
+
+```javascript
+const Database = require('better-sqlite3');
+const fs = require('fs');
+
+const db = new Database('mydata.db');
+const rows = db.prepare("SELECT * FROM users").all();
+
+fs.writeFileSync('users.json', JSON.stringify(rows, null, 2));
+db.close();
+```
+
+---
+
+### Metadata and Schema Inspection
+
+#### View All Tables
+
+```bash
+sqlite3 mydata.db ".tables"
+```
+
+Or via SQL:
+
+```sql
+SELECT name FROM sqlite_master WHERE type = 'table';
+```
+
+#### View Table Schema
+
+```bash
+sqlite3 mydata.db ".schema users"
+```
+
+Or via SQL:
+
+```sql
+SELECT sql FROM sqlite_master WHERE name = 'users';
+PRAGMA table_info(users);
+```
+
+#### View All Indexes
+
+```bash
+sqlite3 mydata.db ".indexes"
+```
+
+Or via SQL:
+
+```sql
+SELECT name FROM sqlite_master WHERE type = 'index';
+```
+
+#### View Triggers
+
+```sql
+SELECT name FROM sqlite_master WHERE type = 'trigger';
+SELECT sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'users';
+```
+
+---
+
+### Large Dataset Inspection
+
+#### Limit Results
+
+```bash
+sqlite3 mydata.db "SELECT * FROM large_table LIMIT 100;"
+```
+
+#### Pagination
+
+```bash
+sqlite3 mydata.db "SELECT * FROM users LIMIT 50 OFFSET 100;"  -- Page 3, 50 per page
+```
+
+#### Statistics
+
+```sql
+SELECT COUNT(*) FROM users;
+SELECT COUNT(*) FROM users WHERE active = 1;
+```
+
+#### Streaming Large Datasets (Python)
+
+```python
+import sqlite3
+
+con = sqlite3.connect("mydata.db")
+cur = con.cursor()
+
+## Process rows one at a time without loading all into memory
+for row in cur.execute("SELECT * FROM large_table"):
+    print(row)
+
+con.close()
+```
+
+#### Chunking (pandas)
+
+```python
+import pandas as pd
+
+con = sqlite3.connect("mydata.db")
+
+## Read in chunks
+for chunk in pd.read_sql_query("SELECT * FROM large_table", con, chunksize=1000):
+    process(chunk)
+
+con.close()
+```
+
+---
+
+### Real-Time Monitoring
+
+#### Watch Changes (Shell Loop)
+
+```bash
+while true; do
+    clear
+    sqlite3 mydata.db "SELECT COUNT(*) as users FROM users;"
+    sleep 2
+done
+```
+
+#### Query with Timestamp
+
+```bash
+watch -n 2 "sqlite3 mydata.db \"SELECT COUNT(*) FROM users WHERE created_at > datetime('now', '-1 hour');\""
+```
+
+---
+
+### Visualization
+
+#### Plot Results (Python + Matplotlib)
+
+```python
+import sqlite3
+import pandas as pd
+import matplotlib.pyplot as plt
+
+con = sqlite3.connect("mydata.db")
+df = pd.read_sql_query(
+    "SELECT date, SUM(amount) as total FROM orders GROUP BY date",
+    con
+)
+
+plt.plot(df['date'], df['total'])
+plt.show()
+```
+
+#### Interactive Dashboards (Python + Streamlit)
+
+```python
+import streamlit as st
+import sqlite3
+import pandas as pd
+
+con = sqlite3.connect("mydata.db")
+df = pd.read_sql_query("SELECT * FROM users", con)
+
+st.dataframe(df)
+st.bar_chart(df.groupby('country').size())
+```
+
+---
+
+### Summary Table
+
+| Method                 | Best For                      | Installation                           |
+| ---------------------- | ----------------------------- | -------------------------------------- |
+| `sqlite3` CLI          | Quick queries, one-liners     | Pre-installed or `apt install sqlite3` |
+| Python sqlite3         | Scripts, automation           | Built-in                               |
+| pandas                 | Data analysis, transformation | `pip install pandas`                   |
+| Node.js better-sqlite3 | JavaScript backends           | `npm install better-sqlite3`           |
+| DB Browser for SQLite  | Visual exploration, editing   | Download GUI app                       |
+| DBeaver                | Enterprise-grade browsing     | Download GUI app                       |
+| sql.js                 | Browser-based (no server)     | `npm install sql.js`                   |
+| CSV/JSON export        | Sharing, reporting            | Built into shell                       |
+
+---
+
+## Connecting DBeaver to SQLite by Host or URL
+
+### Important: SQLite Doesn't Work Over Network by Default
+
+SQLite is **not a network database**. It reads and writes directly to local files. You **cannot** connect to SQLite over HTTP, TCP, or any network protocol using standard SQLite.
+
+However, there are workarounds depending on your setup.
+
+---
+
+### Option 1: Remote File Access via SSH (Recommended)
+
+If the `syllabot.db` file is on a remote machine, access it via SSH tunneling.
+
+#### Setup SSH Tunnel in DBeaver
+
+1. **File** → **New** → **Database Connection**
+2. Select **SQLite**
+3. **Path:** Enter the remote file path (e.g., `/home/user/syllabot.db`)
+4. Click the **SSH** tab
+5. Enable **Use SSH Tunnel**
+6. Fill in:
+   - **Host:** Your remote server hostname or IP
+   - **Port:** 22 (default SSH)
+   - **Username:** Your SSH username
+   - **Authentication:** Password or public key
+7. **Test Connection**
+8. **Finish**
+
+DBeaver tunnels the file access over SSH, and you interact with it as if it were local.
+
+---
+
+### Option 2: SCP/SFTP to Pull File Locally
+
+If you just need to work with the file once:
+
+```bash
+## Download from remote host
+scp user@remote-host:/path/to/syllabot.db ./syllabot.db
+
+## Then open locally in DBeaver as usual
+dbeaver &
+```
+
+After you're done, upload changes back:
+
+```bash
+scp ./syllabot.db user@remote-host:/path/to/syllabot.db
+```
+
+---
+
+### Option 3: Mount Remote Filesystem (SSHFS)
+
+Mount the remote directory locally, then access it like a normal file.
+
+```bash
+## Install sshfs (if not already installed)
+sudo pacman -S sshfs
+
+## Create mount point
+mkdir -p ~/mnt/remote
+
+## Mount remote filesystem
+sshfs user@remote-host:/path/to/dir ~/mnt/remote
+
+## Open in DBeaver
+dbeaver &
+## Then browse to ~/mnt/remote/syllabot.db
+
+## Unmount when done
+fusermount -u ~/mnt/remote
+```
+
+---
+
+### Option 4: SQLite Server Wrapper (Advanced)
+
+If you need true remote access, wrap SQLite with a lightweight HTTP or TCP server.
+
+#### Using `sqlite-web` (Python)
+
+Install:
+
+```bash
+pip install sqlite-web
+```
+
+On the remote machine, start the server:
+
+```bash
+sqlite_web syllabot.db --port 8080 --host 0.0.0.0
+```
+
+Then access in your browser:
+
+```
+http://remote-host:8080
+```
+
+Or use an API:
+
+```bash
+curl "http://remote-host:8080/api/query" \
+  -H "Content-Type: application/json" \
+  -d '{"sql": "SELECT * FROM users LIMIT 10"}'
+```
+
+**Note:** DBeaver cannot directly connect to `sqlite-web`. You'd use the web interface or a script.
+
+---
+
+### Option 5: PostgreSQL/MySQL Proxy (Overkill)
+
+If you need full database client support, convert to a real network database:
+
+1. Export SQLite to PostgreSQL:
+   ```bash
+   pgloader sqlite:///path/to/syllabot.db postgresql://user:pass@localhost/syllabot
+   ```
+
+2. Connect DBeaver to PostgreSQL normally by host/port.
+
+This is rarely necessary for SQLite unless you need multi-user write access.
+
+---
+
+### Option 6: Docker Container with Shared Volume
+
+If the database is in a Docker container:
+
+```bash
+## Run container with volume mount
+docker run -v /path/to/syllabot.db:/data/syllabot.db my-app
+
+## On host, DBeaver connects to the mounted file
+## Path: /path/to/syllabot.db
+```
+
+---
+
+### Quick Comparison
+
+| Method | Pros | Cons |
+|---|---|---|
+| **SSH Tunnel** | Secure, transparent, no file copy | Slightly more setup |
+| **SCP/SFTP** | Simple, one-time access | Manual sync, no real-time updates |
+| **SSHFS Mount** | Behaves like local filesystem | Network latency, mount/unmount needed |
+| **sqlite-web** | Web interface, REST API | DBeaver can't use it directly |
+| **Proxy to PG** | Full network DB features | Overkill, adds complexity |
+
+---
+
+### Most Practical: SSH Tunnel Setup Step-by-Step
+
+1. **Verify SSH access works:**
+   ```bash
+   ssh user@remote-host "ls -l /path/to/syllabot.db"
+   ```
+
+2. **In DBeaver:**
+   - **File** → **New** → **Database Connection**
+   - **SQLite**
+   - **Path:** `/path/to/syllabot.db` (remote path)
+   - **SSH** tab → **Use SSH Tunnel** ✓
+   - **Host:** `remote-host`
+   - **Port:** `22`
+   - **Username:** `user`
+   - **Auth:** Password or key
+   - **Test Connection**
+
+3. Done. You now interact with the remote file as if it were local.
+
+---
+
+### If You Have a URL (Web-Hosted SQLite)
+
+If someone gave you a **URL** like `http://example.com/download/syllabot.db`:
+
+```bash
+## Download the file
+wget http://example.com/download/syllabot.db
+
+## Or
+curl -O http://example.com/download/syllabot.db
+
+## Then open locally in DBeaver
+```
+
+DBeaver cannot directly open URLs — SQLite files must be on disk (local or mounted).
+
+---
+
+## Using DBeaver with syllabot.db on Your Local Machine
+
+Since the file is already on your machine, this is straightforward.
+
+### Quick Setup
+
+1. **Launch DBeaver**
+   ```bash
+   dbeaver &
+   ```
+
+2. **Create a New Connection**
+   - Click **File** → **New** → **Database Connection**
+   - Select **SQLite**
+   - Click **Next**
+
+3. **Browse to Your File**
+   - Click the folder icon next to **Path**
+   - Navigate to `syllabot.db`
+   - Select it and click **Open**
+   - Or paste the full path directly:
+     ```
+     /home/yourusername/path/to/syllabot.db
+     ```
+
+4. **Test and Connect**
+   - Click **Test Connection** (optional but recommended)
+   - Click **Finish**
+
+The database now appears in the left sidebar.
+
+---
+
+### Finding Your File
+
+If you're not sure where `syllabot.db` is:
+
+```bash
+## Search for it
+find ~ -name "syllabot.db" 2>/dev/null
+
+## Or check current directory
+ls -lh syllabot.db
+```
+
+Once you have the full path, use it in DBeaver's path field.
+
+---
+
+### Next Steps (Same as Before)
+
+Once connected:
+
+- **Expand the database** in the left sidebar
+- **Double-click any table** to view data
+- **Ctrl+Alt+N** to open a new SQL editor
+- Run queries like:
+  ```sql
+  SELECT * FROM users LIMIT 10;
+  PRAGMA table_info(messages);
+  SELECT COUNT(*) FROM messages;
+  ```
+
+---
+
 # SQLite Fundamentals
 
 SQLite is a self-contained, serverless, zero-configuration, transactional SQL database engine. Unlike traditional database systems that operate as separate server processes, SQLite reads and writes directly to ordinary disk files, making it one of the most widely deployed database engines in the world.
