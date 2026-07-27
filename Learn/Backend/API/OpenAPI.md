@@ -479,16 +479,16 @@ Header-Name: Header-Value
 
 **HTTP Methods (Verbs)**
 
-|Method|Semantics|Safe|Idempotent|
-|---|---|---|---|
-|GET|Retrieve a resource|Yes|Yes|
-|POST|Submit data; create a resource|No|No|
-|PUT|Replace a resource entirely|No|Yes|
-|PATCH|Partially update a resource|No|No*|
-|DELETE|Remove a resource|No|Yes|
-|HEAD|Like GET but response body is omitted|Yes|Yes|
-|OPTIONS|Describe communication options|Yes|Yes|
-|TRACE|Echo the request (diagnostic)|Yes|Yes|
+| Method  | Semantics                             | Safe | Idempotent |
+| ------- | ------------------------------------- | ---- | ---------- |
+| GET     | Retrieve a resource                   | Yes  | Yes        |
+| POST    | Submit data; create a resource        | No   | No         |
+| PUT     | Replace a resource entirely           | No   | Yes        |
+| PATCH   | Partially update a resource           | No   | No*        |
+| DELETE  | Remove a resource                     | No   | Yes        |
+| HEAD    | Like GET but response body is omitted | Yes  | Yes        |
+| OPTIONS | Describe communication options        | Yes  | Yes        |
+| TRACE   | Echo the request (diagnostic)         | Yes  | Yes        |
 
 > *PATCH idempotency depends on implementation — it is not guaranteed by the spec.
 
@@ -498,13 +498,13 @@ Header-Name: Header-Value
 
 **Status Code Families**
 
-|Range|Meaning|Examples|
-|---|---|---|
-|1xx|Informational|100 Continue, 101 Switching|
-|2xx|Success|200 OK, 201 Created, 204 No Content|
-|3xx|Redirection|301 Moved Permanently, 304 Not Modified|
-|4xx|Client error|400 Bad Request, 401 Unauthorized, 404 Not Found|
-|5xx|Server error|500 Internal Server Error, 503 Service Unavailable|
+| Range | Meaning       | Examples                                           |
+| ----- | ------------- | -------------------------------------------------- |
+| 1xx   | Informational | 100 Continue, 101 Switching                        |
+| 2xx   | Success       | 200 OK, 201 Created, 204 No Content                |
+| 3xx   | Redirection   | 301 Moved Permanently, 304 Not Modified            |
+| 4xx   | Client error  | 400 Bad Request, 401 Unauthorized, 404 Not Found   |
+| 5xx   | Server error  | 500 Internal Server Error, 503 Service Unavailable |
 
 **Key Headers**
 
