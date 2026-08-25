@@ -1,0 +1,142 @@
+## Branch Instructions
+
+
+Branch instructions alter program flow by loading new values into the program counter (PC). They enable loops, function calls, conditional execution blocks, and returns. ARM provides several branch variants for different control flow patterns.
+
+### B - Branch
+
+The B instruction performs an unconditional or conditional relative branch. It adds a signed offset to PC, enabling forward or backward jumps within approximately ±32MB in ARM state (±16MB in Thumb-2).
+
+**Relative Addressing**
+
+Branch targets are encoded as PC-relative offsets rather than absolute addresses. The assembler calculates the offset from the branch instruction to the target label. This makes code position-independent, executable anywhere in memory without relocation.
+
+**Conditional Branching**
+
+Adding condition codes creates conditional branches: BEQ branches if equal (Z set), BNE if not equal (Z clear), BGT if greater (signed), BHI if higher (unsigned). The branch executes only if the condition is true based on current flag values.
+
+**Range Limitations**
+
+[Inference: The PC-relative offset is encoded in a limited number of bits within the instruction, constraining branch range. For branches beyond this range, the assembler may generate long-branch sequences using multiple instructions or veneer code, though this is typically transparent to the programmer].
+
+**Example:**
+
+```assembly
+B target                @ Unconditional branch to target
+BEQ equal_case          @ Branch if Z flag set
+BNE not_equal           @ Branch if Z flag clear
+BGT greater_than        @ Branch if signed greater than
+BHI higher              @ Branch if unsigned higher
+
+loop_start:
+    @ Loop body
+    SUBS r0, r0, #1     @ Decrement counter
+    BNE loop_start      @ Continue if not zero
+```
+
+### BL - Branch with Link
+
+BL (branch with link) performs a function call by branching to a target address while saving the return address. Before branching, BL stores the address of the next instruction (PC + 4 in ARM state) into the link register (LR, r14).
+
+**Function Call Mechanism**
+
+The saved return address enables returning to the calling location. A function returns by copying LR back to PC, typically using `MOV PC, LR` or `BX LR`. The link register provides a simple single-level return mechanism without stack manipulation for leaf functions.
+
+**Return Address Handling**
+
+Non-leaf functions (those that call other functions) must preserve LR because the nested call overwrites it. Standard practice pushes LR onto the stack in the function prologue and pops it (often directly into PC) in the epilogue. This creates the call stack structure.
+
+**Example:**
+
+```assembly
+BL my_function          @ Call function, LR = return address
+
+my_function:
+    PUSH {r4-r7, lr}    @ Save registers and return address
+    @ Function body
+    BL nested_call      @ Call another function (overwrites LR)
+    @ More function body
+    POP {r4-r7, pc}     @ Restore registers and return
+```
+
+### BX - Branch and Exchange
+
+BX (branch and exchange) branches to an address in a register and can switch between ARM and Thumb instruction sets. The target address is loaded from a register rather than encoded as an immediate offset.
+
+**Instruction Set Switching**
+
+Bit 0 of the target address determines the instruction set after branching: 0 selects ARM state, 1 selects Thumb state. The actual branch target is the register value with bit 0 cleared (forced to even address). This enables interworking between ARM and Thumb code.
+
+**Register-Based Branching**
+
+BX enables computed branches, calling function pointers, and returning from functions. `BX LR` is the standard return instruction, compatible with both ARM and Thumb code. The instruction automatically switches to the appropriate instruction set based on the stored return address.
+
+**Example:**
+
+```assembly
+BX lr                   @ Return from function, switch modes if needed
+BX r0                   @ Branch to address in r0
+
+@ Function pointer call
+LDR r3, =function_ptr   @ Load pointer to function pointer
+LDR r3, [r3]            @ Load actual function address
+BLX r3                  @ Call function through pointer
+```
+
+### BLX - Branch with Link and Exchange
+
+BLX combines the features of BL and BX: it saves the return address in LR and can switch instruction sets. Two forms exist: BLX with immediate offset (ARM-to-Thumb calls in ARM state) and BLX with register (general register-based call).
+
+**Register Form**
+
+`BLX rn` branches to the address in register rn, saves the return address in LR, and switches instruction sets based on bit 0 of rn. This is the standard instruction for calling functions through pointers, including virtual function calls and callback invocations.
+
+**Immediate Form**
+
+In ARM state, `BLX label` calls a Thumb function at a known location. The assembler encodes the offset and automatically sets bit 0 to indicate Thumb mode. This form is less common in hand-written assembly but generated by compilers for ARM-to-Thumb calls.
+
+**Example:**
+
+```assembly
+BLX r4                  @ Call function in r4, save return address
+BLX thumb_function      @ Call Thumb function from ARM code
+```
+
+### Return Mechanisms
+
+Functions return by restoring PC to the saved return address. Several methods exist depending on function complexity and register usage.
+
+**Simple Returns**
+
+Leaf functions that don't modify LR can return with `BX LR` or `MOV PC, LR`. The BX form is preferred for interworking compatibility. These single-instruction returns are efficient for simple functions.
+
+**Stack-Based Returns**
+
+Functions that preserve registers on the stack can return by popping PC: `POP {r4-r7, pc}` restores saved registers and returns simultaneously. This is more efficient than separate POP and BX instructions and is standard in function epilogues.
+
+**Conditional Returns**
+
+Returns can be predicated like other instructions: `BXEQ LR` returns if equal, `POPNE {r4-r7, pc}` returns if not equal. This enables early returns based on conditions without additional branch instructions.
+
+**Example:**
+
+```assembly
+@ Leaf function return
+simple_function:
+    @ Function body, LR unchanged
+    BX lr                   @ Return
+
+@ Non-leaf function return
+complex_function:
+    PUSH {r4-r7, lr}        @ Prologue
+    @ Function body
+    POP {r4-r7, pc}         @ Epilogue and return
+
+@ Conditional return
+check_value:
+    CMP r0, #0
+    BXEQ lr                 @ Return immediately if r0 == 0
+    @ Continue processing
+    BX lr                   @ Normal return
+```
+

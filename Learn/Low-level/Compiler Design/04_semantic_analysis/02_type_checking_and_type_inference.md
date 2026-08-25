@@ -1,0 +1,15 @@
+## Type Checking and Type Inference
+
+
+Type checking validates that program operations are applied to operands of appropriate types according to language type system rules, preventing runtime errors that could result from incompatible type combinations. Static type checking performs these validations during compilation, enabling early error detection and optimization opportunities based on guaranteed type properties. Dynamic type checking defers validation to runtime, providing greater flexibility but sacrificing compile-time error detection and optimization potential.
+
+Strong typing systems enforce strict type compatibility rules that prevent implicit conversions between incompatible types, while weak typing systems allow more liberal type conversions that may involve data reinterpretation or automatic coercion. Type safety ensures that well-typed programs cannot violate type system assumptions during execution, providing security and reliability guarantees that enable compiler optimizations and runtime system simplifications.
+
+Polymorphism enables single code constructs to operate on multiple types through various mechanisms including parametric polymorphism (generics), subtype polymorphism (inheritance), and ad-hoc polymorphism (overloading). Generic type systems require sophisticated type checking algorithms that can validate type parameter usage while ensuring type safety across all possible instantiations. Constraint-based type systems express type relationships through constraint sets that must be satisfied for programs to be well-typed.
+
+Type inference automatically deduces types for program constructs without requiring explicit type annotations, reducing programming burden while maintaining type safety guarantees. Algorithm W represents the classical approach to type inference in functional languages, using unification algorithms to solve type equations generated from program structure. Constraint-based inference generates constraint systems that express type relationships, then solves these constraints to determine most general types.
+
+Hindley-Milner type systems provide theoretical foundations for type inference in functional languages, guaranteeing principal types that represent the most general valid type for each expression. These systems support let-polymorphism, which enables different uses of the same identifier to have different type instantiations within their respective scopes. However, they cannot handle all desired language features like higher-rank polymorphism or type-dependent computation without extensions.
+
+Modern type inference techniques extend beyond classical algorithms to handle object-oriented features, subtyping relationships, and effect systems. Bidirectional type checking combines type inference with type checking by propagating type information both upward from leaves to roots and downward from contexts to subexpressions. This approach enables more precise type inference while maintaining decidability and providing better error messages when type inference fails.
+

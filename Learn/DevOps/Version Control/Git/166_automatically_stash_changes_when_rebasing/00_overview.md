@@ -1,0 +1,4 @@
+## Overview
+
+git config --global rebase.autoStash true
+

@@ -1,0 +1,7 @@
+## Backup Configuration
+
+BACKUP_ROOT_DIR="/backups"
+RETENTION_DAYS=30
+COMPRESSION_TYPE="xz"
+ENABLE_ENCRYPTION=true
+
