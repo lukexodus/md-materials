@@ -1,0 +1,1243 @@
+{
+  "topic": "Optimization Methods",
+  "topic_slug": "optimization_methods",
+  "generated_at": "2026-08-25T17:33:56.640422",
+  "chapters": [
+    {
+      "chapter_index": 1,
+      "chapter_title": "Mathematical Foundations and Prerequisites",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Linear algebra review: vector spaces, norms, inner products"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Matrix decompositions: eigenvalue, singular value, Cholesky, QR"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Positive definite and positive semidefinite matrices"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Multivariable calculus: gradients, Jacobians, Hessians"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Taylor series expansions in multiple dimensions"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Topology basics: open, closed, compact, bounded sets"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Sequences, limits, and continuity in normed spaces"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Differentiability and directional derivatives"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Implicit function theorem"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Basic real analysis for optimization proofs"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Set notation and mathematical logic for optimization statements"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Introduction to functional analysis for infinite-dimensional problems"
+        }
+      ]
+    },
+    {
+      "chapter_index": 2,
+      "chapter_title": "Optimization Problem Formulation",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Decision variables, objective functions, and constraints"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Feasible region and feasible set characterization"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Local versus global optima definitions"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Equality and inequality constraint types"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Standard form and canonical form conversions"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Classification: linear, nonlinear, convex, nonconvex"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Classification: continuous versus discrete optimization"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Classification: single-objective versus multi-objective"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Classification: deterministic versus stochastic problems"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Well-posedness and existence of solutions"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Sensitivity and parametric formulations"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Modeling real-world problems as optimization programs"
+        }
+      ]
+    },
+    {
+      "chapter_index": 3,
+      "chapter_title": "Convexity and Convex Analysis",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Convex sets and their properties"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Convex hulls and extreme points"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Convex functions and epigraphs"
+        },
+        {
+          "item_index": 4,
+          "item_title": "First-order and second-order convexity conditions"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Quasiconvexity and pseudoconvexity"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Operations preserving convexity"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Conjugate functions and Legendre transform"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Subgradients and subdifferentials"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Support functions and separating hyperplanes"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Convex optimization problem structure"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Strong convexity and its implications"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Convexity in composite and constrained problems"
+        }
+      ]
+    },
+    {
+      "chapter_index": 4,
+      "chapter_title": "Optimality Conditions",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Unconstrained first-order necessary conditions"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Unconstrained second-order sufficient conditions"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Constrained optimization and Lagrange multipliers"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Karush-Kuhn-Tucker conditions derivation"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Constraint qualifications: LICQ, MFCQ, Slater's condition"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Complementary slackness interpretation"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Second-order conditions for constrained problems"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Sensitivity analysis via multipliers"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Geometric interpretation of optimality conditions"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Necessary versus sufficient condition distinctions"
+        }
+      ]
+    },
+    {
+      "chapter_index": 5,
+      "chapter_title": "Duality Theory",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Lagrangian function construction"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Dual function and dual problem formulation"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Weak duality and duality gap"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Strong duality conditions"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Slater's condition and constraint qualifications for duality"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Complementary slackness and primal-dual relationships"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Saddle point theory"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Fenchel duality"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Lagrangian relaxation for hard problems"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Dual decomposition methods"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Economic interpretation of dual variables"
+        }
+      ]
+    },
+    {
+      "chapter_index": 6,
+      "chapter_title": "Line Search Methods",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Descent direction concepts"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Exact line search techniques"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Inexact line search and Armijo condition"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Wolfe conditions and curvature requirements"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Goldstein conditions"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Backtracking line search algorithms"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Step length selection strategies"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Convergence rate implications of line search choice"
+        }
+      ]
+    },
+    {
+      "chapter_index": 7,
+      "chapter_title": "Gradient-Based Unconstrained Optimization",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Steepest descent method"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Convergence analysis of gradient descent"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Condition number effects on convergence"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Conjugate gradient method for quadratics"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Nonlinear conjugate gradient variants"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Momentum and heavy-ball methods"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Nesterov accelerated gradient method"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Coordinate descent methods"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Block coordinate descent"
+        }
+      ]
+    },
+    {
+      "chapter_index": 8,
+      "chapter_title": "Newton and Quasi-Newton Methods",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Newton's method derivation and convergence"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Modified Newton methods for nonconvexity"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Quasi-Newton motivation and secant condition"
+        },
+        {
+          "item_index": 4,
+          "item_title": "DFP update formula"
+        },
+        {
+          "item_index": 5,
+          "item_title": "BFGS update formula"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Limited-memory BFGS for large-scale problems"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Symmetric rank-one updates"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Broyden family of updates"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Convergence properties of quasi-Newton methods"
+        }
+      ]
+    },
+    {
+      "chapter_index": 9,
+      "chapter_title": "Trust Region Methods",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Trust region subproblem formulation"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Cauchy point calculation"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Dogleg method"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Two-dimensional subspace minimization"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Exact trust region subproblem solution"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Trust region radius update rules"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Global convergence theory for trust region methods"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Trust region versus line search comparison"
+        }
+      ]
+    },
+    {
+      "chapter_index": 10,
+      "chapter_title": "Derivative-Free Optimization",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Motivation for derivative-free methods"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Nelder-Mead simplex method"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Pattern search and generalized pattern search"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Coordinate search methods"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Model-based trust region derivative-free methods"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Finite difference gradient approximations"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Simultaneous perturbation stochastic approximation"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Bayesian optimization fundamentals"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Gaussian process surrogate models"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Acquisition functions for Bayesian optimization"
+        }
+      ]
+    },
+    {
+      "chapter_index": 11,
+      "chapter_title": "Linear Programming Theory",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Standard form linear programs"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Polyhedra and basic feasible solutions"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Vertices, edges, and extreme points of polyhedra"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Fundamental theorem of linear programming"
+        },
+        {
+          "item_index": 5,
+          "item_title": "LP duality theory"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Complementary slackness in linear programming"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Degeneracy and its implications"
+        }
+      ]
+    },
+    {
+      "chapter_index": 12,
+      "chapter_title": "Linear Programming Algorithms",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Simplex method mechanics"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Tableau representation and pivoting"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Bland's rule for avoiding cycling"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Two-phase simplex method"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Big-M method"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Revised simplex method"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Dual simplex method"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Interior point methods for linear programming"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Primal-dual interior point algorithms"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Path-following methods"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Computational complexity comparisons"
+        }
+      ]
+    },
+    {
+      "chapter_index": 13,
+      "chapter_title": "Sensitivity Analysis in Linear Programming",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Shadow prices and their interpretation"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Ranging analysis for objective coefficients"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Ranging analysis for right-hand side values"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Adding new variables or constraints post-optimality"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Parametric linear programming"
+        }
+      ]
+    },
+    {
+      "chapter_index": 14,
+      "chapter_title": "Quadratic Programming",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Quadratic program formulation and classification"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Convex versus nonconvex quadratic programs"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Active set methods for quadratic programming"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Interior point methods for quadratic programming"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Equality-constrained quadratic programming via KKT systems"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Range space and null space methods"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Sequential quadratic programming subproblems"
+        }
+      ]
+    },
+    {
+      "chapter_index": 15,
+      "chapter_title": "Nonlinear Programming Algorithms",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Penalty function methods"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Exact penalty functions"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Augmented Lagrangian methods"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Sequential quadratic programming algorithm"
+        },
+        {
+          "item_index": 5,
+          "item_title": "SQP merit functions and globalization"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Interior point methods for nonlinear programming"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Barrier function methods"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Primal-dual interior point for nonconvex problems"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Filter methods for nonlinear programming"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Generalized reduced gradient method"
+        }
+      ]
+    },
+    {
+      "chapter_index": 16,
+      "chapter_title": "Constrained Optimization Software Practice",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Feasibility restoration techniques"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Warm-starting strategies"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Scaling and preconditioning constrained problems"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Handling infeasible and unbounded problems numerically"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Termination criteria for constrained solvers"
+        }
+      ]
+    },
+    {
+      "chapter_index": 17,
+      "chapter_title": "Nonconvex and Global Optimization",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Local versus global search strategies"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Multi-start methods"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Branch and bound for global optimization"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Convex relaxation techniques"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Cutting plane methods for nonconvex problems"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Underestimation and overestimation bounds"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Difference of convex functions programming"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Semidefinite programming relaxations"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Concave minimization approaches"
+        }
+      ]
+    },
+    {
+      "chapter_index": 18,
+      "chapter_title": "Semidefinite and Conic Programming",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Semidefinite programming formulation"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Cone programming generalizations"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Second-order cone programming"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Duality in conic programming"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Interior point methods for semidefinite programs"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Applications of SDP relaxations"
+        }
+      ]
+    },
+    {
+      "chapter_index": 19,
+      "chapter_title": "Integer and Combinatorial Optimization",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Integer programming formulation types"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Linear relaxation of integer programs"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Branch and bound algorithm mechanics"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Branching strategies and variable selection"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Cutting plane methods for integer programming"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Gomory cuts"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Branch and cut algorithms"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Branch and price for large-scale integer programs"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Column generation techniques"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Dynamic programming for combinatorial problems"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Network flow optimization formulations"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Shortest path, max flow, and min cost flow algorithms"
+        },
+        {
+          "item_index": 13,
+          "item_title": "Matching and assignment problems"
+        },
+        {
+          "item_index": 14,
+          "item_title": "Traveling salesman problem formulations and bounds"
+        },
+        {
+          "item_index": 15,
+          "item_title": "Knapsack problem variants and algorithms"
+        },
+        {
+          "item_index": 16,
+          "item_title": "Facility location and set covering problems"
+        }
+      ]
+    },
+    {
+      "chapter_index": 20,
+      "chapter_title": "Mixed-Integer Nonlinear Programming",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "MINLP problem structure"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Outer approximation methods"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Generalized Benders decomposition"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Branch and bound for nonconvex MINLP"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Convex MINLP solution approaches"
+        }
+      ]
+    },
+    {
+      "chapter_index": 21,
+      "chapter_title": "Stochastic and Metaheuristic Optimization",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Simulated annealing algorithm and cooling schedules"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Genetic algorithms and evolutionary strategies"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Crossover, mutation, and selection operators"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Particle swarm optimization"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Ant colony optimization"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Tabu search"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Differential evolution"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Harmony search and other nature-inspired methods"
+        },
+        {
+          "item_index": 9,
+          "item_title": "No free lunch theorem implications"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Hybridizing metaheuristics with local search"
+        }
+      ]
+    },
+    {
+      "chapter_index": 22,
+      "chapter_title": "Stochastic Approximation and Optimization Under Uncertainty",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Stochastic gradient descent fundamentals"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Convergence analysis of stochastic gradient methods"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Minibatch stochastic gradient methods"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Variance reduction techniques"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Adaptive learning rate methods"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Adam, RMSProp, and Adagrad algorithms"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Second-order stochastic methods"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Robbins-Monro stochastic approximation theory"
+        }
+      ]
+    },
+    {
+      "chapter_index": 23,
+      "chapter_title": "Large-Scale and Distributed Optimization",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Proximal gradient methods"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Proximal operator computation and properties"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Accelerated proximal gradient methods"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Alternating direction method of multipliers"
+        },
+        {
+          "item_index": 5,
+          "item_title": "ADMM convergence theory"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Distributed optimization architectures"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Consensus optimization"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Federated optimization considerations"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Parallel and asynchronous optimization algorithms"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Sketching and randomized linear algebra for optimization"
+        }
+      ]
+    },
+    {
+      "chapter_index": 24,
+      "chapter_title": "Nonsmooth Optimization",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Subgradient methods"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Subgradient method convergence and step size rules"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Bundle methods"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Proximal point algorithms"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Moreau envelope and smoothing techniques"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Composite optimization formulations"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Regularized optimization with L1 and nuclear norm penalties"
+        }
+      ]
+    },
+    {
+      "chapter_index": 25,
+      "chapter_title": "Multi-Objective Optimization",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Pareto optimality and dominance concepts"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Pareto frontier characterization"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Weighted sum scalarization method"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Epsilon-constraint method"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Goal programming"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Multi-objective evolutionary algorithms"
+        },
+        {
+          "item_index": 7,
+          "item_title": "NSGA-II algorithm mechanics"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Decision-making under multiple criteria"
+        }
+      ]
+    },
+    {
+      "chapter_index": 26,
+      "chapter_title": "Robust and Stochastic Programming",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Robust optimization problem formulation"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Uncertainty sets and robust counterparts"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Chance-constrained programming"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Two-stage stochastic programming"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Multi-stage stochastic programming"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Sample average approximation methods"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Distributionally robust optimization"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Scenario generation and reduction techniques"
+        }
+      ]
+    },
+    {
+      "chapter_index": 27,
+      "chapter_title": "Dynamic Programming and Optimal Control",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Bellman equation and principle of optimality"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Discrete-time dynamic programming"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Continuous-time optimal control formulation"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Pontryagin's maximum principle"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Hamilton-Jacobi-Bellman equation"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Linear quadratic regulator problems"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Model predictive control optimization"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Reinforcement learning connections to dynamic programming"
+        }
+      ]
+    },
+    {
+      "chapter_index": 28,
+      "chapter_title": "Optimization in Machine Learning Contexts",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Empirical risk minimization framework"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Regularization and generalization tradeoffs in optimization"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Convex surrogate loss functions"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Optimization landscape of neural networks"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Saddle points and local minima in deep learning"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Batch normalization effects on optimization"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Second-order and natural gradient methods in deep learning"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Hyperparameter optimization techniques"
+        }
+      ]
+    },
+    {
+      "chapter_index": 29,
+      "chapter_title": "Numerical Considerations and Software",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Floating point arithmetic and numerical stability"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Conditioning and preconditioning techniques"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Automatic differentiation principles"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Forward mode versus reverse mode differentiation"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Solver selection criteria for different problem classes"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Modeling languages for optimization"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Benchmarking and performance profiling of algorithms"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Reproducibility and numerical experiment design"
+        }
+      ]
+    },
+    {
+      "chapter_index": 30,
+      "chapter_title": "Applications and Case Studies",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Portfolio optimization formulations"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Engineering design optimization"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Supply chain and logistics optimization"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Optimal experiment design"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Signal processing and compressed sensing applications"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Optimal transport theory and applications"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Game-theoretic optimization and equilibrium computation"
+        }
+      ]
+    }
+  ]
+}

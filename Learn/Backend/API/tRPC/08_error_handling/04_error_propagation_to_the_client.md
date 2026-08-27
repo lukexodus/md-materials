@@ -301,4 +301,3 @@ Errors thrown from tRPC procedures are reliably reconstructed as `TRPCClientErro
 
 **Next Steps** — Input validation integration with Zod, and how validation errors flow through the same error pipeline.
 
-===END_SYLLABOT_RESPONSE_e32aa8bf2dca4a09===

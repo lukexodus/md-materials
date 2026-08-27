@@ -1,0 +1,487 @@
+{
+  "topic": "Modelling and Simulation",
+  "topic_slug": "modelling_and_simulation",
+  "generated_at": "2026-08-26T20:58:31.213528",
+  "chapters": [
+    {
+      "chapter_index": 1,
+      "chapter_title": "Introductory Concepts",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Modelling and Simulation Defined"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Modelling and Simulation Process"
+        },
+        {
+          "item_index": 3,
+          "item_title": "System and Its Models"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Examples of Systems and Models"
+        },
+        {
+          "item_index": 5,
+          "item_title": "History and Evolution of Modelling and Simulation"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Types of Models: Physical, Mathematical, Logical"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Static versus Dynamic Models"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Deterministic versus Stochastic Models"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Model Abstraction and Level of Detail"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Advantages and Limitations of Simulation"
+        }
+      ]
+    },
+    {
+      "chapter_index": 2,
+      "chapter_title": "Systems Theory Foundations",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "System Definition and Boundaries"
+        },
+        {
+          "item_index": 2,
+          "item_title": "System Structure and Behavior"
+        },
+        {
+          "item_index": 3,
+          "item_title": "System Entities, Attributes, and Activities"
+        },
+        {
+          "item_index": 4,
+          "item_title": "System State Variables"
+        },
+        {
+          "item_index": 5,
+          "item_title": "System Environment and Interfaces"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Open versus Closed Systems"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Linear versus Nonlinear Systems"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Feedback Loops and Causality"
+        },
+        {
+          "item_index": 9,
+          "item_title": "System Classification Schemes"
+        }
+      ]
+    },
+    {
+      "chapter_index": 3,
+      "chapter_title": "Mathematical Programming",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Mathematical Models and Their Components"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Linear Programming Fundamentals"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Integer and Mixed-Integer Programming"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Nonlinear Programming Basics"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Simulation Tools and Software Overview"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Differential and Difference Equations in Modelling"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Matrix and Linear Algebra Applications"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Numerical Methods for Model Solving"
+        }
+      ]
+    },
+    {
+      "chapter_index": 4,
+      "chapter_title": "Probability and Stochastic Foundations",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Random Numbers and Stochastic Modeling"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Stochastic Modeling Principles"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Probability Theory Review"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Probabilistic Distributions"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Discrete Probability Distributions"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Continuous Probability Distributions"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Random Variables Generation"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Monte Carlo Methods"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Markov Chains and Processes"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Queueing Theory Fundamentals"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Goodness-of-Fit Testing for Distributions"
+        }
+      ]
+    },
+    {
+      "chapter_index": 5,
+      "chapter_title": "Decision Making and Analytical Process",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Introduction to Decision Making"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Decision Making Under Certainty, Risk, and Uncertainty"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Classical Decision Analysis"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Decision Trees and Payoff Matrices"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Utility Theory"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Multi-Criteria Decision Making"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Analytical Hierarchy Process"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Sensitivity Analysis in Decision Models"
+        }
+      ]
+    },
+    {
+      "chapter_index": 6,
+      "chapter_title": "Simulation Paradigms",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Introduction to Computer Simulation Concepts"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Applications of Simulation"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Discrete Event System Simulation"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Continuous Simulation"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Hybrid Simulation Approaches"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Agent-Based Modeling"
+        },
+        {
+          "item_index": 7,
+          "item_title": "System Dynamics Modeling"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Monte Carlo Simulation as a Paradigm"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Distributed and Parallel Simulation"
+        }
+      ]
+    },
+    {
+      "chapter_index": 7,
+      "chapter_title": "Discrete Event Simulation Techniques",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Event Scheduling Algorithm"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Process Interaction Approach"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Activity Scanning Approach"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Simulation Clock and Time Advance Mechanisms"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Queueing Systems and Server Modeling"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Entity Flow and Resource Management"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Simulation of Manufacturing and Service Systems"
+        }
+      ]
+    },
+    {
+      "chapter_index": 8,
+      "chapter_title": "Continuous and System Dynamics Modeling",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Differential Equation-Based Modeling"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Stock and Flow Diagrams"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Feedback Loop Analysis in System Dynamics"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Numerical Integration Techniques"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Simulation of Physical and Engineering Systems"
+        }
+      ]
+    },
+    {
+      "chapter_index": 9,
+      "chapter_title": "Agent-Based and Complex Systems Modeling",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Agent Behavior and Rule Definition"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Emergent Behavior in Multi-Agent Systems"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Cellular Automata"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Network-Based Modeling"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Applications in Social and Biological Systems"
+        }
+      ]
+    },
+    {
+      "chapter_index": 10,
+      "chapter_title": "Simulation Software and Programming",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Simulation Programming Languages Overview"
+        },
+        {
+          "item_index": 2,
+          "item_title": "General-Purpose Languages for Simulation"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Simulation Software Packages and Environments"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Model Building and Debugging Practices"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Visualization and Animation of Simulation Output"
+        }
+      ]
+    },
+    {
+      "chapter_index": 11,
+      "chapter_title": "Input Modeling",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Data Collection for Simulation Input"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Identifying Input Distributions"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Parameter Estimation Techniques"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Handling Multivariate and Correlated Inputs"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Modeling Nonstationary Processes"
+        }
+      ]
+    },
+    {
+      "chapter_index": 12,
+      "chapter_title": "Analysis, Verification, and Validation",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Verification and Validation"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Input and Output Analysis"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Statistical Analysis of Simulation Output"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Variance Reduction Techniques"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Scenario Setting"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Model Calibration Methods"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Sensitivity and Uncertainty Analysis"
+        }
+      ]
+    },
+    {
+      "chapter_index": 13,
+      "chapter_title": "Optimization and Simulation Integration",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Optimization"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Simulation-Based Optimization Techniques"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Metaheuristic Approaches in Simulation Optimization"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Design of Experiments for Simulation"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Response Surface Methodology"
+        }
+      ]
+    },
+    {
+      "chapter_index": 14,
+      "chapter_title": "Strategic Application and Project Execution",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Implications and Strategies"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Project Planning for Simulation Studies"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Ethical Considerations in Modelling and Simulation"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Communicating Simulation Results to Stakeholders"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Project Presentation"
+        }
+      ]
+    }
+  ]
+}

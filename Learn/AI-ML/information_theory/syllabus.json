@@ -1,0 +1,737 @@
+{
+  "topic": "Information Theory",
+  "topic_slug": "information_theory",
+  "generated_at": "2026-08-25T10:33:33.222951",
+  "chapters": [
+    {
+      "chapter_index": 1,
+      "chapter_title": "Foundations and Historical Context",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Shannon's 1948 paper and the birth of the field"
+        },
+        {
+          "item_index": 2,
+          "item_title": "The communication system model: source, channel, receiver"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Discrete vs continuous information sources"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Deterministic vs probabilistic views of information"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Relationship to thermodynamics and statistical mechanics"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Historical precursors: Nyquist, Hartley, Boltzmann"
+        }
+      ]
+    },
+    {
+      "chapter_index": 2,
+      "chapter_title": "Probability and Random Variables Prerequisites",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Sample spaces, events, and probability axioms"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Discrete and continuous random variables"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Joint, marginal, and conditional distributions"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Expectation, variance, and moments"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Stochastic processes and stationarity"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Markov chains and their properties"
+        },
+        {
+          "item_index": 7,
+          "item_title": "The law of large numbers and central limit theorem"
+        }
+      ]
+    },
+    {
+      "chapter_index": 3,
+      "chapter_title": "Entropy: The Measure of Uncertainty",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Self-information and the surprisal function"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Definition of Shannon entropy"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Axiomatic derivation of entropy"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Properties of entropy: non-negativity, boundedness"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Entropy of a binary source"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Joint entropy of multiple random variables"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Conditional entropy and the chain rule"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Entropy as expected surprisal"
+        }
+      ]
+    },
+    {
+      "chapter_index": 4,
+      "chapter_title": "Mutual Information and Divergence",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Definition and derivation of mutual information"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Relationship between mutual information and entropy"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Properties: symmetry, non-negativity, chain rule"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Kullback-Leibler divergence"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Properties and asymmetry of KL divergence"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Cross-entropy and its relation to KL divergence"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Jensen-Shannon divergence"
+        },
+        {
+          "item_index": 8,
+          "item_title": "f-divergences as a general framework"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Data processing inequality"
+        }
+      ]
+    },
+    {
+      "chapter_index": 5,
+      "chapter_title": "Information Inequalities and Bounds",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Jensen's inequality and convexity in information theory"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Gibbs' inequality"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Fano's inequality"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Log-sum inequality"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Han's inequality"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Maximum entropy principle"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Entropy maximization under constraints"
+        }
+      ]
+    },
+    {
+      "chapter_index": 6,
+      "chapter_title": "Asymptotic Equipartition Property",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Statement and intuition behind the AEP"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Typical sets and their properties"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Weak law of large numbers connection"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Joint AEP for pairs of sequences"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Implications for data compression"
+        }
+      ]
+    },
+    {
+      "chapter_index": 7,
+      "chapter_title": "Lossless Data Compression (Source Coding)",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Fixed-length vs variable-length codes"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Prefix codes and the Kraft inequality"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Optimal codes and Shannon's source coding theorem"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Huffman coding algorithm and optimality proof"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Shannon-Fano coding"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Arithmetic coding"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Elias coding and universal codes"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Lempel-Ziv algorithms (LZ77, LZ78, LZW)"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Adaptive and dynamic Huffman coding"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Redundancy and code efficiency"
+        }
+      ]
+    },
+    {
+      "chapter_index": 8,
+      "chapter_title": "Universal Source Coding",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Universal codes for unknown source distributions"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Minimum description length principle"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Context tree weighting"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Prediction by partial matching"
+        }
+      ]
+    },
+    {
+      "chapter_index": 9,
+      "chapter_title": "Channel Capacity and Coding",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Discrete memoryless channels"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Channel capacity definition"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Binary symmetric channel capacity"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Binary erasure channel capacity"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Symmetric and weakly symmetric channels"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Channel coding theorem (Shannon's second theorem)"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Converse to the channel coding theorem"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Joint source-channel coding theorem"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Feedback capacity"
+        }
+      ]
+    },
+    {
+      "chapter_index": 10,
+      "chapter_title": "Error-Correcting Codes",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Hamming distance and error detection/correction basics"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Linear block codes"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Hamming codes"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Cyclic codes and generator polynomials"
+        },
+        {
+          "item_index": 5,
+          "item_title": "BCH codes"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Reed-Solomon codes"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Convolutional codes and trellis representation"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Viterbi decoding algorithm"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Turbo codes and iterative decoding"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Low-density parity-check codes"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Polar codes"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Belief propagation and message passing decoding"
+        }
+      ]
+    },
+    {
+      "chapter_index": 11,
+      "chapter_title": "Continuous Channels and Differential Entropy",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Differential entropy definition and properties"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Comparison between discrete and differential entropy"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Relative entropy for continuous distributions"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Maximum entropy distributions under moment constraints"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Gaussian channel model"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Shannon-Hartley theorem and channel capacity"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Power and bandwidth constraints"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Parallel Gaussian channels and water-filling"
+        }
+      ]
+    },
+    {
+      "chapter_index": 12,
+      "chapter_title": "Rate Distortion Theory",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Lossy compression motivation"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Distortion measures"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Rate distortion function definition"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Rate distortion theorem"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Rate distortion for Gaussian sources"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Blahut-Arimoto algorithm"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Vector quantization"
+        }
+      ]
+    },
+    {
+      "chapter_index": 13,
+      "chapter_title": "Network Information Theory",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Multiple access channels"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Broadcast channels"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Relay channels"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Interference channels"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Slepian-Wolf coding for distributed source compression"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Wyner-Ziv coding with side information"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Network coding fundamentals"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Capacity regions and achievable rate regions"
+        }
+      ]
+    },
+    {
+      "chapter_index": 14,
+      "chapter_title": "Information Theory and Statistics",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Hypothesis testing and Stein's lemma"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Chernoff-Stein lemma"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Large deviations theory"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Sanov's theorem"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Fisher information"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Cramer-Rao bound"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Relationship between Fisher information and KL divergence"
+        }
+      ]
+    },
+    {
+      "chapter_index": 15,
+      "chapter_title": "Kolmogorov Complexity and Algorithmic Information",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Definition of Kolmogorov complexity"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Relationship to Shannon entropy"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Incompressibility and randomness"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Universal probability"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Minimum description length connection"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Algorithmic information theory applications"
+        }
+      ]
+    },
+    {
+      "chapter_index": 16,
+      "chapter_title": "Information Theory in Cryptography",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Perfect secrecy and Shannon's theorem"
+        },
+        {
+          "item_index": 2,
+          "item_title": "One-time pad and information-theoretic security"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Key equivocation"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Unicity distance"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Wiretap channel and secrecy capacity"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Authentication and information theory"
+        }
+      ]
+    },
+    {
+      "chapter_index": 17,
+      "chapter_title": "Quantum Information Theory",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Qubits and quantum states"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Von Neumann entropy"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Quantum mutual information"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Holevo bound"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Quantum channel capacity"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Quantum error correction basics"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Entanglement and information"
+        }
+      ]
+    },
+    {
+      "chapter_index": 18,
+      "chapter_title": "Information Theory in Machine Learning",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Cross-entropy loss and maximum likelihood"
+        },
+        {
+          "item_index": 2,
+          "item_title": "KL divergence in variational inference"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Information bottleneck method"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Mutual information estimation techniques"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Entropy regularization"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Information-theoretic generalization bounds"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Rate distortion perspective on representation learning"
+        }
+      ]
+    },
+    {
+      "chapter_index": 19,
+      "chapter_title": "Portfolio Theory and Information",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Kelly criterion and gambling"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Growth rate optimal portfolios"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Relationship between entropy and investment growth"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Universal portfolios"
+        }
+      ]
+    },
+    {
+      "chapter_index": 20,
+      "chapter_title": "Advanced and Specialized Topics",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Multiterminal information theory"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Information geometry"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Renyi entropy and generalized entropies"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Tsallis entropy"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Common randomness and secret key generation"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Information-theoretic security in networks"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Zero-error information theory"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Index coding"
+        }
+      ]
+    },
+    {
+      "chapter_index": 21,
+      "chapter_title": "Practical Implementation and Tools",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Implementing entropy coders from scratch"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Benchmarking compression algorithms"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Simulating channel coding schemes"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Software libraries for information-theoretic computation"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Reading and analyzing Shannon's original papers"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Working through Cover and Thomas problem sets"
+        }
+      ]
+    }
+  ]
+}
