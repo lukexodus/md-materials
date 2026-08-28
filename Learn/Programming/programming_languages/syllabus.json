@@ -1,0 +1,1185 @@
+{
+  "topic": "Programming Languages",
+  "topic_slug": "programming_languages",
+  "generated_at": "2026-08-27T21:06:23.641221",
+  "chapters": [
+    {
+      "chapter_index": 1,
+      "chapter_title": "Evolution of the Major Programming Languages",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Pre-1950s computing and the need for symbolic notation"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Machine language and assembly language as first-generation tools"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Plankalkul and early language design attempts"
+        },
+        {
+          "item_index": 4,
+          "item_title": "FORTRAN and the birth of high-level languages"
+        },
+        {
+          "item_index": 5,
+          "item_title": "ALGOL and its influence on language structure"
+        },
+        {
+          "item_index": 6,
+          "item_title": "COBOL and business-oriented computing"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Lisp and symbolic list processing"
+        },
+        {
+          "item_index": 8,
+          "item_title": "BASIC and the democratization of programming"
+        },
+        {
+          "item_index": 9,
+          "item_title": "PL/I and the attempt at a unified language"
+        },
+        {
+          "item_index": 10,
+          "item_title": "SIMULA and the origins of object orientation"
+        },
+        {
+          "item_index": 11,
+          "item_title": "C and the rise of systems programming"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Prolog and logic programming"
+        },
+        {
+          "item_index": 13,
+          "item_title": "Smalltalk and pure object orientation"
+        },
+        {
+          "item_index": 14,
+          "item_title": "Ada and government-mandated standardization"
+        },
+        {
+          "item_index": 15,
+          "item_title": "C++ and hybrid object-oriented systems programming"
+        },
+        {
+          "item_index": 16,
+          "item_title": "Java and platform independence"
+        },
+        {
+          "item_index": 17,
+          "item_title": "Scripting languages and the web era"
+        },
+        {
+          "item_index": 18,
+          "item_title": "Python and readability-focused design"
+        },
+        {
+          "item_index": 19,
+          "item_title": "Functional language resurgence in mainstream computing"
+        },
+        {
+          "item_index": 20,
+          "item_title": "Modern multi-paradigm and safety-focused languages"
+        }
+      ]
+    },
+    {
+      "chapter_index": 2,
+      "chapter_title": "Ada Programming Language",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Historical context and the US Department of Defense mandate"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Design goals and the language competition process"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Strong typing and compile-time safety philosophy"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Packages and modular program structure"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Generics and reusable components"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Tasking model and concurrent programming support"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Exception handling mechanisms"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Ada 83 to Ada 95 to Ada 2012 evolution"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Use in safety-critical and embedded systems"
+        }
+      ]
+    },
+    {
+      "chapter_index": 3,
+      "chapter_title": "COBOL Programming Language",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Origins and the CODASYL committee"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Business data processing design goals"
+        },
+        {
+          "item_index": 3,
+          "item_title": "English-like syntax philosophy"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Division structure: identification, environment, data, procedure"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Record and file handling for business applications"
+        },
+        {
+          "item_index": 6,
+          "item_title": "PICTURE clauses and data description"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Legacy system prevalence and modernization challenges"
+        },
+        {
+          "item_index": 8,
+          "item_title": "COBOL's continued role in mainframe and financial systems"
+        }
+      ]
+    },
+    {
+      "chapter_index": 4,
+      "chapter_title": "Lisp Programming Language",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "John McCarthy and the origins of symbolic computation"
+        },
+        {
+          "item_index": 2,
+          "item_title": "S-expressions and homoiconicity"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Lists as the universal data structure"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Recursion as the primary control mechanism"
+        },
+        {
+          "item_index": 5,
+          "item_title": "The eval-apply cycle"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Garbage collection introduction"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Dynamic versus lexical scoping debates"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Macros and code-as-data manipulation"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Dialects: Scheme, Common Lisp, Clojure"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Influence on functional programming and AI research"
+        }
+      ]
+    },
+    {
+      "chapter_index": 5,
+      "chapter_title": "Language Design Principles and Trade-offs",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Criteria for evaluating programming languages"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Readability versus writability tensions"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Reliability and the cost of language misuse"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Cost across the language life cycle"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Influence of computer architecture on language design"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Influence of programming methodologies on design"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Language categories: imperative, functional, logic, object-oriented"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Implementation methods: compilation, interpretation, hybrid"
+        }
+      ]
+    },
+    {
+      "chapter_index": 6,
+      "chapter_title": "Syntax and Semantics",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "The general problem of describing syntax"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Formal languages and language generators versus recognizers"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Backus-Naur Form fundamentals"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Extended BNF notation"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Grammars and derivations"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Parse trees and ambiguity in grammars"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Attribute grammars and static semantics"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Operational semantics"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Denotational semantics"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Axiomatic semantics and program correctness"
+        }
+      ]
+    },
+    {
+      "chapter_index": 7,
+      "chapter_title": "Lexical Structure",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Lexemes and tokens"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Reserved words versus keywords"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Identifier naming rules across languages"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Whitespace and free-form versus layout-sensitive syntax"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Comment conventions"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Lexical analysis and the tokenization process"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Regular expressions and finite automata for lexers"
+        }
+      ]
+    },
+    {
+      "chapter_index": 8,
+      "chapter_title": "Names, Bindings, Type Checking and Scopes",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Design issues for names"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Variables: name, address, value, type, lifetime"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Binding and binding times"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Static versus dynamic binding"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Type binding and type inference"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Storage bindings and variable lifetime"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Static scope and lexical scoping rules"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Dynamic scope and its implications"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Scope and lifetime distinctions"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Referencing environments"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Named constants"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Type checking and type compatibility"
+        },
+        {
+          "item_index": 13,
+          "item_title": "Strong typing versus weak typing"
+        }
+      ]
+    },
+    {
+      "chapter_index": 9,
+      "chapter_title": "Data Types",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Primitive data types"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Character string types"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Enumeration types"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Array types and subscript binding"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Associative arrays"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Record types and field access"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Tuple types"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Union types and type safety concerns"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Pointer and reference types"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Dangling pointers and memory safety"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Type theory and structural versus nominal typing"
+        }
+      ]
+    },
+    {
+      "chapter_index": 10,
+      "chapter_title": "Expressions and Assignment Statements",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Arithmetic expressions and operator precedence"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Operator associativity rules"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Type conversions: coercion and casting"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Relational and boolean expressions"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Short-circuit evaluation"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Assignment statements and their semantics"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Compound assignment operators"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Mixed-mode assignment"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Referential transparency in expressions"
+        }
+      ]
+    },
+    {
+      "chapter_index": 11,
+      "chapter_title": "Statement-Level Control Structures",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Selection statements: single-way and multi-way"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Nesting selectors and dangling else problems"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Iterative statements: counter-controlled loops"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Logically controlled loops"
+        },
+        {
+          "item_index": 5,
+          "item_title": "User-located loop control mechanisms"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Unconditional branching and goto controversy"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Guarded commands"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Structured programming principles"
+        }
+      ]
+    },
+    {
+      "chapter_index": 12,
+      "chapter_title": "Subprograms",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Fundamentals of subprograms"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Parameter passing methods: by value, by reference, by result"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Parameter passing modes and semantics models"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Type checking of parameters"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Multidimensional array parameter handling"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Design issues for functions"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Overloaded subprograms"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Generic subprograms and parametric polymorphism"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Separate and independent compilation"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Design issues for functions returning values"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Coroutines"
+        }
+      ]
+    },
+    {
+      "chapter_index": 13,
+      "chapter_title": "Implementing Subprograms",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "The general semantics of calls and returns"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Activation records"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Stack-based allocation implementation"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Dynamic local variable allocation"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Nested subprograms and static chains"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Blocks and dynamic scoping implementation"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Implementing dynamic scoping"
+        }
+      ]
+    },
+    {
+      "chapter_index": 14,
+      "chapter_title": "Abstract Data Types and Encapsulation",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "The concept of abstraction"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Design issues for abstract data types"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Language examples of encapsulation constructs"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Parameterized abstract data types"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Encapsulation constructs"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Naming encapsulations"
+        }
+      ]
+    },
+    {
+      "chapter_index": 15,
+      "chapter_title": "Object-Oriented Programming",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Introduction to object orientation"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Design issues for object-oriented languages"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Inheritance mechanisms"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Dynamic binding and polymorphism"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Method overriding and virtual methods"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Abstract classes and interfaces"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Multiple inheritance and its complications"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Design issues for object-oriented languages compared"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Implementation of object-oriented constructs"
+        }
+      ]
+    },
+    {
+      "chapter_index": 16,
+      "chapter_title": "Concurrency",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Introduction to subprogram-level concurrency"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Fundamental concepts of concurrent execution"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Semaphores and mutual exclusion"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Monitors and structured synchronization"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Message passing models"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Threads and their language support"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Statement-level concurrency"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Actor model and modern concurrency approaches"
+        }
+      ]
+    },
+    {
+      "chapter_index": 17,
+      "chapter_title": "Exception Handling and Event Handling",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Introduction to exception handling concepts"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Exception handlers and their bindings"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Exception propagation"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Continuation and resumption models"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Event handling fundamentals"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Language examples of exception mechanisms"
+        }
+      ]
+    },
+    {
+      "chapter_index": 18,
+      "chapter_title": "Functional Programming Languages",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Mathematical functions and referential transparency"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Fundamentals of functional programming"
+        },
+        {
+          "item_index": 3,
+          "item_title": "The first functional programming language"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Introduction to Scheme"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Common Lisp overview"
+        },
+        {
+          "item_index": 6,
+          "item_title": "ML and static typing in functional languages"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Haskell and lazy evaluation"
+        },
+        {
+          "item_index": 8,
+          "item_title": "F Sharp and functional programming on a managed runtime"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Support for functional programming in primarily imperative languages"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Comparing functional and imperative languages"
+        }
+      ]
+    },
+    {
+      "chapter_index": 19,
+      "chapter_title": "Logic Programming Languages",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Introduction to logic and logic programming"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Predicate calculus fundamentals"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Resolution and proof by contradiction"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Clausal form and Horn clauses"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Overview of logic programming"
+        },
+        {
+          "item_index": 6,
+          "item_title": "The origins of Prolog"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Prolog terms and unification"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Inferencing process in Prolog"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Applications of logic programming"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Deficiencies of Prolog and logic programming"
+        }
+      ]
+    },
+    {
+      "chapter_index": 20,
+      "chapter_title": "Formal Methods of Language Semantics",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Uses of formal semantics"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Operational semantics revisited"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Denotational semantics revisited"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Axiomatic semantics and weakest preconditions"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Proof of program correctness"
+        }
+      ]
+    },
+    {
+      "chapter_index": 21,
+      "chapter_title": "Compiler and Interpreter Fundamentals",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "The compilation process overview"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Lexical analysis phase"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Syntax analysis and parsing techniques"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Top-down and bottom-up parsing"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Semantic analysis"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Intermediate code generation"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Code optimization strategies"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Code generation"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Interpretation versus compilation trade-offs"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Just-in-time compilation"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Virtual machines and bytecode"
+        }
+      ]
+    },
+    {
+      "chapter_index": 22,
+      "chapter_title": "Memory Management Across Languages",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Static memory management"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Stack-based memory management"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Heap management strategies"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Manual memory management and its risks"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Garbage collection algorithms"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Reference counting"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Ownership and borrowing models"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Memory safety guarantees across language families"
+        }
+      ]
+    },
+    {
+      "chapter_index": 23,
+      "chapter_title": "Type Systems in Depth",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Static typing versus dynamic typing philosophies"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Type inference algorithms"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Parametric polymorphism"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Ad hoc polymorphism and overloading"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Subtype polymorphism"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Duck typing"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Gradual typing systems"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Dependent types"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Type soundness and safety proofs"
+        }
+      ]
+    },
+    {
+      "chapter_index": 24,
+      "chapter_title": "Programming Paradigms Compared",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Imperative paradigm characteristics"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Declarative paradigm characteristics"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Object-oriented paradigm characteristics"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Functional paradigm characteristics"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Logic paradigm characteristics"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Multi-paradigm language design"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Choosing paradigms for problem domains"
+        }
+      ]
+    },
+    {
+      "chapter_index": 25,
+      "chapter_title": "Scripting Languages",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Origins and purpose of scripting languages"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Perl and text processing heritage"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Python design philosophy and ecosystem"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Ruby and expressive object orientation"
+        },
+        {
+          "item_index": 5,
+          "item_title": "JavaScript and the browser environment"
+        },
+        {
+          "item_index": 6,
+          "item_title": "PHP and server-side web scripting"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Shell scripting fundamentals"
+        }
+      ]
+    },
+    {
+      "chapter_index": 26,
+      "chapter_title": "Modern Systems Programming Languages",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "C and low-level control philosophy"
+        },
+        {
+          "item_index": 2,
+          "item_title": "C++ evolution and modern standards"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Rust and ownership-based memory safety"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Go and simplicity-focused concurrency"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Zig and explicit systems programming"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Swift and safety in application development"
+        }
+      ]
+    },
+    {
+      "chapter_index": 27,
+      "chapter_title": "Language Interoperability and Ecosystems",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Foreign function interfaces"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Language bindings and wrappers"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Cross-language data serialization"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Virtual machine ecosystems: JVM and CLR"
+        },
+        {
+          "item_index": 5,
+          "item_title": "WebAssembly as a compilation target"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Package management across language ecosystems"
+        }
+      ]
+    },
+    {
+      "chapter_index": 28,
+      "chapter_title": "Domain-Specific Languages",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Internal versus external DSLs"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Query languages and SQL"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Markup and configuration languages"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Regular expressions as a DSL"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Build and configuration DSLs"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Designing a domain-specific language"
+        }
+      ]
+    },
+    {
+      "chapter_index": 29,
+      "chapter_title": "History and Practice of Language Implementation",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Von Neumann architecture influence on imperative languages"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Historical language family trees"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Standardization bodies and language specifications"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Open source language development models"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Benchmarking and performance comparison methods"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Reading and evaluating language specification documents"
+        }
+      ]
+    }
+  ]
+}

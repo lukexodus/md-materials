@@ -1,0 +1,1157 @@
+{
+  "topic": "Embedded Devices",
+  "topic_slug": "embedded_devices",
+  "generated_at": "2026-08-28T07:10:53.542845",
+  "chapters": [
+    {
+      "chapter_index": 1,
+      "chapter_title": "Foundations of Embedded Systems",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "What defines an embedded system"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Embedded vs general-purpose computing"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Classes of embedded systems by scale"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Real-time vs non-real-time systems"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Hard, firm, and soft real-time constraints"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Embedded system design metrics"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Power, cost, and performance tradeoffs"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Embedded system lifecycle and development flow"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Industry domains and application areas"
+        }
+      ]
+    },
+    {
+      "chapter_index": 2,
+      "chapter_title": "Digital Logic and Computer Architecture",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Number systems and binary arithmetic"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Boolean algebra and logic gates"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Combinational logic circuits"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Sequential logic and flip-flops"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Finite state machines"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Registers and counters"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Memory hierarchy fundamentals"
+        },
+        {
+          "item_index": 8,
+          "item_title": "CPU architecture basics"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Instruction set architectures overview"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Von Neumann vs Harvard architecture"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Pipelining and instruction execution"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Endianness and data representation"
+        }
+      ]
+    },
+    {
+      "chapter_index": 3,
+      "chapter_title": "Electronics Fundamentals for Embedded Engineers",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Voltage, current, resistance, and power"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Ohm's law and Kirchhoff's laws"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Analog circuit basics"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Diodes, transistors, and switching elements"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Operational amplifiers"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Passive components: resistors, capacitors, inductors"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Signal types: analog vs digital"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Voltage levels and logic families"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Noise, grounding, and signal integrity"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Reading datasheets and schematics"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Multimeter and oscilloscope usage"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Breadboarding and prototyping practices"
+        }
+      ]
+    },
+    {
+      "chapter_index": 4,
+      "chapter_title": "Microcontroller Architecture",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Microcontroller vs microprocessor vs SoC"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Core architectures: ARM Cortex-M family"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Core architectures: AVR, PIC, RISC-V"
+        },
+        {
+          "item_index": 4,
+          "item_title": "CPU registers and instruction pipeline"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Memory map and address space"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Flash, SRAM, and EEPROM on-chip"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Clock sources and oscillators"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Clock trees and prescalers"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Reset types and reset circuitry"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Power domains and low-power modes"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Bootloaders and boot sequence"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Vendor selection criteria and ecosystem comparison"
+        }
+      ]
+    },
+    {
+      "chapter_index": 5,
+      "chapter_title": "Digital I/O and Peripheral Basics",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "GPIO configuration and modes"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Input debouncing techniques"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Output drive strength and current limits"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Pull-up and pull-down resistors"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Interrupt-driven I/O concepts"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Interrupt controllers and vector tables"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Interrupt priority and nesting"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Polling vs interrupt vs DMA tradeoffs"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Direct memory access fundamentals"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Timer and counter peripherals"
+        },
+        {
+          "item_index": 11,
+          "item_title": "PWM generation and applications"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Watchdog timers"
+        }
+      ]
+    },
+    {
+      "chapter_index": 6,
+      "chapter_title": "Analog Interfacing",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Analog-to-digital conversion principles"
+        },
+        {
+          "item_index": 2,
+          "item_title": "ADC resolution, sampling rate, and error sources"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Digital-to-analog conversion principles"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Sensor signal conditioning"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Filtering: RC filters and digital filters"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Amplification and level shifting"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Comparators and threshold detection"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Analog multiplexing"
+        }
+      ]
+    },
+    {
+      "chapter_index": 7,
+      "chapter_title": "Embedded Communication Protocols",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "UART fundamentals and framing"
+        },
+        {
+          "item_index": 2,
+          "item_title": "SPI protocol and multi-device configurations"
+        },
+        {
+          "item_index": 3,
+          "item_title": "I2C protocol and addressing"
+        },
+        {
+          "item_index": 4,
+          "item_title": "I2C multi-master and clock stretching"
+        },
+        {
+          "item_index": 5,
+          "item_title": "CAN bus fundamentals"
+        },
+        {
+          "item_index": 6,
+          "item_title": "CAN error handling and arbitration"
+        },
+        {
+          "item_index": 7,
+          "item_title": "USB basics for embedded devices"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Ethernet and embedded networking"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Wireless protocols: Bluetooth and BLE"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Wireless protocols: Wi-Fi for embedded"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Low-power wireless: Zigbee, LoRa, Thread"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Protocol selection criteria"
+        },
+        {
+          "item_index": 13,
+          "item_title": "Bus analyzers and protocol debugging"
+        }
+      ]
+    },
+    {
+      "chapter_index": 8,
+      "chapter_title": "Embedded C Programming",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "C language fundamentals for embedded targets"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Data types and memory footprint awareness"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Pointers and memory addressing"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Structs, unions, and bit-fields"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Volatile, const, and static qualifiers"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Bitwise operations and register manipulation"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Function pointers and callbacks"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Memory sections: text, data, bss, heap, stack"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Stack usage and overflow prevention"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Dynamic memory allocation risks in embedded"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Writing portable and MISRA-compliant code"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Compiler optimization flags and their effects"
+        },
+        {
+          "item_index": 13,
+          "item_title": "Linker scripts and memory placement"
+        }
+      ]
+    },
+    {
+      "chapter_index": 9,
+      "chapter_title": "Embedded C++ and Modern Alternatives",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "C++ features suitable for embedded systems"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Templates and zero-cost abstractions"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Avoiding exceptions and RTTI overhead"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Rust for embedded systems overview"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Ownership and memory safety in constrained environments"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Language interoperability with C"
+        }
+      ]
+    },
+    {
+      "chapter_index": 10,
+      "chapter_title": "Toolchains and Build Systems",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Cross-compilation concepts"
+        },
+        {
+          "item_index": 2,
+          "item_title": "GCC-based embedded toolchains"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Assembler basics and inline assembly"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Linker operation and memory layout"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Makefiles for embedded projects"
+        },
+        {
+          "item_index": 6,
+          "item_title": "CMake for embedded builds"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Build configuration and conditional compilation"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Static libraries and object files"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Version control workflows for firmware"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Continuous integration for embedded projects"
+        }
+      ]
+    },
+    {
+      "chapter_index": 11,
+      "chapter_title": "Debugging and Testing Embedded Systems",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "JTAG and SWD debugging interfaces"
+        },
+        {
+          "item_index": 2,
+          "item_title": "In-circuit debuggers and programmers"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Breakpoints, watchpoints, and step execution"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Logic analyzers for hardware debugging"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Semihosting and printf-style debugging"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Fault handlers and crash dump analysis"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Unit testing embedded code"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Hardware-in-the-loop testing"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Mocking hardware for host-based testing"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Static analysis tools"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Code coverage in embedded contexts"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Field debugging and remote diagnostics"
+        }
+      ]
+    },
+    {
+      "chapter_index": 12,
+      "chapter_title": "Real-Time Operating Systems",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "RTOS vs bare-metal decision criteria"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Task scheduling algorithms"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Preemptive vs cooperative multitasking"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Task priorities and priority inversion"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Semaphores and mutexes"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Message queues and mailboxes"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Event flags and signals"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Memory management in RTOS environments"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Interrupt handling within an RTOS"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Popular RTOS options: FreeRTOS, Zephyr, ThreadX"
+        },
+        {
+          "item_index": 11,
+          "item_title": "RTOS configuration and porting"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Deadlock and race condition avoidance"
+        }
+      ]
+    },
+    {
+      "chapter_index": 13,
+      "chapter_title": "Embedded Linux",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Embedded Linux architecture overview"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Bootloaders: U-Boot and alternatives"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Kernel configuration and cross-compiling"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Device tree fundamentals"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Root filesystem construction"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Build systems: Yocto and Buildroot"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Linux device drivers overview"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Character, block, and network drivers"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Kernel modules and driver loading"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Init systems and process management"
+        },
+        {
+          "item_index": 11,
+          "item_title": "System services and daemons"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Package management for embedded targets"
+        }
+      ]
+    },
+    {
+      "chapter_index": 14,
+      "chapter_title": "Device Drivers and Hardware Abstraction",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Hardware abstraction layer design"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Board support packages"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Peripheral driver architecture"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Driver initialization and configuration patterns"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Interrupt service routine design"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Buffer management and circular buffers"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Sensor driver implementation patterns"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Actuator and motor driver design"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Display and graphics driver basics"
+        }
+      ]
+    },
+    {
+      "chapter_index": 15,
+      "chapter_title": "Power Management",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Power consumption analysis and budgeting"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Sleep, standby, and deep-sleep modes"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Dynamic voltage and frequency scaling"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Peripheral clock gating"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Battery technologies and characteristics"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Battery management systems"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Energy harvesting techniques"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Power supply design basics"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Voltage regulators: linear and switching"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Measuring and profiling power consumption"
+        }
+      ]
+    },
+    {
+      "chapter_index": 16,
+      "chapter_title": "Printed Circuit Board Design",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Schematic capture fundamentals"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Component selection and footprints"
+        },
+        {
+          "item_index": 3,
+          "item_title": "PCB layout principles"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Layer stackup and routing strategies"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Signal integrity in PCB design"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Power distribution network design"
+        },
+        {
+          "item_index": 7,
+          "item_title": "EMI and EMC considerations"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Thermal management on PCBs"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Design for manufacturability"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Design for testability"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Prototyping and PCB fabrication process"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Bring-up and hardware validation"
+        }
+      ]
+    },
+    {
+      "chapter_index": 17,
+      "chapter_title": "Sensors and Actuators",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Common sensor types and interfaces"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Temperature, humidity, and pressure sensors"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Motion sensors: accelerometers and gyroscopes"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Proximity and optical sensors"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Sensor fusion techniques"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Calibration and drift compensation"
+        },
+        {
+          "item_index": 7,
+          "item_title": "DC motors, stepper motors, and servos"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Motor control algorithms"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Relays and solid-state switching"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Actuator driver circuits"
+        }
+      ]
+    },
+    {
+      "chapter_index": 18,
+      "chapter_title": "Connectivity and IoT Integration",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "IoT architecture patterns"
+        },
+        {
+          "item_index": 2,
+          "item_title": "MQTT and lightweight messaging protocols"
+        },
+        {
+          "item_index": 3,
+          "item_title": "CoAP and HTTP for constrained devices"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Cloud platform integration for embedded devices"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Over-the-air update mechanisms"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Device provisioning and identity"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Edge computing on embedded devices"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Gateway architectures"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Time synchronization in distributed embedded systems"
+        }
+      ]
+    },
+    {
+      "chapter_index": 19,
+      "chapter_title": "Embedded Security",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Threat modeling for embedded devices"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Secure boot mechanisms"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Cryptographic primitives for constrained devices"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Hardware security modules and secure elements"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Trusted execution environments"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Firmware signing and verification"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Secure over-the-air update design"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Side-channel attack awareness"
+        },
+        {
+          "item_index": 9,
+          "item_title": "Physical tamper resistance"
+        },
+        {
+          "item_index": 10,
+          "item_title": "Key management and storage"
+        },
+        {
+          "item_index": 11,
+          "item_title": "Common vulnerability classes in firmware"
+        },
+        {
+          "item_index": 12,
+          "item_title": "Security certification standards"
+        }
+      ]
+    },
+    {
+      "chapter_index": 20,
+      "chapter_title": "Safety-Critical and Regulated Systems",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Functional safety concepts"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Safety standards overview: IEC 61508 and derivatives"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Automotive standards: ISO 26262 and AUTOSAR"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Medical device standards: IEC 62304"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Redundancy and fault-tolerant design"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Failure mode and effects analysis"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Verification and validation processes"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Traceability and documentation requirements"
+        }
+      ]
+    },
+    {
+      "chapter_index": 21,
+      "chapter_title": "Advanced Embedded Architectures",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Multicore embedded systems"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Heterogeneous computing: CPU, DSP, GPU cores"
+        },
+        {
+          "item_index": 3,
+          "item_title": "FPGA fundamentals and use cases"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Hardware description languages: Verilog and VHDL"
+        },
+        {
+          "item_index": 5,
+          "item_title": "SoC and system-in-package design"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Custom silicon and ASIC considerations"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Memory-mapped peripherals and bus architectures"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Cache coherency in embedded multicore systems"
+        }
+      ]
+    },
+    {
+      "chapter_index": 22,
+      "chapter_title": "Machine Learning on Embedded Devices",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "TinyML concepts and constraints"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Model quantization and compression"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Embedded inference frameworks"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Hardware accelerators for ML workloads"
+        },
+        {
+          "item_index": 5,
+          "item_title": "On-device training limitations and approaches"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Data pipeline design for edge ML"
+        }
+      ]
+    },
+    {
+      "chapter_index": 23,
+      "chapter_title": "Performance Optimization",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Profiling embedded code"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Identifying and eliminating bottlenecks"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Memory footprint reduction techniques"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Code size optimization"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Execution speed optimization"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Cache-aware programming"
+        },
+        {
+          "item_index": 7,
+          "item_title": "DMA-driven data movement optimization"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Interrupt latency minimization"
+        }
+      ]
+    },
+    {
+      "chapter_index": 24,
+      "chapter_title": "Production and Product Lifecycle",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Design for manufacturing and assembly"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Firmware provisioning at manufacturing"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Calibration and end-of-line testing"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Certification processes: FCC, CE, and regional equivalents"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Environmental and reliability testing"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Field update and maintenance strategy"
+        },
+        {
+          "item_index": 7,
+          "item_title": "End-of-life and obsolescence management"
+        },
+        {
+          "item_index": 8,
+          "item_title": "Documentation for production handoff"
+        }
+      ]
+    },
+    {
+      "chapter_index": 25,
+      "chapter_title": "Professional Practice and Career Development",
+      "items": [
+        {
+          "item_index": 1,
+          "item_title": "Reading and interpreting component datasheets"
+        },
+        {
+          "item_index": 2,
+          "item_title": "Engaging with vendor application notes"
+        },
+        {
+          "item_index": 3,
+          "item_title": "Collaborating with hardware and firmware teams"
+        },
+        {
+          "item_index": 4,
+          "item_title": "Contributing to open-source embedded projects"
+        },
+        {
+          "item_index": 5,
+          "item_title": "Building a personal project portfolio"
+        },
+        {
+          "item_index": 6,
+          "item_title": "Industry certifications and continuing education"
+        },
+        {
+          "item_index": 7,
+          "item_title": "Staying current with emerging embedded technologies"
+        }
+      ]
+    }
+  ]
+}
